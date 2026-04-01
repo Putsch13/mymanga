@@ -1,0 +1,42 @@
+# https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: manga-ai-studio-web
+    runtime: node
+    region: frankfurt
+    plan: starter
+    rootDir: .
+    buildCommand: corepack enable && pnpm install && pnpm --filter @manga-ai-studio/db exec prisma generate && pnpm --filter @manga-ai-studio/web build
+    startCommand: pnpm --filter @manga-ai-studio/web start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "20.18.0"
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: INNGEST_EVENT_KEY
+        sync: false
+      - key: INNGEST_SIGNING_KEY
+        sync: false
+      - key: FAL_KEY
+        sync: false
+      - key: BFL_API_KEY
+        sync: false
+      - key: RUNWARE_API_KEY
+        sync: false
+      - key: STABILITY_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false

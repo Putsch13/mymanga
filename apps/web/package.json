@@ -1,0 +1,46 @@
+{
+  "name": "@manga-ai-studio/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@manga-ai-studio/ai": "workspace:*",
+    "@manga-ai-studio/billing": "workspace:*",
+    "@manga-ai-studio/config": "workspace:*",
+    "@manga-ai-studio/core": "workspace:*",
+    "@manga-ai-studio/db": "workspace:*",
+    "@manga-ai-studio/moderation": "workspace:*",
+    "@manga-ai-studio/ui": "workspace:*",
+    "@manga-ai-studio/workflow": "workspace:*",
+    "@radix-ui/react-dropdown-menu": "^2.1.16",
+    "@radix-ui/react-label": "^2.1.8",
+    "@radix-ui/react-separator": "^1.1.8",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@supabase/ssr": "~0.5.2",
+    "@supabase/supabase-js": "^2.101.1",
+    "class-variance-authority": "^0.7.1",
+    "inngest": "^3.34.1",
+    "lucide-react": "^1.7.0",
+    "next": "15.3.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "stripe": "^17.7.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "15.3.6",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

@@ -1,0 +1,633 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  user
+  admin
+}
+
+enum ProjectStatus {
+  draft
+  active
+  archived
+}
+
+enum ContentRating {
+  GENERAL
+  TEEN
+  MATURE
+  ADULT_RESTRICTED
+}
+
+/// Couches d'intensité contenu (spec delta)
+enum ContentIntensityLayer {
+  GENERAL_SAFE
+  TEEN
+  MATURE_DRAMA
+  MATURE_VISUAL
+  RESTRICTED_BLOCKED_VISUAL
+}
+
+enum RenderFamily {
+  manga
+  anime
+  semi_realistic
+  gothic
+  horror
+  western
+}
+
+enum LineWeight {
+  fine
+  medium
+  heavy
+}
+
+enum ShadingMode {
+  cel_shading
+  ink_bw
+  hatching
+  painterly
+}
+
+enum ContrastProfile {
+  soft
+  dramatic
+  brutal
+}
+
+enum AnatomyBias {
+  stylized
+  grounded
+  realistic
+}
+
+enum BackgroundDensity {
+  low
+  medium
+  high
+}
+
+enum CameraLanguage {
+  cinematic
+  manga_dynamic
+  intimate
+  horror_claustrophobic
+}
+
+enum RenderingMode {
+  CHARACTER_SHEET
+  CHARACTER_EXPRESSION_SET
+  OUTFIT_VARIATION
+  LOCATION_KEYFRAME
+  PANEL_DRAFT
+  PANEL_FINAL
+  COVER_ART
+  INPAINT_FIX
+  POSE_LOCK_VARIATION
+  STYLE_TRANSFER_VARIATION
+}
+
+enum CanonPackSlot {
+  face_portrait
+  full_body_front
+  full_body_three_quarter
+  side_profile
+  expression_1
+  expression_2
+  expression_3
+  expression_4
+  expression_5
+  expression_6
+  pose_1
+  pose_2
+  pose_3
+  outfit_standard
+  outfit_variant
+}
+
+enum JobType {
+  BUILD_PROJECT_CONTEXT
+  GENERATE_CHARACTER_PROFILE
+  GENERATE_CHARACTER_VISUAL
+  GENERATE_STYLE_PACK_ASSETS
+  GENERATE_CHARACTER_CANON_PACK
+  GENERATE_CHAPTER_OUTLINE
+  GENERATE_CHAPTER_SCRIPT
+  GENERATE_DIALOGUES
+  GENERATE_STORYBOARD
+  GENERATE_SCENE_KEY_ART
+  RENDER_PANEL_DRAFT
+  RENDER_PANEL_FINAL
+  IMAGE_INPAINT_FIX
+  IMAGE_UPSCALE
+  GENERATE_SCENE_IMAGES
+  UPDATE_MEMORY
+  RUN_CANON_VALIDATION
+  COMPUTE_CONSISTENCY_SCORE
+  EXPORT_PDF
+}
+
+enum JobStatus {
+  queued
+  running
+  waiting_external
+  partial_success
+  completed
+  failed
+  canceled
+  refunded
+}
+
+enum WalletTransactionType {
+  purchase
+  debit
+  refund
+  adjustment
+}
+
+model User {
+  id             String    @id @default(cuid())
+  /// Identifiant auth.users Supabase (SSO / magic link)
+  supabaseAuthId String?   @unique
+  email          String    @unique
+  displayName    String?
+  role           UserRole  @default(user)
+  locale         String    @default("fr")
+  ageVerifiedAt  DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  preferences    UserPreferences?
+  projects       Project[]
+  jobs           Job[]
+  wallets        Wallet[]
+  stripeOrders   StripeOrder[]
+  moderationEvents ModerationEvent[]
+  adminFlags     AdminFlag[]
+}
+
+model UserPreferences {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  defaultLanguage       String   @default("fr")
+  matureContentEnabled  Boolean  @default(false)
+  preferredGenres       Json     @default("[]")
+  preferredVisualStyle  String?
+}
+
+model Project {
+  id              String         @id @default(cuid())
+  userId          String
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title           String
+  slug            String         @unique
+  pitch           String?
+  description     String?
+  primaryGenre    String?
+  subGenres       Json           @default("[]")
+  tone            String?
+  format          String?
+  contentRating   ContentRating  @default(GENERAL)
+  intensityLayer  ContentIntensityLayer @default(GENERAL_SAFE)
+  visualStyle     String?
+  status          ProjectStatus  @default(draft)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  settings        ProjectSettings?
+  stylePacks      StylePack[]
+  storyBible      StoryBible?
+  characters      Character[]
+  relationships   CharacterRelationship[]
+  locations       Location[]
+  items           Item[]
+  arcs            Arc[]
+  chapters        Chapter[]
+  continuityEvents ContinuityEvent[]
+  memorySnapshots MemorySnapshot[]
+  ragDocuments    RagDocument[]
+  jobs            Job[]
+  loraModels      LoraModel[]
+  loraAttachments LoraAttachment[] @relation("ProjectLoras")
+}
+
+model ProjectSettings {
+  id                 String   @id @default(cuid())
+  projectId          String   @unique
+  project            Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  violenceLevel      Int      @default(0)
+  romanceLevel       Int      @default(0)
+  sensualityLevel    Int      @default(0)
+  darknessLevel      Int      @default(0)
+  mysteryLevel       Int      @default(0)
+  realismLevel       Int      @default(0)
+  pacingLevel        Int      @default(0)
+  dialogueDensity    Int      @default(0)
+  maxTokensPerJob    Int      @default(10000)
+  canonStrictness    Int      @default(80)
+}
+
+model StylePack {
+  id                  String           @id @default(cuid())
+  projectId           String
+  project             Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  version             Int              @default(1)
+  renderFamily        RenderFamily     @default(manga)
+  lineWeight          LineWeight       @default(medium)
+  shadingMode         ShadingMode      @default(ink_bw)
+  contrastProfile     ContrastProfile  @default(dramatic)
+  anatomyBias         AnatomyBias      @default(stylized)
+  backgroundDensity   BackgroundDensity @default(medium)
+  cameraLanguage      CameraLanguage   @default(manga_dynamic)
+  approvedLoraIds     Json             @default("[]")
+  negativeConstraints Json             @default("[]")
+  styleRefImageUrl    String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  loraAttachments     LoraAttachment[] @relation("StylePackLoras")
+}
+
+model StoryBible {
+  id           String   @id @default(cuid())
+  projectId    String   @unique
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  version      Int      @default(1)
+  summary      String?
+  worldRules   Json     @default("{}")
+  themes       Json     @default("[]")
+  lore         Json     @default("{}")
+  glossary     Json     @default("{}")
+  lockedCanon  Json     @default("{}")
+  createdAt    DateTime @default(now())
+}
+
+model Character {
+  id              String    @id @default(cuid())
+  projectId       String
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name            String
+  slug            String
+  roleType        String?
+  age             Int?
+  adultVerified   Boolean   @default(false)
+  pronouns        String?
+  biography       String?
+  objective       String?
+  fear            String?
+  trauma          String?
+  personality     Json      @default("{}")
+  traits          Json      @default("[]")
+  flaws           Json      @default("[]")
+  secrets         Json      @default("[]")
+  appearance      Json      @default("{}")
+  outfitDefault   Json      @default("{}")
+  bodyProfile     Json      @default("{}")
+  status          String    @default("alive")
+  emotionalState  String?
+  canonLocked     Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  visualRefs      CharacterVisualRef[]
+  canonPack       CharacterCanonPack?
+  relationshipsFrom CharacterRelationship[] @relation("RelFrom")
+  relationshipsTo   CharacterRelationship[] @relation("RelTo")
+  ownedItems      Item[]
+  loraAttachments LoraAttachment[] @relation("CharacterLoras")
+
+  @@unique([projectId, slug])
+}
+
+model CharacterVisualRef {
+  id            String   @id @default(cuid())
+  characterId   String
+  character     Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  type          String
+  imageUrl      String
+  promptSnapshot String?
+  metadata      Json     @default("{}")
+  isPrimary     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+}
+
+model CharacterCanonPack {
+  id                    String    @id @default(cuid())
+  characterId           String    @unique
+  character             Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  version               Int       @default(1)
+  visualSignatureText   String?
+  forbiddenVisualDrift  Json      @default("[]")
+  completenessScore     Float     @default(0)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  assets                CanonPackAsset[]
+}
+
+model CanonPackAsset {
+  id        String         @id @default(cuid())
+  packId    String
+  pack      CharacterCanonPack @relation(fields: [packId], references: [id], onDelete: Cascade)
+  slot      CanonPackSlot
+  imageUrl  String?
+  refId     String?
+  metadata  Json           @default("{}")
+  createdAt DateTime       @default(now())
+
+  @@unique([packId, slot])
+}
+
+model LoraModel {
+  id          String   @id @default(cuid())
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  provider    String
+  externalId  String
+  name        String
+  weightsMeta Json     @default("{}")
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+
+  attachments LoraAttachment[]
+}
+
+model LoraAttachment {
+  id                   String    @id @default(cuid())
+  loraId               String
+  lora                 LoraModel @relation(fields: [loraId], references: [id], onDelete: Cascade)
+  projectId            String?
+  project              Project?  @relation("ProjectLoras", fields: [projectId], references: [id], onDelete: Cascade)
+  stylePackId          String?
+  stylePack            StylePack? @relation("StylePackLoras", fields: [stylePackId], references: [id], onDelete: Cascade)
+  characterId          String?
+  character            Character? @relation("CharacterLoras", fields: [characterId], references: [id], onDelete: Cascade)
+  weight               Float     @default(1)
+  enabled              Boolean   @default(true)
+  renderingModeFilter  Json      @default("[]")
+  createdAt            DateTime  @default(now())
+}
+
+model CharacterRelationship {
+  id                String   @id @default(cuid())
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceCharacterId String
+  source            Character @relation("RelFrom", fields: [sourceCharacterId], references: [id], onDelete: Cascade)
+  targetCharacterId String
+  target            Character @relation("RelTo", fields: [targetCharacterId], references: [id], onDelete: Cascade)
+  relationType      String
+  intensity         Int      @default(50)
+  reciprocityType   String   @default("bilateral")
+  note              String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model Location {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  type        String?
+  description String?
+  metadata    Json     @default("{}")
+  canonLocked Boolean  @default(false)
+}
+
+model Item {
+  id               String   @id @default(cuid())
+  projectId        String
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name             String
+  type             String?
+  description      String?
+  ownerCharacterId String?
+  owner            Character? @relation(fields: [ownerCharacterId], references: [id])
+  state            Json     @default("{}")
+  canonLocked      Boolean  @default(false)
+}
+
+model Arc {
+  id                String   @id @default(cuid())
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name              String
+  type              String?
+  summary           String?
+  status            String   @default("open")
+  startChapterNumber Int?
+  endChapterNumber   Int?
+  metadata          Json     @default("{}")
+}
+
+model Chapter {
+  id             String   @id @default(cuid())
+  projectId      String
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  chapterNumber  Int
+  title          String?
+  status         String   @default("draft")
+  userIntent     String?
+  outline        Json     @default("{}")
+  script         Json     @default("{}")
+  storyboard     Json     @default("{}")
+  summary        String?
+  cliffhanger    String?
+  tokenEstimate  Int?
+  tokenActual    Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  scenes         ChapterScene[]
+  continuityEvents ContinuityEvent[]
+  memorySnapshots MemorySnapshot[]
+  jobs           Job[]
+
+  @@unique([projectId, chapterNumber])
+}
+
+model ChapterScene {
+  id         String   @id @default(cuid())
+  chapterId  String
+  chapter    Chapter  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  sceneNumber Int
+  title      String?
+  summary    String?
+  locationId String?
+  beatId     String?
+  script     Json     @default("{}")
+  dialogue   Json     @default("{}")
+  metadata   Json     @default("{}")
+
+  images     SceneImage[]
+}
+
+model SceneImage {
+  id                 String          @id @default(cuid())
+  sceneId            String
+  scene              ChapterScene    @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  panelNumber        Int
+  renderingMode      RenderingMode   @default(PANEL_DRAFT)
+  prompt             String?
+  negativePrompt     String?
+  provider           String?
+  model              String?
+  width              Int             @default(1024)
+  height             Int             @default(1024)
+  status             String          @default("pending")
+  imageUrl           String?
+  moderationStatus   String?
+  routingDecision    Json?
+  promptComposerPayload Json?
+  consistencyScore   Float?
+  referenceImageIds  Json            @default("[]")
+  metadata           Json            @default("{}")
+}
+
+model ContinuityEvent {
+  id            String   @id @default(cuid())
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  chapterId     String?
+  chapter       Chapter? @relation(fields: [chapterId], references: [id])
+  eventType     String
+  summary       String?
+  entities      Json     @default("{}")
+  importance    Int      @default(0)
+  timelineOrder Int      @default(0)
+  permanent     Boolean  @default(true)
+  createdAt     DateTime @default(now())
+}
+
+model MemorySnapshot {
+  id               String   @id @default(cuid())
+  projectId      String
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  chapterId      String?
+  chapter        Chapter? @relation(fields: [chapterId], references: [id])
+  structuredState Json    @default("{}")
+  narrativeSummary String?
+  embeddingStatus String   @default("pending")
+  createdAt      DateTime @default(now())
+}
+
+model RagDocument {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  entityType String
+  entityId   String?
+  title      String?
+  content    String
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now())
+}
+
+model Job {
+  id                 String    @id @default(cuid())
+  userId             String
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId          String?
+  project            Project?  @relation(fields: [projectId], references: [id])
+  chapterId          String?
+  chapter            Chapter?  @relation(fields: [chapterId], references: [id])
+  type               JobType
+  status             JobStatus @default(queued)
+  provider           String?
+  input              Json      @default("{}")
+  output             Json      @default("{}")
+  error              Json?
+  estimatedTokenCost Int?
+  actualTokenCost    Int?
+  startedAt          DateTime?
+  finishedAt         DateTime?
+  createdAt          DateTime  @default(now())
+}
+
+model Wallet {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance            Int      @default(0)
+  lifetimePurchased  Int      @default(0)
+  lifetimeSpent      Int      @default(0)
+  lifetimeRefunded   Int      @default(0)
+  updatedAt          DateTime @updatedAt
+
+  transactions WalletTransaction[]
+}
+
+model WalletTransaction {
+  id             String                @id @default(cuid())
+  walletId       String
+  wallet         Wallet                @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  type           WalletTransactionType
+  amount         Int
+  balanceBefore  Int
+  balanceAfter   Int
+  reason         String
+  referenceType  String?
+  referenceId    String?
+  metadata       Json                  @default("{}")
+  createdAt      DateTime              @default(now())
+}
+
+model TokenPricingRule {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  label       String
+  baseCost    Int
+  costFormula Json     @default("{}")
+  active      Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
+}
+
+model StripeOrder {
+  id                    String   @id @default(cuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stripeCheckoutSessionId String @unique
+  stripePaymentIntentId String?
+  packCode              String
+  amountPaid            Int
+  currency              String   @default("eur")
+  tokensGranted         Int
+  status                String
+  rawPayload            Json     @default("{}")
+  createdAt             DateTime @default(now())
+}
+
+model ModerationEvent {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId       String?
+  chapterId       String?
+  sourceType      String
+  sourceId        String?
+  moderationLevel String
+  decision        String
+  reasons         Json     @default("[]")
+  rawScores       Json     @default("{}")
+  createdAt       DateTime @default(now())
+}
+
+model AdminFlag {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId  String?
+  type       String
+  reason     String?
+  status     String   @default("open")
+  createdAt  DateTime @default(now())
+}

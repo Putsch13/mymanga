@@ -1,0 +1,24 @@
+{
+  "name": "@manga-ai-studio/ai",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./routing": "./src/image-routing-service.ts",
+    "./prompt-composer": "./src/prompt-composer-v2.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "lint": "echo ok"
+  },
+  "dependencies": {
+    "@manga-ai-studio/core": "workspace:*",
+    "@manga-ai-studio/moderation": "workspace:*",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "vitest": "^3.0.9"
+  }
+}
