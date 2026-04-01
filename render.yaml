@@ -6,8 +6,8 @@ services:
     region: frankfurt
     plan: starter
     rootDir: .
-    buildCommand: corepack pnpm install --frozen-lockfile && corepack pnpm --filter @manga-ai-studio/db exec prisma generate && corepack pnpm --filter @manga-ai-studio/web build
-    startCommand: corepack pnpm --filter @manga-ai-studio/web start
+    buildCommand: npm install -g pnpm@10.33.0 && pnpm install --frozen-lockfile && pnpm --filter @manga-ai-studio/db exec prisma generate && pnpm --filter @manga-ai-studio/web build
+    startCommand: pnpm --filter @manga-ai-studio/web start
     healthCheckPath: /
     envVars:
       - key: NODE_VERSION

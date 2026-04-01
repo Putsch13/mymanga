@@ -57,14 +57,16 @@ pnpm db:seed
 3. **Build command** (aligné `render.yaml`) :
 
    ```bash
-   corepack pnpm install --frozen-lockfile && corepack pnpm --filter @manga-ai-studio/db exec prisma generate && corepack pnpm --filter @manga-ai-studio/web build
+   npm install -g pnpm@10.33.0 && pnpm install --frozen-lockfile && pnpm --filter @manga-ai-studio/db exec prisma generate && pnpm --filter @manga-ai-studio/web build
    ```
 
 4. **Start command** :
 
    ```bash
-   corepack pnpm --filter @manga-ai-studio/web start
+   pnpm --filter @manga-ai-studio/web start
    ```
+
+Si Render échoue sur **Corepack key verification**, n'utilise pas `corepack pnpm` : la commande ci-dessus installe `pnpm` directement et contourne ce problème.
 
 5. Définis **toutes** les variables listées dans [`.env.example`](./.env.example) + celles ci-dessous.
 6. **`NEXT_PUBLIC_APP_URL`** : URL publique du service (ex. `https://manga-ai-studio-web.onrender.com`) — utilisée pour Stripe redirect.
