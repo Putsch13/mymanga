@@ -86,10 +86,12 @@ export function AppHeader({
               <DropdownMenuSeparator className="bg-border" />
               {!authDisabled ? (
                 <DropdownMenuItem asChild>
-                  <a href="/auth/signout" className="flex cursor-pointer items-center gap-2">
+                  <form action="/auth/signout" method="post" className="w-full">
+                    <button type="submit" className="flex w-full cursor-pointer items-center gap-2 text-left">
                     <LogOut className="h-4 w-4" />
                     Déconnexion
-                  </a>
+                    </button>
+                  </form>
                 </DropdownMenuItem>
               ) : (
                 <DropdownMenuItem disabled className="text-xs">

@@ -25,6 +25,8 @@ export default function WalletPage() {
     }>
   >([]);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/wallet")
@@ -32,12 +34,17 @@ export default function WalletPage() {
       .then((d) => {
         setBalance(d.wallet?.balance ?? 0);
         setTransactions(d.transactions ?? []);
+        setLoadError(null);
       })
-      .catch(() => setBalance(0));
+      .catch(() => {
+        setBalance(null);
+        setLoadError("Impossible de charger le wallet pour le moment.");
+      });
   }, []);
 
   async function buy(packCode: (typeof packs)[number]["code"]) {
     setCheckoutLoading(true);
+    setMessage(null);
     const res = await fetch("/api/billing/checkout-session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -46,7 +53,13 @@ export default function WalletPage() {
     const data = await res.json();
     setCheckoutLoading(false);
     if (data.url) window.location.href = data.url;
-    else alert(data.error === "stripe_not_configured" ? "Stripe non configuré — voir DEPLOYMENT.md" : JSON.stringify(data));
+    else {
+      setMessage(
+        data.error === "stripe_not_configured"
+          ? "Stripe n'est pas encore branché sur cet environnement de test."
+          : data.message ?? "Impossible de lancer l'achat pour le moment.",
+      );
+    }
   }
 
   return (
@@ -68,6 +81,8 @@ export default function WalletPage() {
           </div>
         </CardHeader>
       </Card>
+      {loadError ? <p className="text-sm text-red-400">{loadError}</p> : null}
+      {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
       <div>
         <h2 className="mb-4 text-lg font-medium">Packs Stripe</h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

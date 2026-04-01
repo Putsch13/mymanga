@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { RENDERING_MODES } from "@manga-ai-studio/core";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -52,6 +53,11 @@ export default function StudioImagePage() {
         <p className="text-muted-foreground mt-1 text-sm">
           Routage automatique + débit tokens. Sans <code className="text-accent">FAL_KEY</code>, mock placeholder.
         </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Badge variant="outline">Character refs</Badge>
+          <Badge variant="outline">Panels</Badge>
+          <Badge variant="outline">Cover art</Badge>
+        </div>
       </div>
       <Card className="border-border/60 bg-card/50">
         <CardHeader>

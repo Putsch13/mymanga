@@ -60,6 +60,9 @@ export default function BiblePage() {
           ← Projet
         </Link>
         <h1 className="mt-2 text-3xl font-semibold">Bible d’univers</h1>
+        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+          La bible alimente la memoire de continuite, la generation de chapitres et les futurs retrievers RAG. Pense-la comme le coeur canonique de ta serie.
+        </p>
       </div>
       <Card className="border-border/60 bg-card/50">
         <CardHeader>

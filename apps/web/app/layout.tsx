@@ -13,8 +13,36 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Manga AI Studio",
-  description: "Studio IA pour séries manga — mémoire, DA multi-provider, tokens.",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"),
+  title: {
+    default: "Manga AI Studio",
+    template: "%s | Manga AI Studio",
+  },
+  description:
+    "Plateforme SaaS de creation manga et webtoon avec bible d'univers, personnages, memoire narrative, pipeline chapitre, generation d'images et lecteur premium.",
+  keywords: [
+    "manga ai",
+    "webtoon ai",
+    "creation manga",
+    "storyboard ai",
+    "personnages manga",
+    "studio ia manga",
+  ],
+  openGraph: {
+    title: "Manga AI Studio",
+    description:
+      "Concois un univers manga complet, cree des personnages, genere des chapitres et illustre-les avec une vraie memoire de continuite.",
+    url: "/",
+    siteName: "Manga AI Studio",
+    locale: "fr_FR",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Manga AI Studio",
+    description:
+      "Le studio IA premium pour creer, illustrer et faire evoluer une serie manga coherente chapitre apres chapitre.",
+  },
 };
 
 export default function RootLayout({
