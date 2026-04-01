@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma } from "@manga-ai-studio/db";
 import { creditPurchase } from "@manga-ai-studio/billing";
+import { trackServerEvent } from "@/lib/analytics";
 
 export async function POST(req: Request) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -26,22 +27,31 @@ export async function POST(req: Request) {
     const packCode = session.metadata?.packCode;
     const tokens = session.metadata?.tokensGranted ? Number(session.metadata.tokensGranted) : 0;
     if (userId && packCode && tokens > 0) {
-      await prisma.stripeOrder.upsert({
+      const existing = await prisma.stripeOrder.findUnique({
         where: { stripeCheckoutSessionId: session.id },
-        create: {
-          userId,
-          stripeCheckoutSessionId: session.id,
-          stripePaymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id,
-          packCode,
-          amountPaid: session.amount_total ?? 0,
-          currency: session.currency ?? "eur",
-          tokensGranted: tokens,
-          status: "completed",
-          rawPayload: session as unknown as object,
-        },
-        update: { status: "completed", rawPayload: session as unknown as object },
       });
-      await creditPurchase(prisma, userId, tokens, { stripeCheckoutSessionId: session.id, packCode });
+      if (!existing) {
+        await prisma.stripeOrder.create({
+          data: {
+            userId,
+            stripeCheckoutSessionId: session.id,
+            stripePaymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id,
+            packCode,
+            amountPaid: session.amount_total ?? 0,
+            currency: session.currency ?? "eur",
+            tokensGranted: tokens,
+            status: "completed",
+            rawPayload: session as unknown as object,
+          },
+        });
+        await creditPurchase(prisma, userId, tokens, { stripeCheckoutSessionId: session.id, packCode });
+        await trackServerEvent("purchase_completed", { userId, packCode, tokens });
+      } else if (existing.status !== "completed") {
+        await prisma.stripeOrder.update({
+          where: { stripeCheckoutSessionId: session.id },
+          data: { status: "completed", rawPayload: session as unknown as object },
+        });
+      }
     }
   }
 

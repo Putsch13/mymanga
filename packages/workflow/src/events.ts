@@ -1,6 +1,7 @@
 import { inngest } from "./inngest-client";
 
 export type ChapterGeneratePayload = {
+  jobId: string;
   projectId: string;
   chapterId: string;
   userId: string;

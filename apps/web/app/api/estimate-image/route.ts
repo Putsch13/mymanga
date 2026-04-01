@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { decideImageRoute } from "@manga-ai-studio/ai";
-import { estimateImageTokens } from "@manga-ai-studio/billing";
+import { estimateImageTokensFromRules } from "@manga-ai-studio/billing";
 import { RENDERING_MODES, type RenderingMode } from "@manga-ai-studio/core";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { unauthorized } from "@/lib/api-response";
@@ -47,6 +47,6 @@ export async function POST(req: Request) {
     });
   }
 
-  const estimatedTokens = estimateImageTokens(raw.mode as RenderingMode, routing.provider);
+  const estimatedTokens = await estimateImageTokensFromRules(raw.mode as RenderingMode, routing.provider);
   return NextResponse.json({ routing, estimatedTokens });
 }

@@ -3,12 +3,14 @@ import { z } from "zod";
 import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
+import { trackServerEvent } from "@/lib/analytics";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 const createSchema = z.object({
   title: z.string().optional(),
   userIntent: z.string().optional(),
+  tokenEstimate: z.number().int().optional(),
 });
 
 export async function GET(_req: Request, ctx: Ctx) {
@@ -43,7 +45,9 @@ export async function POST(req: Request, ctx: Ctx) {
       title: body.title ?? `Chapitre ${chapterNumber}`,
       userIntent: body.userIntent,
       status: "draft",
+      tokenEstimate: body.tokenEstimate,
     },
   });
+  await trackServerEvent("chapter_created", { userId: user.id, projectId, chapterId: chapter.id });
   return NextResponse.json({ chapter });
 }

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Coins, LayoutDashboard, LogOut, Plus, Sparkles } from "lucide-react";
+import { Coins, LayoutDashboard, LogOut, Plus, Shield, Sparkles } from "lucide-react";
 import { cn } from "@manga-ai-studio/ui";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,8 +19,19 @@ const links = [
   { href: "/wallet", label: "Wallet", icon: Coins },
 ];
 
-export function AppHeader({ email, displayName, authDisabled }: { email: string; displayName: string | null; authDisabled: boolean }) {
+export function AppHeader({
+  email,
+  displayName,
+  authDisabled,
+  role,
+}: {
+  email: string;
+  displayName: string | null;
+  authDisabled: boolean;
+  role: "user" | "admin";
+}) {
   const pathname = usePathname();
+  const allLinks = role === "admin" ? [...links, { href: "/admin", label: "Admin", icon: Shield }] : links;
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/80 bg-[#0b0b10]/85 backdrop-blur-xl">
@@ -32,7 +43,7 @@ export function AppHeader({ email, displayName, authDisabled }: { email: string;
           <span className="hidden sm:inline">Manga AI Studio</span>
         </Link>
         <nav className="hidden items-center gap-1 md:flex">
-          {links.map(({ href, label, icon: Icon }) => (
+          {allLinks.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
@@ -45,6 +56,21 @@ export function AppHeader({ email, displayName, authDisabled }: { email: string;
             >
               <Icon className="h-4 w-4 opacity-70" />
               {label}
+            </Link>
+          ))}
+        </nav>
+        <nav className="flex items-center gap-1 md:hidden">
+          {allLinks.slice(0, 3).map(({ href, label, icon: Icon }) => (
+            <Link
+              key={href}
+              href={href}
+              className={cn(
+                "rounded-lg px-2 py-2 text-muted-foreground",
+                pathname === href || (href !== "/dashboard" && pathname.startsWith(href)) ? "bg-card text-foreground" : "",
+              )}
+              aria-label={label}
+            >
+              <Icon className="h-4 w-4" />
             </Link>
           ))}
         </nav>

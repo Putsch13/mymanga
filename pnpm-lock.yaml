@@ -25,6 +25,12 @@ importers:
       '@manga-ai-studio/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@manga-ai-studio/exports':
+        specifier: workspace:*
+        version: link:../../packages/exports
+      '@manga-ai-studio/memory':
+        specifier: workspace:*
+        version: link:../../packages/memory
       '@manga-ai-studio/moderation':
         specifier: workspace:*
         version: link:../../packages/moderation
@@ -183,6 +189,10 @@ importers:
         version: 5.9.3
 
   packages/exports:
+    dependencies:
+      '@manga-ai-studio/db':
+        specifier: workspace:*
+        version: link:../db
     devDependencies:
       typescript:
         specifier: ^5
@@ -241,6 +251,9 @@ importers:
       '@manga-ai-studio/db':
         specifier: workspace:*
         version: link:../db
+      '@manga-ai-studio/memory':
+        specifier: workspace:*
+        version: link:../memory
       inngest:
         specifier: ^3.34.1
         version: 3.52.7(@opentelemetry/core@2.6.1(@opentelemetry/api@1.9.1))(next@15.3.6(@opentelemetry/api@1.9.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(typescript@5.9.3)(zod@3.25.76)

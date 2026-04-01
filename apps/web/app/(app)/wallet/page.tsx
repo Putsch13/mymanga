@@ -14,12 +14,25 @@ const packs = [
 
 export default function WalletPage() {
   const [balance, setBalance] = useState<number | null>(null);
+  const [transactions, setTransactions] = useState<
+    Array<{
+      id: string;
+      type: string;
+      amount: number;
+      reason: string;
+      createdAt: string;
+      balanceAfter: number;
+    }>
+  >([]);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
 
   useEffect(() => {
     fetch("/api/wallet")
       .then((r) => r.json())
-      .then((d) => setBalance(d.wallet?.balance ?? 0))
+      .then((d) => {
+        setBalance(d.wallet?.balance ?? 0);
+        setTransactions(d.transactions ?? []);
+      })
       .catch(() => setBalance(0));
   }, []);
 
@@ -73,6 +86,33 @@ export default function WalletPage() {
           ))}
         </div>
       </div>
+      <Card className="border-border/60 bg-card/40">
+        <CardHeader>
+          <CardTitle className="text-lg">Historique du ledger</CardTitle>
+          <CardDescription>Réservations, débits, achats et remboursements.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {transactions.length > 0 ? (
+            transactions.map((transaction) => (
+              <div key={transaction.id} className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2 text-sm">
+                <div>
+                  <p className="font-medium">{transaction.reason}</p>
+                  <p className="text-muted-foreground">{new Date(transaction.createdAt).toLocaleString("fr-FR")}</p>
+                </div>
+                <div className="text-right">
+                  <p className={transaction.type === "refund" || transaction.type === "purchase" ? "text-emerald-400" : "text-foreground"}>
+                    {transaction.type === "refund" || transaction.type === "purchase" ? "+" : "-"}
+                    {transaction.amount}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Solde {transaction.balanceAfter}</p>
+                </div>
+              </div>
+            ))
+          ) : (
+            <p className="text-sm text-muted-foreground">Aucune transaction pour l’instant.</p>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

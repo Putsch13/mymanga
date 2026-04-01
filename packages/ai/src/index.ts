@@ -9,3 +9,4 @@ export * from "./adapters/runware-adapter";
 export * from "./adapters/stability-adapter";
 export * from "./run-generation";
 export * from "./chapter-outline";
+export * from "./chapter-pipeline";

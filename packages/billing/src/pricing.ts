@@ -1,3 +1,4 @@
+import { prisma } from "@manga-ai-studio/db";
 import type { RenderingMode } from "@manga-ai-studio/core";
 import type { ImageProviderId } from "@manga-ai-studio/ai";
 
@@ -34,4 +35,44 @@ export function estimateImageTokens(mode: RenderingMode, provider: ImageProvider
 
 export function estimateChapterTextTokens(): number {
   return 80;
+}
+
+export async function estimateImageTokensFromRules(mode: RenderingMode, provider: ImageProviderId): Promise<number> {
+  const rule = await prisma.tokenPricingRule.findFirst({
+    where: {
+      active: true,
+      key: {
+        in: [`image:${mode.toLowerCase()}`, `image_${mode.toLowerCase()}`],
+      },
+    },
+  });
+
+  const providerRule = await prisma.tokenPricingRule.findFirst({
+    where: {
+      active: true,
+      key: {
+        in: [`provider:${provider}`, `image:provider:${provider}`, `provider_${provider}`],
+      },
+    },
+  });
+
+  const base = rule?.baseCost ?? estimateImageTokens(mode, provider);
+  const providerMultiplier = providerRule?.costFormula && typeof providerRule.costFormula === "object"
+    ? Number((providerRule.costFormula as Record<string, unknown>).multiplier ?? 1)
+    : 1;
+
+  return Math.ceil(base * providerMultiplier);
+}
+
+export async function estimateChapterTextTokensFromRules() {
+  const rule = await prisma.tokenPricingRule.findFirst({
+    where: {
+      active: true,
+      key: {
+        in: ["chapter_text", "chapter:text"],
+      },
+    },
+  });
+
+  return rule?.baseCost ?? estimateChapterTextTokens();
 }

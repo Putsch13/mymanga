@@ -3,7 +3,8 @@ import { z } from "zod";
 import { prisma } from "@manga-ai-studio/db";
 import { runChapterOutlineFromJob, sendChapterOutlineJobRequested } from "@manga-ai-studio/workflow";
 import { getAppUser } from "@/lib/auth/get-app-user";
-import { notFound, unauthorized } from "@/lib/api-response";
+import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
+import { notFound, unauthorized, validationError } from "@/lib/api-response";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -21,8 +22,14 @@ export async function POST(req: Request, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return unauthorized();
   const { id: projectId, chapterId } = await ctx.params;
-  const project = await prisma.project.findFirst({ where: { id: projectId, userId: user.id } });
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, userId: user.id },
+    include: { user: { include: { preferences: true } } },
+  });
   if (!project) return notFound();
+  if (projectRequiresAgeGate(project.contentRating) && !canAccessMatureContent(project.user, project.user.preferences)) {
+    return validationError(getAgeGateMessage(project.contentRating));
+  }
   const chapter = await prisma.chapter.findFirst({ where: { id: chapterId, projectId } });
   if (!chapter) return notFound();
   const body = bodySchema.parse(await req.json());

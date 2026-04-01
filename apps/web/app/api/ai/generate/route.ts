@@ -2,10 +2,13 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { RENDERING_MODES, type RenderingMode } from "@manga-ai-studio/core";
 import { decideImageRoute, runRoutedImageGeneration } from "@manga-ai-studio/ai";
-import { estimateImageTokens, reserveTokens } from "@manga-ai-studio/billing";
+import { estimateImageTokensFromRules, refundReservation, reserveTokens, settleReservedTokens } from "@manga-ai-studio/billing";
 import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
-import { unauthorized } from "@/lib/api-response";
+import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
+import { paymentRequired, unauthorized, validationError } from "@/lib/api-response";
+import { applyRateLimit } from "@/lib/rate-limit";
+import { trackServerEvent } from "@/lib/analytics";
 
 const modeSchema = z.enum(RENDERING_MODES as unknown as [string, ...string[]]);
 
@@ -25,8 +28,25 @@ const bodySchema = z.object({
 export async function POST(req: Request) {
   const user = await getAppUser();
   if (!user) return unauthorized();
+  const limited = applyRateLimit(`ai-generate:${user.id}`, 15, 60_000);
+  if (!limited.ok) {
+    return validationError("Trop de requêtes de génération. Réessaie dans quelques instants.", limited);
+  }
   const body = bodySchema.parse(await req.json());
   const mode = body.mode as RenderingMode;
+
+  if (body.projectId) {
+    const project = await prisma.project.findFirst({
+      where: { id: body.projectId, userId: user.id },
+      include: { user: { include: { preferences: true } } },
+    });
+    if (!project) {
+      return validationError("Projet introuvable pour la génération.");
+    }
+    if (projectRequiresAgeGate(project.contentRating) && !canAccessMatureContent(project.user, project.user.preferences)) {
+      return validationError(getAgeGateMessage(project.contentRating));
+    }
+  }
 
   const ctx = {
     mode,
@@ -43,12 +63,17 @@ export async function POST(req: Request) {
 
   const routing = decideImageRoute(ctx);
   if ("blocked" in routing) {
-    return NextResponse.json({ blocked: true, reason: routing.reason }, { status: 422 });
+    return validationError(routing.reason, { blocked: true, textOnlyFallback: routing.textOnlyFallback });
   }
-  const cost = estimateImageTokens(mode, routing.provider);
-  const reserved = await reserveTokens(prisma, user.id, cost);
+  const cost = await estimateImageTokensFromRules(mode, routing.provider);
+  const reserved = await reserveTokens(prisma, user.id, cost, {
+    reason: "image_generation_reservation",
+    referenceType: "image_generation",
+    referenceId: body.projectId,
+    metadata: { mode, provider: routing.provider },
+  });
   if (!reserved.ok) {
-    return NextResponse.json({ error: "insufficient_tokens", needed: cost }, { status: 402 });
+    return paymentRequired("Tokens insuffisants pour cette génération.", { needed: cost });
   }
 
   try {
@@ -59,8 +84,16 @@ export async function POST(req: Request) {
       height: 768,
     });
     if (!out.ok) {
-      return NextResponse.json({ blocked: true, reason: out.reason }, { status: 422 });
+      await refundReservation(prisma, user.id, reserved.reservationId, "image_generation_blocked");
+      return validationError(out.reason, { blocked: true });
     }
+    await settleReservedTokens(prisma, user.id, reserved.reservationId, cost);
+    await trackServerEvent("image_generated", {
+      userId: user.id,
+      mode,
+      provider: out.result.provider,
+      projectId: body.projectId ?? null,
+    });
     return NextResponse.json({
       imageUrl: out.result.imageUrl,
       provider: out.result.provider,
@@ -70,6 +103,7 @@ export async function POST(req: Request) {
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Erreur génération";
+    await refundReservation(prisma, user.id, reserved.reservationId, "image_generation_failed");
     return NextResponse.json({ error: message }, { status: 502 });
   }
 }

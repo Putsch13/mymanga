@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Plus, Sparkles } from "lucide-react";
 import { prisma } from "@manga-ai-studio/db";
 import { getCurrentUser } from "@/lib/auth/get-app-user";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -15,7 +16,13 @@ export default async function CharactersPage({ params }: Props) {
   const { id } = await params;
   const project = await prisma.project.findFirst({
     where: { id, userId: user.id },
-    include: { characters: { orderBy: { createdAt: "desc" } } },
+    include: {
+      characters: {
+        orderBy: { createdAt: "desc" },
+        include: { visualRefs: { where: { isPrimary: true }, take: 1 } },
+      },
+      relationships: true,
+    },
   });
   if (!project) notFound();
 
@@ -38,17 +45,52 @@ export default async function CharactersPage({ params }: Props) {
       </div>
       <div className="grid gap-3">
         {project.characters.map((c) => (
-          <Card key={c.id} className="border-border/60 bg-card/40">
-            <CardHeader className="py-4">
-              <CardTitle className="text-base">{c.name}</CardTitle>
-              <p className="text-muted-foreground text-sm">{c.roleType ?? "Rôle à définir"}</p>
-            </CardHeader>
-            {c.biography ? (
-              <CardContent className="pt-0 text-sm text-muted-foreground line-clamp-2">{c.biography}</CardContent>
-            ) : null}
-          </Card>
+          <Link key={c.id} href={`/projects/${id}/characters/${c.id}`}>
+            <Card className="border-border/60 bg-card/40 transition hover:border-accent/40">
+              <CardHeader className="py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-base">{c.name}</CardTitle>
+                    <p className="text-muted-foreground text-sm">{c.roleType ?? "Rôle à définir"}</p>
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {c.status ? <Badge variant="outline">{c.status}</Badge> : null}
+                    {c.canonLocked ? <Badge>canon lock</Badge> : null}
+                  </div>
+                </div>
+              </CardHeader>
+              {c.biography ? (
+                <CardContent className="space-y-3 pt-0">
+                  <p className="line-clamp-2 text-sm text-muted-foreground">{c.biography}</p>
+                  {c.visualRefs[0]?.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={c.visualRefs[0].imageUrl} alt="" className="h-32 w-full rounded-lg object-cover" />
+                  ) : (
+                    <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-border text-xs text-muted-foreground">
+                      Référence visuelle à générer
+                    </div>
+                  )}
+                </CardContent>
+              ) : null}
+            </Card>
+          </Link>
         ))}
       </div>
+      {project.characters.length > 0 ? (
+        <Card className="border-border/60 bg-card/30">
+          <CardHeader className="py-4">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Sparkles className="h-4 w-4 text-accent" />
+              Réseau narratif
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            {project.relationships.length > 0
+              ? `${project.relationships.length} relations enregistrées dans le projet.`
+              : "Aucune relation encore enregistrée. Utilise la fiche personnage pour commencer la matrice."}
+          </CardContent>
+        </Card>
+      ) : null}
       {project.characters.length === 0 ? (
         <p className="text-muted-foreground text-sm">Aucun personnage — crée le héros et l’antagoniste pour ancrer l’histoire.</p>
       ) : null}

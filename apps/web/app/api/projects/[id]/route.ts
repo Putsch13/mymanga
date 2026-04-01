@@ -11,10 +11,27 @@ const patchSchema = z.object({
   pitch: z.string().optional().nullable(),
   description: z.string().optional().nullable(),
   primaryGenre: z.string().optional().nullable(),
+  subGenres: z.array(z.string()).optional(),
   tone: z.string().optional().nullable(),
+  format: z.string().optional().nullable(),
+  visualStyle: z.string().optional().nullable(),
   status: z.nativeEnum(ProjectStatus).optional(),
   contentRating: z.nativeEnum(ContentRating).optional(),
   intensityLayer: z.nativeEnum(ContentIntensityLayer).optional(),
+  settings: z
+    .object({
+      violenceLevel: z.number().int().min(0).max(100).optional(),
+      romanceLevel: z.number().int().min(0).max(100).optional(),
+      sensualityLevel: z.number().int().min(0).max(100).optional(),
+      darknessLevel: z.number().int().min(0).max(100).optional(),
+      mysteryLevel: z.number().int().min(0).max(100).optional(),
+      realismLevel: z.number().int().min(0).max(100).optional(),
+      pacingLevel: z.number().int().min(0).max(100).optional(),
+      dialogueDensity: z.number().int().min(0).max(100).optional(),
+      maxTokensPerJob: z.number().int().min(100).max(50000).optional(),
+      canonStrictness: z.number().int().min(0).max(100).optional(),
+    })
+    .optional(),
 });
 
 export async function GET(_req: Request, ctx: Ctx) {
@@ -28,6 +45,10 @@ export async function GET(_req: Request, ctx: Ctx) {
       storyBible: true,
       stylePacks: { orderBy: { version: "desc" } },
       chapters: { orderBy: { chapterNumber: "desc" } },
+      arcs: { orderBy: { startChapterNumber: "asc" } },
+      relationships: { orderBy: { updatedAt: "desc" }, take: 12 },
+      settings: true,
+      _count: { select: { characters: true, chapters: true, arcs: true, relationships: true } },
     },
   });
   if (!project) return notFound();
@@ -43,7 +64,30 @@ export async function PATCH(req: Request, ctx: Ctx) {
   const body = patchSchema.parse(await req.json());
   const project = await prisma.project.update({
     where: { id },
-    data: body,
+    data: {
+      title: body.title,
+      pitch: body.pitch,
+      description: body.description,
+      primaryGenre: body.primaryGenre,
+      subGenres: body.subGenres,
+      tone: body.tone,
+      format: body.format,
+      visualStyle: body.visualStyle,
+      status: body.status,
+      contentRating: body.contentRating,
+      intensityLayer: body.intensityLayer,
+      ...(body.settings
+        ? {
+            settings: {
+              upsert: {
+                create: body.settings,
+                update: body.settings,
+              },
+            },
+          }
+        : {}),
+    },
+    include: { settings: true },
   });
   return NextResponse.json({ project });
 }

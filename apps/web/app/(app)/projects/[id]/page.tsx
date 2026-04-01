@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { BookMarked, BookOpen, ImageIcon, Palette, Users, Wand2 } from "lucide-react";
+import { BookMarked, BookOpen, GitBranch, ImageIcon, Palette, ScrollText, Users, Wand2 } from "lucide-react";
 import { prisma } from "@manga-ai-studio/db";
 import { getCurrentUser } from "@/lib/auth/get-app-user";
 import { Badge } from "@/components/ui/badge";
@@ -56,7 +56,14 @@ export default async function ProjectOverviewPage({ params }: Props) {
   const { id } = await params;
   const project = await prisma.project.findFirst({
     where: { id, userId: user.id },
-    include: { stylePacks: { orderBy: { version: "desc" }, take: 1 }, characters: { take: 8 } },
+    include: {
+      stylePacks: { orderBy: { version: "desc" }, take: 1 },
+      characters: { take: 8, orderBy: { createdAt: "desc" } },
+      chapters: { take: 4, orderBy: { chapterNumber: "desc" } },
+      arcs: { take: 4, orderBy: [{ startChapterNumber: "asc" }, { name: "asc" }] },
+      relationships: { take: 8, orderBy: { updatedAt: "desc" } },
+      settings: true,
+    },
   });
   if (!project) notFound();
 
@@ -96,6 +103,85 @@ export default async function ProjectOverviewPage({ params }: Props) {
         ))}
       </div>
 
+      <div className="grid gap-4 xl:grid-cols-3">
+        <Card className="border-border/60 bg-card/30">
+          <CardHeader>
+            <CardTitle className="text-lg">Vue d&apos;ensemble</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm text-muted-foreground">
+            <p>{project.description ?? "Ajoute une description longue pour mieux guider la mémoire et les futurs chapitres."}</p>
+            <dl className="grid gap-2">
+              <div className="flex items-center justify-between">
+                <dt>Format</dt>
+                <dd className="font-medium text-foreground">{project.format ?? "manga"}</dd>
+              </div>
+              <div className="flex items-center justify-between">
+                <dt>Ton</dt>
+                <dd className="font-medium text-foreground">{project.tone ?? "à préciser"}</dd>
+              </div>
+              <div className="flex items-center justify-between">
+                <dt>Style visuel</dt>
+                <dd className="font-medium text-foreground">{project.visualStyle ?? "à définir"}</dd>
+              </div>
+              <div className="flex items-center justify-between">
+                <dt>Persos</dt>
+                <dd className="font-medium text-foreground">{project.characters.length}</dd>
+              </div>
+              <div className="flex items-center justify-between">
+                <dt>Arcs</dt>
+                <dd className="font-medium text-foreground">{project.arcs.length}</dd>
+              </div>
+              <div className="flex items-center justify-between">
+                <dt>Relations</dt>
+                <dd className="font-medium text-foreground">{project.relationships.length}</dd>
+              </div>
+            </dl>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/60 bg-card/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <GitBranch className="h-5 w-5 text-accent" />
+              Arcs narratifs
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {project.arcs.length > 0 ? (
+              project.arcs.map((arc) => (
+                <div key={arc.id} className="rounded-lg border border-border/60 p-3">
+                  <p className="font-medium">{arc.name}</p>
+                  <p className="text-muted-foreground">{arc.summary ?? "Pas encore de résumé."}</p>
+                </div>
+              ))
+            ) : (
+              <p className="text-muted-foreground">Aucun arc encore défini. Tu peux commencer à structurer tes sous-intrigues via l’API d’arcs V3.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/60 bg-card/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <ScrollText className="h-5 w-5 text-accent" />
+              Chapitres récents
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {project.chapters.length > 0 ? (
+              project.chapters.map((chapter) => (
+                <Link key={chapter.id} href={`/projects/${id}/chapters/${chapter.id}/read`} className="block rounded-lg border border-border/60 p-3 transition hover:border-accent/40">
+                  <p className="font-medium">{chapter.title ?? `Chapitre ${chapter.chapterNumber}`}</p>
+                  <p className="text-muted-foreground">{chapter.summary ?? "Pas encore de résumé."}</p>
+                </Link>
+              ))
+            ) : (
+              <p className="text-muted-foreground">Aucun chapitre encore généré.</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       <Card className="border-border/60 bg-card/30">
         <CardHeader>
           <CardTitle className="text-lg">Aperçu style pack</CardTitle>
@@ -123,6 +209,39 @@ export default async function ProjectOverviewPage({ params }: Props) {
             </dl>
           ) : (
             <p className="text-sm text-muted-foreground">Aucun style pack — normalement créé à la création du projet.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/60 bg-card/30">
+        <CardHeader>
+          <CardTitle className="text-lg">Curseurs créatifs</CardTitle>
+          <CardDescription>Le projet encode déjà les garde-fous de ton, rythme et continuité.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {project.settings ? (
+            <dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+              {(
+                [
+                  ["Violence", project.settings.violenceLevel],
+                  ["Romance", project.settings.romanceLevel],
+                  ["Sensualité", project.settings.sensualityLevel],
+                  ["Noirceur", project.settings.darknessLevel],
+                  ["Mystère", project.settings.mysteryLevel],
+                  ["Réalisme", project.settings.realismLevel],
+                  ["Rythme", project.settings.pacingLevel],
+                  ["Dialogue", project.settings.dialogueDensity],
+                  ["Canon", project.settings.canonStrictness],
+                ] as const
+              ).map(([label, value]) => (
+                <div key={label}>
+                  <dt className="text-muted-foreground">{label}</dt>
+                  <dd className="font-medium">{value}/100</dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <p className="text-sm text-muted-foreground">Aucun réglage avancé pour l’instant.</p>
           )}
         </CardContent>
       </Card>

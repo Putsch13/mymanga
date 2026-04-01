@@ -3,15 +3,26 @@ import { z } from "zod";
 import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
+import { trackServerEvent } from "@/lib/analytics";
 import { slugify } from "@/lib/slug";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 const createSchema = z.object({
   name: z.string().min(1),
-  roleType: z.string().optional(),
-  biography: z.string().optional(),
-  age: z.number().int().optional(),
+  roleType: z.string().optional().nullable(),
+  biography: z.string().optional().nullable(),
+  age: z.number().int().optional().nullable(),
+  adultVerified: z.boolean().optional().default(false),
+  pronouns: z.string().optional().nullable(),
+  objective: z.string().optional().nullable(),
+  fear: z.string().optional().nullable(),
+  trauma: z.string().optional().nullable(),
+  emotionalState: z.string().optional().nullable(),
+  traits: z.array(z.string()).optional().default([]),
+  flaws: z.array(z.string()).optional().default([]),
+  secrets: z.array(z.string()).optional().default([]),
+  appearanceSummary: z.string().optional().nullable(),
 });
 
 export async function GET(_req: Request, ctx: Ctx) {
@@ -50,6 +61,16 @@ export async function POST(req: Request, ctx: Ctx) {
       roleType: body.roleType,
       biography: body.biography,
       age: body.age,
+      adultVerified: body.adultVerified,
+      pronouns: body.pronouns,
+      objective: body.objective,
+      fear: body.fear,
+      trauma: body.trauma,
+      emotionalState: body.emotionalState,
+      traits: body.traits,
+      flaws: body.flaws,
+      secrets: body.secrets,
+      appearance: body.appearanceSummary ? { summary: body.appearanceSummary } : {},
       canonPack: {
         create: {
           forbiddenVisualDrift: [],
@@ -57,6 +78,11 @@ export async function POST(req: Request, ctx: Ctx) {
       },
     },
     include: { canonPack: true },
+  });
+  await trackServerEvent("character_created", {
+    userId: user.id,
+    projectId,
+    characterId: character.id,
   });
   return NextResponse.json({ character });
 }

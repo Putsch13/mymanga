@@ -4,6 +4,7 @@ import Stripe from "stripe";
 import { createCheckoutSession, getPackDefinition } from "@manga-ai-studio/billing";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { unauthorized } from "@/lib/api-response";
+import { trackServerEvent } from "@/lib/analytics";
 
 const bodySchema = z.object({
   packCode: z.enum(["starter", "creator", "studio", "pro_saga"]),
@@ -30,5 +31,6 @@ export async function POST(req: Request) {
     successUrl: `${origin}/wallet?success=1`,
     cancelUrl: `${origin}/wallet?canceled=1`,
   });
+  await trackServerEvent("purchase_started", { userId: user.id, packCode: body.packCode });
   return NextResponse.json({ url: session.url });
 }

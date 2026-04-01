@@ -2,12 +2,9 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 import { prisma, type User } from "@manga-ai-studio/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { isAuthDisabled, requireSafeAuthMode } from "@/lib/auth/auth-mode";
 
 const DEV_EMAIL = "dev@manga-ai.studio";
-
-function authDisabled() {
-  return process.env.AUTH_DISABLED === "true";
-}
 
 async function getOrCreateDevUser(): Promise<User> {
   const existing = await prisma.user.findUnique({ where: { email: DEV_EMAIL } });
@@ -35,7 +32,8 @@ async function getOrCreateDevUser(): Promise<User> {
  * Utilisateur applicatif Prisma : Supabase Auth ou mode dev.
  */
 export async function getAppUser(): Promise<User | null> {
-  if (authDisabled()) {
+  requireSafeAuthMode();
+  if (isAuthDisabled()) {
     return getOrCreateDevUser();
   }
 
@@ -107,4 +105,25 @@ export const getCurrentUser = cache(async (): Promise<User> => {
 
 export async function requireAppUser(): Promise<User> {
   return getCurrentUser();
+}
+
+export async function getCurrentUserWithPreferences(): Promise<{
+  user: User;
+  preferences: { matureContentEnabled: boolean; defaultLanguage: string } | null;
+}> {
+  const user = await getCurrentUser();
+  const full = await prisma.user.findUnique({
+    where: { id: user.id },
+    include: { preferences: true },
+  });
+
+  return {
+    user,
+    preferences: full?.preferences
+      ? {
+          matureContentEnabled: full.preferences.matureContentEnabled,
+          defaultLanguage: full.preferences.defaultLanguage,
+        }
+      : null,
+  };
 }

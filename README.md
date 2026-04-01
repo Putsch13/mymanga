@@ -38,8 +38,11 @@ Ce dépôt est un **monorepo** : site web Next.js, packages métier (IA, billing
 - **Images** : **routage dynamique** vers le bon backend (fal / BFL / Runware / Stability) selon le mode de rendu, le contenu et les refs disponibles.
 - **Modération** : matrice **intensité × fournisseur** + scan du **payload assemblé** (PromptComposer v2).
 - **Monétisation web** : **Stripe** → crédit du **wallet** (ledger interne en tokens).
+- **Wallet V3** : réservation, régularisation, refunds partiels, historique du ledger et idempotence Stripe côté webhook.
 - **Lecteur manga (spec §19.4)** : pages construites depuis `storyboard` / `outline` + images de scènes ; **double page** (spread), navigation **Retour** / **Tourner la page**, bascule **texte seul** / **cases + texte**.
 - **Suite de chapitre (spec §4.9)** : à la fin du feuilletage, carte **fin de chapitre** — instruction libre, suggestions et tags rapides → `POST .../chapters/[chapterId]/continue` crée le brouillon suivant et un job `GENERATE_CHAPTER_OUTLINE`.
+- **Pipeline chapitre V3** : création d’un contexte projet, génération structurée `creativeDirection` / `plotOptions` / `outline` / `script` / `storyboard`, persistance scènes + panneaux, snapshot mémoire et timeline.
+- **Admin & exports** : backoffice minimal, export chapitre, bible série, package projet, events de modération.
 
 ---
 
@@ -233,8 +236,10 @@ Les variables critiques :
 - **`AUTH_DISABLED=true`** : uniquement en local pour skipper Supabase (ne jamais activer en prod)
 - **`NEXT_PUBLIC_APP_URL`** : URL publique (Stripe redirects, e-mails)
 - **`STRIPE_SECRET_KEY`**, **`STRIPE_WEBHOOK_SECRET`**
+- **`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`**, **`RESEND_API_KEY`**
 - **`INNGEST_EVENT_KEY`**, **`INNGEST_SIGNING_KEY`**
 - **`FAL_KEY`**, **`BFL_API_KEY`**, **`RUNWARE_API_KEY`**, **`STABILITY_API_KEY`**, **`OPENAI_API_KEY`** : selon les fournisseurs activés
+- **`POSTHOG_KEY`**, **`SENTRY_DSN`**, **`STORAGE_BUCKET`** : analytics / observabilité / assets
 
 Détail et procédures cloud : **[DEPLOYMENT.md](./DEPLOYMENT.md)**.
 
@@ -265,17 +270,32 @@ Principales routes :
 | `GET`/`POST` | `/api/projects` | Liste / création projets |
 | `GET`/`PATCH`/`DELETE` | `/api/projects/[id]` | Détail / mise à jour / archivage |
 | `GET`/`POST` | `/api/projects/[id]/characters` | Personnages |
+| `GET`/`PATCH`/`DELETE` | `/api/characters/[characterId]` | Fiche personnage détaillée |
+| `POST` | `/api/characters/[characterId]/generate-visual` | Génération de référence visuelle |
 | `GET`/`PUT` | `/api/projects/[id]/style-pack` | Style pack |
 | `PUT` | `/api/projects/[id]/bible` | Bible |
+| `GET`/`POST` | `/api/projects/[id]/relationships` | Matrice de relations |
+| `GET`/`POST` | `/api/projects/[id]/arcs` | Arcs narratifs |
 | `GET`/`POST` | `/api/projects/[id]/chapters` | Chapitres |
+| `POST` | `/api/projects/[id]/chapters/estimate` | Estimation V3 + preview mémoire |
 | `GET`/`PATCH` | `/api/projects/[id]/chapters/[chapterId]` | Détail chapitre (scènes + images) / mise à jour partielle |
 | `POST` | `/api/projects/[id]/chapters/[chapterId]/continue` | Suite utilisateur → nouveau chapitre brouillon + job outline |
 | `POST` | `/api/projects/[id]/pipeline` | Enqueue Inngest |
 | `POST` | `/api/estimate-image` | Routing + coût tokens |
 | `POST` | `/api/ai/generate` | Génération image (débit wallet) |
-| `GET` | `/api/wallet` | Solde |
+| `GET` | `/api/wallet` | Solde + dernières transactions |
+| `GET` | `/api/wallet/transactions` | Ledger wallet |
 | `POST` | `/api/billing/checkout-session` | Stripe Checkout |
 | `POST` | `/api/billing/webhooks/stripe` | Webhook Stripe |
+| `GET` | `/api/jobs/[jobId]` | Suivi d’un job |
+| `POST` | `/api/jobs/[jobId]/cancel` | Annulation |
+| `GET` | `/api/account/me` | Profil / préférences |
+| `POST` | `/api/account/age-gate` | Vérification d’âge |
+| `GET` | `/api/moderation/events` | Historique modération |
+| `POST` | `/api/moderation/review-request` | Demande de revue |
+| `POST` | `/api/chapters/[chapterId]/export/pdf` | Export chapitre |
+| `POST` | `/api/projects/[id]/export/bible` | Export bible |
+| `POST` | `/api/projects/[id]/export/package` | Export package |
 | `GET`/`POST`/`PUT` | `/api/inngest` | Handler Inngest |
 
 ---
@@ -316,11 +336,11 @@ Couvre notamment le **routage image** (`packages/ai/src/image-routing-service.te
 
 ## Feuille de route / limites connues
 
-- **Remboursement tokens** si la génération image échoue après débit (amélioration ledger).
+- **Exports** : implémentation utilitaire en texte/binaire simple ; remplacer par vrai moteur PDF/ZIP si tu veux une prod premium.
 - **Adapters Runware / BFL / Stability** : stubs ou partiels — à brancher sur les APIs officielles pour la prod.
-- **RAG / pgvector** : package `memory` encore minimal ; embeddings à brancher sur PostgreSQL.
-- **Rate limiting** : optionnel via Upstash (variables dans `packages/config`) — non câblé partout dans l’app.
-- **OpenAI / agents texte** : pipeline chapitre côté LLM à densifier (synopsis, beats, dialogues) avec structured outputs.
+- **RAG / pgvector** : retrieval textuel et snapshots mémoire en place ; embeddings pgvector encore à brancher.
+- **Rate limiting** : helper léger en mémoire présent ; Upstash reste à brancher pour une prod multi-instances.
+- **OpenAI / agents texte** : pipeline déterministe structuré en place ; encore à densifier avec structured outputs multi-agents si tu veux dépasser le fallback industriel actuel.
 
 ---
 

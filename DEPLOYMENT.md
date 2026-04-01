@@ -57,13 +57,13 @@ pnpm db:seed
 3. **Build command** (aligné `render.yaml`) :
 
    ```bash
-   corepack enable && pnpm install && pnpm --filter @manga-ai-studio/db exec prisma generate && pnpm --filter @manga-ai-studio/web build
+   corepack pnpm install --frozen-lockfile && corepack pnpm --filter @manga-ai-studio/db exec prisma generate && corepack pnpm --filter @manga-ai-studio/web build
    ```
 
 4. **Start command** :
 
    ```bash
-   pnpm --filter @manga-ai-studio/web start
+   corepack pnpm --filter @manga-ai-studio/web start
    ```
 
 5. Définis **toutes** les variables listées dans [`.env.example`](./.env.example) + celles ci-dessous.
@@ -90,6 +90,7 @@ Ne **jamais** mettre `AUTH_DISABLED=true` en production.
    Événement : `checkout.session.completed`.  
    Secret du webhook → `STRIPE_WEBHOOK_SECRET`.
 3. Les **packs** (starter, creator, studio, pro_saga) sont définis dans le code ([`packages/billing/src/stripe-checkout.ts`](./packages/billing/src/stripe-checkout.ts)) avec des `price_data` dynamiques ; tu peux les remplacer par de vrais **Price IDs** Stripe pour la compta.
+4. Le webhook est maintenant **idempotent** : un même `checkout.session.completed` ne recrédite plus le wallet deux fois.
 
 ---
 
@@ -110,7 +111,10 @@ Ne **jamais** mettre `AUTH_DISABLED=true` en production.
 | `BFL_API_KEY` | À brancher sur l'API BFL officielle dans l'adapter. |
 | `RUNWARE_API_KEY` | Workflows / LoRA — adapter à compléter. |
 | `STABILITY_API_KEY` | Stable Image Ultra — adapter à compléter. |
-| `OPENAI_API_KEY` | Pour futurs agents texte / structured outputs (PromptComposer v2 LLM). |
+| `OPENAI_API_KEY` | Outline chapitre, pipeline texte fallback-compatible et futures sorties structurées. |
+| `POSTHOG_KEY` | Analytics produit (fallback no-op si absent). |
+| `SENTRY_DSN` | Observabilité erreur (fallback console si absent). |
+| `STORAGE_BUCKET` | Bucket assets si tu branches du storage externe. |
 
 **fal** : crée une clé sur [fal.ai](https://fal.ai) → colle dans `FAL_KEY` sur Render. Sans clé, l'UI utilise des **placeholders** (mock).
 
@@ -124,6 +128,8 @@ Ne **jamais** mettre `AUTH_DISABLED=true` en production.
 - [ ] Stripe clé + webhook  
 - [ ] Inngest (optionnel mais recommandé pour la V3 « studio »)  
 - [ ] `FAL_KEY` (ou autre provider) pour de vraies images  
+- [ ] `OPENAI_API_KEY` pour enrichir les outlines et la chaîne texte
+- [ ] `POSTHOG_KEY` / `SENTRY_DSN` si tu veux analytics + observabilité
 - [ ] Pas de `AUTH_DISABLED` en prod  
 - [ ] Logs / Sentry / PostHog (à brancher ensuite selon ta stack observabilité)
 

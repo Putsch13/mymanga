@@ -6,6 +6,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "dependencies": {
+    "@manga-ai-studio/db": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5"
   }

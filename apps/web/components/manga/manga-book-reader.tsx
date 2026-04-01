@@ -81,6 +81,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   const [intent, setIntent] = useState("");
   const [continuing, setContinuing] = useState(false);
   const [continueMsg, setContinueMsg] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -157,6 +158,23 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
     }
   }
 
+  async function exportChapter() {
+    setExporting(true);
+    const res = await fetch(`/api/chapters/${chapterId}/export/pdf`, { method: "POST" });
+    setExporting(false);
+    if (!res.ok) {
+      setContinueMsg("Export impossible");
+      return;
+    }
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `chapter-${chapter?.chapterNumber ?? chapterId}.pdf`;
+    link.click();
+    window.URL.revokeObjectURL(url);
+  }
+
   if (loadError) {
     return <p className="text-red-400">{loadError}</p>;
   }
@@ -181,6 +199,9 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
           <Button type="button" variant={showTextOnly ? "default" : "outline"} size="sm" onClick={() => setShowTextOnly((v) => !v)} className="gap-1">
             {showTextOnly ? <FileText className="h-4 w-4" /> : <ImageIcon className="h-4 w-4" />}
             {showTextOnly ? "Texte seul" : "Cases + texte"}
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={exportChapter} disabled={exporting}>
+            {exporting ? "Export…" : "Export PDF"}
           </Button>
           <Button type="button" variant="secondary" size="sm" onClick={goPrev} disabled={spreadIndex === 0 && !showEnd}>
             <ChevronLeft className="h-4 w-4" />
@@ -269,6 +290,25 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {chapter.scenes.length > 0 ? (
+        <Card className="border-border/60 bg-card/40">
+          <CardHeader>
+            <CardTitle className="text-lg">Scènes du chapitre</CardTitle>
+            <CardDescription>Vue rapide sur la structure et les panneaux associés.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {chapter.scenes.map((scene, index) => (
+              <div key={scene.id} className="rounded-lg border border-border/60 p-3 text-sm">
+                <p className="font-medium">
+                  Scene {index + 1} · {scene.title ?? "Sans titre"}
+                </p>
+                <p className="text-muted-foreground">{scene.images.length} panneau(x)</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       ) : null}
 
       {/* Fin de chapitre — spec PDF §4.9 */}
