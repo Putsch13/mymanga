@@ -41,6 +41,7 @@ export default function ChapterGeneratorPage() {
     error?: { message?: string };
   } | null>(null);
   const [pipelineMsg, setPipelineMsg] = useState<string | null>(null);
+  const [runningNow, setRunningNow] = useState(false);
   const [userIntent, setUserIntent] = useState("Faire monter la tension, révéler un secret et préparer une confrontation majeure.");
   const [chapterTitle, setChapterTitle] = useState("");
 
@@ -122,6 +123,18 @@ export default function ChapterGeneratorPage() {
     setPipelineMsg(j.message ?? JSON.stringify(j));
     if (j.jobId) {
       setSelectedJobId(j.jobId);
+    }
+  }
+
+  async function runNow() {
+    if (!selectedJobId) return;
+    setRunningNow(true);
+    try {
+      const res = await fetch(`/api/jobs/${selectedJobId}/run-now`, { method: "POST" });
+      const j = await res.json();
+      setPipelineMsg(j.ok ? "Exécution immédiate lancée (sans Inngest)." : (j.error ?? j.message ?? "Échec run-now"));
+    } finally {
+      setRunningNow(false);
     }
   }
 
@@ -262,6 +275,23 @@ export default function ChapterGeneratorPage() {
             {jobState ? (
               <div className="space-y-2 rounded-lg border border-border/60 p-4">
                 <p className="text-sm font-medium">Job {jobState.status}</p>
+                {["queued", "running"].includes(jobState.status) ? (
+                  <div className="rounded-lg border border-amber-500/20 bg-amber-950/20 p-3">
+                    <p className="text-xs text-amber-300">
+                      Si tu as mis `INNGEST_EVENT_KEY` mais que l&apos;app Inngest n&apos;est pas synchronisée, le job peut rester bloqué.
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      className="mt-2"
+                      onClick={runNow}
+                      disabled={runningNow}
+                    >
+                      {runningNow ? "Exécution…" : "Exécuter maintenant (sans Inngest)"}
+                    </Button>
+                  </div>
+                ) : null}
                 {jobState.output?.steps?.map((step) => (
                   <div key={step.key} className="flex items-center justify-between text-sm">
                     <span>{step.label}</span>
