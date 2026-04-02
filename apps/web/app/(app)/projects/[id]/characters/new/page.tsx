@@ -3,17 +3,25 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CharacterVisualConfig } from "@/components/characters/character-visual-config";
+import { CharacterBodyConfig } from "@/components/characters/character-body-config";
+import { CharacterWardrobeConfig } from "@/components/characters/character-wardrobe-config";
+import { CharacterSpeechConfig } from "@/components/characters/character-speech-config";
+import { CharacterCanonLocks } from "@/components/characters/character-canon-locks";
+import { CharacterPreviewCard } from "@/components/characters/character-preview-card";
 
 export default function NewCharacterPage() {
   const params = useParams();
   const id = params.id as string;
   const router = useRouter();
+
+  // Identité
   const [name, setName] = useState("");
   const [roleType, setRoleType] = useState("");
   const [biography, setBiography] = useState("");
@@ -21,18 +29,32 @@ export default function NewCharacterPage() {
   const [adultVerified, setAdultVerified] = useState(false);
   const [objective, setObjective] = useState("");
   const [fear, setFear] = useState("");
+  const [trauma, setTrauma] = useState("");
   const [emotionalState, setEmotionalState] = useState("");
-  const [appearance, setAppearance] = useState("");
-  const [hairColor, setHairColor] = useState("");
-  const [eyeColor, setEyeColor] = useState("");
-  const [outfitDefault, setOutfitDefault] = useState("");
   const [traits, setTraits] = useState("");
   const [flaws, setFlaws] = useState("");
+  const [appearance, setAppearance] = useState("");
+
+  // Profils avancés
+  const [visualProfile, setVisualProfile] = useState<Record<string, unknown>>({});
+  const [bodyState, setBodyState] = useState<Record<string, unknown>>({});
+  const [wardrobeProfile, setWardrobeProfile] = useState<Record<string, unknown>>({});
+  const [speechProfile, setSpeechProfile] = useState<Record<string, unknown>>({});
+  const [continuityProfile, setContinuityProfile] = useState<Record<string, unknown>>({});
+  const [adultContentProfile] = useState<Record<string, unknown>>({});
+
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const isAdult = adultVerified && Number(age) >= 18;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
+    setError(null);
+
+    const ageNum = age ? Number(age) : undefined;
+
     const res = await fetch(`/api/projects/${id}/characters`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -40,112 +62,241 @@ export default function NewCharacterPage() {
         name,
         roleType: roleType || undefined,
         biography: biography || undefined,
-        age: age ? Number(age) : undefined,
+        age: ageNum,
         adultVerified,
         objective: objective || undefined,
         fear: fear || undefined,
+        trauma: trauma || undefined,
         emotionalState: emotionalState || undefined,
         appearance: appearance || undefined,
-        hairColor: hairColor || undefined,
-        eyeColor: eyeColor || undefined,
-        outfitDefault: outfitDefault || undefined,
-        traits: traits
-          .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean),
-        flaws: flaws
-          .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean),
+        hairColor: (visualProfile.hairColor as string) || undefined,
+        eyeColor: (visualProfile.eyeColor as string) || undefined,
+        outfitDefault: (wardrobeProfile.defaultOutfit as string) || undefined,
+        traits: traits.split(",").map((v) => v.trim()).filter(Boolean),
+        flaws: flaws.split(",").map((v) => v.trim()).filter(Boolean),
+        visualProfile,
+        bodyState,
+        wardrobeProfile,
+        speechProfile,
+        continuityProfile,
+        adultContentProfile,
       }),
     });
+
     const data = await res.json();
     setLoading(false);
-    if (res.ok) router.push(`/projects/${id}/characters/${data.character.id}`);
+    if (res.ok) {
+      router.push(`/projects/${id}/characters/${data.character.id}`);
+    } else {
+      setError(data.message ?? data.error ?? "Erreur lors de la création");
+    }
   }
 
   return (
-    <div className="mx-auto max-w-lg space-y-8">
-      <Link href={`/projects/${id}/characters`} className="text-sm text-muted-foreground hover:text-foreground">
-        ← Personnages
-      </Link>
-      <Card className="border-border/60 bg-card/50">
-        <CardHeader>
-          <CardTitle>Nouveau personnage</CardTitle>
-          <CardDescription>Crée une vraie base canonique : rôle, objectif, peur, visuel et état émotionnel.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={onSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Nom</Label>
-              <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="role">Rôle (héros, antagoniste…)</Label>
-              <Input id="role" value={roleType} onChange={(e) => setRoleType(e.target.value)} />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="age">Âge</Label>
-                <Input id="age" type="number" value={age} onChange={(e) => setAge(e.target.value)} />
-              </div>
-              <label className="flex items-end gap-2 text-sm text-muted-foreground">
-                <input type="checkbox" checked={adultVerified} onChange={(e) => setAdultVerified(e.target.checked)} />
-                Adulte explicitement vérifié
-              </label>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="bio">Bio courte</Label>
-              <Textarea id="bio" value={biography} onChange={(e) => setBiography(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="objective">Objectif</Label>
-              <Textarea id="objective" value={objective} onChange={(e) => setObjective(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="fear">Peur principale</Label>
-              <Textarea id="fear" value={fear} onChange={(e) => setFear(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="emotion">Etat émotionnel actuel</Label>
-              <Input id="emotion" value={emotionalState} onChange={(e) => setEmotionalState(e.target.value)} placeholder="sur le fil, glacé, euphorique..." />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="appearance">Description physique</Label>
-              <Textarea id="appearance" value={appearance} onChange={(e) => setAppearance(e.target.value)} placeholder="Grand, mince, cicatrice sur la joue gauche, regard perçant..." />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="hairColor">Couleur de cheveux</Label>
-                <Input id="hairColor" value={hairColor} onChange={(e) => setHairColor(e.target.value)} placeholder="Noir corbeau, blond platine..." />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="eyeColor">Couleur des yeux</Label>
-                <Input id="eyeColor" value={eyeColor} onChange={(e) => setEyeColor(e.target.value)} placeholder="Gris acier, ambre doré..." />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="outfitDefault">Tenue habituelle</Label>
-              <Input id="outfitDefault" value={outfitDefault} onChange={(e) => setOutfitDefault(e.target.value)} placeholder="Manteau noir, chemise blanche, bottes en cuir..." />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="traits">Traits dominants</Label>
-              <Input id="traits" value={traits} onChange={(e) => setTraits(e.target.value)} placeholder="loyal, impulsif, calculateur" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="flaws">Défauts</Label>
-              <Input id="flaws" value={flaws} onChange={(e) => setFlaws(e.target.value)} placeholder="orgueilleux, jaloux, brutal" />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="outline">Canon pack créé automatiquement</Badge>
-              <Badge variant="outline">Galerie visuelle générable ensuite</Badge>
-            </div>
-            <Button type="submit" disabled={loading} className="w-full">
-              {loading ? "Création…" : "Créer"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+    <div className="space-y-6">
+      <div>
+        <Link href={`/projects/${id}/characters`} className="text-sm text-muted-foreground hover:text-foreground">
+          ← Personnages
+        </Link>
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight">Nouveau personnage</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Configure chaque aspect pour une continuité narrative et visuelle parfaite.
+        </p>
+      </div>
+
+      <form onSubmit={onSubmit} className="grid gap-6 xl:grid-cols-[1fr_320px]">
+        <div className="space-y-6">
+          <Tabs defaultValue="identity">
+            <TabsList className="w-full flex-wrap h-auto gap-1">
+              <TabsTrigger value="identity">Identité</TabsTrigger>
+              <TabsTrigger value="visual">Visage</TabsTrigger>
+              <TabsTrigger value="body">Corps</TabsTrigger>
+              <TabsTrigger value="wardrobe">Tenue</TabsTrigger>
+              <TabsTrigger value="speech">Voix</TabsTrigger>
+              <TabsTrigger value="canon">Canon</TabsTrigger>
+            </TabsList>
+
+            {/* IDENTITÉ */}
+            <TabsContent value="identity">
+              <Card className="border-border/60 bg-card/50">
+                <CardHeader>
+                  <CardTitle>Identité</CardTitle>
+                  <CardDescription>Informations de base, biographie et psychologie.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="name">Nom *</Label>
+                      <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="role">Rôle</Label>
+                      <Input id="role" value={roleType} onChange={(e) => setRoleType(e.target.value)} placeholder="Héros, antagoniste, secondaire..." />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="age">Âge</Label>
+                      <Input id="age" type="number" min={0} max={9999} value={age} onChange={(e) => setAge(e.target.value)} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="emotion">État émotionnel actuel</Label>
+                      <Input id="emotion" value={emotionalState} onChange={(e) => setEmotionalState(e.target.value)} placeholder="Glacé, euphorique, sur le fil..." />
+                    </div>
+                  </div>
+
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={adultVerified}
+                      onChange={(e) => setAdultVerified(e.target.checked)}
+                      className="rounded"
+                    />
+                    <span>Adulte explicitement vérifié (18+)</span>
+                    {adultVerified && Number(age) < 18 && (
+                      <span className="text-xs text-red-400">⚠ Âge insuffisant</span>
+                    )}
+                  </label>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="bio">Biographie</Label>
+                    <Textarea id="bio" value={biography} onChange={(e) => setBiography(e.target.value)} rows={4} placeholder="Origines, passé, événements marquants..." />
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="objective">Objectif</Label>
+                      <Textarea id="objective" value={objective} onChange={(e) => setObjective(e.target.value)} rows={3} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="fear">Peur principale</Label>
+                      <Textarea id="fear" value={fear} onChange={(e) => setFear(e.target.value)} rows={3} />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="trauma">Trauma</Label>
+                    <Input id="trauma" value={trauma} onChange={(e) => setTrauma(e.target.value)} placeholder="Événement fondateur..." />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="appearance">Description physique générale</Label>
+                    <Textarea id="appearance" value={appearance} onChange={(e) => setAppearance(e.target.value)} rows={3} placeholder="Grand, mince, regard perçant, cicatrice joue gauche..." />
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="traits">Traits dominants</Label>
+                      <Input id="traits" value={traits} onChange={(e) => setTraits(e.target.value)} placeholder="loyal, impulsif, calculateur" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="flaws">Défauts</Label>
+                      <Input id="flaws" value={flaws} onChange={(e) => setFlaws(e.target.value)} placeholder="orgueilleux, jaloux, brutal" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* VISAGE */}
+            <TabsContent value="visual">
+              <Card className="border-border/60 bg-card/50">
+                <CardHeader>
+                  <CardTitle>Visage & Apparence</CardTitle>
+                  <CardDescription>Traits visuels précis pour la cohérence des images générées.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <CharacterVisualConfig
+                    value={visualProfile as Parameters<typeof CharacterVisualConfig>[0]["value"]}
+                    onChange={(v) => setVisualProfile(v as Record<string, unknown>)}
+                  />
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* CORPS */}
+            <TabsContent value="body">
+              <Card className="border-border/60 bg-card/50">
+                <CardHeader>
+                  <CardTitle>Morphologie & État physique</CardTitle>
+                  <CardDescription>Membres, blessures, état canon. Tout changement persiste.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <CharacterBodyConfig
+                    value={bodyState as Parameters<typeof CharacterBodyConfig>[0]["value"]}
+                    onChange={(v) => setBodyState(v as Record<string, unknown>)}
+                  />
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* TENUE */}
+            <TabsContent value="wardrobe">
+              <Card className="border-border/60 bg-card/50">
+                <CardHeader>
+                  <CardTitle>Garde-robe</CardTitle>
+                  <CardDescription>Tenues, accessoires, style vestimentaire.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <CharacterWardrobeConfig
+                    value={wardrobeProfile as Parameters<typeof CharacterWardrobeConfig>[0]["value"]}
+                    onChange={(v) => setWardrobeProfile(v as Record<string, unknown>)}
+                    isAdult={isAdult}
+                  />
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* VOIX */}
+            <TabsContent value="speech">
+              <Card className="border-border/60 bg-card/50">
+                <CardHeader>
+                  <CardTitle>Personnalité & Voix</CardTitle>
+                  <CardDescription>Style de dialogue, manières de parler, de menacer, de séduire.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <CharacterSpeechConfig
+                    value={speechProfile as Parameters<typeof CharacterSpeechConfig>[0]["value"]}
+                    onChange={(v) => setSpeechProfile(v as Record<string, unknown>)}
+                  />
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* CANON */}
+            <TabsContent value="canon">
+              <Card className="border-border/60 bg-card/50">
+                <CardHeader>
+                  <CardTitle>Verrous Canon</CardTitle>
+                  <CardDescription>Traits qui ne peuvent jamais dériver sans événement narratif explicite.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <CharacterCanonLocks
+                    value={continuityProfile as Parameters<typeof CharacterCanonLocks>[0]["value"]}
+                    onChange={(v) => setContinuityProfile(v as Record<string, unknown>)}
+                  />
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+
+          {error && <p className="text-sm text-red-400">{error}</p>}
+
+          <Button type="submit" disabled={loading || !name} className="w-full">
+            {loading ? "Création…" : "Créer le personnage"}
+          </Button>
+        </div>
+
+        {/* Aperçu */}
+        <div className="space-y-4">
+          <h3 className="text-sm font-medium text-muted-foreground">Aperçu</h3>
+          <CharacterPreviewCard
+            name={name || "Nom du personnage"}
+            roleType={roleType}
+            age={age ? Number(age) : undefined}
+            adultVerified={adultVerified}
+            appearance={appearance}
+            hairColor={(visualProfile.hairColor as string) || undefined}
+            eyeColor={(visualProfile.eyeColor as string) || undefined}
+            outfitDefault={(wardrobeProfile.defaultOutfit as string) || undefined}
+            bodyState={bodyState}
+          />
+        </div>
+      </form>
     </div>
   );
 }

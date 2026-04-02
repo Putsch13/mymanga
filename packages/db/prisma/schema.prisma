@@ -296,6 +296,13 @@ model Character {
   eyeColor        String?
   outfitDefault   String?
   bodyProfile     Json      @default("{}")
+  // Profils structurés avancés (LOT 2)
+  visualProfile       Json  @default("{}")
+  bodyState           Json  @default("{}")
+  wardrobeProfile     Json  @default("{}")
+  speechProfile       Json  @default("{}")
+  continuityProfile   Json  @default("{}")
+  adultContentProfile Json  @default("{}")
   status          String    @default("alive")
   emotionalState  String?
   canonLocked     Boolean   @default(false)
@@ -514,15 +521,21 @@ model ContinuityEvent {
 }
 
 model MemorySnapshot {
-  id               String   @id @default(cuid())
-  projectId      String
-  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  chapterId      String?
-  chapter        Chapter? @relation(fields: [chapterId], references: [id])
-  structuredState Json    @default("{}")
-  narrativeSummary String?
-  embeddingStatus String   @default("pending")
-  createdAt      DateTime @default(now())
+  id                  String   @id @default(cuid())
+  projectId           String
+  project             Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  chapterId           String?
+  chapter             Chapter? @relation(fields: [chapterId], references: [id])
+  structuredState     Json     @default("{}")
+  narrativeSummary    String?
+  embeddingStatus     String   @default("pending")
+  // Snapshots état personnages à la fin du chapitre (LOT 3)
+  characterSnapshots  Json     @default("[]")
+  wardrobeSnapshots   Json     @default("[]")
+  relationshipSnapshots Json   @default("[]")
+  openLoops           Json     @default("[]")
+  visualContinuityWarnings Json @default("[]")
+  createdAt           DateTime @default(now())
 }
 
 model RagDocument {

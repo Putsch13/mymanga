@@ -2,7 +2,14 @@ node_modules
 .next
 .turbo
 dist
+coverage
 .env
 .env.local
+.env.*.local
 *.log
 .DS_Store
+__MACOSX
+*.pem
+.vercel
+.cache
+*.tsbuildinfo

@@ -24,21 +24,90 @@ function getProvider(id: ImageProviderId): ImageGenerationProvider {
   }
 }
 
+function hashPrompt(prompt: string): string {
+  let h = 0;
+  for (let i = 0; i < Math.min(prompt.length, 200); i++) {
+    h = (Math.imul(31, h) + prompt.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h).toString(16).padStart(8, "0");
+}
+
+export interface ImageGenerationLog {
+  provider: string;
+  model: string;
+  promptHash: string;
+  responseTimeMs: number;
+  success: boolean;
+  error?: string;
+  moderationDecision?: string;
+  imageUrl?: string;
+}
+
 export async function runRoutedImageGeneration(
   ctx: RoutingContext,
   input: GenerateImageInput,
 ): Promise<
-  | { ok: true; result: GenerateImageResult; routing: Exclude<ReturnType<typeof decideImageRoute>, { blocked: true }> }
-  | { ok: false; blocked: true; reason: string; textOnlyFallback?: boolean }
+  | { ok: true; result: GenerateImageResult; routing: Exclude<ReturnType<typeof decideImageRoute>, { blocked: true }>; log: ImageGenerationLog }
+  | { ok: false; blocked: true; reason: string; textOnlyFallback?: boolean; log: ImageGenerationLog }
 > {
   const decision = decideImageRoute(ctx);
+  const promptHash = hashPrompt(input.positivePrompt);
+
   if ("blocked" in decision) {
-    return { ok: false, blocked: true, reason: decision.reason, textOnlyFallback: decision.textOnlyFallback };
+    const log: ImageGenerationLog = {
+      provider: "blocked",
+      model: "none",
+      promptHash,
+      responseTimeMs: 0,
+      success: false,
+      error: decision.reason,
+      moderationDecision: "BLOCKED",
+    };
+    console.warn(`[image-gen] BLOCKED promptHash=${promptHash} reason=${decision.reason}`);
+    return { ok: false, blocked: true, reason: decision.reason, textOnlyFallback: decision.textOnlyFallback, log };
   }
+
   const provider = getProvider(decision.provider);
-  const result = await provider.generateImage({
-    ...input,
-    providerParams: { ...input.providerParams, model: decision.model },
-  });
-  return { ok: true, result, routing: decision };
+  const startMs = Date.now();
+
+  try {
+    const result = await provider.generateImage({
+      ...input,
+      providerParams: { ...input.providerParams, model: decision.model },
+    });
+
+    const responseTimeMs = Date.now() - startMs;
+    const log: ImageGenerationLog = {
+      provider: decision.provider,
+      model: decision.model ?? "unknown",
+      promptHash,
+      responseTimeMs,
+      success: true,
+      imageUrl: result.imageUrl,
+      moderationDecision: ctx.contentIntensityLayer ?? "GENERAL_SAFE",
+    };
+
+    console.log(
+      `[image-gen] OK provider=${decision.provider} model=${decision.model} hash=${promptHash} ms=${responseTimeMs} url=${result.imageUrl?.slice(0, 60)}...`
+    );
+
+    return { ok: true, result, routing: decision, log };
+  } catch (err) {
+    const responseTimeMs = Date.now() - startMs;
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    const log: ImageGenerationLog = {
+      provider: decision.provider,
+      model: decision.model ?? "unknown",
+      promptHash,
+      responseTimeMs,
+      success: false,
+      error: errorMsg,
+    };
+
+    console.error(
+      `[image-gen] FAILED provider=${decision.provider} hash=${promptHash} ms=${responseTimeMs} error=${errorMsg}`
+    );
+
+    throw err;
+  }
 }

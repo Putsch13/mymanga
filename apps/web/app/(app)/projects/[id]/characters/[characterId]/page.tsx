@@ -9,6 +9,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CharacterVisualConfig } from "@/components/characters/character-visual-config";
+import { CharacterBodyConfig } from "@/components/characters/character-body-config";
+import { CharacterWardrobeConfig } from "@/components/characters/character-wardrobe-config";
+import { CharacterSpeechConfig } from "@/components/characters/character-speech-config";
+import { CharacterCanonLocks } from "@/components/characters/character-canon-locks";
+import { CharacterPreviewCard } from "@/components/characters/character-preview-card";
+import { Loader2, Wand2 } from "lucide-react";
 
 type CharacterPayload = {
   id: string;
@@ -26,7 +34,16 @@ type CharacterPayload = {
   traits: string[];
   flaws: string[];
   secrets: string[];
-  appearance: { summary?: string };
+  appearance: string | null;
+  hairColor: string | null;
+  eyeColor: string | null;
+  outfitDefault: string | null;
+  visualProfile: Record<string, unknown>;
+  bodyState: Record<string, unknown>;
+  wardrobeProfile: Record<string, unknown>;
+  speechProfile: Record<string, unknown>;
+  continuityProfile: Record<string, unknown>;
+  adultContentProfile: Record<string, unknown>;
   visualRefs: Array<{ id: string; imageUrl: string; type: string; isPrimary: boolean }>;
   relationshipsFrom: Array<{ id: string; targetCharacterId: string; relationType: string; intensity: number; note: string | null }>;
   relationshipsTo: Array<{ id: string; sourceCharacterId: string; relationType: string; intensity: number; note: string | null }>;
@@ -42,8 +59,9 @@ export default function CharacterDetailPage() {
   const [character, setCharacter] = useState<CharacterPayload | null>(null);
   const [projectCharacters, setProjectCharacters] = useState<ProjectCharacter[]>([]);
   const [saving, setSaving] = useState(false);
+  const [generatingVisual, setGeneratingVisual] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ text: string; type: "ok" | "error" } | null>(null);
   const [relationTargetId, setRelationTargetId] = useState("");
   const [relationType, setRelationType] = useState("rivalité");
 
@@ -56,11 +74,18 @@ export default function CharacterDetailPage() {
       ]);
       const characterJson = await characterRes.json();
       const projectCharactersJson = await projectCharactersRes.json();
-      setCharacter(characterJson.character);
+      setCharacter({
+        ...characterJson.character,
+        visualProfile: characterJson.character.visualProfile ?? {},
+        bodyState: characterJson.character.bodyState ?? {},
+        wardrobeProfile: characterJson.character.wardrobeProfile ?? {},
+        speechProfile: characterJson.character.speechProfile ?? {},
+        continuityProfile: characterJson.character.continuityProfile ?? {},
+        adultContentProfile: characterJson.character.adultContentProfile ?? {},
+      });
       setProjectCharacters(projectCharactersJson.characters ?? []);
       setLoading(false);
     }
-
     load();
   }, [characterId, projectId]);
 
@@ -87,36 +112,41 @@ export default function CharacterDetailPage() {
         flaws: character.flaws,
         secrets: character.secrets,
         appearance: character.appearance,
-        visualRefs: character.visualRefs,
+        hairColor: character.hairColor,
+        eyeColor: character.eyeColor,
+        outfitDefault: character.outfitDefault,
+        visualProfile: character.visualProfile,
+        bodyState: character.bodyState,
+        wardrobeProfile: character.wardrobeProfile,
+        speechProfile: character.speechProfile,
+        continuityProfile: character.continuityProfile,
+        adultContentProfile: character.adultContentProfile,
       }),
     });
     const json = await res.json();
     setSaving(false);
     if (!res.ok) {
-      setMessage(json.message ?? "Erreur de sauvegarde");
+      setMessage({ text: json.message ?? "Erreur de sauvegarde", type: "error" });
       return;
     }
-    setCharacter(json.character);
-    setMessage("Fiche sauvegardée.");
+    setCharacter((prev) => prev ? { ...prev, ...json.character } : prev);
+    setMessage({ text: "Fiche sauvegardée.", type: "ok" });
   }
 
   async function generateVisual() {
     setMessage(null);
+    setGeneratingVisual(true);
     const res = await fetch(`/api/characters/${characterId}/generate-visual`, { method: "POST" });
     const json = await res.json();
+    setGeneratingVisual(false);
     if (!res.ok) {
-      setMessage(json.message ?? json.error ?? "Impossible de générer le visuel.");
+      setMessage({ text: json.message ?? json.error ?? "Impossible de générer le visuel.", type: "error" });
       return;
     }
     setCharacter((current) =>
-      current
-        ? {
-            ...current,
-            visualRefs: [json.visualRef, ...current.visualRefs],
-          }
-        : current,
+      current ? { ...current, visualRefs: [json.visualRef, ...current.visualRefs] } : current
     );
-    setMessage("Visuel généré.");
+    setMessage({ text: "Visuel généré.", type: "ok" });
   }
 
   async function createRelationship() {
@@ -132,195 +162,257 @@ export default function CharacterDetailPage() {
       }),
     });
     if (res.ok) {
-      setMessage("Relation ajoutée.");
+      setMessage({ text: "Relation ajoutée.", type: "ok" });
       router.refresh();
     }
   }
 
   if (loading || !character) {
-    return <p className="text-sm text-muted-foreground">Chargement de la fiche…</p>;
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Chargement de la fiche…
+      </div>
+    );
   }
 
+  const isAdult = character.adultVerified && (character.age ?? 0) >= 18;
+  const primaryVisual = character.visualRefs.find((r) => r.isPrimary) ?? character.visualRefs[0];
+
   return (
-    <div className="space-y-8">
-      <div>
-        <Link href={`/projects/${projectId}/characters`} className="text-sm text-muted-foreground hover:text-foreground">
-          ← Personnages
-        </Link>
-        <h1 className="mt-2 text-3xl font-semibold">{character.name}</h1>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Badge>{character.roleType ?? "Rôle"}</Badge>
-          <Badge variant="outline">{character.status}</Badge>
-          {character.canonLocked ? <Badge>canon lock</Badge> : null}
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <Link href={`/projects/${projectId}/characters`} className="text-sm text-muted-foreground hover:text-foreground">
+            ← Personnages
+          </Link>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">{character.name}</h1>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {character.roleType && <Badge variant="outline">{character.roleType}</Badge>}
+            <Badge variant="outline">{character.status}</Badge>
+            {character.canonLocked && <Badge className="bg-amber-900/40 text-amber-300 border-amber-700/40">🔒 Canon lock</Badge>}
+            {isAdult && <Badge className="bg-rose-900/40 text-rose-300 border-rose-700/40">18+</Badge>}
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={generateVisual} disabled={generatingVisual}>
+            {generatingVisual ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
+            Générer visuel
+          </Button>
+          <Button onClick={save} disabled={saving}>
+            {saving ? "Sauvegarde…" : "Sauvegarder"}
+          </Button>
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.4fr_0.8fr]">
-        <Card className="border-border/60 bg-card/50">
-          <CardHeader>
-            <CardTitle>Fiche personnage</CardTitle>
-            <CardDescription>Edition canonique pour la continuité, les dialogues et les références visuelles.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Nom</Label>
-                <Input value={character.name} onChange={(e) => setCharacter({ ...character, name: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Rôle</Label>
-                <Input value={character.roleType ?? ""} onChange={(e) => setCharacter({ ...character, roleType: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Age</Label>
-                <Input
-                  type="number"
-                  value={character.age ?? ""}
-                  onChange={(e) => setCharacter({ ...character, age: e.target.value ? Number(e.target.value) : null })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Etat émotionnel</Label>
-                <Input
-                  value={character.emotionalState ?? ""}
-                  onChange={(e) => setCharacter({ ...character, emotionalState: e.target.value })}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Biographie</Label>
-              <Textarea value={character.biography ?? ""} onChange={(e) => setCharacter({ ...character, biography: e.target.value })} rows={4} />
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Objectif</Label>
-                <Textarea value={character.objective ?? ""} onChange={(e) => setCharacter({ ...character, objective: e.target.value })} rows={3} />
-              </div>
-              <div className="space-y-2">
-                <Label>Peur</Label>
-                <Textarea value={character.fear ?? ""} onChange={(e) => setCharacter({ ...character, fear: e.target.value })} rows={3} />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Résumé visuel</Label>
-              <Textarea
-                value={character.appearance?.summary ?? ""}
-                onChange={(e) =>
-                  setCharacter({
-                    ...character,
-                    appearance: { ...(character.appearance ?? {}), summary: e.target.value },
-                  })
-                }
-                rows={3}
-              />
-            </div>
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label>Traits (virgules)</Label>
-                <Input
-                  value={character.traits.join(", ")}
-                  onChange={(e) =>
-                    setCharacter({
-                      ...character,
-                      traits: e.target.value.split(",").map((value) => value.trim()).filter(Boolean),
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Défauts</Label>
-                <Input
-                  value={character.flaws.join(", ")}
-                  onChange={(e) =>
-                    setCharacter({
-                      ...character,
-                      flaws: e.target.value.split(",").map((value) => value.trim()).filter(Boolean),
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Secrets</Label>
-                <Input
-                  value={character.secrets.join(", ")}
-                  onChange={(e) =>
-                    setCharacter({
-                      ...character,
-                      secrets: e.target.value.split(",").map((value) => value.trim()).filter(Boolean),
-                    })
-                  }
-                />
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={character.adultVerified}
-                  onChange={(e) => setCharacter({ ...character, adultVerified: e.target.checked })}
-                />
-                Adulte explicitement vérifié
-              </label>
-              <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={character.canonLocked}
-                  onChange={(e) => setCharacter({ ...character, canonLocked: e.target.checked })}
-                />
-                Canon lock
-              </label>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={save} disabled={saving}>
-                {saving ? "Sauvegarde…" : "Sauvegarder"}
-              </Button>
-              <Button type="button" variant="secondary" onClick={generateVisual}>
-                Générer un visuel
-              </Button>
-            </div>
-            {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
-          </CardContent>
-        </Card>
+      {message && (
+        <p className={`text-sm ${message.type === "ok" ? "text-emerald-400" : "text-red-400"}`}>
+          {message.text}
+        </p>
+      )}
 
-        <div className="space-y-6">
+      <div className="grid gap-6 xl:grid-cols-[1fr_300px]">
+        <Tabs defaultValue="identity">
+          <TabsList className="w-full flex-wrap h-auto gap-1">
+            <TabsTrigger value="identity">Identité</TabsTrigger>
+            <TabsTrigger value="visual">Visage</TabsTrigger>
+            <TabsTrigger value="body">Corps</TabsTrigger>
+            <TabsTrigger value="wardrobe">Tenue</TabsTrigger>
+            <TabsTrigger value="speech">Voix</TabsTrigger>
+            <TabsTrigger value="canon">Canon</TabsTrigger>
+          </TabsList>
+
+          {/* IDENTITÉ */}
+          <TabsContent value="identity">
+            <Card className="border-border/60 bg-card/50">
+              <CardHeader>
+                <CardTitle>Identité</CardTitle>
+                <CardDescription>Informations de base, biographie et psychologie.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label>Nom</Label>
+                    <Input value={character.name} onChange={(e) => setCharacter({ ...character, name: e.target.value })} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Rôle</Label>
+                    <Input value={character.roleType ?? ""} onChange={(e) => setCharacter({ ...character, roleType: e.target.value })} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Âge</Label>
+                    <Input type="number" value={character.age ?? ""} onChange={(e) => setCharacter({ ...character, age: e.target.value ? Number(e.target.value) : null })} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>État émotionnel</Label>
+                    <Input value={character.emotionalState ?? ""} onChange={(e) => setCharacter({ ...character, emotionalState: e.target.value })} />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Biographie</Label>
+                  <Textarea value={character.biography ?? ""} onChange={(e) => setCharacter({ ...character, biography: e.target.value })} rows={4} />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label>Objectif</Label>
+                    <Textarea value={character.objective ?? ""} onChange={(e) => setCharacter({ ...character, objective: e.target.value })} rows={3} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Peur</Label>
+                    <Textarea value={character.fear ?? ""} onChange={(e) => setCharacter({ ...character, fear: e.target.value })} rows={3} />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Trauma</Label>
+                  <Input value={character.trauma ?? ""} onChange={(e) => setCharacter({ ...character, trauma: e.target.value })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Description physique générale</Label>
+                  <Textarea value={character.appearance ?? ""} onChange={(e) => setCharacter({ ...character, appearance: e.target.value })} rows={3} />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="space-y-1.5">
+                    <Label>Traits</Label>
+                    <Input value={(character.traits ?? []).join(", ")} onChange={(e) => setCharacter({ ...character, traits: e.target.value.split(",").map((v) => v.trim()).filter(Boolean) })} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Défauts</Label>
+                    <Input value={(character.flaws ?? []).join(", ")} onChange={(e) => setCharacter({ ...character, flaws: e.target.value.split(",").map((v) => v.trim()).filter(Boolean) })} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Secrets</Label>
+                    <Input value={(character.secrets ?? []).join(", ")} onChange={(e) => setCharacter({ ...character, secrets: e.target.value.split(",").map((v) => v.trim()).filter(Boolean) })} />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-4">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={character.adultVerified} onChange={(e) => setCharacter({ ...character, adultVerified: e.target.checked })} className="rounded" />
+                    Adulte vérifié (18+)
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={character.canonLocked} onChange={(e) => setCharacter({ ...character, canonLocked: e.target.checked })} className="rounded" />
+                    Canon lock
+                  </label>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="visual">
+            <Card className="border-border/60 bg-card/50">
+              <CardHeader><CardTitle>Visage & Apparence</CardTitle></CardHeader>
+              <CardContent>
+                <CharacterVisualConfig
+                  value={character.visualProfile as Parameters<typeof CharacterVisualConfig>[0]["value"]}
+                  onChange={(v) => setCharacter({ ...character, visualProfile: v as Record<string, unknown> })}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="body">
+            <Card className="border-border/60 bg-card/50">
+              <CardHeader><CardTitle>Morphologie & État physique</CardTitle></CardHeader>
+              <CardContent>
+                <CharacterBodyConfig
+                  value={character.bodyState as Parameters<typeof CharacterBodyConfig>[0]["value"]}
+                  onChange={(v) => setCharacter({ ...character, bodyState: v as Record<string, unknown> })}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="wardrobe">
+            <Card className="border-border/60 bg-card/50">
+              <CardHeader><CardTitle>Garde-robe</CardTitle></CardHeader>
+              <CardContent>
+                <CharacterWardrobeConfig
+                  value={character.wardrobeProfile as Parameters<typeof CharacterWardrobeConfig>[0]["value"]}
+                  onChange={(v) => setCharacter({ ...character, wardrobeProfile: v as Record<string, unknown> })}
+                  isAdult={isAdult}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="speech">
+            <Card className="border-border/60 bg-card/50">
+              <CardHeader><CardTitle>Personnalité & Voix</CardTitle></CardHeader>
+              <CardContent>
+                <CharacterSpeechConfig
+                  value={character.speechProfile as Parameters<typeof CharacterSpeechConfig>[0]["value"]}
+                  onChange={(v) => setCharacter({ ...character, speechProfile: v as Record<string, unknown> })}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="canon">
+            <Card className="border-border/60 bg-card/50">
+              <CardHeader><CardTitle>Verrous Canon</CardTitle></CardHeader>
+              <CardContent>
+                <CharacterCanonLocks
+                  value={character.continuityProfile as Parameters<typeof CharacterCanonLocks>[0]["value"]}
+                  onChange={(v) => setCharacter({ ...character, continuityProfile: v as Record<string, unknown> })}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+
+        {/* Sidebar */}
+        <div className="space-y-4">
+          <CharacterPreviewCard
+            name={character.name}
+            roleType={character.roleType}
+            age={character.age}
+            adultVerified={character.adultVerified}
+            appearance={character.appearance}
+            hairColor={character.hairColor ?? (character.visualProfile.hairColor as string) ?? null}
+            eyeColor={character.eyeColor ?? (character.visualProfile.eyeColor as string) ?? null}
+            outfitDefault={character.outfitDefault ?? (character.wardrobeProfile.defaultOutfit as string) ?? null}
+            bodyState={character.bodyState}
+            imageUrl={primaryVisual?.imageUrl}
+          />
+
+          {/* Visual refs */}
           <Card className="border-border/60 bg-card/50">
             <CardHeader>
-              <CardTitle>Visual refs</CardTitle>
+              <CardTitle className="text-sm">Références visuelles</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-2">
               {character.visualRefs.length > 0 ? (
-                character.visualRefs.map((ref) => (
-                  <div key={ref.id} className="space-y-2">
+                character.visualRefs.slice(0, 4).map((ref) => (
+                  <div key={ref.id} className="space-y-1">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={ref.imageUrl} alt="" className="h-40 w-full rounded-lg object-cover" />
-                    <p className="text-xs text-muted-foreground">
-                      {ref.type} {ref.isPrimary ? "· primaire" : ""}
-                    </p>
+                    <img src={ref.imageUrl} alt="" className="h-32 w-full rounded-lg object-cover" />
+                    <p className="text-xs text-muted-foreground">{ref.type}{ref.isPrimary ? " · primaire" : ""}</p>
                   </div>
                 ))
               ) : (
-                <p className="text-sm text-muted-foreground">Aucune référence. Lance une génération pour amorcer le canon visuel.</p>
+                <p className="text-xs text-muted-foreground">Aucune référence. Lance une génération.</p>
               )}
             </CardContent>
           </Card>
 
+          {/* Relations */}
           <Card className="border-border/60 bg-card/50">
             <CardHeader>
-              <CardTitle>Ajouter une relation</CardTitle>
+              <CardTitle className="text-sm">Ajouter une relation</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <select className="flex h-10 w-full rounded-lg border border-border bg-background px-3 text-sm" value={relationTargetId} onChange={(e) => setRelationTargetId(e.target.value)}>
+            <CardContent className="space-y-2">
+              <select
+                className="flex h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
+                value={relationTargetId}
+                onChange={(e) => setRelationTargetId(e.target.value)}
+              >
                 <option value="">Choisir un personnage</option>
-                {projectCharacters
-                  .filter((item) => item.id !== character.id)
-                  .map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
+                {projectCharacters.filter((item) => item.id !== character.id).map((item) => (
+                  <option key={item.id} value={item.id}>{item.name}</option>
+                ))}
               </select>
-              <Input value={relationType} onChange={(e) => setRelationType(e.target.value)} />
-              <Button type="button" variant="outline" onClick={createRelationship}>
+              <Input value={relationType} onChange={(e) => setRelationType(e.target.value)} placeholder="Type de relation" />
+              <Button type="button" variant="outline" size="sm" className="w-full" onClick={createRelationship}>
                 Créer la relation
               </Button>
             </CardContent>

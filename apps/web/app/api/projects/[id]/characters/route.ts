@@ -26,6 +26,13 @@ const createSchema = z.object({
   hairColor: z.string().optional().nullable(),
   eyeColor: z.string().optional().nullable(),
   outfitDefault: z.string().optional().nullable(),
+  // Profils avancés (LOT 2)
+  visualProfile: z.record(z.unknown()).optional(),
+  bodyState: z.record(z.unknown()).optional(),
+  wardrobeProfile: z.record(z.unknown()).optional(),
+  speechProfile: z.record(z.unknown()).optional(),
+  continuityProfile: z.record(z.unknown()).optional(),
+  adultContentProfile: z.record(z.unknown()).optional(),
 });
 
 export async function GET(_req: Request, ctx: Ctx) {
@@ -77,6 +84,12 @@ export async function POST(req: Request, ctx: Ctx) {
       hairColor: body.hairColor ?? null,
       eyeColor: body.eyeColor ?? null,
       outfitDefault: body.outfitDefault ?? null,
+      ...(body.visualProfile ? { visualProfile: body.visualProfile as import("@manga-ai-studio/db").Prisma.InputJsonValue } : {}),
+      ...(body.bodyState ? { bodyState: body.bodyState as import("@manga-ai-studio/db").Prisma.InputJsonValue } : {}),
+      ...(body.wardrobeProfile ? { wardrobeProfile: body.wardrobeProfile as import("@manga-ai-studio/db").Prisma.InputJsonValue } : {}),
+      ...(body.speechProfile ? { speechProfile: body.speechProfile as import("@manga-ai-studio/db").Prisma.InputJsonValue } : {}),
+      ...(body.continuityProfile ? { continuityProfile: body.continuityProfile as import("@manga-ai-studio/db").Prisma.InputJsonValue } : {}),
+      ...(body.adultContentProfile ? { adultContentProfile: body.adultContentProfile as import("@manga-ai-studio/db").Prisma.InputJsonValue } : {}),
       canonPack: {
         create: {
           forbiddenVisualDrift: [],

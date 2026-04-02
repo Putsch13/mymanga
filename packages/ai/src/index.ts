@@ -12,3 +12,7 @@ export * from "./chapter-outline";
 export * from "./chapter-pipeline";
 export * from "./manga-prompt-composer";
 export * from "./character-visual-composer";
+export * from "./services/character-prompt-builder";
+export * from "./services/canon-physical-validator";
+export * from "./services/dialogue-writer";
+export * from "./services/panel-text-planner";

@@ -22,12 +22,18 @@ const patchSchema = z.object({
   traits: z.array(z.string()).optional(),
   flaws: z.array(z.string()).optional(),
   secrets: z.array(z.string()).optional(),
-  // Ces champs sont String? dans le nouveau schéma
   appearance: z.string().optional().nullable(),
   hairColor: z.string().optional().nullable(),
   eyeColor: z.string().optional().nullable(),
   outfitDefault: z.string().optional().nullable(),
   bodyProfile: z.unknown().optional(),
+  // Profils avancés (LOT 2)
+  visualProfile: z.record(z.unknown()).optional(),
+  bodyState: z.record(z.unknown()).optional(),
+  wardrobeProfile: z.record(z.unknown()).optional(),
+  speechProfile: z.record(z.unknown()).optional(),
+  continuityProfile: z.record(z.unknown()).optional(),
+  adultContentProfile: z.record(z.unknown()).optional(),
   status: z.string().optional(),
   emotionalState: z.string().optional().nullable(),
   canonLocked: z.boolean().optional(),
@@ -80,12 +86,18 @@ export async function PATCH(req: Request, ctx: Ctx) {
     ...(body.hairColor !== undefined ? { hairColor: body.hairColor } : {}),
     ...(body.eyeColor !== undefined ? { eyeColor: body.eyeColor } : {}),
     ...(body.outfitDefault !== undefined ? { outfitDefault: body.outfitDefault } : {}),
-    // Champs Json
     ...(body.personality !== undefined ? { personality: body.personality as Prisma.InputJsonValue } : {}),
     ...(body.traits !== undefined ? { traits: body.traits } : {}),
     ...(body.flaws !== undefined ? { flaws: body.flaws } : {}),
     ...(body.secrets !== undefined ? { secrets: body.secrets } : {}),
     ...(body.bodyProfile !== undefined ? { bodyProfile: body.bodyProfile as Prisma.InputJsonValue } : {}),
+    // Profils avancés (LOT 2)
+    ...(body.visualProfile !== undefined ? { visualProfile: body.visualProfile as Prisma.InputJsonValue } : {}),
+    ...(body.bodyState !== undefined ? { bodyState: body.bodyState as Prisma.InputJsonValue } : {}),
+    ...(body.wardrobeProfile !== undefined ? { wardrobeProfile: body.wardrobeProfile as Prisma.InputJsonValue } : {}),
+    ...(body.speechProfile !== undefined ? { speechProfile: body.speechProfile as Prisma.InputJsonValue } : {}),
+    ...(body.continuityProfile !== undefined ? { continuityProfile: body.continuityProfile as Prisma.InputJsonValue } : {}),
+    ...(body.adultContentProfile !== undefined ? { adultContentProfile: body.adultContentProfile as Prisma.InputJsonValue } : {}),
   };
 
   const character = await prisma.$transaction(async (tx) => {
