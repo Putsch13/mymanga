@@ -1,81 +1,197 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { ChevronLeft, ChevronRight, FileText, ImageIcon } from "lucide-react";
-import { demoReaderPages } from "@/lib/demo-data";
+import { useCallback, useEffect, useState } from "react";
+import { BookOpen, ChevronLeft, ChevronRight, Maximize2, Minimize2, Sparkles } from "lucide-react";
+import { demoChapter, demoMangaPages } from "@/lib/demo-data";
+import { MangaPageGrid } from "@/components/manga/manga-page-grid";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+
+const SUGGESTIONS = [
+  { label: "Révélation majeure", intent: "Le lecteur découvre enfin le secret qui lie les deux familles." },
+  { label: "Confrontation", intent: "Les deux camps se retrouvent face à face, tension maximale." },
+  { label: "Ellipse temporelle", intent: "On saute trois jours plus tard, après la tempête." },
+];
+
+const QUICK_TAGS = [
+  "plus d\u2019action",
+  "plus de romance",
+  "plus de noirceur",
+  "twist",
+  "nouveau personnage",
+  "mort d\u2019un personnage",
+];
 
 export default function DemoReaderPage() {
-  const [index, setIndex] = useState(0);
-  const [textOnly, setTextOnly] = useState(false);
-  const page = demoReaderPages[index];
+  const [pageIndex, setPageIndex] = useState(0);
+  const [showEnd, setShowEnd] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [intent, setIntent] = useState("");
+  const totalPages = demoMangaPages.length;
+  const page = demoMangaPages[pageIndex];
 
-  return (
-    <div className="min-h-screen px-6 py-10">
-      <div className="mx-auto max-w-6xl space-y-8">
-        <div>
-          <Link href="/demo/project" className="text-sm text-muted-foreground hover:text-foreground">
-            ← Projet démo
-          </Link>
-          <h1 className="mt-2 text-3xl font-semibold">Lecteur manga de démo</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Version publique pour tester l&apos;intention UX pendant que la prod réelle est encore branchée.</p>
+  const goNext = useCallback(() => {
+    if (pageIndex < totalPages - 1) {
+      setPageIndex((i) => i + 1);
+    } else {
+      setShowEnd(true);
+    }
+  }, [pageIndex, totalPages]);
+
+  const goPrev = useCallback(() => {
+    if (showEnd) {
+      setShowEnd(false);
+      return;
+    }
+    setPageIndex((i) => Math.max(0, i - 1));
+  }, [showEnd]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "ArrowRight" || e.key === " ") {
+        e.preventDefault();
+        goNext();
+      }
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        goPrev();
+      }
+      if (e.key === "Escape" && fullscreen) {
+        setFullscreen(false);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [goNext, goPrev, fullscreen]);
+
+  const readerContent = (
+    <>
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/60 px-4 py-2.5 backdrop-blur">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <BookOpen className="h-4 w-4 text-accent" />
+          <span className="font-medium text-foreground">
+            {demoChapter.title}
+          </span>
+          <span className="hidden sm:inline">
+            &middot; Page {pageIndex + 1}/{totalPages}
+            {showEnd ? " \u00b7 fin" : ""}
+          </span>
         </div>
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="ghost" size="sm" onClick={() => setFullscreen((v) => !v)}>
+            {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </Button>
+          <Button type="button" variant="secondary" size="sm" onClick={goPrev} disabled={pageIndex === 0 && !showEnd}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="min-w-[3ch] text-center text-sm tabular-nums text-muted-foreground sm:hidden">
+            {pageIndex + 1}/{totalPages}
+          </span>
+          <Button type="button" size="sm" onClick={goNext} disabled={showEnd}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border/60 bg-card/50 px-4 py-3">
-          <div className="text-sm text-muted-foreground">
-            Page {index + 1} / {demoReaderPages.length}
+      {/* Manga page */}
+      {!showEnd && page ? (
+        <div
+          className="manga-page-container relative mx-auto cursor-pointer"
+          style={{
+            maxWidth: fullscreen ? "100%" : "680px",
+            aspectRatio: "3 / 4",
+          }}
+          onClick={goNext}
+        >
+          <div className="h-full overflow-hidden rounded-lg border-2 border-stone-700/60 shadow-2xl shadow-black/60">
+            <MangaPageGrid page={page} />
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant={textOnly ? "default" : "outline"} size="sm" onClick={() => setTextOnly((value) => !value)}>
-              {textOnly ? <FileText className="h-4 w-4" /> : <ImageIcon className="h-4 w-4" />}
-              {textOnly ? "Texte seul" : "Cases + texte"}
-            </Button>
-            <Button type="button" variant="secondary" size="sm" onClick={() => setIndex((value) => Math.max(0, value - 1))} disabled={index === 0}>
-              <ChevronLeft className="h-4 w-4" />
-              Retour
-            </Button>
-            <Button type="button" size="sm" onClick={() => setIndex((value) => Math.min(demoReaderPages.length - 1, value + 1))} disabled={index === demoReaderPages.length - 1}>
-              Tourner la page
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+          <div className="absolute bottom-3 right-3 rounded-full bg-black/60 px-3 py-1 text-[10px] text-white/60 backdrop-blur">
+            {page.panels.length} cases &middot; Cliquer pour tourner
           </div>
         </div>
+      ) : null}
 
-        <div className="relative mx-auto max-w-5xl">
-          <div className="overflow-hidden rounded-lg border-2 border-stone-700/50 bg-gradient-to-br from-stone-900 via-stone-950 to-black p-3 shadow-2xl shadow-black/50 md:p-5">
-            <div className="grid min-h-[min(70vh,560px)] grid-cols-1 gap-3 md:grid-cols-2 md:gap-0">
-              {[page, demoReaderPages[Math.min(index + 1, demoReaderPages.length - 1)]].map((item, slotIndex) => (
-                <div key={`${item.id}-${slotIndex}`} className="relative flex flex-col border border-stone-600/50 bg-[#f4efe4] text-stone-900">
-                  <div className="flex flex-1 flex-col gap-4 p-4 md:p-6">
-                    {!textOnly ? (
-                      <div className="relative flex-1 overflow-hidden rounded-md border border-stone-300 bg-stone-200/50">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={item.imageUrl} alt="" className="h-full max-h-[420px] w-full object-contain" />
-                      </div>
-                    ) : null}
-                    <div className="rounded-lg border-2 border-stone-800 bg-white px-3 py-2 text-sm shadow-md">
-                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-stone-500">{item.caption}</p>
-                      <p className="whitespace-pre-wrap font-serif">{item.text}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <Card className="border-border/60 bg-card/40">
+      {/* Chapter end */}
+      {showEnd ? (
+        <Card className="border-accent/30 bg-gradient-to-br from-card/90 to-violet-950/30">
           <CardHeader>
-            <CardTitle>Pourquoi cette démo existe</CardTitle>
-            <CardDescription>Tu peux valider l&apos;intention visuelle et la narration même si le runtime de prod n&apos;est pas encore stabilisé.</CardDescription>
+            <CardTitle className="flex items-center gap-2 text-xl">
+              <Sparkles className="h-5 w-5 text-accent" />
+              Fin du chapitre &mdash; quelle suite ?
+            </CardTitle>
+            <CardDescription>
+              Instruction libre, suggestions ou tags rapides. Le pipeline V3 génère le chapitre suivant avec mémoire de continuité.
+            </CardDescription>
           </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            Quand la DB et les variables de prod seront bien branchées, cette expérience sera remplacée par les vraies données générées depuis ton studio.
+          <CardContent className="space-y-5">
+            <div className="space-y-2">
+              <Label>Ton idée pour la suite</Label>
+              <Textarea
+                rows={4}
+                placeholder="Ex. : Le mentor révèle qu\u2019il connaissait le père du héros\u2026"
+                value={intent}
+                onChange={(e) => setIntent(e.target.value)}
+              />
+            </div>
+            <div>
+              <p className="mb-2 text-sm font-medium text-muted-foreground">Suggestions (1 clic)</p>
+              <div className="flex flex-wrap gap-2">
+                {SUGGESTIONS.map((s) => (
+                  <Button key={s.label} type="button" variant="secondary" size="sm" onClick={() => setIntent(s.intent)}>
+                    {s.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="mb-2 text-sm font-medium text-muted-foreground">Tags rapides</p>
+              <div className="flex flex-wrap gap-2">
+                {QUICK_TAGS.map((tag) => (
+                  <Button key={tag} type="button" variant="outline" size="sm">
+                    {tag}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <Button type="button" className="w-full sm:w-auto" disabled={!intent.trim()}>
+              Valider et générer le chapitre 3
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              En production, cette action lance le pipeline complet : direction créative → outline → script → storyboard → images → mémoire.
+            </p>
           </CardContent>
         </Card>
+      ) : null}
+    </>
+  );
+
+  if (fullscreen) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col gap-3 bg-[#0a0a0f] p-3">
+        {readerContent}
       </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <Link href="/demo/project" className="text-sm text-muted-foreground hover:text-foreground">
+          \u2190 Projet démo
+        </Link>
+        <h1 className="mt-2 text-3xl font-semibold">
+          Chapitre {demoChapter.number} &middot; {demoChapter.title}
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Arc : {demoChapter.arc} &middot; {totalPages} pages &middot; {demoMangaPages.reduce((s, p) => s + p.panels.length, 0)} cases
+        </p>
+      </div>
+      {readerContent}
     </div>
   );
 }
