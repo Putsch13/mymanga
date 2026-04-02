@@ -20,6 +20,27 @@ export function LoginClient({ authDisabled }: { authDisabled: boolean }) {
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [diag, setDiag] = useState<null | {
+    authDisabled: boolean;
+    hasSupabaseUrl: boolean;
+    hasSupabaseAnonKey: boolean;
+    hasDatabaseUrl: boolean;
+    hasFalKey: boolean;
+    hasOpenAI: boolean;
+    hasInngestEventKey: boolean;
+    hasInngestSigningKey: boolean;
+  }>(null);
+
+  async function loadDiagnostics() {
+    try {
+      const res = await fetch("/api/diagnostics/public", { cache: "no-store" });
+      if (!res.ok) return;
+      const json = (await res.json()) as { env?: typeof diag };
+      if (json?.env) setDiag(json.env as never);
+    } catch {
+      // ignore
+    }
+  }
 
   async function onMagicLinkSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -111,6 +132,19 @@ export function LoginClient({ authDisabled }: { authDisabled: boolean }) {
             <CardDescription>AUTH_DISABLED est actif — accès direct au studio.</CardDescription>
           </CardHeader>
           <CardContent>
+            <Button type="button" variant="outline" className="mb-3 w-full" onClick={loadDiagnostics}>
+              Diagnostiquer la config
+            </Button>
+            {diag ? (
+              <div className="mb-3 rounded-xl border border-border/60 bg-background/40 px-3 py-2 text-xs text-muted-foreground">
+                <p>AUTH_DISABLED: {String(diag.authDisabled)}</p>
+                <p>Supabase: {diag.hasSupabaseUrl && diag.hasSupabaseAnonKey ? "OK" : "MANQUANT"}</p>
+                <p>DB: {diag.hasDatabaseUrl ? "OK" : "MANQUANT"}</p>
+                <p>FAL_KEY: {diag.hasFalKey ? "OK" : "MANQUANT"}</p>
+                <p>OPENAI_API_KEY: {diag.hasOpenAI ? "OK" : "MANQUANT"}</p>
+                <p>Inngest: {diag.hasInngestEventKey && diag.hasInngestSigningKey ? "OK" : "MANQUANT"}</p>
+              </div>
+            ) : null}
             <Button asChild className="w-full">
               <Link href="/dashboard">Ouvrir le studio</Link>
             </Button>
@@ -130,6 +164,18 @@ export function LoginClient({ authDisabled }: { authDisabled: boolean }) {
               Ajoutez NEXT_PUBLIC_SUPABASE_URL et NEXT_PUBLIC_SUPABASE_ANON_KEY sur Render, ou AUTH_DISABLED=true uniquement pour des tests locaux.
             </CardDescription>
           </CardHeader>
+          <CardContent>
+            <Button type="button" variant="outline" className="w-full" onClick={loadDiagnostics}>
+              Diagnostiquer la config
+            </Button>
+            {diag ? (
+              <div className="mt-3 rounded-xl border border-border/60 bg-background/40 px-3 py-2 text-xs text-muted-foreground">
+                <p>AUTH_DISABLED: {String(diag.authDisabled)}</p>
+                <p>Supabase URL: {String(diag.hasSupabaseUrl)}</p>
+                <p>Supabase ANON: {String(diag.hasSupabaseAnonKey)}</p>
+              </div>
+            ) : null}
+          </CardContent>
         </Card>
       </div>
     );
