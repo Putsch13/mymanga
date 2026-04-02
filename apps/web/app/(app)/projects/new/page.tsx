@@ -75,25 +75,33 @@ export default function NewProjectPage() {
       return;
     }
     const data = await res.json();
-    router.push(`/projects/${data.project.id}`);
+    router.push(`/projects/${data.project.id}/generate`);
   }
 
   return (
-    <div className="mx-auto max-w-lg space-y-8">
+    <div className="mx-auto max-w-2xl space-y-8">
       <Link href="/dashboard" className="text-sm text-muted-foreground hover:text-foreground">
         ← Dashboard
       </Link>
+      <div className="rounded-[2rem] border border-border/60 bg-black/20 px-6 py-6">
+        <p className="text-sm font-medium text-accent">Créer un manga</p>
+        <h1 className="mt-2 text-4xl font-semibold tracking-tight">On va au plus simple : univers, ton, puis génération du chapitre 1.</h1>
+        <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">
+          Le but n&apos;est pas de remplir une usine à gaz. Tu poses le concept, le style et l&apos;intensité, puis on t&apos;envoie directement vers le labo
+          pour lancer le premier chapitre avec tes crédits de départ.
+        </p>
+      </div>
       <Card className="border-border/60 bg-card/50">
         <CardHeader>
-          <CardTitle className="text-2xl">Wizard projet V3</CardTitle>
-          <CardDescription>Univers, tonalité, intensité et budget créatif. Le style pack v1 et les réglages initiaux seront créés automatiquement.</CardDescription>
+          <CardTitle className="text-2xl">Nouveau manga</CardTitle>
+          <CardDescription>Parcours court : concept de série, identité créative, puis paramètres avancés seulement si tu en as besoin.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Badge variant={step === 1 ? "default" : "outline"}>1. Univers</Badge>
-              <Badge variant={step === 2 ? "default" : "outline"}>2. Ton & format</Badge>
-              <Badge variant={step === 3 ? "default" : "outline"}>3. Curseurs créatifs</Badge>
+              <Badge variant={step === 1 ? "default" : "outline"}>1. Concept</Badge>
+              <Badge variant={step === 2 ? "default" : "outline"}>2. Style</Badge>
+              <Badge variant={step === 3 ? "default" : "outline"}>3. Réglages avancés</Badge>
             </div>
 
             {step === 1 ? (
@@ -103,11 +111,11 @@ export default function NewProjectPage() {
                   <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} required />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="pitch">Pitch</Label>
+                  <Label htmlFor="pitch">Pitch vendeur</Label>
                   <Textarea id="pitch" value={pitch} onChange={(e) => setPitch(e.target.value)} rows={4} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="description">Description / ambition de série</Label>
+                  <Label htmlFor="description">Ambition de série</Label>
                   <Textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} rows={5} />
                 </div>
                 <div className="space-y-2">
@@ -158,7 +166,7 @@ export default function NewProjectPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Content rating</Label>
+                  <Label>Niveau d&apos;accès</Label>
                   <div className="flex flex-wrap gap-2">
                     {RATING_PRESETS.map((rating) => (
                       <Button key={rating} type="button" variant={contentRating === rating ? "default" : "outline"} size="sm" onClick={() => setContentRating(rating)}>
@@ -168,7 +176,7 @@ export default function NewProjectPage() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Couche d&apos;intensité</Label>
+                  <Label>Intensité visuelle / narrative</Label>
                   <div className="flex flex-wrap gap-2">
                     {INTENSITY_PRESETS.map((layer) => (
                       <Button key={layer} type="button" variant={intensityLayer === layer ? "default" : "outline"} size="sm" onClick={() => setIntensityLayer(layer)}>
@@ -218,8 +226,8 @@ export default function NewProjectPage() {
                   Continuer
                 </Button>
               ) : (
-                <Button type="submit" disabled={loading || !title.trim()} className="w-full">
-                  {loading ? "Création…" : "Créer le projet"}
+                  <Button type="submit" disabled={loading || !title.trim()} className="w-full">
+                  {loading ? "Création…" : "Créer le projet et ouvrir le labo"}
                 </Button>
               )}
             </div>

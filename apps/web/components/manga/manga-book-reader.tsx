@@ -269,7 +269,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
         style={{ maxWidth: fullscreen ? "100%" : spreadMode ? "1040px" : "720px" }}
         role="button"
         tabIndex={0}
-        onKeyDown={(e) => e.key === "Enter" && goNext()}
+        onKeyDown={(e) => e.key === "Enter" && (mangaRtl ? goPrev() : goNext())}
         aria-label="Lecture manga"
       >
         {/* Livre ouvert — ombre de reliure */}
@@ -313,6 +313,9 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                   onKeyDown={(e) => e.key === "Enter" && (mangaRtl ? goNext() : goPrev())}
                 >
                   <div className="absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-black/30 to-transparent" />
+                  <div className="absolute bottom-3 left-3 z-20 rounded-full border border-black/20 bg-white/85 px-2 py-1 text-[10px] font-medium text-stone-900">
+                    Page {pageIndex + 1}
+                  </div>
                   {showTextOnly ? (
                     <div className="h-full overflow-y-auto p-5">
                       <h3 className="font-serif text-base font-bold text-stone-200">
@@ -354,6 +357,11 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                   onKeyDown={(e) => e.key === "Enter" && (mangaRtl ? goPrev() : goNext())}
                 >
                   <div className="absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-black/30 to-transparent" />
+                  {rightPage ? (
+                    <div className="absolute bottom-3 right-3 z-20 rounded-full border border-black/20 bg-white/85 px-2 py-1 text-[10px] font-medium text-stone-900">
+                      Page {pageIndex + 2}
+                    </div>
+                  ) : null}
                   {rightPage ? (
                     showTextOnly ? (
                       <div className="h-full overflow-y-auto p-5">
@@ -400,6 +408,9 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                 aria-label="Page suivante"
                 onKeyDown={(e) => e.key === "Enter" && (mangaRtl ? goPrev() : goNext())}
               >
+                <div className="absolute bottom-3 right-3 z-20 rounded-full border border-black/20 bg-white/85 px-2 py-1 text-[10px] font-medium text-stone-900">
+                  Page {pageIndex + 1}
+                </div>
                 {showTextOnly ? (
                   <div className="flex h-full flex-col gap-3 overflow-y-auto p-6">
                     <h3 className="font-serif text-lg font-bold text-stone-200">
@@ -444,6 +455,9 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
         <span>
           {spreadMode ? `Pages ${pageIndex + 1}-${Math.min(totalPages, pageIndex + 2)}` : `Page ${pageIndex + 1}`} / {totalPages}
           {showEnd ? " · fin" : ""}
+        </span>
+        <span className="hidden rounded-full border border-border/60 px-2 py-0.5 text-[11px] lg:inline-flex">
+          {mangaRtl ? "Lecture droite → gauche" : "Lecture gauche → droite"}
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
@@ -505,12 +519,12 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
           type="button"
           variant="secondary"
           size="sm"
-          onClick={goPrev}
+          onClick={mangaRtl ? goNext : goPrev}
           disabled={pageIndex === 0 && !showEnd}
         >
           <ChevronLeft className="h-4 w-4" />
         </Button>
-        <Button type="button" size="sm" onClick={goNext} disabled={showEnd}>
+        <Button type="button" size="sm" onClick={mangaRtl ? goPrev : goNext} disabled={showEnd}>
           <ChevronRight className="h-4 w-4" />
         </Button>
       </div>

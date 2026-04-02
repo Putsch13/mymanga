@@ -64,9 +64,11 @@ export default function WalletPage() {
 
   return (
     <div className="space-y-10">
-      <div>
-        <h1 className="text-3xl font-semibold">Wallet</h1>
-        <p className="text-muted-foreground mt-2 text-sm">Ledger interne — chaque génération débite des tokens.</p>
+      <div className="rounded-[2rem] border border-border/60 bg-black/20 px-6 py-6">
+        <h1 className="text-3xl font-semibold">Crédits</h1>
+        <p className="text-muted-foreground mt-2 max-w-2xl text-sm">
+          Les crédits servent à lancer les générations. L’utilisateur teste d’abord avec sa réserve de bienvenue, puis rachète pour poursuivre sa série.
+        </p>
       </div>
       <Card className="max-w-md border-border/60 bg-gradient-to-br from-card/80 to-violet-950/20">
         <CardHeader>

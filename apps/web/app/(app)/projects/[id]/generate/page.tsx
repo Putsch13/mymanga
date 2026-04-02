@@ -43,6 +43,7 @@ export default function ChapterGeneratorPage() {
   } | null>(null);
   const [pipelineMsg, setPipelineMsg] = useState<string | null>(null);
   const [runningNow, setRunningNow] = useState(false);
+  const [diag, setDiag] = useState<null | { hasFalKey: boolean; hasOpenAI: boolean; hasInngestEventKey: boolean; authDisabled: boolean }>(null);
   const [userIntent, setUserIntent] = useState("Faire monter la tension, révéler un secret et préparer une confrontation majeure.");
   const [chapterTitle, setChapterTitle] = useState("");
 
@@ -58,6 +59,13 @@ export default function ChapterGeneratorPage() {
   useEffect(() => {
     loadChapters();
   }, [loadChapters]);
+
+  useEffect(() => {
+    fetch("/api/diagnostics/public", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => setDiag(j.env ?? null))
+      .catch(() => setDiag(null));
+  }, []);
 
   useEffect(() => {
     if (!selectedJobId) return;
@@ -141,14 +149,22 @@ export default function ChapterGeneratorPage() {
 
   return (
     <div className="space-y-8">
-      <div>
+      <div className="rounded-[2rem] border border-border/60 bg-black/20 px-6 py-6">
         <Link href={`/projects/${id}`} className="text-sm text-muted-foreground hover:text-foreground">
           ← Projet
         </Link>
-        <h1 className="mt-2 text-3xl font-semibold">Générer un chapitre</h1>
+        <h1 className="mt-3 text-3xl font-semibold">Labo de génération</h1>
         <p className="text-muted-foreground mt-2 max-w-2xl text-sm">
-          Objectif : un chapitre lisible <strong>comme un vrai manga</strong> (≈ 6 pages, 6–7 cases par page), avec images et continuité.
+          Ici, on vise une sortie lisible comme un vrai manga : environ <strong>6 pages</strong>, rythme propre, continuité, et panels réellement générés.
         </p>
+        {diag ? (
+          <div className="mt-4 flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full border border-border/60 px-3 py-1">AUTH {diag.authDisabled ? "OFFLINE/DEMO" : "LIVE"}</span>
+            <span className="rounded-full border border-border/60 px-3 py-1">FAL {diag.hasFalKey ? "OK" : "MANQUANT"}</span>
+            <span className="rounded-full border border-border/60 px-3 py-1">OPENAI {diag.hasOpenAI ? "OK" : "MANQUANT"}</span>
+            <span className="rounded-full border border-border/60 px-3 py-1">INNGEST {diag.hasInngestEventKey ? "OK" : "OPTIONNEL"}</span>
+          </div>
+        ) : null}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
@@ -221,6 +237,9 @@ export default function ChapterGeneratorPage() {
                 <Button type="button" onClick={runPipeline} disabled={!selectedChapter}>
                   Générer ce chapitre
                 </Button>
+                <Button type="button" variant="secondary" onClick={runNow} disabled={!selectedJobId || runningNow}>
+                  {runningNow ? "Exécution…" : "Run now sans Inngest"}
+                </Button>
                 <Button asChild variant="outline">
                   <Link href={`/projects/${id}/chapters`}>Aller lire →</Link>
                 </Button>
@@ -237,7 +256,7 @@ export default function ChapterGeneratorPage() {
               <Card className="border-border/60 bg-card/40">
                 <CardHeader>
                   <CardTitle className="text-base">Estimation image</CardTitle>
-                  <CardDescription>Utile si tu veux comprendre le routage provider.</CardDescription>
+                  <CardDescription>Zone debug optionnelle. Le flux principal doit rester simple.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <select
@@ -288,7 +307,7 @@ export default function ChapterGeneratorPage() {
           <Card className="border-border/60 bg-card/50">
             <CardHeader>
               <CardTitle className="text-lg">Suivi du job</CardTitle>
-              <CardDescription>Si ça reste bloqué, exécute sans Inngest.</CardDescription>
+              <CardDescription>Si Inngest n&apos;est pas synchronisé, lance directement sans Inngest.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {jobState ? (

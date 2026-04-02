@@ -26,11 +26,13 @@ export default async function MyMangasPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="relative overflow-hidden rounded-[2rem] border border-border/60 bg-black/20 px-6 py-8">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(124,58,237,0.16),transparent_26%),radial-gradient(circle_at_bottom_right,rgba(190,18,60,0.12),transparent_28%)]" />
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Mes mangas</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Reprends une histoire, lis le dernier chapitre, ou génère la suite.
+            Ta bibliothèque personnelle : reprendre une histoire, lire le dernier chapitre, ou relancer la génération de la suite.
           </p>
         </div>
         <Button asChild className="gap-2">
@@ -39,6 +41,7 @@ export default async function MyMangasPage() {
             Nouveau manga
           </Link>
         </Button>
+        </div>
       </div>
 
       {projects.length === 0 ? (

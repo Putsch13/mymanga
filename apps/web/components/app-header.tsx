@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Coins, LayoutDashboard, LogOut, Plus, Shield, Sparkles } from "lucide-react";
+import { BookMarked, Coins, LayoutDashboard, LogOut, Plus, Shield, Sparkles, Wand2 } from "lucide-react";
 import { cn } from "@manga-ai-studio/ui";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,10 +14,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const links = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Accueil", icon: LayoutDashboard },
   { href: "/mangas", label: "Mes mangas", icon: Sparkles },
-  { href: "/projects/new", label: "Nouveau projet", icon: Plus },
-  { href: "/wallet", label: "Wallet", icon: Coins },
+  { href: "/lab", label: "Labo", icon: Wand2 },
+  { href: "/projects/new", label: "Créer", icon: Plus },
+  { href: "/wallet", label: "Crédits", icon: Coins },
 ];
 
 export function AppHeader({
@@ -36,7 +37,7 @@ export function AppHeader({
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/80 bg-[#0b0b10]/85 backdrop-blur-xl">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-4 sm:px-6">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
         <Link href="/dashboard" className="flex items-center gap-2 font-semibold tracking-tight text-foreground">
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-violet-600 to-rose-700 shadow-lg shadow-violet-900/40">
             <Sparkles className="h-4 w-4 text-white" />
@@ -76,6 +77,13 @@ export function AppHeader({
           ))}
         </nav>
         <div className="flex items-center gap-2">
+          <Link
+            href="/mangas"
+            className="hidden items-center gap-2 rounded-lg border border-border/60 bg-card/50 px-3 py-2 text-sm text-muted-foreground transition hover:text-foreground lg:flex"
+          >
+            <BookMarked className="h-4 w-4" />
+            Reprendre
+          </Link>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="secondary" size="sm" className="max-w-[200px] truncate border-border/60">
