@@ -92,6 +92,9 @@ export default async function MyMangasPage() {
                       </Link>
                     </Button>
                     <Button asChild variant="outline">
+                      <Link href={`/projects/${p.id}/generate`}>Générer la suite</Link>
+                    </Button>
+                    <Button asChild variant="outline">
                       <Link href={`/projects/${p.id}`}>Ouvrir le studio</Link>
                     </Button>
                   </div>

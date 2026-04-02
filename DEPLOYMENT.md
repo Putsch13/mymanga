@@ -14,7 +14,7 @@ Guide CTO pour **Render**, **Supabase**, **Stripe**, **Inngest** et providers **
 | **Stripe** | Paiement **web** (packs de tokens). Webhooks pour créditer le wallet. |
 | **Inngest** | Orchestration des jobs longs (pipeline chapitre manga-first). |
 | **fal.ai** | FLUX (ex. `flux/schnell` branché dans le code ; passer en `flux-pro` pour la prod premium). |
-| **Runware / BFL / Stability** | Clés optionnelles ; adapters mock si absentes. |
+| **Runware / BFL / Stability** | Clés optionnelles ; **en prod les mocks sont interdits** (tu verras un échec explicite si une clé manque). |
 
 ---
 
@@ -28,7 +28,7 @@ Guide CTO pour **Render**, **Supabase**, **Stripe**, **Inngest** et providers **
 4. Récupère :
    - `NEXT_PUBLIC_SUPABASE_URL` (Settings → API)
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY` (clé anon, safe côté client)
-   - `SUPABASE_SERVICE_ROLE_KEY` : **uniquement serveur** si tu fais des opérations admin (pas obligatoire pour ce repo tel quel).
+   - `SUPABASE_SERVICE_ROLE_KEY` : **uniquement serveur**. Recommandé si tu veux **stocker** les images (voir plus bas).
 
 ### Base de données
 
@@ -110,15 +110,31 @@ Ne **jamais** mettre `AUTH_DISABLED=true` en production.
 | Variable | Usage |
 |----------|--------|
 | `FAL_KEY` | Génération réelle via `https://fal.run/fal-ai/flux/schnell` ([adapter](packages/ai/src/adapters/fal-flux-adapter.ts)). |
-| `BFL_API_KEY` | À brancher sur l'API BFL officielle dans l'adapter. |
-| `RUNWARE_API_KEY` | Workflows / LoRA — adapter à compléter. |
-| `STABILITY_API_KEY` | Stable Image Ultra — adapter à compléter. |
+| `BFL_API_KEY` | Génération via BFL (URL de livraison courte durée) — **à persister via Storage**. |
+| `RUNWARE_API_KEY` | Génération via Runware (retourne une URL). |
+| `STABILITY_API_KEY` | Génération via Stability (retourne une **data URL**) — **à persister via Storage**. |
 | `OPENAI_API_KEY` | Outline chapitre, pipeline texte fallback-compatible et futures sorties structurées. |
 | `POSTHOG_KEY` | Analytics produit (fallback no-op si absent). |
 | `SENTRY_DSN` | Observabilité erreur (fallback console si absent). |
-| `STORAGE_BUCKET` | Bucket assets si tu branches du storage externe. |
+| `STORAGE_BUCKET` | Bucket **public** pour persister les images (ex: `mymanga-images`). |
+| `SUPABASE_SERVICE_ROLE_KEY` | Requis côté serveur si tu veux uploader dans `STORAGE_BUCKET`. |
 
-**fal** : crée une clé sur [fal.ai](https://fal.ai) → colle dans `FAL_KEY` sur Render. Sans clé, l'UI utilise des **placeholders** (mock).
+**fal** : crée une clé sur [fal.ai](https://fal.ai) → colle dans `FAL_KEY` sur Render.
+
+### Diagnostics rapide (30 secondes)
+
+Ouvre `https://<ton-app>.onrender.com/api/diagnostics/public` :
+- si `authDisabled=true` en prod → tu as laissé `AUTH_DISABLED=true`
+- si `hasFalKey=false` → les panels échoueront (plus de “mock” silencieux)
+- si `hasInngest...=false` → utilise le bouton “Run now (sans Inngest)” dans la page génération
+
+### Storage (recommandé pour multi-provider)
+
+Si tu actives `BFL_API_KEY` ou `STABILITY_API_KEY`, configure aussi :
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `STORAGE_BUCKET` (bucket **public**)
+
+Le pipeline persiste automatiquement les images “non durables” vers le bucket.
 
 ---
 

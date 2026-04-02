@@ -10,6 +10,8 @@ import {
   ImageIcon,
   Maximize2,
   Minimize2,
+  RefreshCw,
+  Repeat2,
   Sparkles,
 } from "lucide-react";
 import { cn } from "@manga-ai-studio/ui";
@@ -129,6 +131,8 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   const [showEnd, setShowEnd] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [spreadMode, setSpreadMode] = useState(true);
+  const [mangaRtl, setMangaRtl] = useState(true);
+  const [turn, setTurn] = useState<null | { dir: "next" | "prev"; at: number }>(null);
   const [intent, setIntent] = useState("");
   const [continuing, setContinuing] = useState(false);
   const [continueMsg, setContinueMsg] = useState<string | null>(null);
@@ -151,6 +155,17 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
     void load();
   }, [load]);
 
+  // Responsive: double page uniquement sur écrans larges
+  useEffect(() => {
+    const update = () => {
+      const wide = window.innerWidth >= 1024;
+      if (!wide) setSpreadMode(false);
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
   const pages = useMemo(() => {
     if (!chapter) return [];
     return buildPagesFromChapter(chapter);
@@ -159,6 +174,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   const totalPages = pages.length;
 
   const goNext = useCallback(() => {
+    setTurn({ dir: "next", at: Date.now() });
     const step = spreadMode ? 2 : 1;
     if (pageIndex < totalPages - step) {
       setPageIndex((i) => i + step);
@@ -168,6 +184,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   }, [pageIndex, totalPages, spreadMode]);
 
   const goPrev = useCallback(() => {
+    setTurn({ dir: "prev", at: Date.now() });
     if (showEnd) {
       setShowEnd(false);
       return;
@@ -180,17 +197,19 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
     function onKey(e: KeyboardEvent) {
       if (e.key === "ArrowRight" || e.key === " ") {
         e.preventDefault();
-        goNext();
+        if (mangaRtl) goPrev();
+        else goNext();
       }
       if (e.key === "ArrowLeft") {
         e.preventDefault();
-        goPrev();
+        if (mangaRtl) goNext();
+        else goPrev();
       }
       if (e.key === "Escape" && fullscreen) setFullscreen(false);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [goNext, goPrev, fullscreen]);
+  }, [goNext, goPrev, fullscreen, mangaRtl]);
 
   async function submitContinue(quickTag?: string) {
     const text = intent.trim();
@@ -271,15 +290,27 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
             <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.10),transparent_40%),radial-gradient(circle_at_bottom,rgba(0,0,0,0.40),transparent_55%)]" />
 
             {spreadMode ? (
-              <div className="relative z-10 grid h-full grid-cols-2">
+              <div
+                className="relative z-10 grid h-full grid-cols-2"
+                style={{
+                  transform:
+                    turn?.dir === "next"
+                      ? "perspective(1200px) rotateY(-0.9deg)"
+                      : turn?.dir === "prev"
+                        ? "perspective(1200px) rotateY(0.9deg)"
+                        : undefined,
+                  transition: "transform 180ms ease-out",
+                }}
+                onTransitionEnd={() => setTurn(null)}
+              >
                 {/* Page gauche */}
                 <div
                   className="relative h-full"
-                  onClick={goPrev}
+                  onClick={mangaRtl ? goNext : goPrev}
                   role="button"
                   tabIndex={0}
                   aria-label="Page précédente"
-                  onKeyDown={(e) => e.key === "Enter" && goPrev()}
+                  onKeyDown={(e) => e.key === "Enter" && (mangaRtl ? goNext() : goPrev())}
                 >
                   <div className="absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-black/30 to-transparent" />
                   {showTextOnly ? (
@@ -316,11 +347,11 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                 {/* Page droite */}
                 <div
                   className="relative h-full"
-                  onClick={goNext}
+                  onClick={mangaRtl ? goPrev : goNext}
                   role="button"
                   tabIndex={0}
                   aria-label="Page suivante"
-                  onKeyDown={(e) => e.key === "Enter" && goNext()}
+                  onKeyDown={(e) => e.key === "Enter" && (mangaRtl ? goPrev() : goNext())}
                 >
                   <div className="absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-black/30 to-transparent" />
                   {rightPage ? (
@@ -363,11 +394,11 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
             ) : (
               <div
                 className="relative z-10 h-full"
-                onClick={goNext}
+                onClick={mangaRtl ? goPrev : goNext}
                 role="button"
                 tabIndex={0}
                 aria-label="Page suivante"
-                onKeyDown={(e) => e.key === "Enter" && goNext()}
+                onKeyDown={(e) => e.key === "Enter" && (mangaRtl ? goPrev() : goNext())}
               >
                 {showTextOnly ? (
                   <div className="flex h-full flex-col gap-3 overflow-y-auto p-6">
@@ -416,6 +447,10 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" variant={mangaRtl ? "default" : "outline"} size="sm" onClick={() => setMangaRtl((v) => !v)} className="gap-1">
+          <Repeat2 className="h-4 w-4" />
+          {mangaRtl ? "Manga RTL" : "LTR"}
+        </Button>
         <Button
           type="button"
           variant={spreadMode ? "default" : "outline"}
@@ -453,6 +488,10 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
           disabled={exporting}
         >
           {exporting ? "Export…" : "PDF"}
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => void load()} className="gap-1">
+          <RefreshCw className="h-4 w-4" />
+          Refresh
         </Button>
         <Button
           type="button"

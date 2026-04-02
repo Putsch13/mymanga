@@ -2,6 +2,10 @@
   "name": "manga-ai-studio",
   "private": true,
   "scripts": {
+    "frontend:dev": "pnpm --filter @manga-ai-studio/web dev",
+    "frontend:build": "pnpm --filter @manga-ai-studio/web build",
+    "frontend:start": "pnpm --filter @manga-ai-studio/web start",
+    "backend:test": "pnpm --filter @manga-ai-studio/ai test",
     "dev": "pnpm --filter web dev",
     "build": "pnpm --filter web build",
     "lint": "pnpm -r lint",

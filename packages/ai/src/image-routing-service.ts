@@ -6,6 +6,24 @@ const DEFAULT_FLUX_MODEL = "flux-pro/v1.1";
 const DEFAULT_STABILITY_MODEL = "stable-image-ultra";
 const DEFAULT_RUNWARE_MODEL = "runware-custom-stack";
 
+function isProviderConfigured(provider: "fal" | "bfl" | "runware" | "stability") {
+  if (provider === "fal") return Boolean(process.env.FAL_KEY);
+  if (provider === "bfl") return Boolean(process.env.BFL_API_KEY);
+  if (provider === "runware") return Boolean(process.env.RUNWARE_API_KEY);
+  if (provider === "stability") return Boolean(process.env.STABILITY_API_KEY);
+  return false;
+}
+
+function pickBestAvailable(
+  preferred: Array<"fal" | "runware" | "stability" | "bfl">,
+): "fal" | "runware" | "stability" | "bfl" {
+  for (const p of preferred) {
+    if (isProviderConfigured(p)) return p;
+  }
+  // Si rien n'est configuré, on garde le premier pour produire une erreur explicite côté provider.
+  return preferred[0] ?? "fal";
+}
+
 function pickFluxWorkflow(ctx: RoutingContext): ImageWorkflow {
   if (ctx.needsInpaint) return "inpaint";
   if (ctx.hasCanonReferences && ctx.mode !== "LOCATION_KEYFRAME") return "multi_ref";
@@ -85,13 +103,21 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
   }
 
   if (ctx.hasCanonReferences && (ctx.mode === "PANEL_FINAL" || ctx.mode === "PANEL_DRAFT")) {
-    const gate = assertProviderAllowed("fal", layer);
+    const provider = pickBestAvailable(["fal", "runware", "stability", "bfl"]);
+    const gate = assertProviderAllowed(provider, layer);
     if ("blocked" in gate) return { blocked: true, reason: gate.reason, textOnlyFallback: true };
     return {
-      provider: "fal",
-      model: DEFAULT_FLUX_MODEL,
-      workflow: "multi_ref",
-      reason: "Cohérence personnage existant : multi-ref",
+      provider,
+      model:
+        provider === "fal"
+          ? DEFAULT_FLUX_MODEL
+          : provider === "runware"
+            ? DEFAULT_RUNWARE_MODEL
+            : provider === "stability"
+              ? DEFAULT_STABILITY_MODEL
+              : "flux-dev",
+      workflow: provider === "fal" ? "multi_ref" : "txt2img",
+      reason: provider === "fal" ? "Cohérence personnage existant : multi-ref" : "Fallback provider (multi-ref indisponible)",
     };
   }
 
@@ -142,12 +168,20 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
     };
   }
 
-  const gate = assertProviderAllowed("fal", layer);
+  const provider = pickBestAvailable(["fal", "runware", "stability", "bfl"]);
+  const gate = assertProviderAllowed(provider, layer);
   if ("blocked" in gate) return { blocked: true, reason: gate.reason, textOnlyFallback: true };
   return {
-    provider: "fal",
-    model: DEFAULT_FLUX_MODEL,
-    workflow: pickFluxWorkflow(ctx),
-    reason: "Défaut : FLUX stylisé",
+    provider,
+    model:
+      provider === "fal"
+        ? DEFAULT_FLUX_MODEL
+        : provider === "runware"
+          ? DEFAULT_RUNWARE_MODEL
+          : provider === "stability"
+            ? DEFAULT_STABILITY_MODEL
+            : "flux-dev",
+    workflow: provider === "fal" ? pickFluxWorkflow(ctx) : "txt2img",
+    reason: provider === "fal" ? "Défaut : FLUX stylisé" : "Défaut : fallback provider (clé FAL manquante)",
   };
 }

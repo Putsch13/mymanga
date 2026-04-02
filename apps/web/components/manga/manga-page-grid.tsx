@@ -85,6 +85,10 @@ export interface UniversalPanel {
   id?: string;
   mood: AnyPanelMood;
   imageUrl?: string | null;
+  status?: string;
+  provider?: string | null;
+  model?: string | null;
+  error?: string | null;
   dialogue?: string;
   speaker?: string;
   narration?: string;
@@ -122,12 +126,17 @@ export interface PipelinePanel {
   panelNumber: number;
   mood?: string;
   imageUrl?: string | null;
+  status?: string;
+  provider?: string | null;
+  model?: string | null;
   metadata?: {
     dialogue?: { speaker: string; text: string };
     narration?: string;
     sfx?: string;
     caption?: string;
     layout?: string;
+    error?: string;
+    blockedReason?: string;
   };
 }
 
@@ -147,8 +156,13 @@ export function pipelineScenesToPages(
     const panels: UniversalPanel[] = (scene.images ?? [])
       .sort((a, b) => a.panelNumber - b.panelNumber)
       .map((img) => ({
+        id: (img as { id?: string }).id,
         mood: (img.mood as AnyPanelMood) ?? "dramatic",
         imageUrl: img.imageUrl,
+        status: img.status,
+        provider: img.provider ?? null,
+        model: img.model ?? null,
+        error: (img.metadata?.error ?? img.metadata?.blockedReason) ?? null,
         dialogue: img.metadata?.dialogue?.text,
         speaker: img.metadata?.dialogue?.speaker,
         narration: img.metadata?.narration,
@@ -196,6 +210,11 @@ export function MangaPageGrid({ page }: Props) {
           key={panel.id ?? `panel-${i}`}
           mood={panel.mood}
           imageUrl={panel.imageUrl}
+          status={panel.status}
+          provider={panel.provider}
+          model={panel.model}
+          error={panel.error}
+          sceneImageId={panel.id}
           dialogue={panel.dialogue}
           speaker={panel.speaker}
           narration={panel.narration}

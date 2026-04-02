@@ -118,6 +118,11 @@ const MOOD_OVERLAY: Partial<Record<string, React.ReactNode>> = {
 type Props = {
   mood: AnyPanelMood;
   imageUrl?: string | null;
+  status?: string;
+  provider?: string | null;
+  model?: string | null;
+  error?: string | null;
+  sceneImageId?: string;
   dialogue?: string;
   speaker?: string;
   narration?: string;
@@ -132,6 +137,11 @@ type Props = {
 export function MangaPanel({
   mood,
   imageUrl,
+  status,
+  provider,
+  model,
+  error,
+  sceneImageId,
   dialogue,
   speaker,
   narration,
@@ -143,6 +153,8 @@ export function MangaPanel({
 }: Props) {
   const bg = MOOD_BG[mood] ?? MOOD_BG["dramatic"];
   const overlay = MOOD_OVERLAY[mood];
+  const isPending = !imageUrl && (status === "planned" || status === "pending");
+  const isFailed = !imageUrl && (status === "failed" || status === "blocked");
 
   return (
     <div
@@ -166,6 +178,55 @@ export function MangaPanel({
       {imageUrl && (dialogue || narration || sfx) && (
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
       )}
+
+      {/* Badge status */}
+      {(status || provider || model) && (
+        <div className="absolute left-2 top-2 z-20 rounded-md border border-white/10 bg-black/60 px-2 py-1 text-[10px] text-stone-200">
+          <div className="flex items-center gap-1">
+            <span className="font-semibold">{status ?? "?"}</span>
+            {provider ? <span className="opacity-70">· {provider}</span> : null}
+            {model ? <span className="opacity-50">· {model}</span> : null}
+          </div>
+        </div>
+      )}
+
+      {/* Pending / failed overlays */}
+      {isPending ? (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/30">
+          <div className="rounded-lg border border-white/10 bg-black/70 px-3 py-2 text-xs text-stone-100">
+            Génération en cours…
+          </div>
+        </div>
+      ) : null}
+
+      {isFailed ? (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 p-3 text-center">
+          <div className="w-full max-w-[220px] rounded-lg border border-red-500/20 bg-black/70 px-3 py-2 text-xs text-stone-100">
+            <p className="font-semibold text-red-300">Échec de génération</p>
+            {error ? <p className="mt-1 text-stone-200/80 line-clamp-3">{error}</p> : null}
+            {sceneImageId ? (
+              <button
+                type="button"
+                className="mt-2 w-full rounded-md border border-white/10 bg-white/10 px-2 py-1 text-xs hover:bg-white/15"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  try {
+                    const res = await fetch(`/api/scene-images/${sceneImageId}/retry`, { method: "POST" });
+                    const j = await res.json();
+                    if (!res.ok) throw new Error(j.message ?? j.error ?? "retry_failed");
+                    // refresh visuel
+                    window.location.reload();
+                  } catch {
+                    // ignore
+                  }
+                }}
+              >
+                Réessayer
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       <div className="relative z-10 flex flex-1 flex-col justify-end p-2">
         {/* SFX standalone */}

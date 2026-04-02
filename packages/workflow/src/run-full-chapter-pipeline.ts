@@ -13,6 +13,7 @@ import {
   persistChapterMemory,
   replaceRagDocument,
 } from "@manga-ai-studio/memory";
+import { createClient } from "@supabase/supabase-js";
 
 type JobStep = {
   key: string;
@@ -20,6 +21,84 @@ type JobStep = {
   status?: "queued" | "running" | "completed" | "failed";
   detail?: string;
 };
+
+function getStorageClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key, { auth: { persistSession: false } });
+}
+
+function isDataUrl(url: string) {
+  return url.startsWith("data:image/");
+}
+
+function looksLikeBflDelivery(url: string) {
+  try {
+    const u = new URL(url);
+    return u.hostname.startsWith("delivery-") && u.hostname.endsWith(".bfl.ai");
+  } catch {
+    return false;
+  }
+}
+
+async function persistImageIfNeeded(opts: {
+  imageUrl: string;
+  projectId: string;
+  chapterId: string;
+  sceneImageId: string;
+}) {
+  const bucket = process.env.STORAGE_BUCKET ?? "mymanga-images";
+  const client = getStorageClient();
+
+  const mustPersist = isDataUrl(opts.imageUrl) || looksLikeBflDelivery(opts.imageUrl);
+  if (!mustPersist) return { ok: true as const, url: opts.imageUrl, persisted: false as const };
+
+  if (!client) {
+    return {
+      ok: false as const,
+      error:
+        "Image non persistable (data URL / BFL delivery) sans SUPABASE_SERVICE_ROLE_KEY + STORAGE_BUCKET. Configure le stockage.",
+    };
+  }
+
+  let bytes: Uint8Array;
+  let contentType = "image/jpeg";
+
+  if (isDataUrl(opts.imageUrl)) {
+    // data:image/png;base64,....
+    const commaIdx = opts.imageUrl.indexOf(",");
+    if (commaIdx <= 0) return { ok: false as const, error: "data URL invalide" };
+    const header = opts.imageUrl.slice(0, commaIdx);
+    const b64 = opts.imageUrl.slice(commaIdx + 1);
+    // header exemple: data:image/png;base64
+    const ct = header.split(";")[0]?.slice("data:".length);
+    if (ct?.startsWith("image/")) contentType = ct;
+    bytes = Uint8Array.from(Buffer.from(b64, "base64"));
+  } else {
+    const res = await fetch(opts.imageUrl);
+    if (!res.ok) return { ok: false as const, error: `download failed ${res.status}` };
+    const buf = new Uint8Array(await res.arrayBuffer());
+    bytes = buf;
+    const ct = res.headers.get("content-type");
+    if (ct?.startsWith("image/")) contentType = ct;
+  }
+
+  const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
+  const path = `projects/${opts.projectId}/chapters/${opts.chapterId}/panels/${opts.sceneImageId}.${ext}`;
+
+  const up = await client.storage.from(bucket).upload(path, bytes, {
+    contentType,
+    upsert: true,
+    cacheControl: "31536000",
+  });
+  if (up.error) {
+    return { ok: false as const, error: `upload failed: ${up.error.message}` };
+  }
+
+  const publicUrl = client.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+  return { ok: true as const, url: publicUrl, persisted: true as const };
+}
 
 async function setJobProgress(jobId: string, step: JobStep, status: "running" | "completed" | "failed") {
   const job = await prisma.job.findUnique({ where: { id: jobId } });
@@ -302,21 +381,48 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         });
 
         if (result.ok) {
+          const persisted = await persistImageIfNeeded({
+            imageUrl: result.result.imageUrl,
+            projectId,
+            chapterId,
+            sceneImageId: item.sceneImageId,
+          });
+
+          if (!persisted.ok) {
+            await prisma.sceneImage.update({
+              where: { id: item.sceneImageId },
+              data: {
+                status: "failed",
+                metadata: { error: persisted.error, sourceUrl: result.result.imageUrl } as Prisma.InputJsonValue,
+              },
+            });
+            failedCount++;
+            continue;
+          }
+
           await prisma.sceneImage.update({
             where: { id: item.sceneImageId },
             data: {
-              imageUrl: result.result.imageUrl,
+              imageUrl: persisted.url,
               provider: result.result.provider,
               model: result.result.model,
               status: "completed",
               routingDecision: result.routing as unknown as Prisma.InputJsonValue,
+              metadata: ({
+                ...(typeof item.panel === "object" ? {} : {}),
+                generationLog: result.log,
+                persisted: persisted.persisted,
+              } as unknown) as Prisma.InputJsonValue,
             },
           });
           generatedCount++;
         } else {
           await prisma.sceneImage.update({
             where: { id: item.sceneImageId },
-            data: { status: "blocked", metadata: { blockedReason: result.reason } as Prisma.InputJsonValue },
+            data: {
+              status: "blocked",
+              metadata: ({ blockedReason: result.reason, generationLog: result.log } as unknown) as Prisma.InputJsonValue,
+            },
           });
           failedCount++;
         }

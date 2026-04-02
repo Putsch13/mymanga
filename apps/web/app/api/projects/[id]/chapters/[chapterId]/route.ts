@@ -39,6 +39,8 @@ export async function GET(_req: Request, ctx: Ctx) {
                 panelNumber: true,
                 imageUrl: true,
                 status: true,
+              provider: true,
+              model: true,
                 prompt: true,
                 metadata: true,
               },
