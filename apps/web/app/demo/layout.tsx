@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BookOpenText, LayoutDashboard, Sparkles } from "lucide-react";
+import { BookMarked, BookOpenText, Sparkles, Wand2 } from "lucide-react";
 
 export default function DemoLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -14,9 +14,13 @@ export default function DemoLayout({ children }: { children: React.ReactNode }) 
             <span className="ml-1 rounded-full border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground">DEMO</span>
           </Link>
           <nav className="flex items-center gap-1">
-            <Link href="/demo/dashboard" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-card/50 hover:text-foreground">
-              <LayoutDashboard className="h-4 w-4 opacity-70" />
-              Dashboard
+            <Link href="/demo/mangas" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-card/50 hover:text-foreground">
+              <BookMarked className="h-4 w-4 opacity-70" />
+              Mes mangas
+            </Link>
+            <Link href="/demo/lab" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-card/50 hover:text-foreground">
+              <Wand2 className="h-4 w-4 opacity-70" />
+              Labo
             </Link>
             <Link href="/demo/project" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-card/50 hover:text-foreground">
               <BookOpenText className="h-4 w-4 opacity-70" />

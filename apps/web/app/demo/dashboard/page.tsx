@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, BookOpenText, Plus, Sparkles } from "lucide-react";
+import { ArrowRight, BookMarked, Coins, Wand2 } from "lucide-react";
 import { demoMangaPages, demoProject } from "@/lib/demo-data";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,18 +18,19 @@ export default function DemoDashboardPage() {
             <p className="text-sm font-medium text-accent">Studio de d&eacute;mo</p>
             <h1 className="mt-1 text-4xl font-semibold tracking-tight">Bonjour, Florent</h1>
             <p className="mt-2 max-w-2xl text-muted-foreground">
-              Explore le dashboard V3, le projet d&eacute;mo et surtout le lecteur manga avec ses {totalPanels} cases r&eacute;parties sur {demoMangaPages.length} pages.
+              Explore le vrai masque produit : biblioth&egrave;que, labo, lecteur manga et logique de cr&eacute;dits. La d&eacute;mo doit vendre l&apos;exp&eacute;rience finale.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Badge variant="outline">1 projet d&eacute;mo</Badge>
               <Badge variant="outline">{demoProject.stats.characters} personnages</Badge>
               <Badge variant="outline">{totalPanels} cases manga</Badge>
+              <Badge variant="outline">500 cr&eacute;dits de bienvenue</Badge>
             </div>
           </div>
           <Button asChild size="lg" className="gap-2">
-            <Link href="/demo/project">
-              <Plus className="h-4 w-4" />
-              Ouvrir le projet
+            <Link href="/demo/lab">
+              <Wand2 className="h-4 w-4" />
+              Lancer un chapitre
             </Link>
           </Button>
         </div>
@@ -37,6 +38,23 @@ export default function DemoDashboardPage() {
 
       {/* Project card + quick actions */}
       <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+        <Link href="/demo/mangas" className="group block">
+          <Card className="h-full overflow-hidden border-border/60 bg-card/50 transition-all hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-lg hover:shadow-violet-950/20">
+            <div className="flex h-28 items-center justify-center bg-gradient-to-br from-stone-900 to-stone-950">
+              <BookMarked className="h-10 w-10 text-stone-500 transition group-hover:text-accent" />
+            </div>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg group-hover:text-accent">Mes mangas</CardTitle>
+              <CardDescription>Biblioth&egrave;que personnelle, reprise de lecture, et CTA de g&eacute;n&eacute;ration.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2 text-xs text-accent">
+                Ouvrir la biblioth&egrave;que <ArrowRight className="h-3 w-3" />
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+
         <Link href="/demo/project" className="group block">
           <Card className="h-full overflow-hidden border-border/60 bg-card/50 transition-all hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-lg hover:shadow-violet-950/20">
             <div className="h-28 bg-[linear-gradient(135deg,rgba(124,58,237,0.38),rgba(190,18,60,0.16)),radial-gradient(circle_at_top_right,rgba(255,255,255,0.16),transparent_35%)]" />
@@ -71,20 +89,20 @@ export default function DemoDashboardPage() {
           </Card>
         </Link>
 
-        <Link href="/demo/reader" className="group block">
+        <Link href="/demo/lab" className="group block">
           <Card className="h-full overflow-hidden border-border/60 bg-card/50 transition-all hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-lg hover:shadow-violet-950/20">
             <div className="flex h-28 items-center justify-center bg-gradient-to-br from-stone-900 to-stone-950">
-              <BookOpenText className="h-10 w-10 text-stone-500 transition group-hover:text-accent" />
+              <Wand2 className="h-10 w-10 text-stone-500 transition group-hover:text-accent" />
             </div>
             <CardHeader className="pb-2">
-              <CardTitle className="text-lg group-hover:text-accent">Lecteur manga</CardTitle>
+              <CardTitle className="text-lg group-hover:text-accent">Labo de g&eacute;n&eacute;ration</CardTitle>
               <CardDescription>
-                {demoMangaPages.length} pages &middot; {totalPanels} cases &middot; bulles de dialogue &middot; SFX &middot; navigation clavier
+                Cr&eacute;e un chapitre sur mesure en d&eacute;mo, puis bascule vers la lecture manga.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="flex items-center gap-2 text-xs text-accent">
-                Lire le chapitre 2 <ArrowRight className="h-3 w-3" />
+                Tester le labo <ArrowRight className="h-3 w-3" />
               </div>
             </CardContent>
           </Card>
@@ -93,15 +111,15 @@ export default function DemoDashboardPage() {
         <Card className="border-dashed border-border/60 bg-card/40">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
-              <Sparkles className="h-5 w-5 text-accent" />
-              Mode d&eacute;mo
+              <Coins className="h-5 w-5 text-accent" />
+              Logique mon&eacute;tisation
             </CardTitle>
             <CardDescription>
-              Test UX complet sans connexion ni base de donn&eacute;es.
+              Le masque doit montrer des cr&eacute;dits de bienvenue et un vrai chemin vers la suite.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <p>Valide le rendu des pages manga, les parcours utilisateur et le design premium avant de brancher la prod.</p>
+            <p>On simule ici le parcours produit complet avant connexion : biblioth&egrave;que, labo, lecteur et lecture premium.</p>
             <Button asChild variant="outline">
               <Link href="/login">Passer en mode connect&eacute;</Link>
             </Button>

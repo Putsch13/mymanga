@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BookOpenText, GitBranch, Sparkles, Users, Wallet } from "lucide-react";
+import { BookOpenText, GitBranch, Sparkles, Users, Wallet, Wand2 } from "lucide-react";
 import { demoArcs, demoCharacters, demoMangaPages, demoProject, demoTransactions } from "@/lib/demo-data";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -120,13 +120,20 @@ export default function DemoProjectPage() {
             </CardContent>
           </Card>
 
-          {/* CTA */}
-          <Button asChild className="w-full" size="lg">
-            <Link href="/demo/reader">
-              <BookOpenText className="h-4 w-4" />
-              Ouvrir le lecteur manga
-            </Link>
-          </Button>
+          <div className="grid gap-3">
+            <Button asChild className="w-full" size="lg">
+              <Link href="/demo/reader">
+                <BookOpenText className="h-4 w-4" />
+                Ouvrir le lecteur manga
+              </Link>
+            </Button>
+            <Button asChild variant="outline" className="w-full" size="lg">
+              <Link href="/demo/lab">
+                <Wand2 className="h-4 w-4" />
+                Lancer un chapitre sur mesure
+              </Link>
+            </Button>
+          </div>
         </div>
       </div>
     </div>
