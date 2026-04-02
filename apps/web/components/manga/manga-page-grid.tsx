@@ -1,6 +1,7 @@
 "use client";
 
 import type { DemoMangaPage } from "@/lib/demo-data";
+import type { AnyPanelMood } from "./manga-panel";
 import { MangaPanel } from "./manga-panel";
 
 /**
@@ -8,8 +9,7 @@ import { MangaPanel } from "./manga-panel";
  * Each uses CSS grid-template-areas to create varied panel arrangements.
  * Panels are mapped to grid areas a-g.
  */
-
-const LAYOUT_STYLES: Record<DemoMangaPage["layout"], React.CSSProperties> = {
+const LAYOUT_STYLES: Record<"A" | "B" | "C" | "D" | "E", React.CSSProperties> = {
   // Layout A: 6 panels — 2 top, 1 wide, 2 + 1 tall bottom
   A: {
     display: "grid",
@@ -62,7 +62,7 @@ const LAYOUT_STYLES: Record<DemoMangaPage["layout"], React.CSSProperties> = {
     `,
     gap: "3px",
   },
-  // Layout E: 6 panels — wide top, 2 mid, tall right + bottom wide
+  // Layout E: 7 panels — wide top, 2 mid, tall right + bottom wide + 1
   E: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr 1fr 1fr",
@@ -71,7 +71,7 @@ const LAYOUT_STYLES: Record<DemoMangaPage["layout"], React.CSSProperties> = {
       "a a a a"
       "b b c c"
       "d d d e"
-      "f f f f"
+      "f f g g"
     `,
     gap: "3px",
   },
@@ -79,28 +79,124 @@ const LAYOUT_STYLES: Record<DemoMangaPage["layout"], React.CSSProperties> = {
 
 const AREA_NAMES = ["a", "b", "c", "d", "e", "f", "g"];
 
+// ── Types universels ──────────────────────────────────────────────────────
+
+export interface UniversalPanel {
+  id?: string;
+  mood: AnyPanelMood;
+  imageUrl?: string | null;
+  dialogue?: string;
+  speaker?: string;
+  narration?: string;
+  sfx?: string;
+  caption?: string;
+}
+
+export interface UniversalMangaPage {
+  id?: string;
+  layout: "A" | "B" | "C" | "D" | "E";
+  panels: UniversalPanel[];
+}
+
+// ── Conversion DemoMangaPage → UniversalMangaPage ─────────────────────────
+
+export function demoPageToUniversal(page: DemoMangaPage): UniversalMangaPage {
+  return {
+    id: page.id,
+    layout: page.layout,
+    panels: page.panels.map((p) => ({
+      id: p.id,
+      mood: p.mood as AnyPanelMood,
+      imageUrl: null,
+      dialogue: p.dialogue,
+      speaker: p.speaker,
+      narration: p.narration,
+      sfx: p.sfx,
+    })),
+  };
+}
+
+// ── Conversion données pipeline → UniversalMangaPage ─────────────────────
+
+export interface PipelinePanel {
+  panelNumber: number;
+  mood?: string;
+  imageUrl?: string | null;
+  metadata?: {
+    dialogue?: { speaker: string; text: string };
+    narration?: string;
+    sfx?: string;
+    caption?: string;
+    layout?: string;
+  };
+}
+
+export interface PipelineScene {
+  id: string;
+  images?: PipelinePanel[];
+}
+
+export function pipelineScenesToPages(
+  scenes: PipelineScene[],
+  storyboardPages?: Array<{ pageNumber: number; layout: string }>,
+): UniversalMangaPage[] {
+  return scenes.map((scene, idx) => {
+    const sbPage = storyboardPages?.[idx];
+    const layout = (sbPage?.layout as "A" | "B" | "C" | "D" | "E") ?? "A";
+
+    const panels: UniversalPanel[] = (scene.images ?? [])
+      .sort((a, b) => a.panelNumber - b.panelNumber)
+      .map((img) => ({
+        mood: (img.mood as AnyPanelMood) ?? "dramatic",
+        imageUrl: img.imageUrl,
+        dialogue: img.metadata?.dialogue?.text,
+        speaker: img.metadata?.dialogue?.speaker,
+        narration: img.metadata?.narration,
+        sfx: img.metadata?.sfx,
+        caption: img.metadata?.caption,
+      }));
+
+    return { layout, panels };
+  });
+}
+
+// ── Composant principal ───────────────────────────────────────────────────
+
 type Props = {
-  page: DemoMangaPage;
+  page: UniversalMangaPage | DemoMangaPage;
 };
 
+function isUniversalPage(page: UniversalMangaPage | DemoMangaPage): page is UniversalMangaPage {
+  return "panels" in page && page.panels.length > 0 && "mood" in page.panels[0]!;
+}
+
 export function MangaPageGrid({ page }: Props) {
+  const universal: UniversalMangaPage = isUniversalPage(page)
+    ? page
+    : demoPageToUniversal(page as DemoMangaPage);
+
+  const layoutStyle = LAYOUT_STYLES[universal.layout] ?? LAYOUT_STYLES.A;
+
   return (
     <div
       className="h-full w-full bg-stone-900"
       style={{
-        ...LAYOUT_STYLES[page.layout],
+        ...layoutStyle,
         padding: "3px",
         minHeight: "100%",
       }}
     >
-      {page.panels.map((panel, i) => (
+      {universal.panels.map((panel, i) => (
         <MangaPanel
-          key={panel.id}
+          key={panel.id ?? `panel-${i}`}
           mood={panel.mood}
+          imageUrl={panel.imageUrl}
           dialogue={panel.dialogue}
           speaker={panel.speaker}
           narration={panel.narration}
           sfx={panel.sfx}
+          caption={panel.caption}
+          panelIndex={i}
           className="min-h-0"
           style={{ gridArea: AREA_NAMES[i] }}
         />

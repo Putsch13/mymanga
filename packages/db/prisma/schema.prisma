@@ -1,10 +1,13 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [pgvector(map: "vector")]
 }
 
 enum UserRole {
@@ -31,6 +34,7 @@ enum ContentIntensityLayer {
   TEEN
   MATURE_DRAMA
   MATURE_VISUAL
+  ADULT_EXPLICIT
   RESTRICTED_BLOCKED_VISUAL
 }
 
@@ -288,8 +292,10 @@ model Character {
   traits          Json      @default("[]")
   flaws           Json      @default("[]")
   secrets         Json      @default("[]")
-  appearance      Json      @default("{}")
-  outfitDefault   Json      @default("{}")
+  appearance      String?
+  hairColor       String?
+  eyeColor        String?
+  outfitDefault   String?
   bodyProfile     Json      @default("{}")
   status          String    @default("alive")
   emotionalState  String?
@@ -521,15 +527,16 @@ model MemorySnapshot {
 }
 
 model RagDocument {
-  id         String   @id @default(cuid())
+  id         String                      @id @default(cuid())
   projectId  String
-  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project    Project                     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   entityType String
   entityId   String?
   title      String?
   content    String
-  metadata   Json     @default("{}")
-  createdAt  DateTime @default(now())
+  metadata   Json                        @default("{}")
+  embedding  Unsupported("vector(1536)")?
+  createdAt  DateTime                    @default(now())
 }
 
 model Job {

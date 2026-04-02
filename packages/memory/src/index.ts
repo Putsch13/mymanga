@@ -29,14 +29,102 @@ function sanitizeRagContent(content: string) {
     .slice(0, 4000);
 }
 
+// ── Embeddings OpenAI ──────────────────────────────────────────────────────
+
+const EMBEDDING_MODEL =
+  process.env.OPENAI_EMBEDDING_MODEL ?? "text-embedding-3-small";
+
+/**
+ * Génère un embedding vectoriel via OpenAI text-embedding-3-small (1536 dims).
+ * Retourne null si la clé API n'est pas configurée (fallback gracieux).
+ */
+async function generateEmbedding(text: string): Promise<number[] | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const res = await fetch("https://api.openai.com/v1/embeddings", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: EMBEDDING_MODEL,
+        input: text.slice(0, 8000),
+      }),
+    });
+
+    if (!res.ok) return null;
+
+    const data = (await res.json()) as {
+      data?: Array<{ embedding: number[] }>;
+    };
+    return data.data?.[0]?.embedding ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ── RAG Document management ────────────────────────────────────────────────
+
 export async function indexRagDocument(prisma: PrismaClient, doc: RagDocumentInput) {
+  const sanitized = sanitizeRagContent(doc.content);
+  const embedding = await generateEmbedding(sanitized);
+
+  // Prisma ne supporte pas nativement vector(1536) — on passe par $executeRaw
+  if (embedding) {
+    const vectorLiteral = `[${embedding.join(",")}]`;
+    // Upsert via raw SQL pour inclure le champ embedding
+    const existing = await prisma.ragDocument.findFirst({
+      where: {
+        projectId: doc.projectId,
+        entityType: doc.entityType,
+        ...(doc.entityId ? { entityId: doc.entityId } : {}),
+      },
+      select: { id: true },
+    });
+
+    if (existing) {
+      await prisma.$executeRawUnsafe(
+        `UPDATE "RagDocument"
+         SET content = $1, title = $2, metadata = $3::jsonb, embedding = $4::vector
+         WHERE id = $5`,
+        sanitized,
+        doc.title ?? null,
+        JSON.stringify(doc.metadata ?? {}),
+        vectorLiteral,
+        existing.id,
+      );
+      return prisma.ragDocument.findUniqueOrThrow({ where: { id: existing.id } });
+    } else {
+      const created = await prisma.ragDocument.create({
+        data: {
+          projectId: doc.projectId,
+          entityType: doc.entityType,
+          entityId: doc.entityId,
+          title: doc.title,
+          content: sanitized,
+          metadata: (doc.metadata ?? {}) as Prisma.InputJsonValue,
+        },
+      });
+      await prisma.$executeRawUnsafe(
+        `UPDATE "RagDocument" SET embedding = $1::vector WHERE id = $2`,
+        vectorLiteral,
+        created.id,
+      );
+      return created;
+    }
+  }
+
+  // Fallback sans embedding
   return prisma.ragDocument.create({
     data: {
       projectId: doc.projectId,
       entityType: doc.entityType,
       entityId: doc.entityId,
       title: doc.title,
-      content: sanitizeRagContent(doc.content),
+      content: sanitized,
       metadata: (doc.metadata ?? {}) as Prisma.InputJsonValue,
     },
   });
@@ -45,7 +133,11 @@ export async function indexRagDocument(prisma: PrismaClient, doc: RagDocumentInp
 export async function replaceRagDocument(prisma: PrismaClient, doc: RagDocumentInput) {
   if (doc.entityId) {
     await prisma.ragDocument.deleteMany({
-      where: { projectId: doc.projectId, entityType: doc.entityType, entityId: doc.entityId },
+      where: {
+        projectId: doc.projectId,
+        entityType: doc.entityType,
+        entityId: doc.entityId,
+      },
     });
   }
   return indexRagDocument(prisma, doc);
@@ -59,6 +151,10 @@ export async function listRecentSummaries(prisma: PrismaClient, projectId: strin
   });
 }
 
+/**
+ * Recherche vectorielle cosine via pgvector si un embedding est disponible,
+ * sinon fallback sur la recherche textuelle LIKE.
+ */
 export async function retrieveRelevantMemory(
   prisma: PrismaClient,
   projectId: string,
@@ -66,11 +162,43 @@ export async function retrieveRelevantMemory(
   take = 6,
 ) {
   const normalized = sanitizeRagContent(query);
+  const embedding = await generateEmbedding(normalized);
+
+  if (embedding) {
+    const vectorLiteral = `[${embedding.join(",")}]`;
+    try {
+      const docs = await prisma.$queryRawUnsafe<
+        Array<{
+          id: string;
+          title: string | null;
+          content: string;
+          entityType: string;
+          metadata: unknown;
+          createdAt: Date;
+        }>
+      >(
+        `SELECT id, title, content, "entityType", metadata, "createdAt"
+         FROM "RagDocument"
+         WHERE "projectId" = $1
+           AND embedding IS NOT NULL
+         ORDER BY embedding <=> $2::vector
+         LIMIT $3`,
+        projectId,
+        vectorLiteral,
+        take,
+      );
+      return docs;
+    } catch {
+      // pgvector non disponible, fallback textuel
+    }
+  }
+
+  // Fallback textuel
   const docs = await prisma.ragDocument.findMany({
     where: {
       projectId,
       OR: [
-        { title: { contains: normalized, mode: "insensitive" } },
+        { title: { contains: normalized.slice(0, 80), mode: "insensitive" } },
         { content: { contains: normalized.slice(0, 80), mode: "insensitive" } },
       ],
     },
@@ -101,7 +229,9 @@ export async function buildProjectContext(
 
   if (!project) return null;
 
-  const retrieved = userIntent ? await retrieveRelevantMemory(prisma, projectId, userIntent, 5) : [];
+  const retrieved = userIntent
+    ? await retrieveRelevantMemory(prisma, projectId, userIntent, 5)
+    : [];
 
   return {
     project: {
@@ -118,31 +248,36 @@ export async function buildProjectContext(
     },
     settings: project.settings,
     storyBible: project.storyBible,
-    characters: project.characters.map((character) => ({
-      id: character.id,
-      name: character.name,
-      roleType: character.roleType,
-      objective: character.objective,
-      fear: character.fear,
-      emotionalState: character.emotionalState,
-      status: character.status,
-      canonLocked: character.canonLocked,
-      appearance: character.appearance,
-      outfitDefault: character.outfitDefault,
-    })),
+    characters: project.characters.map((c) => {
+      const raw = c as Record<string, unknown>;
+      return {
+        id: c.id,
+        name: c.name,
+        roleType: c.roleType,
+        objective: c.objective,
+        fear: c.fear,
+        emotionalState: c.emotionalState,
+        status: c.status,
+        canonLocked: c.canonLocked,
+        appearance: typeof raw.appearance === "string" ? raw.appearance : null,
+        outfitDefault: typeof raw.outfitDefault === "string" ? raw.outfitDefault : null,
+        hairColor: typeof raw.hairColor === "string" ? raw.hairColor : null,
+        eyeColor: typeof raw.eyeColor === "string" ? raw.eyeColor : null,
+      };
+    }),
     relationships: project.relationships,
     arcs: project.arcs,
-    recentChapters: project.chapters.map((chapter) => ({
-      id: chapter.id,
-      chapterNumber: chapter.chapterNumber,
-      title: chapter.title,
-      summary: chapter.summary,
-      cliffhanger: chapter.cliffhanger,
+    recentChapters: project.chapters.map((c) => ({
+      id: c.id,
+      chapterNumber: c.chapterNumber,
+      title: c.title,
+      summary: c.summary,
+      cliffhanger: c.cliffhanger,
     })),
-    recentMemory: project.memorySnapshots.map((snapshot) => ({
-      chapterId: snapshot.chapterId,
-      narrativeSummary: snapshot.narrativeSummary,
-      structuredState: snapshot.structuredState,
+    recentMemory: project.memorySnapshots.map((s) => ({
+      chapterId: s.chapterId,
+      narrativeSummary: s.narrativeSummary,
+      structuredState: s.structuredState,
     })),
     retrievedDocs: retrieved.map((doc) => ({
       title: doc.title,
@@ -173,8 +308,9 @@ export async function persistChapterMemory(prisma: PrismaClient, input: ChapterM
   });
 
   const timelineEvents = input.timelineEvents ?? [];
-  for (let i = 0; i < timelineEvents.length; i += 1) {
+  for (let i = 0; i < timelineEvents.length; i++) {
     const event = timelineEvents[i];
+    if (!event) continue;
     await prisma.continuityEvent.create({
       data: {
         projectId: input.projectId,
@@ -210,7 +346,10 @@ export function detectCanonWarnings(input: {
   const warnings: string[] = [];
 
   for (const character of input.characterStatuses) {
-    if (character.status === "dead" && new RegExp(`\\b${character.name}\\b`, "i").test(input.scriptText)) {
+    if (
+      character.status === "dead" &&
+      new RegExp(`\\b${character.name}\\b`, "i").test(input.scriptText)
+    ) {
       warnings.push(`${character.name} est marqué comme mort mais réapparaît dans le draft.`);
     }
   }
