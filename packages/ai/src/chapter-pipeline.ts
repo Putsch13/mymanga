@@ -352,6 +352,7 @@ export function generateChapterBundle(input: {
   const mainCast = cast.length > 0 ? cast : ["Le protagoniste", "L'antagoniste"];
   const locations = inferLocations(input.context);
   const [locA, locB, locC, locD] = locations;
+  const locAt = (i: number) => locations[i % Math.max(locations.length, 1)] ?? locA;
   const tone = input.context.project.tone ?? "dramatique";
   const genre = (input.context.project.primaryGenre ?? "fantasy").toLowerCase();
   const visualStyle = inferVisualStyle(input.context);
@@ -381,30 +382,56 @@ export function generateChapterBundle(input: {
   const selected =
     optionSeed.find((o) => o.label === (input.selectedPlotLabel ?? "bold")) ?? optionSeed[1];
 
+  // Cible produit : ~6 pages par chapitre, 6–7 panels/page.
+  // On aligne volontairement 1 scène = 1 page pour coller au workflow (persist scene ↔ storyboard page).
   const beats = [
     {
       id: "beat_1",
-      summary: `${mainCast[0]} ouvre le chapitre dans ${locA} avec une tension encore vive.`,
-      tension: 3,
+      summary: `${mainCast[0]} ouvre le chapitre dans ${locAt(0)}. L'enjeu est posé, l'air est lourd.`,
+      tension: 2,
       characters: [mainCast[0]],
-      location: locA,
-      purpose: "recontextualiser l'enjeu et l'état émotionnel",
+      location: locAt(0),
+      purpose: "mise en place rapide + humeur",
     },
     {
       id: "beat_2",
-      summary: `${selected.summary} Les indices rassemblés relient la menace actuelle à la bible du monde.`,
-      tension: 6,
+      summary: `Un indice apparaît à ${locAt(1)}. ${mainCast[0]} comprend que quelque chose cloche.`,
+      tension: 4,
       characters: mainCast.slice(0, 2),
-      location: locB,
-      purpose: "faire avancer l'arc et poser une décision difficile",
+      location: locAt(1),
+      purpose: "inciting incident + suspicion",
     },
     {
       id: "beat_3",
-      summary: `${mainCast[0]} provoque un déséquilibre à ${locC}, ouvrant un nouveau front narratif.`,
-      tension: 9,
+      summary: `${selected.summary} À ${locAt(2)}, une décision moralement coûteuse se profile.`,
+      tension: 5,
+      characters: mainCast.slice(0, 2),
+      location: locAt(2),
+      purpose: "investigation + dilemme",
+    },
+    {
+      id: "beat_4",
+      summary: `Confrontation à ${locAt(3)}. Les mots sont des lames ; personne ne cède.`,
+      tension: 7,
       characters: mainCast.slice(0, 3),
-      location: locC,
-      purpose: "climax partiel et ouverture du prochain chapitre",
+      location: locAt(3),
+      purpose: "confrontation + révélation partielle",
+    },
+    {
+      id: "beat_5",
+      summary: `L'escalade explose. Le monde répond à la violence : conséquences immédiates.`,
+      tension: 8,
+      characters: mainCast.slice(0, 3),
+      location: locAt(0),
+      purpose: "action + bascule",
+    },
+    {
+      id: "beat_6",
+      summary: `Silence, puis choc : une vérité dangereuse surgit et change la trajectoire.`,
+      tension: 9,
+      characters: mainCast.slice(0, 4),
+      location: locAt(1),
+      purpose: "cliffhanger + promesse du prochain chapitre",
     },
   ];
 
@@ -415,21 +442,37 @@ export function generateChapterBundle(input: {
     location: beat.location,
     characters: beat.characters,
     purpose: beat.purpose,
-    dialogue: beat.characters.map((speaker, lineIndex) => ({
-      speaker,
-      text:
+    // Dialogues courts manga-like (placeholder déterministe, le vrai DialogueWriter peut remplacer ça plus tard)
+    dialogue: Array.from({ length: 7 }).map((_, lineIndex) => {
+      const speaker = beat.characters[lineIndex % Math.max(beat.characters.length, 1)] ?? mainCast[0];
+      const shortIntent = input.userIntent.length > 60 ? input.userIntent.slice(0, 57) + "…" : input.userIntent;
+      const text =
         lineIndex === 0
-          ? `On avance. ${input.userIntent}.`
-          : `Alors on accepte le prix de cette décision, mais on ne recule plus.`,
-      subtext: lineIndex === 0 ? "reprendre le contrôle" : "masquer la peur",
-      emotion: lineIndex === 0 ? "tension" : "défi",
-      intensity: 5 + index + lineIndex,
-      balloon: lineIndex === 0 ? "court" : "moyen",
-    })),
+          ? "…"
+          : lineIndex === 1
+            ? "On bouge."
+            : lineIndex === 2
+              ? shortIntent
+              : lineIndex === 3
+                ? "Tu mens."
+                : lineIndex === 4
+                  ? "Prouve-le."
+                  : lineIndex === 5
+                    ? "Pas ici."
+                    : "Maintenant.";
+      return {
+        speaker,
+        text,
+        subtext: lineIndex <= 2 ? "pression" : "attaque",
+        emotion: beat.tension >= 8 ? "urgence" : beat.tension >= 6 ? "tension" : "calme",
+        intensity: Math.min(10, 3 + index + Math.floor(lineIndex / 2)),
+        balloon: lineIndex <= 2 ? "court" : "très_court",
+      };
+    }),
   }));
 
-  // 3 scènes → pages de 6, 7, 6 panels (total 19 panels)
-  const panelCounts = [6, 7, 6];
+  // 6 scènes → ~6 pages, 6–7 panels/page
+  const panelCounts = [6, 7, 6, 7, 6, 7];
 
   const storyboardPages: StoryboardPage[] = scenes.map((scene, pageIndex) => {
     const beat = beats[pageIndex] ?? beats[0];
@@ -451,7 +494,7 @@ export function generateChapterBundle(input: {
   });
 
   const cliffhanger = `Au moment où ${mainCast[0]} croit tenir la réponse, une vérité plus dangereuse surgit et compromet tout.`;
-  const narrativeSummary = `Chapitre ${input.chapterNumber} : ${selected.summary} L'arc progresse tandis que ${mainCast.join(", ")} affrontent une montée de tension qui se referme sur un nouveau point de bascule.`;
+  const narrativeSummary = `Chapitre ${input.chapterNumber} : ${selected.summary} L'arc progresse sur ~6 pages ; la tension monte, puis se referme sur un cliffhanger.`;
 
   return {
     creativeDirection: {
