@@ -5,6 +5,7 @@ import {
   BookOpen,
   ChevronLeft,
   ChevronRight,
+  Columns2,
   FileText,
   ImageIcon,
   Maximize2,
@@ -127,6 +128,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   const [showTextOnly, setShowTextOnly] = useState(false);
   const [showEnd, setShowEnd] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const [spreadMode, setSpreadMode] = useState(true);
   const [intent, setIntent] = useState("");
   const [continuing, setContinuing] = useState(false);
   const [continueMsg, setContinueMsg] = useState<string | null>(null);
@@ -157,20 +159,22 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   const totalPages = pages.length;
 
   const goNext = useCallback(() => {
-    if (pageIndex < totalPages - 1) {
-      setPageIndex((i) => i + 1);
+    const step = spreadMode ? 2 : 1;
+    if (pageIndex < totalPages - step) {
+      setPageIndex((i) => i + step);
     } else {
       setShowEnd(true);
     }
-  }, [pageIndex, totalPages]);
+  }, [pageIndex, totalPages, spreadMode]);
 
   const goPrev = useCallback(() => {
     if (showEnd) {
       setShowEnd(false);
       return;
     }
-    setPageIndex((i) => Math.max(0, i - 1));
-  }, [showEnd]);
+    const step = spreadMode ? 2 : 1;
+    setPageIndex((i) => Math.max(0, i - step));
+  }, [showEnd, spreadMode]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -234,20 +238,20 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   if (!chapter)
     return <p className="text-sm text-muted-foreground">Ouverture du livre&hellip;</p>;
 
-  const currentPage = pages[pageIndex];
+  const leftPage = pages[pageIndex];
+  const rightPage = spreadMode ? pages[pageIndex + 1] : undefined;
 
   const renderPage = () => {
-    if (!currentPage) return null;
+    if (!leftPage) return null;
 
     return (
       <div
         className="relative mx-auto cursor-pointer"
-        style={{ maxWidth: fullscreen ? "100%" : "720px" }}
-        onClick={goNext}
+        style={{ maxWidth: fullscreen ? "100%" : spreadMode ? "1040px" : "720px" }}
         role="button"
         tabIndex={0}
         onKeyDown={(e) => e.key === "Enter" && goNext()}
-        aria-label="Page suivante"
+        aria-label="Lecture manga"
       >
         {/* Livre ouvert — ombre de reliure */}
         <div
@@ -263,34 +267,138 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
             className="relative"
             style={{ height: fullscreen ? "calc(100vh - 120px)" : "min(75vh, 640px)" }}
           >
-            {showTextOnly ? (
-              <div className="flex h-full flex-col gap-3 overflow-y-auto p-6">
-                <h3 className="font-serif text-lg font-bold text-stone-200">
-                  Page {pageIndex + 1}
-                </h3>
-                {currentPage.panels.map((panel, i) => (
-                  <div key={i} className="rounded-lg border border-stone-700 bg-stone-900 p-4">
-                    {panel.narration && (
-                      <p className="mb-2 text-sm italic text-stone-400">{panel.narration}</p>
-                    )}
-                    {panel.dialogue && (
-                      <p className="text-sm text-stone-200">
-                        {panel.speaker && (
-                          <span className="font-bold text-violet-400">{panel.speaker}: </span>
-                        )}
-                        {panel.dialogue}
-                      </p>
-                    )}
-                    {panel.sfx && (
-                      <p className="mt-1 text-center font-black italic text-red-400">
-                        {panel.sfx}
-                      </p>
-                    )}
-                  </div>
-                ))}
+            {/* Page paper + légère courbure */}
+            <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.10),transparent_40%),radial-gradient(circle_at_bottom,rgba(0,0,0,0.40),transparent_55%)]" />
+
+            {spreadMode ? (
+              <div className="relative z-10 grid h-full grid-cols-2">
+                {/* Page gauche */}
+                <div
+                  className="relative h-full"
+                  onClick={goPrev}
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Page précédente"
+                  onKeyDown={(e) => e.key === "Enter" && goPrev()}
+                >
+                  <div className="absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-black/30 to-transparent" />
+                  {showTextOnly ? (
+                    <div className="h-full overflow-y-auto p-5">
+                      <h3 className="font-serif text-base font-bold text-stone-200">
+                        Page {pageIndex + 1}
+                      </h3>
+                      <div className="mt-3 space-y-3">
+                        {leftPage.panels.map((panel, i) => (
+                          <div key={i} className="rounded-lg border border-stone-700 bg-stone-900 p-3">
+                            {panel.narration ? (
+                              <p className="mb-1 text-xs italic text-stone-400">{panel.narration}</p>
+                            ) : null}
+                            {panel.dialogue ? (
+                              <p className="text-xs text-stone-200">
+                                {panel.speaker ? (
+                                  <span className="font-bold text-violet-400">{panel.speaker}: </span>
+                                ) : null}
+                                {panel.dialogue}
+                              </p>
+                            ) : null}
+                            {panel.sfx ? (
+                              <p className="mt-1 text-center text-xs font-black italic text-red-400">{panel.sfx}</p>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <MangaPageGrid page={leftPage} />
+                  )}
+                </div>
+
+                {/* Page droite */}
+                <div
+                  className="relative h-full"
+                  onClick={goNext}
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Page suivante"
+                  onKeyDown={(e) => e.key === "Enter" && goNext()}
+                >
+                  <div className="absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-black/30 to-transparent" />
+                  {rightPage ? (
+                    showTextOnly ? (
+                      <div className="h-full overflow-y-auto p-5">
+                        <h3 className="font-serif text-base font-bold text-stone-200">
+                          Page {pageIndex + 2}
+                        </h3>
+                        <div className="mt-3 space-y-3">
+                          {rightPage.panels.map((panel, i) => (
+                            <div key={i} className="rounded-lg border border-stone-700 bg-stone-900 p-3">
+                              {panel.narration ? (
+                                <p className="mb-1 text-xs italic text-stone-400">{panel.narration}</p>
+                              ) : null}
+                              {panel.dialogue ? (
+                                <p className="text-xs text-stone-200">
+                                  {panel.speaker ? (
+                                    <span className="font-bold text-violet-400">{panel.speaker}: </span>
+                                  ) : null}
+                                  {panel.dialogue}
+                                </p>
+                              ) : null}
+                              {panel.sfx ? (
+                                <p className="mt-1 text-center text-xs font-black italic text-red-400">{panel.sfx}</p>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <MangaPageGrid page={rightPage} />
+                    )
+                  ) : (
+                    <div className="flex h-full items-center justify-center bg-stone-950">
+                      <span className="text-sm text-muted-foreground">—</span>
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
-              <MangaPageGrid page={currentPage} />
+              <div
+                className="relative z-10 h-full"
+                onClick={goNext}
+                role="button"
+                tabIndex={0}
+                aria-label="Page suivante"
+                onKeyDown={(e) => e.key === "Enter" && goNext()}
+              >
+                {showTextOnly ? (
+                  <div className="flex h-full flex-col gap-3 overflow-y-auto p-6">
+                    <h3 className="font-serif text-lg font-bold text-stone-200">
+                      Page {pageIndex + 1}
+                    </h3>
+                    {leftPage.panels.map((panel, i) => (
+                      <div key={i} className="rounded-lg border border-stone-700 bg-stone-900 p-4">
+                        {panel.narration && (
+                          <p className="mb-2 text-sm italic text-stone-400">{panel.narration}</p>
+                        )}
+                        {panel.dialogue && (
+                          <p className="text-sm text-stone-200">
+                            {panel.speaker && (
+                              <span className="font-bold text-violet-400">{panel.speaker}: </span>
+                            )}
+                            {panel.dialogue}
+                          </p>
+                        )}
+                        {panel.sfx && (
+                          <p className="mt-1 text-center font-black italic text-red-400">
+                            {panel.sfx}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <MangaPageGrid page={leftPage} />
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -303,11 +411,30 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <BookOpen className="h-4 w-4 text-accent" />
         <span>
-          Page {pageIndex + 1}/{totalPages}
+          {spreadMode ? `Pages ${pageIndex + 1}-${Math.min(totalPages, pageIndex + 2)}` : `Page ${pageIndex + 1}`} / {totalPages}
           {showEnd ? " · fin" : ""}
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          variant={spreadMode ? "default" : "outline"}
+          size="sm"
+          onClick={() => {
+            setSpreadMode((v) => {
+              const next = !v;
+              if (!v) {
+                // passage en spread → forcer index pair
+                setPageIndex((i) => Math.floor(i / 2) * 2);
+              }
+              return next;
+            });
+          }}
+          className="gap-1"
+        >
+          <Columns2 className="h-4 w-4" />
+          {spreadMode ? "Double" : "Simple"}
+        </Button>
         <Button
           type="button"
           variant={showTextOnly ? "default" : "outline"}

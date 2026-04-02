@@ -15,6 +15,7 @@ import {
 
 const links = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/mangas", label: "Mes mangas", icon: Sparkles },
   { href: "/projects/new", label: "Nouveau projet", icon: Plus },
   { href: "/wallet", label: "Wallet", icon: Coins },
 ];

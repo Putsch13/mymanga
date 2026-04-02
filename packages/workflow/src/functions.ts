@@ -7,8 +7,7 @@ import { runChapterOutlineFromJob } from "./run-outline-for-chapter";
  * Les étapes images appellent des jobs distincts côté API ; ici orchestration logique.
  */
 export const generateChapterPipeline = inngest.createFunction(
-  { id: "generate-chapter-pipeline", name: "Generate chapter (manga-first)" },
-  { event: "chapter/generate.requested" },
+  { id: "generate-chapter-pipeline", name: "Generate chapter (manga-first)", triggers: { event: "chapter/generate.requested" } },
   async ({ event }) => {
     const { projectId, chapterId, userId, jobId } = event.data as {
       jobId: string;
@@ -26,8 +25,7 @@ export const generateChapterPipeline = inngest.createFunction(
 );
 
 export const processChapterOutlineJob = inngest.createFunction(
-  { id: "process-chapter-outline-job", name: "Generate chapter outline (job)" },
-  { event: "chapter/outline.job.requested" },
+  { id: "process-chapter-outline-job", name: "Generate chapter outline (job)", triggers: { event: "chapter/outline.job.requested" } },
   async ({ event, step }) => {
     const { jobId } = event.data as { jobId: string; projectId: string; chapterId: string; userId: string };
     const r = await step.run("outline-from-job", () => runChapterOutlineFromJob(jobId));

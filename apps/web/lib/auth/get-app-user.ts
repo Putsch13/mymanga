@@ -6,6 +6,16 @@ import { isAuthDisabled, requireSafeAuthMode } from "@/lib/auth/auth-mode";
 
 const DEV_EMAIL = "dev@manga-ai.studio";
 
+function isAdminEmail(email: string): boolean {
+  const raw = process.env.ADMIN_EMAILS ?? process.env.ADMIN_EMAIL ?? "";
+  if (!raw.trim()) return false;
+  const list = raw
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return list.includes(email.toLowerCase());
+}
+
 async function getOrCreateDevUser(): Promise<User> {
   const existing = await prisma.user.findUnique({ where: { email: DEV_EMAIL } });
   if (existing) {
@@ -21,7 +31,7 @@ async function getOrCreateDevUser(): Promise<User> {
     data: {
       email: DEV_EMAIL,
       displayName: "Studio Dev",
-      role: "user",
+      role: "admin",
       preferences: { create: {} },
       wallets: { create: { balance: 2000, lifetimePurchased: 2000, lifetimeSpent: 0, lifetimeRefunded: 0 } },
     },
@@ -47,14 +57,21 @@ export async function getAppUser(): Promise<User | null> {
 
   const email = sb.email?.toLowerCase();
   if (!email) return null;
+  const shouldBeAdmin = isAdminEmail(email);
 
   let user = await prisma.user.findUnique({ where: { supabaseAuthId: sb.id } });
   if (user) {
     if (user.email !== email) {
       user = await prisma.user.update({
         where: { id: user.id },
-        data: { email, displayName: (sb.user_metadata?.full_name as string | undefined) ?? user.displayName },
+        data: {
+          email,
+          displayName: (sb.user_metadata?.full_name as string | undefined) ?? user.displayName,
+          ...(shouldBeAdmin && user.role !== "admin" ? { role: "admin" } : {}),
+        },
       });
+    } else if (shouldBeAdmin && user.role !== "admin") {
+      user = await prisma.user.update({ where: { id: user.id }, data: { role: "admin" } });
     }
     await ensureWallet(user.id);
     return user;
@@ -67,6 +84,7 @@ export async function getAppUser(): Promise<User | null> {
       data: {
         supabaseAuthId: sb.id,
         displayName: (sb.user_metadata?.full_name as string | undefined) ?? byEmail.displayName,
+        ...(shouldBeAdmin && byEmail.role !== "admin" ? { role: "admin" } : {}),
       },
     });
     await ensureWallet(user.id);
@@ -78,7 +96,7 @@ export async function getAppUser(): Promise<User | null> {
       supabaseAuthId: sb.id,
       email,
       displayName: (sb.user_metadata?.full_name as string | undefined) ?? email.split("@")[0],
-      role: "user",
+      role: shouldBeAdmin ? "admin" : "user",
       preferences: { create: {} },
       wallets: { create: { balance: 500, lifetimePurchased: 500, lifetimeSpent: 0, lifetimeRefunded: 0 } },
     },
