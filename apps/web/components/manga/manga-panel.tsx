@@ -1,7 +1,5 @@
 "use client";
 
-import Image from "next/image";
-
 // Types démo (legacy) + types pipeline (nouveaux)
 export type PanelMoodLegacy =
   | "night-rain"
@@ -154,13 +152,11 @@ export function MangaPanel({
     >
       {/* Image réelle générée par FAL */}
       {imageUrl ? (
-        <Image
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
           src={imageUrl}
           alt={caption ?? `Panel ${(panelIndex ?? 0) + 1}`}
-          fill
-          className="object-cover"
-          sizes="(max-width: 768px) 50vw, 33vw"
-          priority={panelIndex === 0}
+          className="absolute inset-0 h-full w-full object-cover"
         />
       ) : (
         overlay

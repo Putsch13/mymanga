@@ -2,7 +2,14 @@ import { type NextRequest, NextResponse } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 import { authDisabledInProduction, isAuthDisabled } from "@/lib/auth/auth-mode";
 
-const PUBLIC_PREFIXES = ["/demo", "/auth/callback", "/auth/signout", "/api/billing/webhooks", "/api/inngest"];
+const PUBLIC_PREFIXES = [
+  "/demo",
+  "/auth/callback",
+  "/auth/signout",
+  "/api/billing/webhooks",
+  "/api/inngest",
+  "/api/", // Toutes les API routes gèrent leur propre auth
+];
 const PUBLIC_EXACT = ["/", "/login"];
 
 function isPublicRoute(pathname: string) {

@@ -166,14 +166,19 @@ type Props = {
   page: UniversalMangaPage | DemoMangaPage;
 };
 
-function isUniversalPage(page: UniversalMangaPage | DemoMangaPage): page is UniversalMangaPage {
-  return "panels" in page && page.panels.length > 0 && "mood" in page.panels[0]!;
+function isDemoPage(page: UniversalMangaPage | DemoMangaPage): page is DemoMangaPage {
+  // DemoMangaPage panels ont un champ `size` et un `id`
+  return (
+    "panels" in page &&
+    page.panels.length > 0 &&
+    "size" in page.panels[0]!
+  );
 }
 
 export function MangaPageGrid({ page }: Props) {
-  const universal: UniversalMangaPage = isUniversalPage(page)
-    ? page
-    : demoPageToUniversal(page as DemoMangaPage);
+  const universal: UniversalMangaPage = isDemoPage(page)
+    ? demoPageToUniversal(page)
+    : (page as UniversalMangaPage);
 
   const layoutStyle = LAYOUT_STYLES[universal.layout] ?? LAYOUT_STYLES.A;
 
