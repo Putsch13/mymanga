@@ -2,6 +2,14 @@ import { type NextRequest, NextResponse } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 import { authDisabledInProduction, isAuthDisabled } from "@/lib/auth/auth-mode";
 
+const PUBLIC_PREFIXES = ["/demo", "/auth/callback", "/auth/signout", "/api/billing/webhooks", "/api/inngest"];
+const PUBLIC_EXACT = ["/", "/login"];
+
+function isPublicRoute(pathname: string) {
+  if (PUBLIC_EXACT.includes(pathname)) return true;
+  return PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
 export async function middleware(request: NextRequest) {
   if (authDisabledInProduction()) {
     return NextResponse.json(
@@ -9,9 +17,15 @@ export async function middleware(request: NextRequest) {
       { status: 500 },
     );
   }
+
   if (isAuthDisabled()) {
     return NextResponse.next();
   }
+
+  if (isPublicRoute(request.nextUrl.pathname)) {
+    return NextResponse.next();
+  }
+
   return updateSession(request);
 }
 

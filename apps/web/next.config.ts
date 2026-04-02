@@ -11,7 +11,6 @@ const nextConfig: NextConfig = {
     "@manga-ai-studio/billing",
     "@manga-ai-studio/workflow",
     "@manga-ai-studio/memory",
-    "@manga-ai-studio/prompts",
     "@manga-ai-studio/exports",
   ],
 };

@@ -18,6 +18,9 @@ export default function LandingPage() {
           <Button variant="ghost" asChild>
             <Link href="/login">Connexion</Link>
           </Button>
+          <Button variant="outline" asChild>
+            <Link href="/demo">Démo</Link>
+          </Button>
           <Button asChild>
             <Link href="/login">Créer un compte</Link>
           </Button>
@@ -45,6 +48,11 @@ export default function LandingPage() {
                 <Button size="lg" asChild className="gap-2 shadow-lg shadow-violet-900/40">
                   <Link href="/login">
                     Creer mon compte <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </Button>
+                <Button size="lg" variant="secondary" asChild className="gap-2">
+                  <Link href="/demo">
+                    Explorer la démo <BookOpenText className="h-4 w-4" />
                   </Link>
                 </Button>
                 <Button size="lg" variant="outline" asChild className="border-border/80 bg-background/30">

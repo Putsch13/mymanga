@@ -172,6 +172,16 @@ export function LoginClient({ authDisabled }: { authDisabled: boolean }) {
           <CardDescription>Choisis ton mode d&apos;entree : mot de passe classique ou magic link.</CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="mb-4 rounded-2xl border border-border/60 bg-background/30 p-4 text-sm text-muted-foreground">
+            <p className="font-medium text-foreground">Besoin de tester sans blocage&nbsp;?</p>
+            <p className="mt-2">
+              Si la connexion, Render ou la base de données posent encore problème, tu peux déjà vérifier l&apos;interface via la{" "}
+              <Link href="/demo" className="text-accent hover:underline">
+                démo publique sans connexion
+              </Link>
+              .
+            </p>
+          </div>
           <div className="mb-6 grid grid-cols-3 gap-2">
             <Button type="button" variant={mode === "signin" ? "default" : "outline"} size="sm" onClick={() => setMode("signin")}>
               <KeyRound className="h-4 w-4" />
