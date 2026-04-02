@@ -62,7 +62,7 @@ export function LoginClient({ authDisabled }: { authDisabled: boolean }) {
     const origin = window.location.origin;
 
     if (mode === "signup") {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -74,7 +74,13 @@ export function LoginClient({ authDisabled }: { authDisabled: boolean }) {
         setMessage(error.message);
         return;
       }
-      setMessage("Compte créé. Si la confirmation email est active sur Supabase, valide ton email. Sinon tu peux te connecter tout de suite.");
+      if (data.session) {
+        window.location.href = "/dashboard";
+        return;
+      }
+      setMessage(
+        "Compte créé. Si la confirmation email est activée dans Supabase, valide d'abord ton email avant de te connecter. Sinon, reconnecte-toi directement.",
+      );
       return;
     }
 
@@ -84,6 +90,12 @@ export function LoginClient({ authDisabled }: { authDisabled: boolean }) {
     });
     setLoading(false);
     if (error) {
+      if (error.message.toLowerCase().includes("invalid login credentials")) {
+        setMessage(
+          "Identifiants invalides. Si tu viens juste de créer ton compte, vérifie si Supabase demande d'abord une confirmation email.",
+        );
+        return;
+      }
       setMessage(error.message);
       return;
     }
