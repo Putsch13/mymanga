@@ -7,6 +7,7 @@ import { RENDERING_MODES } from "@manga-ai-studio/core";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -144,165 +145,202 @@ export default function ChapterGeneratorPage() {
         <Link href={`/projects/${id}`} className="text-sm text-muted-foreground hover:text-foreground">
           ← Projet
         </Link>
-        <h1 className="mt-2 text-3xl font-semibold">Chapitre & pipeline</h1>
+        <h1 className="mt-2 text-3xl font-semibold">Générer un chapitre</h1>
         <p className="text-muted-foreground mt-2 max-w-2xl text-sm">
-          Génération V3 par étapes : estimation, contexte mémoire, options de plot, job pipeline, script, storyboard et suivi.
+          Objectif : un chapitre lisible <strong>comme un vrai manga</strong> (≈ 6 pages, 6–7 cases par page), avec images et continuité.
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="border-border/60 bg-card/50">
-          <CardHeader>
-            <CardTitle className="text-lg">Direction créative</CardTitle>
-            <CardDescription>Intention utilisateur, estimation chapitre et preview de mémoire récupérée.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Input value={chapterTitle} onChange={(e) => setChapterTitle(e.target.value)} placeholder="Titre optionnel du prochain chapitre" />
-            </div>
-            <div className="space-y-2">
-              <Textarea rows={5} value={userIntent} onChange={(e) => setUserIntent(e.target.value)} placeholder="Ce que tu veux faire avancer dans l'histoire..." />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="secondary" onClick={runChapterEstimate}>
-                Estimer le chapitre
-              </Button>
-              <Button type="button" variant="outline" onClick={createChapter}>
-                Créer le brouillon
-              </Button>
-            </div>
-            {chapterEstimate ? (
-              <div className="space-y-4 rounded-lg border border-border/60 p-4">
-                <p className="text-sm font-medium">Estimation : {chapterEstimate.estimatedTokens} tokens</p>
-                <p className="text-sm text-muted-foreground">{chapterEstimate.creativeDirection.whyNow}</p>
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">Options de plot</p>
-                  {chapterEstimate.plotOptions.map((option) => (
-                    <div key={option.id} className="rounded-lg border border-border/60 p-3">
-                      <p className="font-medium">{option.title}</p>
-                      <p className="text-sm text-muted-foreground">{option.summary}</p>
-                    </div>
-                  ))}
+      <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+        <div className="space-y-6">
+          <Card className="border-border/60 bg-card/50">
+            <CardHeader>
+              <CardTitle className="text-lg">1) Créer le brouillon</CardTitle>
+              <CardDescription>Un titre + une intention. Le reste est automatique.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Titre</Label>
+                <Input
+                  value={chapterTitle}
+                  onChange={(e) => setChapterTitle(e.target.value)}
+                  placeholder={`Ex. : Chapitre ${chapters.length + 1} — Le prix du mensonge`}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Intention (ce que tu veux qu&apos;il se passe)</Label>
+                <Textarea
+                  rows={5}
+                  value={userIntent}
+                  onChange={(e) => setUserIntent(e.target.value)}
+                  placeholder="Ex. : Confrontation dans un sanctuaire, révélation d&apos;un secret, et cliffhanger final."
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="secondary" onClick={createChapter}>
+                  Créer le brouillon
+                </Button>
+                <Button type="button" variant="outline" onClick={runChapterEstimate}>
+                  Estimer (optionnel)
+                </Button>
+              </div>
+              {chapterEstimate ? (
+                <div className="rounded-lg border border-border/60 bg-background/30 p-4 text-sm">
+                  <p className="font-medium">Estimation : {chapterEstimate.estimatedTokens} tokens</p>
+                  <p className="mt-1 text-muted-foreground">{chapterEstimate.creativeDirection.whyNow}</p>
                 </div>
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">Mémoire récente</p>
-                  <div className="space-y-2 text-sm text-muted-foreground">
-                    {chapterEstimate.contextPreview.recentChapters.map((chapter) => (
-                      <p key={chapter.chapterNumber}>
-                        #{chapter.chapterNumber} {chapter.title ?? "Sans titre"} · {chapter.summary ?? "Sans résumé"}
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/60 bg-card/50">
+            <CardHeader>
+              <CardTitle className="text-lg">2) Générer</CardTitle>
+              <CardDescription>Le pipeline va créer les scènes, le storyboard et les images.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {chapters.length > 0 ? (
+                <select
+                  className="flex h-10 w-full rounded-lg border border-border bg-background/80 px-3 text-sm"
+                  value={selectedChapter}
+                  onChange={(e) => setSelectedChapter(e.target.value)}
+                >
+                  {chapters
+                    .slice()
+                    .sort((a, b) => (b.chapterNumber ?? 0) - (a.chapterNumber ?? 0))
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        #{c.chapterNumber} {c.title}
+                      </option>
+                    ))}
+                </select>
+              ) : (
+                <p className="text-muted-foreground text-sm">Crée un brouillon pour lancer la génération.</p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" onClick={runPipeline} disabled={!selectedChapter}>
+                  Générer ce chapitre
+                </Button>
+                <Button asChild variant="outline">
+                  <Link href={`/projects/${id}/chapters`}>Aller lire →</Link>
+                </Button>
+              </div>
+              {pipelineMsg ? <p className="text-sm text-muted-foreground">{pipelineMsg}</p> : null}
+            </CardContent>
+          </Card>
+
+          <details className="rounded-lg border border-border/60 bg-card/30 p-4">
+            <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
+              Avancé (debug / estimations image)
+            </summary>
+            <div className="mt-4 space-y-4">
+              <Card className="border-border/60 bg-card/40">
+                <CardHeader>
+                  <CardTitle className="text-base">Estimation image</CardTitle>
+                  <CardDescription>Utile si tu veux comprendre le routage provider.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <select
+                    className="flex h-10 w-full rounded-lg border border-border bg-background/80 px-3 text-sm"
+                    value={mode}
+                    onChange={(e) => setMode(e.target.value as (typeof RENDERING_MODES)[number])}
+                  >
+                    {RENDERING_MODES.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    className="flex h-10 w-full rounded-lg border border-border bg-background/80 px-3 text-sm"
+                    value={intensity}
+                    onChange={(e) => setIntensity(e.target.value as (typeof intensities)[number])}
+                  >
+                    {intensities.map((i) => (
+                      <option key={i} value={i}>
+                        {i}
+                      </option>
+                    ))}
+                  </select>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={hasCanon} onChange={(e) => setHasCanon(e.target.checked)} />
+                    Références canon
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={photorealCover} onChange={(e) => setPhotorealCover(e.target.checked)} />
+                    Cover photoreal
+                  </label>
+                  <Button type="button" variant="secondary" onClick={runEstimate}>
+                    Estimer
+                  </Button>
+                  {imageEstimate ? (
+                    <pre className="max-h-48 overflow-auto rounded-lg border border-border bg-background/50 p-3 text-xs">
+                      {JSON.stringify(imageEstimate, null, 2)}
+                    </pre>
+                  ) : null}
+                </CardContent>
+              </Card>
+            </div>
+          </details>
+        </div>
+
+        <div className="space-y-6">
+          <Card className="border-border/60 bg-card/50">
+            <CardHeader>
+              <CardTitle className="text-lg">Suivi du job</CardTitle>
+              <CardDescription>Si ça reste bloqué, exécute sans Inngest.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {jobState ? (
+                <div className="space-y-3">
+                  <p className="text-sm font-medium">Statut : {jobState.status}</p>
+                  {["queued", "running"].includes(jobState.status) ? (
+                    <div className="rounded-lg border border-amber-500/20 bg-amber-950/20 p-3">
+                      <p className="text-xs text-amber-300">
+                        Si tu as mis `INNGEST_EVENT_KEY` mais que l&apos;app Inngest n&apos;est pas synchronisée, le job peut rester bloqué.
                       </p>
-                    ))}
-                    {chapterEstimate.contextPreview.retrievedDocs.slice(0, 2).map((doc, index) => (
-                      <p key={`${doc.title}-${index}`}>{doc.title ?? "Document"} · {doc.content.slice(0, 140)}…</p>
-                    ))}
-                  </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="mt-2"
+                        onClick={runNow}
+                        disabled={runningNow}
+                      >
+                        {runningNow ? "Exécution…" : "Exécuter maintenant (sans Inngest)"}
+                      </Button>
+                    </div>
+                  ) : null}
+                  {jobState.output?.steps?.length ? (
+                    <div className="space-y-2 rounded-lg border border-border/60 p-3">
+                      {jobState.output.steps.map((step) => (
+                        <div key={step.key} className="flex items-center justify-between text-sm">
+                          <span>{step.label}</span>
+                          <span className="text-muted-foreground">{step.status}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {jobState.error?.message ? <p className="text-sm text-red-400">{jobState.error.message}</p> : null}
                 </div>
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
+              ) : (
+                <p className="text-sm text-muted-foreground">Lance une génération pour voir le suivi ici.</p>
+              )}
+            </CardContent>
+          </Card>
 
-        <Card className="border-border/60 bg-card/50">
-          <CardHeader>
-            <CardTitle className="text-lg">Estimation image</CardTitle>
-            <CardDescription>Provider dynamique (fal / runware / stability).</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <select
-              className="flex h-10 w-full rounded-lg border border-border bg-background/80 px-3 text-sm"
-              value={mode}
-              onChange={(e) => setMode(e.target.value as (typeof RENDERING_MODES)[number])}
-            >
-              {RENDERING_MODES.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-            <select
-              className="flex h-10 w-full rounded-lg border border-border bg-background/80 px-3 text-sm"
-              value={intensity}
-              onChange={(e) => setIntensity(e.target.value as (typeof intensities)[number])}
-            >
-              {intensities.map((i) => (
-                <option key={i} value={i}>
-                  {i}
-                </option>
-              ))}
-            </select>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={hasCanon} onChange={(e) => setHasCanon(e.target.checked)} />
-              Références canon
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={photorealCover} onChange={(e) => setPhotorealCover(e.target.checked)} />
-              Cover photoreal (Stable Ultra)
-            </label>
-            <Button type="button" variant="secondary" onClick={runEstimate}>
-              Estimer
-            </Button>
-            {imageEstimate ? (
-              <pre className="max-h-48 overflow-auto rounded-lg border border-border bg-background/50 p-3 text-xs">{JSON.stringify(imageEstimate, null, 2)}</pre>
-            ) : null}
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/60 bg-card/50">
-          <CardHeader>
-            <CardTitle className="text-lg">Pipeline chapitre</CardTitle>
-            <CardDescription>Le job construit le contexte, génère outline/script/storyboard, puis met à jour la mémoire.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {chapters.length > 0 ? (
-              <select
-                className="flex h-10 w-full rounded-lg border border-border bg-background/80 px-3 text-sm"
-                value={selectedChapter}
-                onChange={(e) => setSelectedChapter(e.target.value)}
-              >
-                {chapters.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    #{c.chapterNumber} {c.title}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <p className="text-muted-foreground text-sm">Crée un chapitre pour lancer le pipeline.</p>
-            )}
-            <Button type="button" onClick={runPipeline} disabled={!selectedChapter}>
-              Enqueue pipeline
-            </Button>
-            {pipelineMsg ? <p className="text-sm text-muted-foreground">{pipelineMsg}</p> : null}
-            {jobState ? (
-              <div className="space-y-2 rounded-lg border border-border/60 p-4">
-                <p className="text-sm font-medium">Job {jobState.status}</p>
-                {["queued", "running"].includes(jobState.status) ? (
-                  <div className="rounded-lg border border-amber-500/20 bg-amber-950/20 p-3">
-                    <p className="text-xs text-amber-300">
-                      Si tu as mis `INNGEST_EVENT_KEY` mais que l&apos;app Inngest n&apos;est pas synchronisée, le job peut rester bloqué.
-                    </p>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      className="mt-2"
-                      onClick={runNow}
-                      disabled={runningNow}
-                    >
-                      {runningNow ? "Exécution…" : "Exécuter maintenant (sans Inngest)"}
-                    </Button>
-                  </div>
-                ) : null}
-                {jobState.output?.steps?.map((step) => (
-                  <div key={step.key} className="flex items-center justify-between text-sm">
-                    <span>{step.label}</span>
-                    <span className="text-muted-foreground">{step.status}</span>
-                  </div>
-                ))}
-                {jobState.error?.message ? <p className="text-sm text-red-400">{jobState.error.message}</p> : null}
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
+          <Card className="border-border/60 bg-card/40">
+            <CardHeader>
+              <CardTitle className="text-base">Conseil rapide</CardTitle>
+              <CardDescription>Si tu n&apos;as aucune image</CardDescription>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground space-y-2">
+              <p>- Vérifie que Render a bien `FAL_KEY` (exactement ce nom).</p>
+              <p>- Si tu utilises Inngest, vérifie que ton app est synchronisée sur `/api/inngest`.</p>
+              <p>- Sinon, clique sur <strong>Exécuter maintenant (sans Inngest)</strong>.</p>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       <Separator className="bg-border" />
