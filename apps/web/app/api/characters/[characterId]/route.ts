@@ -22,8 +22,11 @@ const patchSchema = z.object({
   traits: z.array(z.string()).optional(),
   flaws: z.array(z.string()).optional(),
   secrets: z.array(z.string()).optional(),
-  appearance: z.unknown().optional(),
-  outfitDefault: z.unknown().optional(),
+  // Ces champs sont String? dans le nouveau schéma
+  appearance: z.string().optional().nullable(),
+  hairColor: z.string().optional().nullable(),
+  eyeColor: z.string().optional().nullable(),
+  outfitDefault: z.string().optional().nullable(),
   bodyProfile: z.unknown().optional(),
   status: z.string().optional(),
   emotionalState: z.string().optional().nullable(),
@@ -72,12 +75,16 @@ export async function PATCH(req: Request, ctx: Ctx) {
     status: body.status,
     emotionalState: body.emotionalState,
     canonLocked: body.canonLocked,
+    // Champs String? (nouveau schéma)
+    ...(body.appearance !== undefined ? { appearance: body.appearance } : {}),
+    ...(body.hairColor !== undefined ? { hairColor: body.hairColor } : {}),
+    ...(body.eyeColor !== undefined ? { eyeColor: body.eyeColor } : {}),
+    ...(body.outfitDefault !== undefined ? { outfitDefault: body.outfitDefault } : {}),
+    // Champs Json
     ...(body.personality !== undefined ? { personality: body.personality as Prisma.InputJsonValue } : {}),
     ...(body.traits !== undefined ? { traits: body.traits } : {}),
     ...(body.flaws !== undefined ? { flaws: body.flaws } : {}),
     ...(body.secrets !== undefined ? { secrets: body.secrets } : {}),
-    ...(body.appearance !== undefined ? { appearance: body.appearance as Prisma.InputJsonValue } : {}),
-    ...(body.outfitDefault !== undefined ? { outfitDefault: body.outfitDefault as Prisma.InputJsonValue } : {}),
     ...(body.bodyProfile !== undefined ? { bodyProfile: body.bodyProfile as Prisma.InputJsonValue } : {}),
   };
 

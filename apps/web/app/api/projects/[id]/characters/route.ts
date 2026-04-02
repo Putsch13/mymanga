@@ -22,7 +22,10 @@ const createSchema = z.object({
   traits: z.array(z.string()).optional().default([]),
   flaws: z.array(z.string()).optional().default([]),
   secrets: z.array(z.string()).optional().default([]),
-  appearanceSummary: z.string().optional().nullable(),
+  appearance: z.string().optional().nullable(),
+  hairColor: z.string().optional().nullable(),
+  eyeColor: z.string().optional().nullable(),
+  outfitDefault: z.string().optional().nullable(),
 });
 
 export async function GET(_req: Request, ctx: Ctx) {
@@ -70,7 +73,10 @@ export async function POST(req: Request, ctx: Ctx) {
       traits: body.traits,
       flaws: body.flaws,
       secrets: body.secrets,
-      appearance: body.appearanceSummary ? { summary: body.appearanceSummary } : {},
+      appearance: body.appearance ?? null,
+      hairColor: body.hairColor ?? null,
+      eyeColor: body.eyeColor ?? null,
+      outfitDefault: body.outfitDefault ?? null,
       canonPack: {
         create: {
           forbiddenVisualDrift: [],

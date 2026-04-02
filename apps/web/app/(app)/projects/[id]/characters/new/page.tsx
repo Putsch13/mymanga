@@ -22,7 +22,10 @@ export default function NewCharacterPage() {
   const [objective, setObjective] = useState("");
   const [fear, setFear] = useState("");
   const [emotionalState, setEmotionalState] = useState("");
-  const [appearanceSummary, setAppearanceSummary] = useState("");
+  const [appearance, setAppearance] = useState("");
+  const [hairColor, setHairColor] = useState("");
+  const [eyeColor, setEyeColor] = useState("");
+  const [outfitDefault, setOutfitDefault] = useState("");
   const [traits, setTraits] = useState("");
   const [flaws, setFlaws] = useState("");
   const [loading, setLoading] = useState(false);
@@ -42,7 +45,10 @@ export default function NewCharacterPage() {
         objective: objective || undefined,
         fear: fear || undefined,
         emotionalState: emotionalState || undefined,
-        appearanceSummary: appearanceSummary || undefined,
+        appearance: appearance || undefined,
+        hairColor: hairColor || undefined,
+        eyeColor: eyeColor || undefined,
+        outfitDefault: outfitDefault || undefined,
         traits: traits
           .split(",")
           .map((value) => value.trim())
@@ -105,8 +111,22 @@ export default function NewCharacterPage() {
               <Input id="emotion" value={emotionalState} onChange={(e) => setEmotionalState(e.target.value)} placeholder="sur le fil, glacé, euphorique..." />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="appearance">Résumé visuel</Label>
-              <Textarea id="appearance" value={appearanceSummary} onChange={(e) => setAppearanceSummary(e.target.value)} />
+              <Label htmlFor="appearance">Description physique</Label>
+              <Textarea id="appearance" value={appearance} onChange={(e) => setAppearance(e.target.value)} placeholder="Grand, mince, cicatrice sur la joue gauche, regard perçant..." />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="hairColor">Couleur de cheveux</Label>
+                <Input id="hairColor" value={hairColor} onChange={(e) => setHairColor(e.target.value)} placeholder="Noir corbeau, blond platine..." />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="eyeColor">Couleur des yeux</Label>
+                <Input id="eyeColor" value={eyeColor} onChange={(e) => setEyeColor(e.target.value)} placeholder="Gris acier, ambre doré..." />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="outfitDefault">Tenue habituelle</Label>
+              <Input id="outfitDefault" value={outfitDefault} onChange={(e) => setOutfitDefault(e.target.value)} placeholder="Manteau noir, chemise blanche, bottes en cuir..." />
             </div>
             <div className="space-y-2">
               <Label htmlFor="traits">Traits dominants</Label>
