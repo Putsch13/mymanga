@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { Palette, Users } from "lucide-react";
 import { RENDERING_MODES } from "@manga-ai-studio/core";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +34,9 @@ export default function ChapterGeneratorPage() {
     creativeDirection: { chapterGoal: string; tone: string; whyNow: string };
   } | null>(null);
   const [chapters, setChapters] = useState<{ id: string; title: string | null; chapterNumber: number }[]>([]);
+  const [characters, setCharacters] = useState<Array<{ id: string; name: string; roleType: string | null }>>([]);
+  const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>([]);
+  const [selectedPlotLabel, setSelectedPlotLabel] = useState<"safe" | "bold" | "shock">("bold");
   const [selectedChapter, setSelectedChapter] = useState<string>("");
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [jobState, setJobState] = useState<{
@@ -56,9 +60,27 @@ export default function ChapterGeneratorPage() {
       });
   }, [id]);
 
+  const loadCharacters = useCallback(() => {
+    fetch(`/api/projects/${id}/characters`)
+      .then((r) => r.json())
+      .then((j) => {
+        const nextCharacters = (j.characters ?? []).map((character: { id: string; name: string; roleType: string | null }) => ({
+          id: character.id,
+          name: character.name,
+          roleType: character.roleType,
+        }));
+        setCharacters(nextCharacters);
+        setSelectedCharacterIds((current) => {
+          if (current.length > 0) return current.filter((value) => nextCharacters.some((character: { id: string }) => character.id === value));
+          return nextCharacters.slice(0, 3).map((character: { id: string }) => character.id);
+        });
+      });
+  }, [id]);
+
   useEffect(() => {
     loadChapters();
-  }, [loadChapters]);
+    loadCharacters();
+  }, [loadCharacters, loadChapters]);
 
   useEffect(() => {
     fetch("/api/diagnostics/public", { cache: "no-store" })
@@ -97,11 +119,29 @@ export default function ChapterGeneratorPage() {
     setImageEstimate(await res.json());
   }
 
+  function toggleCharacter(characterId: string) {
+    setSelectedCharacterIds((current) =>
+      current.includes(characterId) ? current.filter((value) => value !== characterId) : [...current, characterId]
+    );
+  }
+
+  function buildFocusedIntent() {
+    const focusedNames = characters
+      .filter((character) => selectedCharacterIds.includes(character.id))
+      .map((character) => character.name);
+    if (focusedNames.length === 0) return userIntent;
+    return `Focus personnages: ${focusedNames.join(", ")}. ${userIntent}`;
+  }
+
   async function runChapterEstimate() {
     const res = await fetch(`/api/projects/${id}/chapters/estimate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userIntent }),
+      body: JSON.stringify({
+        userIntent: buildFocusedIntent(),
+        focusCharacterIds: selectedCharacterIds,
+        selectedPlotLabel,
+      }),
     });
     const json = await res.json();
     setChapterEstimate(json);
@@ -111,7 +151,12 @@ export default function ChapterGeneratorPage() {
     const res = await fetch(`/api/projects/${id}/chapters`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: chapterTitle || `Chapitre ${chapters.length + 1}`, userIntent }),
+      body: JSON.stringify({
+        title: chapterTitle || `Chapitre ${chapters.length + 1}`,
+        userIntent: buildFocusedIntent(),
+        focusCharacterIds: selectedCharacterIds,
+        selectedPlotLabel,
+      }),
     });
     const j = await res.json();
     if (j.chapter) {
@@ -126,7 +171,7 @@ export default function ChapterGeneratorPage() {
     const res = await fetch(`/api/projects/${id}/pipeline`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chapterId: selectedChapter }),
+      body: JSON.stringify({ chapterId: selectedChapter, focusCharacterIds: selectedCharacterIds, selectedPlotLabel }),
     });
     const j = await res.json();
     setPipelineMsg(j.message ?? JSON.stringify(j));
@@ -171,8 +216,68 @@ export default function ChapterGeneratorPage() {
         <div className="space-y-6">
           <Card className="border-border/60 bg-card/50">
             <CardHeader>
+              <CardTitle className="text-lg">0) Choisir le casting du chapitre</CardTitle>
+              <CardDescription>
+                Sélectionne les personnages à mettre au centre de la génération, puis ouvre leurs fiches pour régler physique, voix et personnalité.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Button asChild variant="outline" size="sm" className="gap-2">
+                  <Link href={`/projects/${id}/characters`}>
+                    <Users className="h-4 w-4" />
+                    Gérer les personnages
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" size="sm" className="gap-2">
+                  <Link href={`/projects/${id}/characters/new`}>
+                    <Users className="h-4 w-4" />
+                    Nouveau héros / méchant
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" size="sm" className="gap-2">
+                  <Link href={`/projects/${id}/style`}>
+                    <Palette className="h-4 w-4" />
+                    Style manga
+                  </Link>
+                </Button>
+              </div>
+              {characters.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {characters.map((character) => (
+                    <Button
+                      key={character.id}
+                      type="button"
+                      size="sm"
+                      variant={selectedCharacterIds.includes(character.id) ? "default" : "outline"}
+                      onClick={() => toggleCharacter(character.id)}
+                    >
+                      {character.name}
+                      {character.roleType ? ` · ${character.roleType}` : ""}
+                    </Button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Aucun personnage encore créé. Commence par le héros et l&apos;antagoniste avant de générer un chapitre.
+                </p>
+              )}
+              {selectedCharacterIds.length > 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Focus actif :{" "}
+                  {characters
+                    .filter((character) => selectedCharacterIds.includes(character.id))
+                    .map((character) => character.name)
+                    .join(", ")}
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/60 bg-card/50">
+            <CardHeader>
               <CardTitle className="text-lg">1) Créer le brouillon</CardTitle>
-              <CardDescription>Un titre + une intention. Le reste est automatique.</CardDescription>
+              <CardDescription>Un titre + une intention + un focus casting. Le moteur partira de là.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
@@ -192,6 +297,26 @@ export default function ChapterGeneratorPage() {
                   placeholder="Ex. : Confrontation dans un sanctuaire, révélation d&apos;un secret, et cliffhanger final."
                 />
               </div>
+              <div className="space-y-2">
+                <Label>Cadence du chapitre</Label>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { label: "safe", title: "Progression logique" },
+                    { label: "bold", title: "Accélération émotionnelle" },
+                    { label: "shock", title: "Rupture dramatique" },
+                  ].map((option) => (
+                    <Button
+                      key={option.label}
+                      type="button"
+                      size="sm"
+                      variant={selectedPlotLabel === option.label ? "default" : "outline"}
+                      onClick={() => setSelectedPlotLabel(option.label as "safe" | "bold" | "shock")}
+                    >
+                      {option.title}
+                    </Button>
+                  ))}
+                </div>
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="secondary" onClick={createChapter}>
                   Créer le brouillon
@@ -204,6 +329,40 @@ export default function ChapterGeneratorPage() {
                 <div className="rounded-lg border border-border/60 bg-background/30 p-4 text-sm">
                   <p className="font-medium">Estimation : {chapterEstimate.estimatedTokens} tokens</p>
                   <p className="mt-1 text-muted-foreground">{chapterEstimate.creativeDirection.whyNow}</p>
+                  {chapterEstimate.plotOptions?.length ? (
+                    <div className="mt-4 grid gap-2 md:grid-cols-3">
+                      {chapterEstimate.plotOptions.map((option) => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => setSelectedPlotLabel(option.label as "safe" | "bold" | "shock")}
+                          className={`rounded-lg border p-3 text-left transition ${
+                            selectedPlotLabel === option.label
+                              ? "border-violet-400 bg-violet-500/10"
+                              : "border-border/60 bg-background/40 hover:border-border"
+                          }`}
+                        >
+                          <p className="text-xs uppercase tracking-wide text-muted-foreground">{option.label}</p>
+                          <p className="mt-1 font-medium">{option.title}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{option.summary}</p>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="mt-4 grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
+                    <div className="rounded-lg border border-border/60 bg-background/40 p-3">
+                      <p className="font-medium text-foreground">Casting repris</p>
+                      <p>{chapterEstimate.contextPreview.characters.map((character) => character.name).join(", ") || "aucun"}</p>
+                    </div>
+                    <div className="rounded-lg border border-border/60 bg-background/40 p-3">
+                      <p className="font-medium text-foreground">Arcs détectés</p>
+                      <p>{chapterEstimate.contextPreview.arcs.map((arc) => arc.name).join(", ") || "aucun"}</p>
+                    </div>
+                    <div className="rounded-lg border border-border/60 bg-background/40 p-3">
+                      <p className="font-medium text-foreground">RAG utile</p>
+                      <p>{chapterEstimate.contextPreview.retrievedDocs[0]?.title ?? "Pas de doc proche pour l’instant"}</p>
+                    </div>
+                  </div>
                 </div>
               ) : null}
             </CardContent>

@@ -94,6 +94,7 @@ export interface UniversalPanel {
   narration?: string;
   sfx?: string;
   caption?: string;
+  textScale?: "normal" | "compact" | "micro";
 }
 
 export interface UniversalMangaPage {
@@ -135,6 +136,7 @@ export interface PipelinePanel {
     sfx?: string;
     caption?: string;
     layout?: string;
+    textScale?: "normal" | "compact" | "micro";
     error?: string;
     blockedReason?: string;
   };
@@ -168,6 +170,7 @@ export function pipelineScenesToPages(
         narration: img.metadata?.narration,
         sfx: img.metadata?.sfx,
         caption: img.metadata?.caption,
+        textScale: img.metadata?.textScale,
       }));
 
     return { layout, panels };
@@ -220,6 +223,7 @@ export function MangaPageGrid({ page }: Props) {
           narration={panel.narration}
           sfx={panel.sfx}
           caption={panel.caption}
+          textScale={panel.textScale}
           panelIndex={i}
           className="min-h-0"
           style={{ gridArea: AREA_NAMES[i] }}

@@ -2,6 +2,7 @@ import {
   generateChapterBundle,
   runRoutedImageGeneration,
   composeMangaPanelPrompt,
+  runChapterContinuityPass,
   type StoryboardPanel,
   type RoutingContext,
   type ProjectContextForChapter,
@@ -27,6 +28,11 @@ type PlannedImage = {
   panel: StoryboardPanel;
   sceneIndex: number;
   baseMetadata: Record<string, unknown>;
+};
+
+type PipelineJobInput = {
+  focusCharacterIds?: string[];
+  selectedPlotLabel?: "safe" | "bold" | "shock";
 };
 
 function getStorageClient() {
@@ -191,6 +197,12 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
   const chapterId = job.chapterId;
   const chapterNumber = chapter.chapterNumber;
   const intensityLayer = (project?.intensityLayer as string | null) ?? "TEEN";
+  const jobInput = ((job.input as Record<string, unknown>) ?? {}) as PipelineJobInput;
+  const focusCharacterIds = Array.isArray(jobInput.focusCharacterIds) ? jobInput.focusCharacterIds.filter(Boolean) : [];
+  const selectedPlotLabel =
+    jobInput.selectedPlotLabel === "safe" || jobInput.selectedPlotLabel === "bold" || jobInput.selectedPlotLabel === "shock"
+      ? jobInput.selectedPlotLabel
+      : undefined;
 
   await prisma.job.update({
     where: { id: jobId },
@@ -200,17 +212,48 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
   try {
     // ── Étape 1 : Contexte projet ──────────────────────────────────────────
     await setJobProgress(jobId, { key: "build_context", label: "Contexte projet" }, "running");
-    const contextRaw = await buildProjectContext(prisma, projectId, chapter.userIntent);
+    const contextRaw = await buildProjectContext(prisma, projectId, chapter.userIntent, { focusCharacterIds });
     if (!contextRaw) throw new Error("project_context_not_found");
     const context = contextRaw as unknown as ProjectContextForChapter;
+
+    const contextDocument = [
+      `Projet: ${context.project.title}`,
+      context.project.pitch ? `Pitch: ${context.project.pitch}` : "",
+      context.project.description ? `Description: ${context.project.description}` : "",
+      context.project.primaryGenre ? `Genre: ${context.project.primaryGenre}` : "",
+      context.project.subGenres?.length ? `Sous-genres: ${context.project.subGenres.join(", ")}` : "",
+      context.storyBible?.summary ? `Bible: ${context.storyBible.summary}` : "",
+      context.characters.length
+        ? `Personnages:\n${context.characters
+            .slice(0, 6)
+            .map((character) => `- ${character.name} | ${character.roleType ?? "rôle?"} | obj: ${character.objective ?? "n/a"} | peur: ${character.fear ?? "n/a"}`)
+            .join("\n")}`
+        : "",
+      context.recentMemory.length
+        ? `Mémoire récente:\n${context.recentMemory
+            .map((memory) => memory.narrativeSummary)
+            .filter(Boolean)
+            .slice(0, 3)
+            .join("\n")}`
+        : "",
+      context.retrievedDocs.length
+        ? `RAG:\n${context.retrievedDocs
+            .slice(0, 4)
+            .map((doc) => `${doc.title ?? doc.entityType ?? "doc"}: ${doc.content}`)
+            .join("\n")}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n")
+      .slice(0, 3900);
 
     await replaceRagDocument(prisma, {
       projectId,
       entityType: "project_context",
       entityId: chapterId,
       title: `Contexte chapitre ${chapterNumber}`,
-      content: JSON.stringify(context).slice(0, 3500),
-      metadata: { chapterId },
+      content: contextDocument,
+      metadata: { chapterId, focusCharacterIds, selectedPlotLabel },
     });
     await setJobProgress(jobId, { key: "build_context", label: "Contexte projet" }, "completed");
 
@@ -224,11 +267,33 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       chapterNumber,
       chapterTitle: chapter.title,
       userIntent: chapter.userIntent ?? `Continuer ${context.project.title}`,
+      selectedPlotLabel,
       context,
     });
     await setJobProgress(
       jobId,
       { key: "generate_bundle", label: "Direction, outline, script, storyboard" },
+      "completed",
+    );
+    await setJobProgress(
+      jobId,
+      { key: "continuity_pass", label: "Continuité IA avant images" },
+      "running",
+    );
+    const continuity = await runChapterContinuityPass({
+      context,
+      bundle,
+      chapterGoal: bundle.creativeDirection.chapterGoal,
+      selectedPlotLabel,
+    });
+    const revisedBundle = continuity.bundle;
+    await setJobProgress(
+      jobId,
+      {
+        key: "continuity_pass",
+        label: continuity.usedOpenAI ? "Continuité IA appliquée" : "Continuité fallback appliquée",
+        detail: continuity.notes.slice(0, 2).join(" · ") || undefined,
+      },
       "completed",
     );
 
@@ -239,57 +304,58 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       "running",
     );
 
-    const chapterOutline: Prisma.InputJsonValue = bundle.outline;
-    const chapterScript: Prisma.InputJsonValue = bundle.script;
-    const chapterStoryboard: Prisma.InputJsonValue = bundle.storyboard;
+    const chapterOutline: Prisma.InputJsonValue = revisedBundle.outline;
+    const chapterScript: Prisma.InputJsonValue = revisedBundle.script;
+    const chapterStoryboard: Prisma.InputJsonValue = revisedBundle.storyboard;
 
     // Map sceneId → list of planned SceneImage ids (for image generation step)
     const plannedImages: PlannedImage[] = [];
 
-    await prisma.$transaction(async (tx) => {
-      await tx.chapter.update({
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.chapter.update({
         where: { id: chapterId },
         data: {
-          title: bundle.outline.chapter_title,
+          title: revisedBundle.outline.chapter_title,
           outline: chapterOutline,
           script: chapterScript,
           storyboard: chapterStoryboard,
-          summary: bundle.memory.narrativeSummary,
-          cliffhanger: bundle.outline.cliffhanger,
+          summary: revisedBundle.memory.narrativeSummary,
+          cliffhanger: revisedBundle.outline.cliffhanger,
           status: "ready_for_render",
           tokenEstimate: job.estimatedTokenCost ?? 80,
           tokenActual: job.actualTokenCost ?? job.estimatedTokenCost ?? 80,
         },
       });
 
-      await tx.sceneImage.deleteMany({ where: { scene: { chapterId } } });
-      await tx.chapterScene.deleteMany({ where: { chapterId } });
+        await tx.sceneImage.deleteMany({ where: { scene: { chapterId } } });
+        await tx.chapterScene.deleteMany({ where: { chapterId } });
 
-      for (let index = 0; index < bundle.script.scenes.length; index++) {
-        const scene = bundle.script.scenes[index];
-        if (!scene) continue;
+        for (let index = 0; index < revisedBundle.script.scenes.length; index++) {
+          const scene = revisedBundle.script.scenes[index];
+          if (!scene) continue;
 
-        const createdScene = await tx.chapterScene.create({
-          data: {
-            chapterId,
-            sceneNumber: index + 1,
-            title: scene.title,
-            summary: scene.summary,
-            script: scene as unknown as Prisma.InputJsonValue,
-            dialogue: scene.dialogue as unknown as Prisma.InputJsonValue,
-            metadata: {
-              location: scene.location,
-              characters: scene.characters,
-              purpose: scene.purpose,
+          const createdScene = await tx.chapterScene.create({
+            data: {
+              chapterId,
+              sceneNumber: index + 1,
+              title: scene.title,
+              summary: scene.summary,
+              script: scene as unknown as Prisma.InputJsonValue,
+              dialogue: scene.dialogue as unknown as Prisma.InputJsonValue,
+              metadata: {
+                location: scene.location,
+                characters: scene.characters,
+                purpose: scene.purpose,
+              },
             },
-          },
-        });
+          });
 
-        const storyboardPage = bundle.storyboard.pages[index];
-        if (!storyboardPage) continue;
+          const storyboardPage = revisedBundle.storyboard.pages[index];
+          if (!storyboardPage) continue;
 
-        for (const panel of storyboardPage.panels) {
-          // Compose le prompt enrichi via le manga-prompt-composer
+          for (const panel of storyboardPage.panels) {
+            // Compose le prompt enrichi via le manga-prompt-composer
               const stylePack = stylePacks[0];
               let composedPositive = panel.prompt;
               let composedNegative = panel.negativePrompt;
@@ -313,11 +379,11 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                       outfitDefault: c.outfitDefault,
                     })),
               location: scene.location,
-              action: panel.caption,
+              action: panel.narration ?? panel.caption,
               camera: panel.camera,
               mood: panel.mood,
               contentIntensityLayer: intensityLayer,
-              dialogueHint: panel.dialogue?.text,
+              dialogueHint: panel.dialogue ? `${panel.dialogue.speaker}: ${panel.dialogue.text}` : undefined,
             });
             composedPositive = composed.positive;
             composedNegative = composed.negative;
@@ -325,40 +391,43 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             // fallback sur le prompt du storyboard
           }
 
-          const baseMetadata = {
-            caption: panel.caption,
-            camera: panel.camera,
-            characters: panel.characters,
-            mood: panel.mood,
-            sfx: panel.sfx,
-            dialogue: panel.dialogue,
-            narration: panel.narration,
-            layout: storyboardPage.layout,
-          };
+            const baseMetadata = {
+              caption: panel.caption,
+              camera: panel.camera,
+              characters: panel.characters,
+              mood: panel.mood,
+              textScale: panel.textScale ?? "normal",
+              sfx: panel.sfx,
+              dialogue: panel.dialogue,
+              narration: panel.narration,
+              layout: storyboardPage.layout,
+            };
 
-          const created = await tx.sceneImage.create({
-            data: {
-              sceneId: createdScene.id,
-              panelNumber: panel.panelNumber,
-              renderingMode: "PANEL_DRAFT",
-              prompt: composedPositive,
-              negativePrompt: composedNegative,
-              status: "planned",
-              width: 768,
-              height: 1024,
-              metadata: baseMetadata,
-            },
-          });
+            const created = await tx.sceneImage.create({
+              data: {
+                sceneId: createdScene.id,
+                panelNumber: panel.panelNumber,
+                renderingMode: "PANEL_DRAFT",
+                prompt: composedPositive,
+                negativePrompt: composedNegative,
+                status: "planned",
+                width: 768,
+                height: 1024,
+                metadata: baseMetadata,
+              },
+            });
 
-          plannedImages.push({
-            sceneImageId: created.id,
-            panel: { ...panel, prompt: composedPositive, negativePrompt: composedNegative },
-            sceneIndex: index,
-            baseMetadata,
-          });
+            plannedImages.push({
+              sceneImageId: created.id,
+              panel: { ...panel, prompt: composedPositive, negativePrompt: composedNegative },
+              sceneIndex: index,
+              baseMetadata,
+            });
+          }
         }
-      }
-    });
+      },
+      { timeout: 30_000, maxWait: 10_000 },
+    );
     await setJobProgress(
       jobId,
       { key: "persist_chapter", label: "Persistance chapitre" },
@@ -498,18 +567,18 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
 
     const canonWarnings = detectCanonWarnings({
       characterStatuses: context.characters.map((c) => ({ name: c.name, status: c.status })),
-      scriptText: JSON.stringify(bundle.script),
+      scriptText: JSON.stringify(revisedBundle.script),
     });
 
     const snapshot = await persistChapterMemory(prisma, {
       projectId,
       chapterId,
       chapterNumber,
-      title: bundle.outline.chapter_title,
-      summary: bundle.memory.narrativeSummary,
-      structuredState: { ...bundle.memory.structuredState, canonWarnings },
-      timelineEvents: bundle.memory.timelineEvents,
-      openLoops: bundle.memory.openLoops,
+      title: revisedBundle.outline.chapter_title,
+      summary: revisedBundle.memory.narrativeSummary,
+      structuredState: { ...revisedBundle.memory.structuredState, canonWarnings, continuityNotes: continuity.notes },
+      timelineEvents: revisedBundle.memory.timelineEvents,
+      openLoops: revisedBundle.memory.openLoops,
     });
 
     await setJobProgress(
@@ -540,6 +609,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               label: "Direction, outline, script, storyboard",
               status: "completed",
             },
+            { key: "continuity_pass", label: "Continuité IA avant images", status: "completed" },
             { key: "persist_chapter", label: "Persistance chapitre", status: "completed" },
             {
               key: "generate_images",
@@ -548,10 +618,11 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             },
             { key: "update_memory", label: "Mémoire et timeline", status: "completed" },
           ],
-          plotOptions: bundle.plotOptions,
-          creativeDirection: bundle.creativeDirection,
+          plotOptions: revisedBundle.plotOptions,
+          creativeDirection: revisedBundle.creativeDirection,
           memorySnapshotId: snapshot.id,
           canonWarnings,
+          continuityNotes: continuity.notes,
           imageStats: { total: plannedImages.length, generated: generatedCount, failed: failedCount },
         },
       },

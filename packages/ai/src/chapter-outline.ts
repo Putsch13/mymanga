@@ -20,7 +20,26 @@ export type ChapterOutlineResult = z.infer<typeof outlineResultSchema>;
 export type ChapterOutlineContext = {
   projectTitle: string;
   pitch: string | null;
+  description?: string | null;
   primaryGenre: string | null;
+  subGenres?: string[];
+  tone?: string | null;
+  visualStyle?: string | null;
+  styleGuide?: string | null;
+  cast?: Array<{ name: string; roleType?: string | null; objective?: string | null; status?: string | null }>;
+  bibleSummary?: string | null;
+  themes?: string[];
+  continuitySnippets?: string[];
+  retrievedContext?: string[];
+  settings?: {
+    dialogueDensity?: number | null;
+    darknessLevel?: number | null;
+    mysteryLevel?: number | null;
+    violenceLevel?: number | null;
+    romanceLevel?: number | null;
+    sensualityLevel?: number | null;
+    canonStrictness?: number | null;
+  } | null;
   chapterNumber: number;
   chapterTitle: string | null;
   userIntent: string;
@@ -33,6 +52,7 @@ function fallbackOutline(ctx: ChapterOutlineContext): ChapterOutlineResult {
   const intent = ctx.userIntent.slice(0, 400);
   const genre = (ctx.primaryGenre ?? "manga").toLowerCase();
   const quickTag = (ctx.quickTag ?? "bold").toLowerCase();
+  const cast = (ctx.cast ?? []).slice(0, 3).map((item) => item.name).join(", ");
   const previousSummary = ctx.previousSummary ? `Après ${ctx.previousSummary.slice(0, 140)}` : "Sans récapitulatif récent";
   const previousCliffhanger = ctx.previousCliffhanger
     ? `Le précédent cliffhanger était : ${ctx.previousCliffhanger.slice(0, 120)}`
@@ -68,7 +88,7 @@ function fallbackOutline(ctx: ChapterOutlineContext): ChapterOutlineResult {
 
   return {
     title: ctx.chapterTitle ?? `Chapitre ${ctx.chapterNumber}`,
-    summary: `${previousSummary}. ${previousCliffhanger}. Le chapitre ${ctx.chapterNumber} de « ${ctx.projectTitle} » avance autour de : ${intent}. Axe narratif ${quickTag}.`,
+    summary: `${previousSummary}. ${previousCliffhanger}. Le chapitre ${ctx.chapterNumber} de « ${ctx.projectTitle} » avance autour de : ${intent}. Cast prioritaire : ${cast || "à préciser"}. Axe narratif ${quickTag}.`,
     cliffhanger:
       quickTag === "shock"
         ? "La dernière case révèle une vérité qui fracture immédiatement la suite."
@@ -99,12 +119,23 @@ export async function generateChapterOutline(ctx: ChapterOutlineContext): Promis
   }
 
   const model = process.env.OPENAI_OUTLINE_MODEL?.trim() || "gpt-4o-mini";
-  const system = `Tu es scénariste manga / webtoon pour un outil de production. Réponds uniquement en JSON valide, clés : title (optionnel), summary (string), cliffhanger (string), beats (array de { summary, emotionalTone? }). Langue : français. Les beats sont des étapes narratives courtes (pas de dialogue complet).`;
+  const system = `Tu es scénariste manga / webtoon pour un outil de production. Réponds uniquement en JSON valide, clés : title (optionnel), summary (string), cliffhanger (string), beats (array de { summary, emotionalTone? }). Langue : français. Les beats sont des étapes narratives courtes (pas de dialogue complet). Règles: 1) rester cohérent avec le canon, les personnages, la bible et la mémoire récente; 2) ne jamais ignorer l'intention utilisateur; 3) chaque beat doit pousser logiquement le suivant; 4) éviter les ruptures arbitraires de lieu ou d'objectif; 5) réutiliser les personnages réellement fournis.`;
 
   const userPayload = {
     projectTitle: ctx.projectTitle,
     pitch: ctx.pitch,
+    description: ctx.description,
     genre: ctx.primaryGenre,
+    subGenres: ctx.subGenres,
+    tone: ctx.tone,
+    visualStyle: ctx.visualStyle,
+    styleGuide: ctx.styleGuide,
+    cast: ctx.cast,
+    bibleSummary: ctx.bibleSummary,
+    themes: ctx.themes,
+    continuitySnippets: ctx.continuitySnippets,
+    retrievedContext: ctx.retrievedContext,
+    settings: ctx.settings,
     chapterNumber: ctx.chapterNumber,
     currentTitle: ctx.chapterTitle,
     userIntent: ctx.userIntent,

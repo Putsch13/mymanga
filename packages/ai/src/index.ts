@@ -16,3 +16,4 @@ export * from "./services/character-prompt-builder";
 export * from "./services/canon-physical-validator";
 export * from "./services/dialogue-writer";
 export * from "./services/panel-text-planner";
+export * from "./services/chapter-continuity-pass";

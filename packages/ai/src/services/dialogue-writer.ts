@@ -9,6 +9,7 @@ export interface DialogueWriterInput {
   location?: string;
   tension: number; // 0-10
   emotionalObjective: string;
+  chapterGoal?: string;
   characters: Array<{
     name: string;
     roleType?: string | null;
@@ -23,6 +24,13 @@ export interface DialogueWriterInput {
   projectStyle?: string;
   panelCount: number;
   contentIntensityLayer?: string;
+  continuityContext?: string[];
+  panelBlueprints?: Array<{
+    panelId: string;
+    action: string;
+    mood?: string;
+    characters?: string[];
+  }>;
 }
 
 export interface DialogueWriterResult {
@@ -52,6 +60,13 @@ export async function writeDialogueForScene(
       return `- ${c.name} | rôle: ${c.roleType ?? "inconnu"} | état: ${c.emotionalState ?? "neutre"} | objectif: ${c.objective ?? "non précisé"} | peur: ${c.fear ?? "non précisée"} | traits: ${(c.traits ?? []).join(", ") || "aucun"} | défauts: ${(c.flaws ?? []).join(", ") || "aucun"} | bio: ${c.biography ?? "n/a"} | voix: ${voice}`;
     })
     .join("\n");
+  const continuityContext = (input.continuityContext ?? []).filter(Boolean).slice(0, 6).join("\n- ");
+  const panelBlueprints = (input.panelBlueprints ?? [])
+    .map(
+      (panel, index) =>
+        `- panel_${index + 1} | action: ${panel.action} | mood: ${panel.mood ?? "n/a"} | personnages: ${(panel.characters ?? []).join(", ") || "aucun"}`,
+    )
+    .join("\n");
 
   const prompt = `Tu es un scénariste manga professionnel. Génère les dialogues pour une scène manga.
 
@@ -59,15 +74,23 @@ SCÈNE: ${input.sceneSummary}
 LIEU: ${input.location ?? "non précisé"}
 TENSION: ${input.tension}/10
 OBJECTIF ÉMOTIONNEL: ${input.emotionalObjective}
+OBJECTIF DU CHAPITRE: ${input.chapterGoal ?? "non précisé"}
 PERSONNAGES:
 ${characterList}
 NOMBRE DE PANELS: ${input.panelCount}
 STYLE PROJET: ${input.projectStyle ?? "manga action/drame"}
+CONTINUITÉ / RAG:
+- ${continuityContext || "Aucun rappel utile"}
+PANELS À SERVIR:
+${panelBlueprints || "- panel_1 | action: progression simple"}
 
 ${BUBBLE_TYPE_GUIDE}
 
 RÈGLES IMPÉRATIVES:
 - Chaque personnage doit parler d'une manière distincte selon son rôle, son état, ses objectifs et sa voix.
+- Les répliques doivent répondre à l'action spécifique de chaque panel, pas seulement à la scène globale.
+- Si un panel est contemplatif, laisse-le respirer avec silence, narration courte ou SFX léger.
+- Respecte strictement les personnages fournis, leur rôle et la continuité récente.
 - Évite les répliques génériques vues mille fois ("Hmm", "...", "On y va") sauf si le silence est dramatiquement justifié.
 - Fais varier le registre selon le genre, le ton et la tension.
 - Maximum 2-3 bulles par panel
@@ -105,9 +128,16 @@ Retourne un JSON strict avec ce format:
   try {
     const response = await openai.chat.completions.create({
       model: process.env.OPENAI_DIALOGUE_MODEL ?? "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
+      messages: [
+        {
+          role: "system",
+          content:
+            "Tu écris des dialogues manga cohérents, denses, visuels et canoniques. Tu ne dois ni inventer des personnages absents, ni casser la logique émotionnelle entre panels.",
+        },
+        { role: "user", content: prompt },
+      ],
       response_format: { type: "json_object" },
-      temperature: 0.8,
+      temperature: 0.65,
       max_tokens: 2000,
     });
 

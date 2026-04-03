@@ -128,6 +128,7 @@ type Props = {
   narration?: string;
   sfx?: string;
   caption?: string;
+  textScale?: "normal" | "compact" | "micro";
   className?: string;
   style?: React.CSSProperties;
   /** Numéro du panel pour l'accessibilité */
@@ -147,6 +148,7 @@ export function MangaPanel({
   narration,
   sfx,
   caption,
+  textScale = "normal",
   className,
   style,
   panelIndex,
@@ -155,6 +157,23 @@ export function MangaPanel({
   const overlay = MOOD_OVERLAY[mood];
   const isPending = !imageUrl && (status === "planned" || status === "pending");
   const isFailed = !imageUrl && (status === "failed" || status === "blocked");
+
+  const narrationClass =
+    textScale === "micro"
+      ? "text-[9px] leading-tight text-stone-200 md:text-[10px]"
+      : textScale === "compact"
+        ? "text-[9px] leading-tight text-stone-200 md:text-[11px]"
+        : "text-[10px] leading-tight text-stone-200 md:text-xs";
+  const speakerClass =
+    textScale === "micro"
+      ? "mb-0.5 text-[7px] font-bold uppercase tracking-wide text-stone-500 md:text-[8px]"
+      : "mb-0.5 text-[8px] font-bold uppercase tracking-wider text-stone-500 md:text-[9px]";
+  const dialogueClass =
+    textScale === "micro"
+      ? "text-[9px] font-medium leading-tight text-stone-900 md:text-[10px]"
+      : textScale === "compact"
+        ? "text-[9px] font-medium leading-tight text-stone-900 md:text-[11px]"
+        : "text-[10px] font-medium leading-tight text-stone-900 md:text-xs";
 
   return (
     <div
@@ -248,7 +267,7 @@ export function MangaPanel({
         {/* Narration box */}
         {narration ? (
           <div className="mb-1 rounded border border-white/20 bg-black/70 px-2 py-1">
-            <p className="text-[10px] leading-tight text-stone-200 md:text-xs">{narration}</p>
+            <p className={narrationClass}>{narration}</p>
           </div>
         ) : null}
 
@@ -257,11 +276,11 @@ export function MangaPanel({
           <div className="relative">
             <div className="rounded-xl border-2 border-stone-900 bg-white px-2 py-1.5 shadow-md">
               {speaker ? (
-                <p className="mb-0.5 text-[8px] font-bold uppercase tracking-wider text-stone-500 md:text-[9px]">
+                <p className={speakerClass}>
                   {speaker}
                 </p>
               ) : null}
-              <p className="text-[10px] font-medium leading-tight text-stone-900 md:text-xs">
+              <p className={dialogueClass}>
                 {dialogue}
               </p>
             </div>

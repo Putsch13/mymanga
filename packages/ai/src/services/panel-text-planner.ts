@@ -2,6 +2,7 @@ import type { MangaPanelText } from "@manga-ai-studio/core";
 
 export interface PanelTextPlannerInput {
   sceneId: string;
+  layout?: "A" | "B" | "C" | "D" | "E";
   panels: Array<{
     panelId: string;
     action?: string;
@@ -21,10 +22,29 @@ export interface PanelTextPlan {
   pauseWeight: number;
   density: "empty" | "light" | "medium" | "heavy";
   readingOrderFinal: number[];
+  textScale: "normal" | "compact" | "micro";
 }
 
 const MAX_BUBBLES_DEFAULT = 3;
 const MAX_CHARS_DEFAULT = 60;
+
+const PANEL_AREA_WEIGHTS: Record<NonNullable<PanelTextPlannerInput["layout"]>, number[]> = {
+  A: [1.2, 1.1, 1.4, 1.0, 0.95, 0.95],
+  B: [1.6, 0.75, 0.75, 1.15, 0.85, 1.1, 1.2],
+  C: [1.35, 1.0, 1.15, 0.95, 1.0, 1.0],
+  D: [1.05, 1.05, 1.5, 0.95, 0.95, 1.25],
+  E: [1.35, 1.0, 1.0, 1.35, 0.7, 0.95, 0.95],
+};
+
+function getPanelWeight(layout: PanelTextPlannerInput["layout"], panelIndex: number) {
+  if (!layout) return 1;
+  return PANEL_AREA_WEIGHTS[layout]?.[panelIndex] ?? 1;
+}
+
+function trimText(text: string, maxChars: number) {
+  if (text.length <= maxChars) return text;
+  return text.slice(0, Math.max(8, maxChars - 1)).trimEnd() + "…";
+}
 
 /**
  * Planifie et normalise le texte par panel :
@@ -38,6 +58,12 @@ export function planPanelText(input: PanelTextPlannerInput): PanelTextPlan[] {
   const maxChars = input.maxCharsPerBubble ?? MAX_CHARS_DEFAULT;
 
   return input.panels.map((panel, panelIndex) => {
+    const panelWeight = getPanelWeight(input.layout, panelIndex);
+    const panelMaxBubbles = Math.max(1, Math.min(maxBubbles, panelWeight >= 1.2 ? 3 : panelWeight >= 0.9 ? 2 : 1));
+    const panelMaxChars = Math.max(24, Math.round(maxChars * (panelWeight >= 1.3 ? 1 : panelWeight >= 1 ? 0.82 : 0.58)));
+    const narrationMaxChars = Math.max(28, Math.round(panelMaxChars * 1.2));
+    const textScale: PanelTextPlan["textScale"] =
+      panelWeight >= 1.2 ? "normal" : panelWeight >= 0.9 ? "compact" : "micro";
     const dialoguePanel = input.dialogue?.find((d) => d.panelId === panel.panelId);
     const rawBubbles = dialoguePanel?.bubbles ?? [];
     const rawNarration = dialoguePanel?.narration ?? [];
@@ -45,10 +71,10 @@ export function planPanelText(input: PanelTextPlannerInput): PanelTextPlan[] {
 
     // Limiter et tronquer les bulles
     const bubbles = rawBubbles
-      .slice(0, maxBubbles)
+      .slice(0, panelMaxBubbles)
       .map((b, i) => ({
         ...b,
-        text: b.text.length > maxChars ? b.text.slice(0, maxChars - 1) + "…" : b.text,
+        text: trimText(b.text, panelMaxChars),
         readingOrder: i + 1,
       }));
 
@@ -73,16 +99,17 @@ export function planPanelText(input: PanelTextPlannerInput): PanelTextPlan[] {
     // Alterner panels denses et silencieux si trop lourd
     const isHeavy = density === "heavy";
     const isEvenPanel = panelIndex % 2 === 0;
-    const finalBubbles = isHeavy && isEvenPanel ? bubbles.slice(0, 2) : bubbles;
+    const finalBubbles = isHeavy && isEvenPanel ? bubbles.slice(0, Math.max(1, panelMaxBubbles - 1)) : bubbles;
 
     return {
       panelId: panel.panelId,
       bubbles: finalBubbles,
-      narration: rawNarration.slice(0, 2),
-      sfx: rawSfx.slice(0, 2),
+      narration: rawNarration.slice(0, panelWeight >= 1 ? 2 : 1).map((item) => trimText(item, narrationMaxChars)),
+      sfx: rawSfx.slice(0, panelWeight >= 1 ? 2 : 1),
       pauseWeight,
       density: finalBubbles.length === 0 ? "empty" : density,
       readingOrderFinal,
+      textScale,
     };
   });
 }

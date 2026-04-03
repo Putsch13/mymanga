@@ -12,6 +12,13 @@ type Ctx = { params: Promise<{ id: string }> };
 
 const bodySchema = z.object({
   chapterId: z.string().min(1),
+  focusCharacterIds: z.array(z.string()).optional(),
+  selectedPlotLabel: z.enum(["safe", "bold", "shock"]).optional(),
+});
+
+const draftSetupSchema = z.object({
+  focusCharacterIds: z.array(z.string()).optional(),
+  selectedPlotLabel: z.enum(["safe", "bold", "shock"]).nullable().optional(),
 });
 
 /**
@@ -39,6 +46,20 @@ export async function POST(req: Request, ctx: Ctx) {
   });
   if (!chapter) return badRequest("Chapitre introuvable");
 
+  const draftSetup = draftSetupSchema.safeParse(
+    chapter.outline && typeof chapter.outline === "object" && !Array.isArray(chapter.outline)
+      ? (chapter.outline as Record<string, unknown>).draftSetup
+      : undefined,
+  );
+  const focusCharacterIds =
+    body.focusCharacterIds && body.focusCharacterIds.length > 0
+      ? body.focusCharacterIds
+      : draftSetup.success
+        ? (draftSetup.data.focusCharacterIds ?? [])
+        : [];
+  const selectedPlotLabel =
+    body.selectedPlotLabel ?? (draftSetup.success ? draftSetup.data.selectedPlotLabel ?? undefined : undefined);
+
   const estimatedCost = await estimateChapterTextTokensFromRules();
   const job = await prisma.job.create({
     data: {
@@ -51,6 +72,8 @@ export async function POST(req: Request, ctx: Ctx) {
       input: {
         source: "pipeline_route",
         chapterId: chapter.id,
+        focusCharacterIds,
+        selectedPlotLabel,
       },
       output: {
         currentStep: "queued",

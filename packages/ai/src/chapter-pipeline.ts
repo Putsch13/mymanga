@@ -6,13 +6,43 @@ export type ProjectContextForChapter = {
   project: {
     title: string;
     pitch: string | null;
+    description?: string | null;
     primaryGenre: string | null;
+    subGenres?: string[];
     tone: string | null;
     format: string | null;
     visualStyle?: string | null;
     contentRating?: string | null;
     intensityLayer?: string | null;
   };
+  focusCharacterIds?: string[];
+  settings?: {
+    violenceLevel?: number | null;
+    romanceLevel?: number | null;
+    sensualityLevel?: number | null;
+    darknessLevel?: number | null;
+    mysteryLevel?: number | null;
+    dialogueDensity?: number | null;
+    canonStrictness?: number | null;
+  } | null;
+  stylePack?: {
+    renderFamily?: string | null;
+    lineWeight?: string | null;
+    shadingMode?: string | null;
+    contrastProfile?: string | null;
+    anatomyBias?: string | null;
+    backgroundDensity?: string | null;
+    cameraLanguage?: string | null;
+    negativeConstraints?: string[];
+  } | null;
+  storyBible?: {
+    summary?: string | null;
+    themes?: string[];
+    worldRules?: unknown;
+    lore?: unknown;
+    glossary?: unknown;
+    lockedCanon?: unknown;
+  } | null;
   characters: Array<{
     id: string;
     name: string;
@@ -52,7 +82,9 @@ export type ProjectContextForChapter = {
   }>;
   retrievedDocs: Array<{
     title: string | null;
+    entityType?: string | null;
     content: string;
+    metadata?: unknown;
   }>;
 };
 
@@ -82,12 +114,20 @@ export type StoryboardPanel = {
   sfx?: string;
   dialogue?: { speaker: string; text: string };
   narration?: string;
+  textScale?: "normal" | "compact" | "micro";
 };
 
 export type StoryboardPage = {
   pageNumber: number;
   layout: GridLayout;
   panels: StoryboardPanel[];
+};
+
+type PanelBlueprint = {
+  panelId: string;
+  action: string;
+  mood: PanelMood;
+  characters: string[];
 };
 
 export type GeneratedChapterBundle = {
@@ -148,7 +188,16 @@ export type GeneratedChapterBundle = {
 };
 
 function takeNames(context: ProjectContextForChapter, count: number) {
-  return context.characters.slice(0, count).map((c) => c.name);
+  const focusSet = new Set((context.focusCharacterIds ?? []).filter(Boolean));
+  const prioritized = [...context.characters].sort((a, b) => {
+    const aFocused = focusSet.has(a.id) ? 1 : 0;
+    const bFocused = focusSet.has(b.id) ? 1 : 0;
+    if (aFocused !== bFocused) return bFocused - aFocused;
+    const aRole = /hero|heros|protagon/i.test(a.roleType ?? "") ? 1 : /antagon/i.test(a.roleType ?? "") ? 2 : 3;
+    const bRole = /hero|heros|protagon/i.test(b.roleType ?? "") ? 1 : /antagon/i.test(b.roleType ?? "") ? 2 : 3;
+    return aRole - bRole;
+  });
+  return prioritized.slice(0, count).map((c) => c.name);
 }
 
 function stretchToCount<T>(items: T[], count: number, fallbackFactory: (index: number) => T): T[] {
@@ -195,8 +244,19 @@ function inferLocations(context: ProjectContextForChapter) {
 }
 
 function inferVisualStyle(context: ProjectContextForChapter): string {
+  const stylePackBits = [
+    context.stylePack?.renderFamily,
+    context.stylePack?.lineWeight,
+    context.stylePack?.shadingMode,
+    context.stylePack?.contrastProfile,
+    context.stylePack?.cameraLanguage,
+  ]
+    .filter(Boolean)
+    .join(", ");
   const vs = context.project.visualStyle ?? "";
+  if (vs && stylePackBits) return `${vs}, ${stylePackBits}`;
   if (vs) return vs;
+  if (stylePackBits) return stylePackBits;
   const genre = (context.project.primaryGenre ?? "").toLowerCase();
   if (genre.includes("cyber")) return "cyberpunk neon manga, detailed ink, Masamune Shirow style";
   if (genre.includes("horror")) return "dark horror manga, heavy shadows, Junji Ito style";
@@ -222,6 +282,64 @@ function inferLayout(tension: number, panelCount: number): GridLayout {
 
 const STD_NEGATIVE =
   "blurry, deformed hands, extra limbs, wrong hair color, inconsistent outfit, bad anatomy, watermark, text overlay, low quality, duplicate character";
+
+function extractCharactersFromText(context: ProjectContextForChapter, text: string, fallback: string[]): string[] {
+  const lowered = text.toLowerCase();
+  const matched = context.characters
+    .filter((character) => lowered.includes(character.name.toLowerCase()))
+    .map((character) => character.name);
+  return matched.length > 0 ? matched : fallback;
+}
+
+function buildPanelBlueprints(
+  scene: { id: string; summary: string; location: string; characters: string[]; purpose: string },
+  beat: { summary: string; tension: number },
+  panelCount: number,
+  genre: string,
+): PanelBlueprint[] {
+  const mainA = scene.characters[0] ?? "Le protagoniste";
+  const mainB = scene.characters[1] ?? mainA;
+  const actionTemplates = [
+    `Installer ${scene.location} et l'état émotionnel de ${mainA}.`,
+    `${mainA} perçoit un détail lié à : ${beat.summary}`,
+    `${mainA} et ${mainB} se répondent avec tension autour de ${scene.purpose}.`,
+    `Un geste, regard ou silence change la lecture de la scène.`,
+    `La pression monte concrètement autour de ${beat.summary}.`,
+    `${mainA} prend une décision qui coûte quelque chose.`,
+    `La dernière image relance la suite avec une conséquence immédiate.`,
+  ];
+
+  return Array.from({ length: panelCount }).map((_, panelIndex) => {
+    const mood = inferMood(beat.tension + panelIndex / Math.max(panelCount, 1), genre);
+    const baseCharacters =
+      panelIndex === 0
+        ? scene.characters
+        : panelIndex % 3 === 0
+          ? scene.characters
+          : [scene.characters[panelIndex % Math.max(scene.characters.length, 1)] ?? mainA].filter(Boolean);
+    return {
+      panelId: `panel_${panelIndex + 1}`,
+      action:
+        actionTemplates[panelIndex] ??
+        `${scene.summary} Progression panel ${panelIndex + 1} dans ${scene.location}.`,
+      mood,
+      characters: baseCharacters,
+    };
+  });
+}
+
+function buildNarrativeSummary(input: {
+  projectTitle: string;
+  chapterGoal: string;
+  scenes: Array<{ summary: string; characters: string[]; location: string; dialogue: Array<{ speaker: string; text: string }> }>;
+  cliffhanger: string;
+}) {
+  const highlights = input.scenes
+    .slice(0, 3)
+    .map((scene) => `${scene.characters.join(" / ") || "Le groupe"} à ${scene.location}: ${scene.summary}`)
+    .join(" ");
+  return `${input.projectTitle}: ${input.chapterGoal}. ${highlights} Fin de chapitre: ${input.cliffhanger}`.slice(0, 1200);
+}
 
 function buildPanelPrompt(
   context: ProjectContextForChapter,
@@ -274,7 +392,7 @@ function buildPanelsForScene(
   context: ProjectContextForChapter,
   scene: { id: string; location: string; characters: string[]; summary: string; purpose: string },
   beat: { id: string; tension: number },
-  panelCount: number,
+  panelBlueprints: PanelBlueprint[],
   visualStyle: string,
   genre: string,
   panelTextPlan?: PanelTextPlan[],
@@ -289,28 +407,14 @@ function buildPanelsForScene(
     "bird's eye view",
   ];
 
-  const actions = [
-    `${scene.characters[0] ?? "protagonist"} arrives at the scene`,
-    `tension rises between characters`,
-    `${scene.characters[0] ?? "protagonist"} reacts with shock`,
-    `confrontation escalates`,
-    `a key object or detail is revealed`,
-    `${scene.characters[0] ?? "protagonist"} makes a decision`,
-    `dramatic consequence unfolds`,
-  ];
-
   const panels: StoryboardPanel[] = [];
-  for (let i = 0; i < panelCount; i++) {
-    const panelTension = beat.tension + (i / panelCount) * 2;
-    const mood = inferMood(panelTension, genre);
+  for (let i = 0; i < panelBlueprints.length; i++) {
+    const blueprint = panelBlueprints[i];
+    const panelTension = beat.tension + (i / Math.max(panelBlueprints.length, 1)) * 2;
+    const mood = blueprint?.mood ?? inferMood(panelTension, genre);
     const camera = cameras[i % cameras.length] ?? "medium shot";
-    const action = actions[i % actions.length] ?? "character reacts";
-    const charSubset =
-      i === 0
-        ? scene.characters
-        : i % 3 === 0
-          ? scene.characters
-          : [scene.characters[i % scene.characters.length] ?? scene.characters[0]].filter(Boolean);
+    const action = blueprint?.action ?? scene.summary;
+    const charSubset = blueprint?.characters?.length ? blueprint.characters : scene.characters;
 
     const textPlan = panelTextPlan?.[i];
     const leadBubble = textPlan?.bubbles?.[0];
@@ -330,12 +434,7 @@ function buildPanelsForScene(
       panelNumber: i + 1,
       sceneId: scene.id,
       beatId: beat.id,
-      caption:
-        i === 0
-          ? scene.summary
-          : i === panelCount - 1
-            ? `La tension atteint son paroxysme.`
-            : action,
+      caption: i === 0 ? scene.summary : i === panelBlueprints.length - 1 ? `${action}` : action,
       prompt: buildPanelPrompt(
         context,
         charSubset,
@@ -354,6 +453,7 @@ function buildPanelsForScene(
         ? { speaker: leadBubble.speaker ?? charSubset[0] ?? scene.characters[0] ?? "Narrateur", text: leadBubble.text }
         : undefined,
       narration: textPlan?.narration?.[0] ?? (i === 0 ? scene.summary : undefined),
+      textScale: textPlan?.textScale ?? "normal",
     });
   }
   return panels;
@@ -404,7 +504,43 @@ export async function generateChapterBundle(input: {
   const outlineResult = await generateChapterOutline({
     projectTitle: input.context.project.title,
     pitch: input.context.project.pitch,
+    description: input.context.project.description ?? null,
     primaryGenre: input.context.project.primaryGenre,
+    subGenres: input.context.project.subGenres ?? [],
+    tone: input.context.project.tone ?? null,
+    visualStyle,
+    styleGuide: input.context.stylePack
+      ? [
+          input.context.stylePack.renderFamily,
+          input.context.stylePack.lineWeight,
+          input.context.stylePack.shadingMode,
+          input.context.stylePack.contrastProfile,
+        ]
+          .filter(Boolean)
+          .join(", ")
+      : null,
+    cast: input.context.characters.slice(0, 5).map((character) => ({
+      name: character.name,
+      roleType: character.roleType,
+      objective: character.objective,
+      status: character.status,
+    })),
+    bibleSummary: input.context.storyBible?.summary ?? null,
+    themes: input.context.storyBible?.themes ?? [],
+    continuitySnippets: input.context.recentMemory
+      .map((memory) => memory.narrativeSummary)
+      .filter((item): item is string => Boolean(item))
+      .slice(0, 3),
+    retrievedContext: input.context.retrievedDocs.map((doc) => doc.content).slice(0, 4),
+    settings: {
+      dialogueDensity: input.context.settings?.dialogueDensity ?? null,
+      darknessLevel: input.context.settings?.darknessLevel ?? null,
+      mysteryLevel: input.context.settings?.mysteryLevel ?? null,
+      violenceLevel: input.context.settings?.violenceLevel ?? null,
+      romanceLevel: input.context.settings?.romanceLevel ?? null,
+      sensualityLevel: input.context.settings?.sensualityLevel ?? null,
+      canonStrictness: input.context.settings?.canonStrictness ?? null,
+    },
     chapterNumber: input.chapterNumber,
     chapterTitle: input.chapterTitle ?? null,
     userIntent: input.userIntent,
@@ -418,12 +554,15 @@ export async function generateChapterBundle(input: {
     id: `beat_${index + 1}`,
     summary: beat.summary,
     tension: Math.min(9, 2 + index + Math.floor(index / 2)),
-    characters:
+    characters: extractCharactersFromText(
+      input.context,
+      beat.summary,
       index % 3 === 0
         ? mainCast.slice(0, Math.min(3, mainCast.length))
         : index % 2 === 0
           ? mainCast.slice(0, Math.min(2, mainCast.length))
           : [mainCast[index % mainCast.length] ?? mainCast[0], mainCast[(index + 1) % mainCast.length] ?? mainCast[0]].filter(Boolean),
+    ),
     location: locAt(index),
     purpose: beat.emotionalTone ?? `beat_${index + 1}`,
   }));
@@ -446,19 +585,32 @@ export async function generateChapterBundle(input: {
     characters: beat.characters,
     purpose: beat.purpose,
   }));
+  const panelBlueprintsByScene = scenesBase.map((scene, index) =>
+    buildPanelBlueprints(scene, beats[index] ?? beats[0], panelCounts[index] ?? 6, genre),
+  );
 
   const dialoguePlans = await Promise.all(
     scenesBase.map(async (scene, index) => {
-      const panelCount = panelCounts[index] ?? 6;
+      const blueprints = panelBlueprintsByScene[index] ?? [];
+      const panelCount = blueprints.length || panelCounts[index] || 6;
+      const layout = inferLayout(beats[index]?.tension ?? 5, panelCount);
       const dialogue = await writeDialogueForScene({
         sceneId: scene.id,
         sceneSummary: scene.summary,
         location: scene.location,
         tension: beats[index]?.tension ?? 5,
         emotionalObjective: scene.purpose,
+        chapterGoal,
         panelCount,
-        projectStyle: `${tone} / ${visualStyle}`,
+        projectStyle: `${tone} / ${visualStyle} / dialogues ${input.context.settings?.dialogueDensity ?? 55}`,
         contentIntensityLayer: input.context.project.intensityLayer ?? undefined,
+        continuityContext: [
+          previous?.summary ? `Résumé précédent: ${previous.summary}` : "",
+          previous?.cliffhanger ? `Cliffhanger précédent: ${previous.cliffhanger}` : "",
+          ...(input.context.storyBible?.summary ? [`Bible: ${input.context.storyBible.summary}`] : []),
+          ...input.context.retrievedDocs.map((doc) => `${doc.title ?? doc.entityType ?? "mémoire"}: ${doc.content}`).slice(0, 4),
+        ].filter(Boolean),
+        panelBlueprints: blueprints,
         characters: scene.characters.map((name) => {
           const c = input.context.characters.find((ch) => ch.name === name);
           return {
@@ -477,12 +629,8 @@ export async function generateChapterBundle(input: {
 
       return planPanelText({
         sceneId: scene.id,
-        panels: Array.from({ length: panelCount }).map((_, panelIndex) => ({
-          panelId: `panel_${panelIndex + 1}`,
-          action: scene.summary,
-          mood: inferMood((beats[index]?.tension ?? 5) + panelIndex / 2, genre),
-          characters: scene.characters,
-        })),
+        layout,
+        panels: blueprints,
         dialogue: dialogue.panels,
       });
     }),
@@ -512,7 +660,7 @@ export async function generateChapterBundle(input: {
       input.context,
       scene,
       beat,
-      count,
+      panelBlueprintsByScene[pageIndex] ?? buildPanelBlueprints(scene, beat, count, genre),
       visualStyle,
       genre,
       dialoguePlans[pageIndex],
@@ -525,7 +673,12 @@ export async function generateChapterBundle(input: {
   });
 
   const cliffhanger = outlineResult.outline.cliffhanger;
-  const narrativeSummary = outlineResult.outline.summary;
+  const narrativeSummary = buildNarrativeSummary({
+    projectTitle: input.context.project.title,
+    chapterGoal,
+    scenes,
+    cliffhanger,
+  });
 
   return {
     creativeDirection: {
@@ -557,16 +710,18 @@ export async function generateChapterBundle(input: {
         chapterGoal,
         cliffhanger,
         involvedCharacters: mainCast,
+        focusCharacterIds: input.context.focusCharacterIds ?? [],
+        selectedPlotLabel: input.selectedPlotLabel ?? "bold",
         location: locD ?? locC,
       },
-      timelineEvents: beats.map((beat, index) => ({
+      timelineEvents: scenes.map((scene, index) => ({
         eventType: "chapter_beat",
-        summary: beat.summary,
+        summary: scene.summary,
         importance: 45 + index * 10,
-        entities: { characters: beat.characters, location: beat.location },
+        entities: { characters: scene.characters, location: scene.location },
         permanent: true,
       })),
-      openLoops: [cliffhanger, `Conséquences de la décision prise à ${locC}.`],
+      openLoops: [cliffhanger, `Conséquences de la décision prise à ${locC}.`, `Effets durables sur ${mainCast.join(", ")}.`],
     },
   };
 }

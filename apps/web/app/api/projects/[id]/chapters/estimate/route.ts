@@ -12,6 +12,8 @@ type Ctx = { params: Promise<{ id: string }> };
 
 const schema = z.object({
   userIntent: z.string().min(3),
+  focusCharacterIds: z.array(z.string()).optional(),
+  selectedPlotLabel: z.enum(["safe", "bold", "shock"]).optional(),
 });
 
 export async function POST(req: Request, ctx: Ctx) {
@@ -23,7 +25,9 @@ export async function POST(req: Request, ctx: Ctx) {
 
   const body = schema.parse(await req.json());
   const estimatedTokens = await estimateChapterTextTokensFromRules();
-  const context = await buildProjectContext(prisma, projectId, body.userIntent);
+  const context = await buildProjectContext(prisma, projectId, body.userIntent, {
+    focusCharacterIds: body.focusCharacterIds,
+  });
   if (!context) return notFound();
 
   const nextChapter = await prisma.chapter.findFirst({
@@ -33,6 +37,7 @@ export async function POST(req: Request, ctx: Ctx) {
   const bundle = await generateChapterBundle({
     chapterNumber: (nextChapter?.chapterNumber ?? 0) + 1,
     userIntent: body.userIntent,
+    selectedPlotLabel: body.selectedPlotLabel,
     context,
   });
 

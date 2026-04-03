@@ -213,12 +213,16 @@ export async function buildProjectContext(
   prisma: PrismaClient,
   projectId: string,
   userIntent?: string | null,
+  options?: {
+    focusCharacterIds?: string[];
+  },
 ) {
   const project = await prisma.project.findUnique({
     where: { id: projectId },
     include: {
       settings: true,
       storyBible: true,
+      stylePacks: { orderBy: { createdAt: "desc" }, take: 1 },
       characters: { orderBy: { createdAt: "asc" } },
       relationships: true,
       arcs: { orderBy: [{ startChapterNumber: "asc" }, { name: "asc" }] },
@@ -228,6 +232,16 @@ export async function buildProjectContext(
   });
 
   if (!project) return null;
+
+  const focusSet = new Set((options?.focusCharacterIds ?? []).filter(Boolean));
+  const orderedCharacters = [...project.characters].sort((a, b) => {
+    const aFocused = focusSet.has(a.id) ? 1 : 0;
+    const bFocused = focusSet.has(b.id) ? 1 : 0;
+    if (aFocused !== bFocused) return bFocused - aFocused;
+    return a.createdAt.getTime() - b.createdAt.getTime();
+  });
+
+  const latestStylePack = project.stylePacks[0];
 
   const retrieved = userIntent
     ? await retrieveRelevantMemory(prisma, projectId, userIntent, 5)
@@ -240,15 +254,42 @@ export async function buildProjectContext(
       pitch: project.pitch,
       description: project.description,
       primaryGenre: project.primaryGenre,
+      subGenres: Array.isArray(project.subGenres) ? project.subGenres.filter((item): item is string => typeof item === "string") : [],
       tone: project.tone,
       format: project.format,
       contentRating: project.contentRating,
       intensityLayer: project.intensityLayer,
       visualStyle: project.visualStyle,
     },
+    focusCharacterIds: [...focusSet],
     settings: project.settings,
-    storyBible: project.storyBible,
-    characters: project.characters.map((c) => {
+    stylePack: latestStylePack
+      ? {
+          renderFamily: latestStylePack.renderFamily,
+          lineWeight: latestStylePack.lineWeight,
+          shadingMode: latestStylePack.shadingMode,
+          contrastProfile: latestStylePack.contrastProfile,
+          anatomyBias: latestStylePack.anatomyBias,
+          backgroundDensity: latestStylePack.backgroundDensity,
+          cameraLanguage: latestStylePack.cameraLanguage,
+          negativeConstraints: Array.isArray(latestStylePack.negativeConstraints)
+            ? latestStylePack.negativeConstraints.filter((item): item is string => typeof item === "string")
+            : [],
+        }
+      : null,
+    storyBible: project.storyBible
+      ? {
+          summary: project.storyBible.summary,
+          themes: Array.isArray(project.storyBible.themes)
+            ? project.storyBible.themes.filter((item): item is string => typeof item === "string")
+            : [],
+          worldRules: project.storyBible.worldRules,
+          lore: project.storyBible.lore,
+          glossary: project.storyBible.glossary,
+          lockedCanon: project.storyBible.lockedCanon,
+        }
+      : null,
+    characters: orderedCharacters.map((c) => {
       const raw = c as Record<string, unknown>;
       return {
         id: c.id,
@@ -290,6 +331,7 @@ export async function buildProjectContext(
       title: doc.title,
       entityType: doc.entityType,
       content: doc.content,
+      metadata: doc.metadata,
     })),
   };
 }

@@ -153,7 +153,100 @@ Le pipeline persiste automatiquement les images “non durables” vers le bucke
 
 ---
 
-## 8. Commandes utiles
+## 8. Checklist Render exacte (parité local -> prod)
+
+Pour obtenir en prod le même comportement que le local validé sur le pipeline V4/phase 2 :
+
+1. Variables Render minimales :
+   - `DATABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `NEXT_PUBLIC_APP_URL`
+   - `FAL_KEY`
+   - `OPENAI_API_KEY`
+2. Variables fortement recommandées :
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `STORAGE_BUCKET=mymanga-images`
+   - `INNGEST_EVENT_KEY`
+   - `INNGEST_SIGNING_KEY`
+3. Ne pas définir :
+   - `AUTH_DISABLED`
+4. Après déploiement, exécuter :
+
+```bash
+pnpm --filter @manga-ai-studio/db exec prisma db push
+```
+
+5. Vérifier ensuite :
+   - `GET /api/diagnostics/public`
+   - `GET /api/diagnostics/admin`
+6. Résultat attendu sur les diagnostics :
+   - `hasFalKey=true`
+   - `hasOpenAI=true`
+   - `hasDatabaseUrl=true`
+   - `authDisabled=false`
+7. Vérification métier minimale :
+   - créer un projet
+   - configurer au moins 2 personnages
+   - configurer le style manga
+   - lancer `Estimer`
+   - choisir `safe` / `bold` / `shock`
+   - créer le brouillon
+   - lancer la génération du chapitre
+8. Résultat attendu sur le job :
+   - étape `build_context`
+   - étape `generate_bundle`
+   - étape `continuity_pass`
+   - étape `persist_chapter`
+   - étape `generate_images`
+   - étape `update_memory`
+9. Si Inngest n’est pas prêt :
+   - la route pipeline doit quand même fonctionner en fallback synchrone
+10. Si tu actives BFL/Stability :
+   - le bucket Supabase public doit être fonctionnel, sinon certaines images non durables ne seront pas conservées
+
+---
+
+## 9. Estimation coût IA par chapitre
+
+Estimation issue du pipeline réellement testé localement :
+
+- **39 panels**
+- taille panel : **768x1024**
+- provider image principal : **`fal-ai/flux/dev`**
+- texte : **`gpt-4o-mini`**
+- embeddings RAG : **`text-embedding-3-small`**
+
+Prix confirmés :
+
+- `fal-ai/flux/dev` : **0.025 USD / mégapixel**
+- `gpt-4o-mini` : **0.15 USD / 1M tokens input** et **0.60 USD / 1M tokens output**
+- `text-embedding-3-small` : **0.02 USD / 1M tokens**
+
+Ordre de grandeur pour **1 chapitre V4 standard** :
+
+| Poste | Hypothèse | Coût approx. |
+|------|-----------|--------------|
+| Images | 39 panels × 768×1024 | **~0.7668 USD** |
+| Outline + dialogue + continuity pass + embeddings | `gpt-4o-mini` + embeddings | **~0.0098 USD** |
+| **Total chapitre** | pipeline complet | **~0.7766 USD** |
+
+Lecture produit :
+
+- dans la configuration actuelle, **le coût image domine massivement**
+- la partie texte/RAG reste **très faible** par rapport aux panels
+- si tu augmentes la résolution, le coût monte presque linéairement côté image
+- si tu passes sur un provider plus premium que `flux/dev`, le coût par chapitre peut monter fortement
+
+Formule utile :
+
+```text
+coût_images = nb_panels × (largeur × hauteur / 1_000_000) × prix_par_mégapixel
+```
+
+---
+
+## 10. Commandes utiles
 
 ```bash
 pnpm install

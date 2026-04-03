@@ -76,8 +76,8 @@ export default function NewProjectPage() {
       setError("Création impossible");
       return;
     }
-    await res.json();
-    router.push("/lab");
+    const data = await res.json();
+    router.push(`/projects/${data.project.id}/generate`);
   }
 
   return (
@@ -234,8 +234,8 @@ export default function NewProjectPage() {
                   Continuer
                 </Button>
               ) : (
-                  <Button type="submit" disabled={loading || !title.trim()} className="w-full">
-                  {loading ? "Création…" : "Créer le projet et ouvrir le labo"}
+                <Button type="submit" disabled={loading || !title.trim()} className="w-full">
+                  {loading ? "Création…" : "Créer le projet et ouvrir le funnel chapitre 1"}
                 </Button>
               )}
             </div>

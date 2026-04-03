@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@manga-ai-studio/db";
+import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
 import { trackServerEvent } from "@/lib/analytics";
@@ -11,6 +11,8 @@ const createSchema = z.object({
   title: z.string().optional(),
   userIntent: z.string().optional(),
   tokenEstimate: z.number().int().optional(),
+  focusCharacterIds: z.array(z.string()).optional(),
+  selectedPlotLabel: z.enum(["safe", "bold", "shock"]).optional(),
 });
 
 export async function GET(_req: Request, ctx: Ctx) {
@@ -46,6 +48,13 @@ export async function POST(req: Request, ctx: Ctx) {
       userIntent: body.userIntent,
       status: "draft",
       tokenEstimate: body.tokenEstimate,
+      outline: ({
+        draftSetup: {
+          focusCharacterIds: body.focusCharacterIds ?? [],
+          selectedPlotLabel: body.selectedPlotLabel ?? null,
+          sourceUserIntent: body.userIntent ?? null,
+        },
+      } as unknown) as Prisma.InputJsonValue,
     },
   });
   await trackServerEvent("chapter_created", { userId: user.id, projectId, chapterId: chapter.id });

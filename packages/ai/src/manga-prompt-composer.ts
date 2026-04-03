@@ -133,7 +133,7 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
   positiveParts.push("high detail, consistent character design, professional manga art, ink lines");
 
   if (input.dialogueHint) {
-    positiveParts.push(`scene context: ${input.dialogueHint}`);
+    positiveParts.push(`emotional subtext: ${input.dialogueHint.slice(0, 120)}`);
   }
 
   const positive = positiveParts.filter(Boolean).join(", ");
