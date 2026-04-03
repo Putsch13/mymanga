@@ -73,11 +73,12 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
         input.providerParams?.contentIntensityLayer === "MATURE_VISUAL" ||
         input.providerParams?.contentIntensityLayer === "ADULT_EXPLICIT";
 
-      // Portrait 3:4 pour panels manga, paysage 4:3 pour covers/décors
+      // L'API FAL actuelle attend des tailles prédéfinies comme portrait_4_3.
+      // On garde un format vertical pour les panels/personnages et paysage pour les covers/décors.
       const isCover =
         String(input.providerParams?.mode ?? "").includes("COVER") ||
         String(input.providerParams?.mode ?? "").includes("LOCATION");
-      const imageSize = isCover ? "landscape_4_3" : "portrait_3_4";
+      const imageSize = isCover ? "landscape_4_3" : "portrait_4_3";
 
       const body: Record<string, unknown> = {
         prompt: input.positivePrompt,
