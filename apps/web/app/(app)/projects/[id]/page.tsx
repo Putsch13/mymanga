@@ -84,9 +84,17 @@ export default async function ProjectOverviewPage({ params }: Props) {
             <Badge variant="secondary">{project.contentRating}</Badge>
           </div>
         </div>
-        <Button asChild variant="outline" className="border-border">
-          <Link href={`/projects/${id}/generate`}>Continuer le flux créatif</Link>
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline" className="border-border">
+            <Link href={`/projects/${id}/characters/new`}>Nouveau personnage</Link>
+          </Button>
+          <Button asChild variant="outline" className="border-border">
+            <Link href={`/projects/${id}/characters`}>Configurer héros / antagonistes</Link>
+          </Button>
+          <Button asChild className="border-border">
+            <Link href={`/projects/${id}/generate`}>Continuer le flux créatif</Link>
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

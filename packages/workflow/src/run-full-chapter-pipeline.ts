@@ -22,6 +22,13 @@ type JobStep = {
   detail?: string;
 };
 
+type PlannedImage = {
+  sceneImageId: string;
+  panel: StoryboardPanel;
+  sceneIndex: number;
+  baseMetadata: Record<string, unknown>;
+};
+
 function getStorageClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -213,7 +220,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       { key: "generate_bundle", label: "Direction, outline, script, storyboard" },
       "running",
     );
-    const bundle = generateChapterBundle({
+    const bundle = await generateChapterBundle({
       chapterNumber,
       chapterTitle: chapter.title,
       userIntent: chapter.userIntent ?? `Continuer ${context.project.title}`,
@@ -237,11 +244,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     const chapterStoryboard: Prisma.InputJsonValue = bundle.storyboard;
 
     // Map sceneId → list of planned SceneImage ids (for image generation step)
-    const plannedImages: Array<{
-      sceneImageId: string;
-      panel: StoryboardPanel;
-      sceneIndex: number;
-    }> = [];
+    const plannedImages: PlannedImage[] = [];
 
     await prisma.$transaction(async (tx) => {
       await tx.chapter.update({
@@ -322,6 +325,17 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             // fallback sur le prompt du storyboard
           }
 
+          const baseMetadata = {
+            caption: panel.caption,
+            camera: panel.camera,
+            characters: panel.characters,
+            mood: panel.mood,
+            sfx: panel.sfx,
+            dialogue: panel.dialogue,
+            narration: panel.narration,
+            layout: storyboardPage.layout,
+          };
+
           const created = await tx.sceneImage.create({
             data: {
               sceneId: createdScene.id,
@@ -332,20 +346,16 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               status: "planned",
               width: 768,
               height: 1024,
-              metadata: {
-                caption: panel.caption,
-                camera: panel.camera,
-                characters: panel.characters,
-                mood: panel.mood,
-                sfx: panel.sfx,
-                dialogue: panel.dialogue,
-                narration: panel.narration,
-                layout: storyboardPage.layout,
-              },
+              metadata: baseMetadata,
             },
           });
 
-          plannedImages.push({ sceneImageId: created.id, panel, sceneIndex: index });
+          plannedImages.push({
+            sceneImageId: created.id,
+            panel: { ...panel, prompt: composedPositive, negativePrompt: composedNegative },
+            sceneIndex: index,
+            baseMetadata,
+          });
         }
       }
     });
@@ -393,7 +403,12 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               where: { id: item.sceneImageId },
               data: {
                 status: "failed",
-                metadata: { error: persisted.error, sourceUrl: result.result.imageUrl } as Prisma.InputJsonValue,
+                metadata: ({
+                  ...item.baseMetadata,
+                  error: persisted.error,
+                  sourceUrl: result.result.imageUrl,
+                  generationLog: result.log,
+                } as unknown) as Prisma.InputJsonValue,
               },
             });
             failedCount++;
@@ -409,7 +424,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               status: "completed",
               routingDecision: result.routing as unknown as Prisma.InputJsonValue,
               metadata: ({
-                ...(typeof item.panel === "object" ? {} : {}),
+                ...item.baseMetadata,
                 generationLog: result.log,
                 persisted: persisted.persisted,
               } as unknown) as Prisma.InputJsonValue,
@@ -421,7 +436,11 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             where: { id: item.sceneImageId },
             data: {
               status: "blocked",
-              metadata: ({ blockedReason: result.reason, generationLog: result.log } as unknown) as Prisma.InputJsonValue,
+              metadata: ({
+                ...item.baseMetadata,
+                blockedReason: result.reason,
+                generationLog: result.log,
+              } as unknown) as Prisma.InputJsonValue,
             },
           });
           failedCount++;
@@ -430,7 +449,10 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         const msg = imgError instanceof Error ? imgError.message : "image_error";
         await prisma.sceneImage.update({
           where: { id: item.sceneImageId },
-          data: { status: "failed", metadata: { error: msg } as Prisma.InputJsonValue },
+          data: {
+            status: "failed",
+            metadata: ({ ...item.baseMetadata, error: msg } as unknown) as Prisma.InputJsonValue,
+          },
         });
         failedCount++;
       }

@@ -30,7 +30,7 @@ export async function POST(req: Request, ctx: Ctx) {
     where: { projectId },
     orderBy: { chapterNumber: "desc" },
   });
-  const bundle = generateChapterBundle({
+  const bundle = await generateChapterBundle({
     chapterNumber: (nextChapter?.chapterNumber ?? 0) + 1,
     userIntent: body.userIntent,
     context,

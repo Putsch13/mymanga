@@ -1,3 +1,7 @@
+import { generateChapterOutline } from "./chapter-outline";
+import { writeDialogueForScene } from "./services/dialogue-writer";
+import { planPanelText, type PanelTextPlan } from "./services/panel-text-planner";
+
 export type ProjectContextForChapter = {
   project: {
     title: string;
@@ -143,6 +147,15 @@ function takeNames(context: ProjectContextForChapter, count: number) {
   return context.characters.slice(0, count).map((c) => c.name);
 }
 
+function stretchToCount<T>(items: T[], count: number, fallbackFactory: (index: number) => T): T[] {
+  if (items.length >= count) return items.slice(0, count);
+  const next = [...items];
+  for (let i = items.length; i < count; i++) {
+    next.push(items[i % Math.max(items.length, 1)] ?? fallbackFactory(i));
+  }
+  return next;
+}
+
 function inferLocations(context: ProjectContextForChapter) {
   const genre = (context.project.primaryGenre ?? "fantasy").toLowerCase();
   if (genre.includes("cyber") || genre.includes("sci")) {
@@ -260,7 +273,7 @@ function buildPanelsForScene(
   panelCount: number,
   visualStyle: string,
   genre: string,
-  sceneDialogue: Array<{ speaker: string; text: string; subtext: string; emotion: string }>,
+  panelTextPlan?: PanelTextPlan[],
 ): StoryboardPanel[] {
   const cameras = [
     "wide establishing shot",
@@ -295,7 +308,8 @@ function buildPanelsForScene(
           ? scene.characters
           : [scene.characters[i % scene.characters.length] ?? scene.characters[0]].filter(Boolean);
 
-    const dialogueLine = sceneDialogue[i];
+    const textPlan = panelTextPlan?.[i];
+    const leadBubble = textPlan?.bubbles?.[0];
     const sfxMap: Record<PanelMood, string | undefined> = {
       action: "WHAM!",
       tension: undefined,
@@ -331,23 +345,23 @@ function buildPanelsForScene(
       camera,
       characters: charSubset,
       mood,
-      sfx: sfxMap[mood],
-      dialogue: dialogueLine
-        ? { speaker: dialogueLine.speaker, text: dialogueLine.text }
+      sfx: textPlan?.sfx?.[0] ?? sfxMap[mood],
+      dialogue: leadBubble
+        ? { speaker: leadBubble.speaker ?? charSubset[0] ?? scene.characters[0] ?? "Narrateur", text: leadBubble.text }
         : undefined,
-      narration: i === 0 ? scene.summary : undefined,
+      narration: textPlan?.narration?.[0] ?? (i === 0 ? scene.summary : undefined),
     });
   }
   return panels;
 }
 
-export function generateChapterBundle(input: {
+export async function generateChapterBundle(input: {
   chapterNumber: number;
   chapterTitle?: string | null;
   userIntent: string;
   selectedPlotLabel?: "safe" | "bold" | "shock";
   context: ProjectContextForChapter;
-}): GeneratedChapterBundle {
+}): Promise<GeneratedChapterBundle> {
   const cast = takeNames(input.context, 4);
   const mainCast = cast.length > 0 ? cast : ["Le protagoniste", "L'antagoniste"];
   const locations = inferLocations(input.context);
@@ -382,97 +396,103 @@ export function generateChapterBundle(input: {
   const selected =
     optionSeed.find((o) => o.label === (input.selectedPlotLabel ?? "bold")) ?? optionSeed[1];
 
-  // Cible produit : ~6 pages par chapitre, 6–7 panels/page.
-  // On aligne volontairement 1 scène = 1 page pour coller au workflow (persist scene ↔ storyboard page).
-  const beats = [
-    {
-      id: "beat_1",
-      summary: `${mainCast[0]} ouvre le chapitre dans ${locAt(0)}. L'enjeu est posé, l'air est lourd.`,
-      tension: 2,
-      characters: [mainCast[0]],
-      location: locAt(0),
-      purpose: "mise en place rapide + humeur",
-    },
-    {
-      id: "beat_2",
-      summary: `Un indice apparaît à ${locAt(1)}. ${mainCast[0]} comprend que quelque chose cloche.`,
-      tension: 4,
-      characters: mainCast.slice(0, 2),
-      location: locAt(1),
-      purpose: "inciting incident + suspicion",
-    },
-    {
-      id: "beat_3",
-      summary: `${selected.summary} À ${locAt(2)}, une décision moralement coûteuse se profile.`,
-      tension: 5,
-      characters: mainCast.slice(0, 2),
-      location: locAt(2),
-      purpose: "investigation + dilemme",
-    },
-    {
-      id: "beat_4",
-      summary: `Confrontation à ${locAt(3)}. Les mots sont des lames ; personne ne cède.`,
-      tension: 7,
-      characters: mainCast.slice(0, 3),
-      location: locAt(3),
-      purpose: "confrontation + révélation partielle",
-    },
-    {
-      id: "beat_5",
-      summary: `L'escalade explose. Le monde répond à la violence : conséquences immédiates.`,
-      tension: 8,
-      characters: mainCast.slice(0, 3),
-      location: locAt(0),
-      purpose: "action + bascule",
-    },
-    {
-      id: "beat_6",
-      summary: `Silence, puis choc : une vérité dangereuse surgit et change la trajectoire.`,
-      tension: 9,
-      characters: mainCast.slice(0, 4),
-      location: locAt(1),
-      purpose: "cliffhanger + promesse du prochain chapitre",
-    },
-  ];
+  const previous = input.context.recentChapters[0];
+  const outlineResult = await generateChapterOutline({
+    projectTitle: input.context.project.title,
+    pitch: input.context.project.pitch,
+    primaryGenre: input.context.project.primaryGenre,
+    chapterNumber: input.chapterNumber,
+    chapterTitle: input.chapterTitle ?? null,
+    userIntent: input.userIntent,
+    quickTag: input.selectedPlotLabel ?? null,
+    previousSummary: previous?.summary ?? null,
+    previousCliffhanger: previous?.cliffhanger ?? null,
+  });
 
-  const scenes = beats.map((beat, index) => ({
+  // Cible produit : ~6 pages par chapitre, 1 scène = 1 page.
+  const rawOutlineBeats = outlineResult.outline.beats.map((beat, index) => ({
+    id: `beat_${index + 1}`,
+    summary: beat.summary,
+    tension: Math.min(9, 2 + index + Math.floor(index / 2)),
+    characters:
+      index % 3 === 0
+        ? mainCast.slice(0, Math.min(3, mainCast.length))
+        : index % 2 === 0
+          ? mainCast.slice(0, Math.min(2, mainCast.length))
+          : [mainCast[index % mainCast.length] ?? mainCast[0], mainCast[(index + 1) % mainCast.length] ?? mainCast[0]].filter(Boolean),
+    location: locAt(index),
+    purpose: beat.emotionalTone ?? `beat_${index + 1}`,
+  }));
+
+  const beats = stretchToCount(rawOutlineBeats, 6, (index) => ({
+    id: `beat_${index + 1}`,
+    summary: `${selected.summary} Cette étape fait avancer ${input.context.project.title} dans une nouvelle direction.`,
+    tension: Math.min(9, 3 + index),
+    characters: mainCast.slice(0, Math.min(2 + (index % 2), mainCast.length)),
+    location: locAt(index),
+    purpose: `variation_${index + 1}`,
+  }));
+
+  const panelCounts = [6, 7, 6, 7, 6, 7];
+  const scenesBase = beats.map((beat, index) => ({
     id: `scene_${index + 1}`,
     title: `Scene ${index + 1}`,
     summary: beat.summary,
     location: beat.location,
     characters: beat.characters,
     purpose: beat.purpose,
-    // Dialogues courts manga-like (placeholder déterministe, le vrai DialogueWriter peut remplacer ça plus tard)
-    dialogue: Array.from({ length: 7 }).map((_, lineIndex) => {
-      const speaker = beat.characters[lineIndex % Math.max(beat.characters.length, 1)] ?? mainCast[0];
-      const shortIntent = input.userIntent.length > 60 ? input.userIntent.slice(0, 57) + "…" : input.userIntent;
-      const text =
-        lineIndex === 0
-          ? "…"
-          : lineIndex === 1
-            ? "On bouge."
-            : lineIndex === 2
-              ? shortIntent
-              : lineIndex === 3
-                ? "Tu mens."
-                : lineIndex === 4
-                  ? "Prouve-le."
-                  : lineIndex === 5
-                    ? "Pas ici."
-                    : "Maintenant.";
-      return {
-        speaker,
-        text,
-        subtext: lineIndex <= 2 ? "pression" : "attaque",
-        emotion: beat.tension >= 8 ? "urgence" : beat.tension >= 6 ? "tension" : "calme",
-        intensity: Math.min(10, 3 + index + Math.floor(lineIndex / 2)),
-        balloon: lineIndex <= 2 ? "court" : "très_court",
-      };
-    }),
   }));
 
-  // 6 scènes → ~6 pages, 6–7 panels/page
-  const panelCounts = [6, 7, 6, 7, 6, 7];
+  const dialoguePlans = await Promise.all(
+    scenesBase.map(async (scene, index) => {
+      const panelCount = panelCounts[index] ?? 6;
+      const dialogue = await writeDialogueForScene({
+        sceneId: scene.id,
+        sceneSummary: scene.summary,
+        location: scene.location,
+        tension: beats[index]?.tension ?? 5,
+        emotionalObjective: scene.purpose,
+        panelCount,
+        projectStyle: `${tone} / ${visualStyle}`,
+        contentIntensityLayer: input.context.project.intensityLayer ?? undefined,
+        characters: scene.characters.map((name) => {
+          const c = input.context.characters.find((ch) => ch.name === name);
+          return {
+            name,
+            emotionalState: c?.emotionalState ?? undefined,
+          };
+        }),
+      });
+
+      return planPanelText({
+        sceneId: scene.id,
+        panels: Array.from({ length: panelCount }).map((_, panelIndex) => ({
+          panelId: `panel_${panelIndex + 1}`,
+          action: scene.summary,
+          mood: inferMood((beats[index]?.tension ?? 5) + panelIndex / 2, genre),
+          characters: scene.characters,
+        })),
+        dialogue: dialogue.panels,
+      });
+    }),
+  );
+
+  const scenes = scenesBase.map((scene, index) => {
+    const plan = dialoguePlans[index] ?? [];
+    return {
+      ...scene,
+      dialogue: plan.flatMap((panel, panelIndex) =>
+        (panel.bubbles ?? []).map((bubble) => ({
+          speaker: bubble.speaker ?? scene.characters[0] ?? mainCast[0],
+          text: bubble.text,
+          subtext: bubble.emotion ?? scene.purpose,
+          emotion: bubble.emotion ?? ((beats[index]?.tension ?? 5) >= 7 ? "tension" : "calme"),
+          intensity: Math.min(10, 3 + index + panelIndex),
+          balloon: bubble.bubbleType ?? "speech",
+        })),
+      ),
+    };
+  });
 
   const storyboardPages: StoryboardPage[] = scenes.map((scene, pageIndex) => {
     const beat = beats[pageIndex] ?? beats[0];
@@ -484,7 +504,7 @@ export function generateChapterBundle(input: {
       count,
       visualStyle,
       genre,
-      scene.dialogue,
+      dialoguePlans[pageIndex],
     );
     return {
       pageNumber: pageIndex + 1,
@@ -493,8 +513,8 @@ export function generateChapterBundle(input: {
     };
   });
 
-  const cliffhanger = `Au moment où ${mainCast[0]} croit tenir la réponse, une vérité plus dangereuse surgit et compromet tout.`;
-  const narrativeSummary = `Chapitre ${input.chapterNumber} : ${selected.summary} L'arc progresse sur ~6 pages ; la tension monte, puis se referme sur un cliffhanger.`;
+  const cliffhanger = outlineResult.outline.cliffhanger;
+  const narrativeSummary = outlineResult.outline.summary;
 
   return {
     creativeDirection: {
@@ -504,7 +524,7 @@ export function generateChapterBundle(input: {
     },
     plotOptions: optionSeed,
     outline: {
-      chapter_title: input.chapterTitle ?? `Chapitre ${input.chapterNumber}`,
+      chapter_title: outlineResult.outline.title ?? input.chapterTitle ?? `Chapitre ${input.chapterNumber}`,
       chapter_goal: chapterGoal,
       tone,
       beats,
