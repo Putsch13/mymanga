@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { prisma } from "@manga-ai-studio/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,27 @@ export async function GET() {
     adminEmailsConfigured: Boolean((process.env.ADMIN_EMAILS ?? process.env.ADMIN_EMAIL ?? "").trim()),
   };
 
-  return NextResponse.json({ ok: true, env });
+  let dbReachable: boolean | null = null;
+  let dbHint: string | null = null;
+
+  if (env.hasDatabaseUrl) {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      dbReachable = true;
+    } catch (error) {
+      dbReachable = false;
+      const code = typeof error === "object" && error && "code" in error ? String(error.code) : null;
+      const message = typeof error === "object" && error && "message" in error ? String(error.message) : "";
+      if (code === "P1001" || code === "P1002" || message.includes("Can't reach database")) {
+        dbHint = "database_unreachable";
+      } else if (message.toLowerCase().includes("column") || message.toLowerCase().includes("relation")) {
+        dbHint = "schema_not_synced";
+      } else {
+        dbHint = code ?? "db_query_failed";
+      }
+    }
+  }
+
+  return NextResponse.json({ ok: true, env, checks: { dbReachable, dbHint } });
 }
 

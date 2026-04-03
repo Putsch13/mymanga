@@ -30,14 +30,25 @@ export function LoginClient({ authDisabled }: { authDisabled: boolean }) {
     hasOpenAI: boolean;
     hasInngestEventKey: boolean;
     hasInngestSigningKey: boolean;
+    dbReachable?: boolean | null;
+    dbHint?: string | null;
   }>(null);
 
   async function loadDiagnostics() {
     try {
       const res = await fetch("/api/diagnostics/public", { cache: "no-store" });
       if (!res.ok) return;
-      const json = (await res.json()) as { env?: typeof diag };
-      if (json?.env) setDiag(json.env as never);
+      const json = (await res.json()) as {
+        env?: Omit<NonNullable<typeof diag>, "dbReachable" | "dbHint">;
+        checks?: { dbReachable?: boolean | null; dbHint?: string | null };
+      };
+      if (json?.env) {
+        setDiag({
+          ...(json.env as NonNullable<typeof diag>),
+          dbReachable: json.checks?.dbReachable ?? null,
+          dbHint: json.checks?.dbHint ?? null,
+        });
+      }
     } catch {
       // ignore
     }
@@ -238,7 +249,13 @@ export function LoginClient({ authDisabled }: { authDisabled: boolean }) {
             </Button>
           </div>
 
-          {err ? <p className="mb-4 text-sm text-red-400">{err}</p> : null}
+          {err ? (
+            <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+              {err === "db_error"
+                ? "Connexion Supabase reçue, mais la base Prisma de l'application ne répond pas ou n'est pas à jour sur Render. Vérifie DATABASE_URL puis relance `prisma db push`."
+                : err}
+            </div>
+          ) : null}
           {message ? <p className="mb-4 rounded-xl border border-border/60 bg-background/40 px-3 py-2 text-sm text-muted-foreground">{message}</p> : null}
 
           {mode === "magic" && sent ? (
@@ -305,6 +322,17 @@ export function LoginClient({ authDisabled }: { authDisabled: boolean }) {
             <p className="mt-2">
               Si les emails Supabase n&apos;arrivent pas, utilise d&apos;abord la création de compte par mot de passe. En production, l&apos;accès se fait via un vrai compte utilisateur.
             </p>
+            <Button type="button" variant="outline" size="sm" className="mt-3" onClick={loadDiagnostics}>
+              Diagnostiquer la base et la config
+            </Button>
+            {diag ? (
+              <div className="mt-3 rounded-xl border border-border/60 bg-background/40 px-3 py-2 text-xs text-muted-foreground">
+                <p>Supabase: {diag.hasSupabaseUrl && diag.hasSupabaseAnonKey ? "OK" : "MANQUANT"}</p>
+                <p>DATABASE_URL: {diag.hasDatabaseUrl ? "OK" : "MANQUANT"}</p>
+                <p>DB reachable: {diag.dbReachable === null ? "INCONNU" : diag.dbReachable ? "OK" : "ECHEC"}</p>
+                <p>Indice DB: {diag.dbHint ?? "aucun"}</p>
+              </div>
+            ) : null}
           </div>
           <p className="mt-6 text-center text-sm text-muted-foreground">
             <Link href="/" className="text-accent hover:underline">

@@ -35,13 +35,13 @@ Place un fichier `.env.local` ici (ou à la racine selon ta config) en t'inspira
 | Chemin | Rôle |
 |--------|------|
 | `app/(app)/` | Pages authentifiées (dashboard, projets, liste chapitres, **lecture** `/projects/[id]/chapters/[chapterId]/read`, wallet…) |
-| `app/(auth)/` | Connexion magic link |
+| `app/(auth)/` | Connexion / création de compte (email + mot de passe, magic link) |
 | `app/auth/` | Callback OAuth / sign-out |
 | `app/api/` | API REST |
 | `components/` | UI (boutons, cartes, header…) |
 | `components/manga/` | Lecteur manga (double page, suite chapitre) |
 | `lib/auth/` | Session utilisateur Prisma + Supabase |
 | `lib/supabase/` | Clients SSR / middleware |
-| `middleware.ts` | Rafraîchissement session Supabase |
+| `middleware.ts` | Rafraîchissement session Supabase + protection des routes privées |
 
 Pour le build production : `pnpm build` à la racine avec le filtre workspace, ou `pnpm exec next build` depuis ce dossier après `pnpm install` à la racine.
