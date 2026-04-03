@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 export function LoginClient({ authDisabled }: { authDisabled: boolean }) {
   const searchParams = useSearchParams();
   const err = searchParams.get("error");
+  const nextPath = searchParams.get("next") || "/dashboard";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState<"signin" | "signup" | "magic">("signin");
@@ -96,7 +97,7 @@ export function LoginClient({ authDisabled }: { authDisabled: boolean }) {
         return;
       }
       if (data.session) {
-        window.location.href = "/dashboard";
+        window.location.href = nextPath;
         return;
       }
       setMessage(
@@ -120,7 +121,7 @@ export function LoginClient({ authDisabled }: { authDisabled: boolean }) {
       setMessage(error.message);
       return;
     }
-    window.location.href = "/dashboard";
+    window.location.href = nextPath;
   }
 
   if (authDisabled) {
@@ -219,14 +220,8 @@ export function LoginClient({ authDisabled }: { authDisabled: boolean }) {
         </CardHeader>
         <CardContent>
           <div className="mb-4 rounded-2xl border border-border/60 bg-background/30 p-4 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground">Besoin de tester sans blocage&nbsp;?</p>
-            <p className="mt-2">
-              Si la connexion, Render ou la base de données posent encore problème, tu peux déjà vérifier l&apos;interface via la{" "}
-              <Link href="/demo" className="text-accent hover:underline">
-                démo publique sans connexion
-              </Link>
-              .
-            </p>
+            <p className="font-medium text-foreground">Accès compte obligatoire</p>
+            <p className="mt-2">Le produit fonctionne désormais en vrai mode SaaS : soit tu as un compte, soit tu crées ton compte, mais il n&apos;y a plus de masque démo public.</p>
           </div>
           <div className="mb-6 grid grid-cols-3 gap-2">
             <Button type="button" variant={mode === "signin" ? "default" : "outline"} size="sm" onClick={() => setMode("signin")}>
@@ -308,8 +303,7 @@ export function LoginClient({ authDisabled }: { authDisabled: boolean }) {
           <div className="mt-6 rounded-2xl border border-border/60 bg-background/30 p-4 text-sm text-muted-foreground">
             <p className="font-medium text-foreground">Conseil de configuration</p>
             <p className="mt-2">
-              Si les emails Supabase n&apos;arrivent pas, utilise d&apos;abord la creation de compte par mot de passe. Tu pourras garder le magic link en
-              complément une fois l&apos;envoi email correctement configuré.
+              Si les emails Supabase n&apos;arrivent pas, utilise d&apos;abord la création de compte par mot de passe. En production, l&apos;accès se fait via un vrai compte utilisateur.
             </p>
           </div>
           <p className="mt-6 text-center text-sm text-muted-foreground">

@@ -3,7 +3,6 @@ import { updateSession } from "@/lib/supabase/middleware";
 import { authDisabledInProduction, isAuthDisabled } from "@/lib/auth/auth-mode";
 
 const PUBLIC_PREFIXES = [
-  "/demo",
   "/auth/callback",
   "/auth/signout",
   "/api/billing/webhooks",
@@ -23,6 +22,10 @@ export async function middleware(request: NextRequest) {
       { error: "invalid_auth_mode", message: "AUTH_DISABLED est interdit en production." },
       { status: 500 },
     );
+  }
+
+  if (request.nextUrl.pathname.startsWith("/demo")) {
+    return NextResponse.redirect(new URL("/login", request.url));
   }
 
   if (isAuthDisabled()) {

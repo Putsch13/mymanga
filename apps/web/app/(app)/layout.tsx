@@ -12,7 +12,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   try {
     user = await getAppUser();
   } catch {
-    redirect("/demo?reason=db_error");
+    redirect("/login?error=db_error");
   }
 
   if (!user) {

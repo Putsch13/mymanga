@@ -5,6 +5,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isAuthDisabled, requireSafeAuthMode } from "@/lib/auth/auth-mode";
 
 const DEV_EMAIL = "dev@manga-ai.studio";
+const FORCED_ADMIN_EMAILS = ["test@gmail.com", "puccini.f13@gmail.com"];
+const FORCED_UNLIMITED_EMAILS = ["test@gmail.com", "puccini.f13@gmail.com"];
 
 function emailInEnvList(email: string, raw: string): boolean {
   const list = raw
@@ -16,13 +18,14 @@ function emailInEnvList(email: string, raw: string): boolean {
 
 function isAdminEmail(email: string): boolean {
   const configured = process.env.ADMIN_EMAILS ?? process.env.ADMIN_EMAIL ?? "";
-  return email.toLowerCase() === "test@gmail.com" || (configured.trim() ? emailInEnvList(email, configured) : false);
+  return FORCED_ADMIN_EMAILS.includes(email.toLowerCase()) || (configured.trim() ? emailInEnvList(email, configured) : false);
 }
 
 export function isUnlimitedAdminEmail(email: string | null | undefined): boolean {
   if (!email) return false;
-  const configured = process.env.ADMIN_UNLIMITED_EMAILS ?? "test@gmail.com";
-  return emailInEnvList(email, configured);
+  const normalized = email.toLowerCase();
+  const configured = process.env.ADMIN_UNLIMITED_EMAILS ?? FORCED_UNLIMITED_EMAILS.join(",");
+  return FORCED_UNLIMITED_EMAILS.includes(normalized) || emailInEnvList(normalized, configured);
 }
 
 async function getOrCreateDevUser(): Promise<User> {

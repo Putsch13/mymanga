@@ -37,7 +37,7 @@ export default function AppError({
               </p>
             ) : (
               <p>
-                La page n&apos;a pas pu se charger. Tu peux réessayer ou tester l&apos;interface via la démo publique en attendant.
+                La page n&apos;a pas pu se charger. Tu peux réessayer ou revenir à l&apos;écran de connexion.
               </p>
             )}
             {error.digest ? (
@@ -49,9 +49,6 @@ export default function AppError({
               <Button type="button" onClick={reset}>
                 <RefreshCcw className="h-4 w-4" />
                 Réessayer
-              </Button>
-              <Button type="button" variant="outline" asChild>
-                <Link href="/demo">Ouvrir la démo sans connexion</Link>
               </Button>
               <Button type="button" variant="ghost" asChild>
                 <Link href="/login">Retour à la connexion</Link>

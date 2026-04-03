@@ -21,7 +21,7 @@ export default function GlobalError({
               <h1 className="text-2xl font-semibold">Erreur de chargement</h1>
             </div>
             <p className="mt-4 text-sm text-muted-foreground">
-              Le site a rencontré une erreur côté serveur. Tu peux réessayer, ou ouvrir directement la démo publique sans connexion.
+              Le site a rencontré une erreur côté serveur. Tu peux réessayer ou revenir à la connexion.
             </p>
             {error.digest ? <p className="mt-4 rounded-lg border border-border/60 bg-background/60 px-3 py-2 font-mono text-xs">Digest: {error.digest}</p> : null}
             <div className="mt-6 flex flex-wrap gap-3">
@@ -29,7 +29,7 @@ export default function GlobalError({
                 Réessayer
               </Button>
               <Button type="button" variant="outline" asChild>
-                <Link href="/demo">Démo publique</Link>
+                <Link href="/login">Connexion</Link>
               </Button>
             </div>
           </div>
