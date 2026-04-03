@@ -4,6 +4,8 @@ import { prisma } from "@manga-ai-studio/db";
 import { runRoutedImageGeneration } from "@manga-ai-studio/ai";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized, validationError } from "@/lib/api-response";
+import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
+import { persistGeneratedImageIfNeeded } from "@/lib/images/persist-generated-image";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +15,10 @@ type Ctx = { params: Promise<{ sceneImageId: string }> };
 export async function POST(_req: Request, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return unauthorized();
+  const stack = getGenerationStackStatus();
+  if (!stack.canGenerateImages) {
+    return validationError("La stack image n'est pas prete pour relancer cette case.", stack);
+  }
   const { sceneImageId } = await ctx.params;
 
   const img = await prisma.sceneImage.findFirst({
@@ -74,15 +80,31 @@ export async function POST(_req: Request, ctx: Ctx) {
       return validationError(out.reason);
     }
 
+    const persisted = await persistGeneratedImageIfNeeded({
+      imageUrl: out.result.imageUrl,
+      objectPath: `projects/${project.id}/chapters/${img.scene.chapter.id}/panels/${img.id}-retry-${Date.now()}`,
+    });
+
+    if (!persisted.ok) {
+      await prisma.sceneImage.update({
+        where: { id: img.id },
+        data: {
+          status: "failed",
+          metadata: ({ ...metadata, error: persisted.error, generationLog: out.log } as unknown) as Prisma.InputJsonValue,
+        },
+      });
+      return NextResponse.json({ ok: false, error: persisted.error }, { status: 502 });
+    }
+
     await prisma.sceneImage.update({
       where: { id: img.id },
       data: {
         status: "completed",
-        imageUrl: out.result.imageUrl,
+        imageUrl: persisted.url,
         provider: out.result.provider,
         model: out.result.model,
         routingDecision: (out.routing as unknown) as Prisma.InputJsonValue,
-        metadata: ({ ...metadata, generationLog: out.log } as unknown) as Prisma.InputJsonValue,
+        metadata: ({ ...metadata, generationLog: out.log, persisted: persisted.persisted } as unknown) as Prisma.InputJsonValue,
       },
     });
 

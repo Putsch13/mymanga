@@ -11,6 +11,12 @@ export interface DialogueWriterInput {
   emotionalObjective: string;
   characters: Array<{
     name: string;
+    roleType?: string | null;
+    objective?: string | null;
+    fear?: string | null;
+    biography?: string | null;
+    traits?: string[];
+    flaws?: string[];
     speechProfile?: Record<string, unknown>;
     emotionalState?: string;
   }>;
@@ -41,7 +47,10 @@ export async function writeDialogueForScene(
   input: DialogueWriterInput
 ): Promise<DialogueWriterResult> {
   const characterList = input.characters
-    .map((c) => `- ${c.name} (état: ${c.emotionalState ?? "neutre"})`)
+    .map((c) => {
+      const voice = c.speechProfile ? JSON.stringify(c.speechProfile).slice(0, 180) : "voix non précisée";
+      return `- ${c.name} | rôle: ${c.roleType ?? "inconnu"} | état: ${c.emotionalState ?? "neutre"} | objectif: ${c.objective ?? "non précisé"} | peur: ${c.fear ?? "non précisée"} | traits: ${(c.traits ?? []).join(", ") || "aucun"} | défauts: ${(c.flaws ?? []).join(", ") || "aucun"} | bio: ${c.biography ?? "n/a"} | voix: ${voice}`;
+    })
     .join("\n");
 
   const prompt = `Tu es un scénariste manga professionnel. Génère les dialogues pour une scène manga.
@@ -58,6 +67,9 @@ STYLE PROJET: ${input.projectStyle ?? "manga action/drame"}
 ${BUBBLE_TYPE_GUIDE}
 
 RÈGLES IMPÉRATIVES:
+- Chaque personnage doit parler d'une manière distincte selon son rôle, son état, ses objectifs et sa voix.
+- Évite les répliques génériques vues mille fois ("Hmm", "...", "On y va") sauf si le silence est dramatiquement justifié.
+- Fais varier le registre selon le genre, le ton et la tension.
 - Maximum 2-3 bulles par panel
 - Phrases COURTES (max 8 mots par bulle)
 - Une seule intention par bulle
@@ -115,8 +127,19 @@ Retourne un JSON strict avec ce format:
 
 function generateFallbackPanels(input: DialogueWriterInput): MangaPanelText[] {
   const panels: MangaPanelText[] = [];
+  const firstCharacter = input.characters[0];
+  const secondCharacter = input.characters[1];
+  const fallbackLines = [
+    `${firstCharacter?.objective ?? "On avance"}!`,
+    secondCharacter?.fear ? `Tu sens ${secondCharacter.fear.toLowerCase()}?` : "Quelque chose cloche.",
+    `${input.emotionalObjective.slice(0, 24)}${input.emotionalObjective.length > 24 ? "…" : ""}`,
+    firstCharacter?.traits?.[0] ? `Reste ${firstCharacter.traits[0]}.` : "Reste concentré.",
+    secondCharacter?.flaws?.[0] ? `Ton ${secondCharacter.flaws[0]} va nous tuer.` : "Ne casse pas le rythme.",
+    "On n'a plus le choix.",
+  ];
+
   for (let i = 0; i < input.panelCount; i++) {
-    const isActionPanel = i % 3 === 1;
+    const isActionPanel = i % 4 === 1;
     panels.push({
       panelId: `panel_${i + 1}`,
       bubbles: isActionPanel
@@ -124,15 +147,15 @@ function generateFallbackPanels(input: DialogueWriterInput): MangaPanelText[] {
         : [
             {
               id: `b_${i}_1`,
-              speaker: input.characters[0]?.name,
-              text: i === 0 ? "..." : "Hmm.",
+              speaker: input.characters[i % Math.max(input.characters.length, 1)]?.name,
+              text: i === 0 ? (input.characters[0]?.emotionalState ? `${input.characters[0]?.emotionalState}.` : "...") : fallbackLines[i % fallbackLines.length] ?? "On continue.",
               bubbleType: "speech" as const,
-              emotion: "neutre",
+              emotion: input.characters[i % Math.max(input.characters.length, 1)]?.emotionalState ?? "neutre",
               priority: 1,
               readingOrder: 1,
             } as MangaBubble,
           ],
-      sfx: isActionPanel ? ["WHOOSH"] : [],
+      sfx: isActionPanel ? [i % 2 === 0 ? "WHOOSH" : "KRAK"] : [],
       pauseWeight: isActionPanel ? 0.8 : 0.3,
     });
   }

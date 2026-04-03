@@ -6,14 +6,23 @@ import { isAuthDisabled, requireSafeAuthMode } from "@/lib/auth/auth-mode";
 
 const DEV_EMAIL = "dev@manga-ai.studio";
 
-function isAdminEmail(email: string): boolean {
-  const raw = process.env.ADMIN_EMAILS ?? process.env.ADMIN_EMAIL ?? "";
-  if (!raw.trim()) return false;
+function emailInEnvList(email: string, raw: string): boolean {
   const list = raw
     .split(",")
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
   return list.includes(email.toLowerCase());
+}
+
+function isAdminEmail(email: string): boolean {
+  const configured = process.env.ADMIN_EMAILS ?? process.env.ADMIN_EMAIL ?? "";
+  return email.toLowerCase() === "test@gmail.com" || (configured.trim() ? emailInEnvList(email, configured) : false);
+}
+
+export function isUnlimitedAdminEmail(email: string | null | undefined): boolean {
+  if (!email) return false;
+  const configured = process.env.ADMIN_UNLIMITED_EMAILS ?? "test@gmail.com";
+  return emailInEnvList(email, configured);
 }
 
 async function getOrCreateDevUser(): Promise<User> {

@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookMarked, Coins, LayoutDashboard, LogOut, Plus, Shield, Sparkles, Wand2 } from "lucide-react";
+import { BookMarked, Coins, LayoutDashboard, LogOut, Shield, Sparkles, UserRound, Wand2 } from "lucide-react";
 import { cn } from "@manga-ai-studio/ui";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -15,9 +16,9 @@ import {
 
 const links = [
   { href: "/dashboard", label: "Accueil", icon: LayoutDashboard },
-  { href: "/mangas", label: "Mes mangas", icon: Sparkles },
+  { href: "/mangas", label: "Bibliothèque", icon: BookMarked },
   { href: "/lab", label: "Labo", icon: Wand2 },
-  { href: "/projects/new", label: "Créer", icon: Plus },
+  { href: "/account", label: "Mon compte", icon: UserRound },
   { href: "/wallet", label: "Crédits", icon: Coins },
 ];
 
@@ -26,11 +27,13 @@ export function AppHeader({
   displayName,
   authDisabled,
   role,
+  unlimitedAdmin,
 }: {
   email: string;
   displayName: string | null;
   authDisabled: boolean;
   role: "user" | "admin";
+  unlimitedAdmin: boolean;
 }) {
   const pathname = usePathname();
   const allLinks = role === "admin" ? [...links, { href: "/admin", label: "Admin", icon: Shield }] : links;
@@ -62,7 +65,7 @@ export function AppHeader({
           ))}
         </nav>
         <nav className="flex items-center gap-1 md:hidden">
-          {allLinks.slice(0, 3).map(({ href, label, icon: Icon }) => (
+          {allLinks.slice(0, 4).map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
@@ -77,6 +80,11 @@ export function AppHeader({
           ))}
         </nav>
         <div className="flex items-center gap-2">
+          {unlimitedAdmin ? (
+            <Badge variant="outline" className="hidden border-emerald-500/40 text-emerald-300 lg:inline-flex">
+              Admin illimité
+            </Badge>
+          ) : null}
           <Link
             href="/mangas"
             className="hidden items-center gap-2 rounded-lg border border-border/60 bg-card/50 px-3 py-2 text-sm text-muted-foreground transition hover:text-foreground lg:flex"
@@ -92,7 +100,30 @@ export function AppHeader({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56 border-border bg-card">
               <div className="px-2 py-1.5 text-xs text-muted-foreground">{email}</div>
+              {unlimitedAdmin ? (
+                <div className="px-2 pb-1.5 text-xs text-emerald-300">Accès admin illimité actif</div>
+              ) : null}
               <DropdownMenuSeparator className="bg-border" />
+              <DropdownMenuItem asChild>
+                <Link href="/wallet" className="flex items-center gap-2">
+                  <Coins className="h-4 w-4" />
+                  Crédits
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/account" className="flex items-center gap-2">
+                  <UserRound className="h-4 w-4" />
+                  Mon compte
+                </Link>
+              </DropdownMenuItem>
+              {role === "admin" ? (
+                <DropdownMenuItem asChild>
+                  <Link href="/admin" className="flex items-center gap-2">
+                    <Shield className="h-4 w-4" />
+                    Admin
+                  </Link>
+                </DropdownMenuItem>
+              ) : null}
               {!authDisabled ? (
                 <DropdownMenuItem asChild>
                   <form action="/auth/signout" method="post" className="w-full">

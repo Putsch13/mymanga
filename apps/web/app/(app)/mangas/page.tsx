@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { BookOpen, Plus } from "lucide-react";
+import { BookOpen, LibraryBig, Plus, Wand2 } from "lucide-react";
 import { prisma } from "@manga-ai-studio/db";
 import { getCurrentUser } from "@/lib/auth/get-app-user";
 import { Button } from "@/components/ui/button";
@@ -30,30 +30,46 @@ export default async function MyMangasPage() {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(124,58,237,0.16),transparent_26%),radial-gradient(circle_at_bottom_right,rgba(190,18,60,0.12),transparent_28%)]" />
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Mes mangas</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">Bibliothèque utilisateur</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Ta bibliothèque personnelle : reprendre une histoire, lire le dernier chapitre, ou relancer la génération de la suite.
+            Reprends une histoire, relance la génération d&apos;une suite, ou retourne au labo pour enrichir personnages, style manga et rendu.
           </p>
         </div>
-        <Button asChild className="gap-2">
-          <Link href="/projects/new">
-            <Plus className="h-4 w-4" />
-            Nouveau manga
-          </Link>
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline" className="gap-2">
+            <Link href="/lab">
+              <Wand2 className="h-4 w-4" />
+              Ouvrir le labo
+            </Link>
+          </Button>
+          <Button asChild className="gap-2">
+            <Link href="/projects/new">
+              <Plus className="h-4 w-4" />
+              Nouveau manga
+            </Link>
+          </Button>
+        </div>
         </div>
       </div>
 
       {projects.length === 0 ? (
         <Card className="border-dashed border-border/60 bg-card/40">
           <CardHeader>
-            <CardTitle>Aucun manga</CardTitle>
-            <CardDescription>Crée ton premier univers et commence ton chapitre 1.</CardDescription>
+            <CardTitle className="flex items-center gap-2">
+              <LibraryBig className="h-5 w-5 text-accent" />
+              Aucun manga
+            </CardTitle>
+            <CardDescription>Crée ton premier univers dans le labo, puis lance un vrai chapitre 1.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button asChild>
-              <Link href="/projects/new">Créer mon premier manga</Link>
-            </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button asChild>
+                  <Link href="/projects/new">Créer mon premier manga</Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link href="/lab">Découvrir le labo</Link>
+                </Button>
+              </div>
           </CardContent>
         </Card>
       ) : (
@@ -99,6 +115,9 @@ export default async function MyMangasPage() {
                     </Button>
                     <Button asChild variant="outline">
                       <Link href={`/projects/${p.id}`}>Ouvrir le studio</Link>
+                    </Button>
+                    <Button asChild variant="outline">
+                      <Link href={`/projects/${p.id}/characters`}>Personnages</Link>
                     </Button>
                   </div>
                 </CardContent>

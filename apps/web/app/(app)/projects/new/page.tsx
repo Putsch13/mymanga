@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 const GENRE_PRESETS = ["dark fantasy", "seinen", "thriller", "horreur", "romance tragique", "cyberpunk"];
 const FORMAT_PRESETS = ["manga", "webtoon", "roman graphique", "script uniquement"];
 const RATING_PRESETS = ["GENERAL", "TEEN", "MATURE", "ADULT_RESTRICTED"] as const;
-const INTENSITY_PRESETS = ["GENERAL_SAFE", "TEEN", "MATURE_DRAMA", "MATURE_VISUAL", "RESTRICTED_BLOCKED_VISUAL"] as const;
+const INTENSITY_PRESETS = ["GENERAL_SAFE", "TEEN", "MATURE_DRAMA", "MATURE_VISUAL", "ADULT_EXPLICIT", "RESTRICTED_BLOCKED_VISUAL"] as const;
 
 export default function NewProjectPage() {
   const router = useRouter();
@@ -30,6 +30,7 @@ export default function NewProjectPage() {
   const [intensityLayer, setIntensityLayer] = useState<(typeof INTENSITY_PRESETS)[number]>("TEEN");
   const [violenceLevel, setViolenceLevel] = useState(45);
   const [romanceLevel, setRomanceLevel] = useState(20);
+  const [sensualityLevel, setSensualityLevel] = useState(10);
   const [darknessLevel, setDarknessLevel] = useState(55);
   const [mysteryLevel, setMysteryLevel] = useState(50);
   const [dialogueDensity, setDialogueDensity] = useState(55);
@@ -62,6 +63,7 @@ export default function NewProjectPage() {
         settings: {
           violenceLevel,
           romanceLevel,
+          sensualityLevel,
           darknessLevel,
           mysteryLevel,
           dialogueDensity,
@@ -74,8 +76,8 @@ export default function NewProjectPage() {
       setError("Création impossible");
       return;
     }
-    const data = await res.json();
-    router.push(`/projects/${data.project.id}/generate`);
+    await res.json();
+    router.push("/lab");
   }
 
   return (
@@ -185,6 +187,11 @@ export default function NewProjectPage() {
                     ))}
                   </div>
                 </div>
+                {(contentRating === "ADULT_RESTRICTED" || intensityLayer === "ADULT_EXPLICIT") ? (
+                  <div className="rounded-xl border border-amber-500/20 bg-amber-950/20 p-4 text-sm text-amber-200">
+                    Le contenu adulte doit rester explicitement assumé, réservé aux adultes vérifiés et cohérent avec les règles de modération.
+                  </div>
+                ) : null}
               </>
             ) : null}
 
@@ -193,6 +200,7 @@ export default function NewProjectPage() {
                 {[
                   ["Violence", violenceLevel, setViolenceLevel],
                   ["Romance", romanceLevel, setRomanceLevel],
+                  ["Sensualité", sensualityLevel, setSensualityLevel],
                   ["Noirceur", darknessLevel, setDarknessLevel],
                   ["Mystère", mysteryLevel, setMysteryLevel],
                   ["Densité dialogues", dialogueDensity, setDialogueDensity],

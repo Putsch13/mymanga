@@ -31,15 +31,55 @@ export type ChapterOutlineContext = {
 
 function fallbackOutline(ctx: ChapterOutlineContext): ChapterOutlineResult {
   const intent = ctx.userIntent.slice(0, 400);
+  const genre = (ctx.primaryGenre ?? "manga").toLowerCase();
+  const quickTag = (ctx.quickTag ?? "bold").toLowerCase();
+  const previousSummary = ctx.previousSummary ? `Après ${ctx.previousSummary.slice(0, 140)}` : "Sans récapitulatif récent";
+  const previousCliffhanger = ctx.previousCliffhanger
+    ? `Le précédent cliffhanger était : ${ctx.previousCliffhanger.slice(0, 120)}`
+    : "Aucun cliffhanger exploitable n'est remonté";
+  const genreBeats =
+    genre.includes("romance") || genre.includes("shojo")
+      ? [
+          "Un geste ambigu trouble l'équilibre relationnel.",
+          "Une tension intime contredit les paroles échangées.",
+          "Un aveu partiel change la dynamique du duo.",
+          "Une interruption brutale relance le manque.",
+        ]
+      : genre.includes("horror") || genre.includes("horreur")
+        ? [
+            "Un détail inquiétant surgit dans le décor.",
+            "La peur force un choix irrationnel.",
+            "Une présence cachée déforme la scène.",
+            "La révélation finale ouvre une menace plus vaste.",
+          ]
+        : genre.includes("cyber") || genre.includes("sci")
+          ? [
+              "Une anomalie technique révèle une faille du système.",
+              "L'équipe comprend qu'elle a été observée.",
+              "Une décision stratégique crée un coût humain.",
+              "Une donnée cachée inverse la lecture du conflit.",
+            ]
+          : [
+              "Un nouvel indice déplace l'objectif immédiat.",
+              "Une confrontation met les alliances sous pression.",
+              "Un choix risqué accélère le conflit.",
+              "Une conséquence brutale promet une suite plus dure.",
+            ];
+
   return {
     title: ctx.chapterTitle ?? `Chapitre ${ctx.chapterNumber}`,
-    summary: `Dans ce chapitre, l’intrigue avance à partir de l’intention suivante : ${intent}. Les enjeux du projet « ${ctx.projectTitle} » restent au centre du récit.`,
-    cliffhanger: "Un revers inattendu bouleverse la situation — la suite révélera les conséquences.",
+    summary: `${previousSummary}. ${previousCliffhanger}. Le chapitre ${ctx.chapterNumber} de « ${ctx.projectTitle} » avance autour de : ${intent}. Axe narratif ${quickTag}.`,
+    cliffhanger:
+      quickTag === "shock"
+        ? "La dernière case révèle une vérité qui fracture immédiatement la suite."
+        : quickTag === "safe"
+          ? "La situation semble tenue, mais un nouveau détail compromet l'équilibre."
+          : "Au moment de souffler, un retournement rend la suite inévitable.",
     beats: [
-      { summary: "Mise en place : le contexte émotionnel et les personnages réagissent à la fin du chapitre précédent.", emotionalTone: "tension" },
-      { summary: "Développement : confrontation ou révélation alignée sur l’intention du lecteur.", emotionalTone: "montée" },
-      { summary: "Climax partiel : choix difficile ou action marquante.", emotionalTone: "pic" },
-      { summary: "Résolution du beat principal tout en ouvrant une faille narrative.", emotionalTone: "chute" },
+      { summary: `${genreBeats[0]} Intent: ${intent.slice(0, 100)}.`, emotionalTone: "tension" },
+      { summary: `${genreBeats[1]} Le chapitre cherche une variation ${quickTag}.`, emotionalTone: "montée" },
+      { summary: `${genreBeats[2]} Les conséquences deviennent visibles.`, emotionalTone: "pic" },
+      { summary: `${genreBeats[3]} La fin du chapitre prépare une vraie relance.`, emotionalTone: "chute" },
     ],
   };
 }

@@ -61,7 +61,7 @@ export default async function MangaReadPage({ params }: Props) {
             {chapter.title ?? `Chapitre ${chapter.chapterNumber}`}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {project.title} · {chapter.scenes.length} scènes · {totalImages} panels
+            {project.title} · {chapter.scenes.length} scènes · {totalImages} panels · lecture manga droite vers gauche
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

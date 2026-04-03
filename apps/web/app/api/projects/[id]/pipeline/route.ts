@@ -6,6 +6,7 @@ import { runFullChapterPipelineFromJob, sendChapterGenerateRequested } from "@ma
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
 import { notFound, unauthorized, badRequest, validationError } from "@/lib/api-response";
+import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -19,6 +20,10 @@ const bodySchema = z.object({
 export async function POST(req: Request, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return unauthorized();
+  const stack = getGenerationStackStatus();
+  if (!stack.canGenerateChapters) {
+    return validationError("La stack de generation n'est pas prete pour un chapitre complet.", stack);
+  }
   const { id: projectId } = await ctx.params;
   const project = await prisma.project.findFirst({
     where: { id: projectId, userId: user.id },

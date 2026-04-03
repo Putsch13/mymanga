@@ -3,6 +3,7 @@ import { prisma } from "@manga-ai-studio/db";
 import { runFullChapterPipelineFromJob, runChapterOutlineFromJob } from "@manga-ai-studio/workflow";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized, validationError } from "@/lib/api-response";
+import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 
 type Ctx = { params: Promise<{ jobId: string }> };
 
@@ -26,6 +27,10 @@ export async function POST(_req: Request, ctx: Ctx) {
   }
 
   if (job.type === "GENERATE_CHAPTER_SCRIPT") {
+    const stack = getGenerationStackStatus();
+    if (!stack.canGenerateChapters) {
+      return validationError("La stack de generation n'est pas prete pour executer ce job.", stack);
+    }
     const r = await runFullChapterPipelineFromJob(job.id);
     if (!r.ok) {
       return NextResponse.json({ ok: false, jobId: job.id, error: r.error ?? "unknown" }, { status: 500 });

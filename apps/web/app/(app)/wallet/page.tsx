@@ -14,6 +14,7 @@ const packs = [
 
 export default function WalletPage() {
   const [balance, setBalance] = useState<number | null>(null);
+  const [unlimited, setUnlimited] = useState(false);
   const [transactions, setTransactions] = useState<
     Array<{
       id: string;
@@ -34,6 +35,7 @@ export default function WalletPage() {
       .then((d) => {
         setBalance(d.wallet?.balance ?? 0);
         setTransactions(d.transactions ?? []);
+        setUnlimited(Boolean(d.unlimited));
         setLoadError(null);
       })
       .catch(() => {
@@ -69,6 +71,9 @@ export default function WalletPage() {
         <p className="text-muted-foreground mt-2 max-w-2xl text-sm">
           Les crédits servent à lancer les générations. L’utilisateur teste d’abord avec sa réserve de bienvenue, puis rachète pour poursuivre sa série.
         </p>
+        {unlimited ? (
+          <p className="mt-3 text-sm text-emerald-300">Ce compte est en mode admin illimité : les réservations de crédits sont bypassées pour les tests.</p>
+        ) : null}
       </div>
       <Card className="max-w-md border-border/60 bg-gradient-to-br from-card/80 to-violet-950/20">
         <CardHeader>
@@ -78,7 +83,7 @@ export default function WalletPage() {
             </span>
             <div>
               <CardDescription>Solde</CardDescription>
-              <CardTitle className="text-4xl font-semibold tabular-nums text-accent">{balance ?? "—"}</CardTitle>
+              <CardTitle className="text-4xl font-semibold tabular-nums text-accent">{unlimited ? "Illimité" : balance ?? "—"}</CardTitle>
             </div>
           </div>
         </CardHeader>

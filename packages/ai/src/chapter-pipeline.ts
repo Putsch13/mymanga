@@ -17,10 +17,14 @@ export type ProjectContextForChapter = {
     id: string;
     name: string;
     roleType: string | null;
+    biography?: string | null;
     objective: string | null;
     fear: string | null;
     emotionalState: string | null;
     status: string;
+    traits?: string[];
+    flaws?: string[];
+    speechProfile?: Record<string, unknown>;
     appearance?: string | null;
     outfitDefault?: string | null;
     hairColor?: string | null;
@@ -459,6 +463,13 @@ export async function generateChapterBundle(input: {
           const c = input.context.characters.find((ch) => ch.name === name);
           return {
             name,
+            roleType: c?.roleType ?? undefined,
+            objective: c?.objective ?? undefined,
+            fear: c?.fear ?? undefined,
+            biography: c?.biography ?? undefined,
+            traits: c?.traits ?? [],
+            flaws: c?.flaws ?? [],
+            speechProfile: c?.speechProfile ?? {},
             emotionalState: c?.emotionalState ?? undefined,
           };
         }),

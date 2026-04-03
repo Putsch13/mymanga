@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { forbidden, unauthorized } from "@/lib/api-response";
+import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,6 +28,7 @@ export async function GET() {
     hasRunware: Boolean(process.env.RUNWARE_API_KEY),
     hasStability: Boolean(process.env.STABILITY_API_KEY),
   };
+  const stack = getGenerationStackStatus();
 
   const recentJobs = await prisma.job.findMany({
     where: { userId: user.id },
@@ -34,12 +36,33 @@ export async function GET() {
     take: 10,
     select: { id: true, type: true, status: true, createdAt: true, startedAt: true, finishedAt: true, error: true },
   });
+  const recentSceneImages = await prisma.sceneImage.findMany({
+    where: {
+      scene: {
+        chapter: {
+          project: { userId: user.id },
+        },
+      },
+      status: { in: ["failed", "blocked"] },
+    },
+    take: 10,
+    select: {
+      id: true,
+      status: true,
+      provider: true,
+      model: true,
+      imageUrl: true,
+      metadata: true,
+    },
+  });
 
   return NextResponse.json({
     ok: true,
     user: { id: user.id, email: user.email, role: user.role },
     env,
+    stack,
     recentJobs,
+    recentSceneImages,
   });
 }
 

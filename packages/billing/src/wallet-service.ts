@@ -4,6 +4,24 @@ export type ReserveResult =
   | { ok: true; balanceAfter: number; reservationId: string }
   | { ok: false; reason: "insufficient_balance" };
 
+function isUnlimitedAdminEmail(email: string | null | undefined) {
+  if (!email) return false;
+  const raw = process.env.ADMIN_UNLIMITED_EMAILS ?? "test@gmail.com";
+  const list = raw
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+  return list.includes(email.toLowerCase());
+}
+
+async function shouldBypassWallet(prisma: PrismaClient, userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true, role: true },
+  });
+  return Boolean(user && user.role === "admin" && isUnlimitedAdminEmail(user.email));
+}
+
 export async function ensureWallet(prisma: PrismaClient, userId: string) {
   let wallet = await prisma.wallet.findUnique({ where: { userId } });
   if (!wallet) {
@@ -20,6 +38,9 @@ export async function reserveTokens(
   amount: number,
   reference?: { reason?: string; referenceType?: string; referenceId?: string; metadata?: Record<string, unknown> },
 ): Promise<ReserveResult> {
+  if (await shouldBypassWallet(prisma, userId)) {
+    return { ok: true, balanceAfter: Number.MAX_SAFE_INTEGER, reservationId: `admin_unlimited:${userId}:${Date.now()}` };
+  }
   return prisma.$transaction(async (tx) => {
     const w = await ensureWallet(tx as PrismaClient, userId);
     if (w.balance < amount) return { ok: false, reason: "insufficient_balance" };
@@ -90,6 +111,9 @@ export async function settleReservedTokens(
   reservationId: string,
   actualAmount: number,
 ) {
+  if (reservationId.startsWith("admin_unlimited:")) {
+    return { ok: true as const, actualAmount };
+  }
   return prisma.$transaction(async (tx) => {
     const wallet = await ensureWallet(tx as PrismaClient, userId);
     const reservation = await tx.walletTransaction.findUnique({
@@ -164,6 +188,9 @@ export async function refundReservation(
   reservationId: string,
   reason = "job_failed_refund",
 ) {
+  if (reservationId.startsWith("admin_unlimited:")) {
+    return { ok: true as const, refundedAmount: 0 };
+  }
   return prisma.$transaction(async (tx) => {
     const wallet = await ensureWallet(tx as PrismaClient, userId);
     const reservation = await tx.walletTransaction.findUnique({

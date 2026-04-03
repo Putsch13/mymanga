@@ -254,15 +254,22 @@ export async function buildProjectContext(
         id: c.id,
         name: c.name,
         roleType: c.roleType,
+        biography: c.biography,
         objective: c.objective,
         fear: c.fear,
         emotionalState: c.emotionalState,
         status: c.status,
         canonLocked: c.canonLocked,
+        traits: Array.isArray(c.traits) ? c.traits.filter((item): item is string => typeof item === "string") : [],
+        flaws: Array.isArray(c.flaws) ? c.flaws.filter((item): item is string => typeof item === "string") : [],
         appearance: typeof raw.appearance === "string" ? raw.appearance : null,
         outfitDefault: typeof raw.outfitDefault === "string" ? raw.outfitDefault : null,
         hairColor: typeof raw.hairColor === "string" ? raw.hairColor : null,
         eyeColor: typeof raw.eyeColor === "string" ? raw.eyeColor : null,
+        speechProfile:
+          raw.speechProfile && typeof raw.speechProfile === "object"
+            ? (raw.speechProfile as Record<string, unknown>)
+            : {},
       };
     }),
     relationships: project.relationships,

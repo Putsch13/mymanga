@@ -8,6 +8,8 @@ import {
 } from "@manga-ai-studio/billing";
 import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
+import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
+import { persistGeneratedImageIfNeeded } from "@/lib/images/persist-generated-image";
 import { notFound, paymentRequired, unauthorized } from "@/lib/api-response";
 import { getOwnedCharacter } from "@/lib/ownership";
 
@@ -16,6 +18,13 @@ type Ctx = { params: Promise<{ characterId: string }> };
 export async function POST(_req: Request, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return unauthorized();
+  const stack = getGenerationStackStatus();
+  if (!stack.canGenerateImages) {
+    return NextResponse.json(
+      { error: "La stack image n'est pas prete pour generer un visuel personnage.", details: stack },
+      { status: 422 },
+    );
+  }
 
   const { characterId } = await ctx.params;
   const character = await getOwnedCharacter(user.id, characterId);
@@ -100,17 +109,33 @@ export async function POST(_req: Request, ctx: Ctx) {
       return NextResponse.json({ error: output.reason }, { status: 422 });
     }
 
+    const persisted = await persistGeneratedImageIfNeeded({
+      imageUrl: output.result.imageUrl,
+      objectPath: `projects/${character.project.id}/characters/${character.id}/refs/${Date.now()}`,
+    });
+
+    if (!persisted.ok) {
+      await refundReservation(
+        prisma,
+        user.id,
+        reservation.reservationId,
+        "character_visual_storage_failed",
+      );
+      return NextResponse.json({ error: persisted.error }, { status: 502 });
+    }
+
     const visualRef = await prisma.characterVisualRef.create({
       data: {
         characterId: character.id,
         type: "generated_primary",
-        imageUrl: output.result.imageUrl,
+        imageUrl: persisted.url,
         promptSnapshot: composed.positive,
         isPrimary: character.visualRefs.length === 0,
         metadata: {
           provider: output.result.provider,
           model: output.result.model,
           negativePrompt: composed.negative,
+          persisted: persisted.persisted,
         },
       },
     });

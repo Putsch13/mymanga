@@ -60,6 +60,16 @@ type ChapterPayload = {
   scenes: ChapterScene[];
 };
 
+type ReaderResponse = {
+  chapter: ChapterPayload;
+  memorySnapshot?: {
+    narrativeSummary?: string | null;
+    openLoops?: string[] | null;
+  } | null;
+  activeJob?: { id: string; status: string } | null;
+  imageStats?: { total: number; completed: number; failed: number; pending: number } | null;
+};
+
 function buildPagesFromChapter(chapter: ChapterPayload): UniversalMangaPage[] {
   const storyboard = chapter.storyboard as {
     pages?: Array<{ pageNumber: number; layout: string }>;
@@ -125,6 +135,9 @@ type Props = {
 
 export function MangaBookReader({ projectId, chapterId }: Props) {
   const [chapter, setChapter] = useState<ChapterPayload | null>(null);
+  const [memorySummary, setMemorySummary] = useState<string | null>(null);
+  const [imageStats, setImageStats] = useState<ReaderResponse["imageStats"]>(null);
+  const [activeJob, setActiveJob] = useState<ReaderResponse["activeJob"]>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
   const [showTextOnly, setShowTextOnly] = useState(false);
@@ -145,8 +158,11 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
       setLoadError("Chapitre introuvable");
       return;
     }
-    const j = (await res.json()) as { chapter: ChapterPayload };
+    const j = (await res.json()) as ReaderResponse;
     setChapter(j.chapter);
+    setMemorySummary(j.memorySnapshot?.narrativeSummary ?? null);
+    setImageStats(j.imageStats ?? null);
+    setActiveJob(j.activeJob ?? null);
     setPageIndex(0);
     setShowEnd(false);
   }, [projectId, chapterId]);
@@ -608,6 +624,36 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
 
   return (
     <div className="space-y-6">
+      <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+        <Card className="border-border/60 bg-card/40">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Lecture manga V4</CardTitle>
+            <CardDescription>Ordre de lecture attendu pour un vrai manga ouvert.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <p>1. Page droite vers page gauche.</p>
+            <p>2. À l&apos;intérieur d&apos;une page : haut vers bas.</p>
+            <p>3. En fin de chapitre : proposition de suite et continuité mémoire.</p>
+          </CardContent>
+        </Card>
+        <Card className="border-border/60 bg-card/40">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Mémoire & statut</CardTitle>
+            <CardDescription>Le chapitre doit pouvoir nourrir les suivants.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm text-muted-foreground">
+            <p>{memorySummary ?? "Aucun résumé mémoire disponible pour ce chapitre pour l'instant."}</p>
+            {imageStats ? (
+              <div className="flex flex-wrap gap-2">
+                <span>{imageStats.completed}/{imageStats.total} images prêtes</span>
+                {imageStats.pending ? <span>· {imageStats.pending} en attente</span> : null}
+                {imageStats.failed ? <span>· {imageStats.failed} en échec</span> : null}
+              </div>
+            ) : null}
+            {activeJob ? <p>Job actif : {activeJob.status}</p> : <p>Job actif : aucun</p>}
+          </CardContent>
+        </Card>
+      </div>
       {toolbar}
       {!showEnd ? renderPage() : null}
       {endCard}
