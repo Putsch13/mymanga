@@ -2,7 +2,7 @@ import type { MangaPanelText } from "@manga-ai-studio/core";
 
 export interface PanelTextPlannerInput {
   sceneId: string;
-  layout?: "A" | "B" | "C" | "D" | "E";
+  layout?: "A" | "B" | "C" | "D" | "E" | "F";
   panels: Array<{
     panelId: string;
     action?: string;
@@ -30,10 +30,11 @@ const MAX_CHARS_DEFAULT = 60;
 
 const PANEL_AREA_WEIGHTS: Record<NonNullable<PanelTextPlannerInput["layout"]>, number[]> = {
   A: [1.2, 1.1, 1.4, 1.0, 0.95, 0.95],
-  B: [1.6, 0.75, 0.75, 1.15, 0.85, 1.1, 1.2],
-  C: [1.35, 1.0, 1.15, 0.95, 1.0, 1.0],
-  D: [1.05, 1.05, 1.5, 0.95, 0.95, 1.25],
-  E: [1.35, 1.0, 1.0, 1.35, 0.7, 0.95, 0.95],
+  B: [1.3, 1.1, 1.4, 0.95, 0.95, 1.1],
+  C: [1.35, 1.0, 1.15, 0.95, 1.0],
+  D: [1.35, 1.0, 1.5, 0.95, 0.95, 1.1],
+  E: [1.3, 0.9, 1.0, 1.2, 1.0],
+  F: [1.1, 1.1, 1.0, 1.0],
 };
 
 function getPanelWeight(layout: PanelTextPlannerInput["layout"], panelIndex: number) {

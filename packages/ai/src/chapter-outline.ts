@@ -30,6 +30,7 @@ export type ChapterOutlineContext = {
   bibleSummary?: string | null;
   themes?: string[];
   continuitySnippets?: string[];
+  recentContinuityEvents?: Array<{ eventType: string; summary: string | null; permanent: boolean; importance: number }>;
   retrievedContext?: string[];
   settings?: {
     dialogueDensity?: number | null;
@@ -119,7 +120,18 @@ export async function generateChapterOutline(ctx: ChapterOutlineContext): Promis
   }
 
   const model = process.env.OPENAI_OUTLINE_MODEL?.trim() || "gpt-4o-mini";
-  const system = `Tu es scénariste manga / webtoon pour un outil de production. Réponds uniquement en JSON valide, clés : title (optionnel), summary (string), cliffhanger (string), beats (array de { summary, emotionalTone? }). Langue : français. Les beats sont des étapes narratives courtes (pas de dialogue complet). Règles: 1) rester cohérent avec le canon, les personnages, la bible et la mémoire récente; 2) ne jamais ignorer l'intention utilisateur; 3) chaque beat doit pousser logiquement le suivant; 4) éviter les ruptures arbitraires de lieu ou d'objectif; 5) réutiliser les personnages réellement fournis.`;
+  const system = `Tu es scénariste manga / webtoon senior pour un outil de production professionnelle.
+Réponds UNIQUEMENT en JSON valide, clés : title (optionnel), summary (string), cliffhanger (string), beats (array de { summary, emotionalTone? }).
+Langue : français. Les beats sont des étapes narratives courtes (pas de dialogue complet).
+
+RÈGLES ABSOLUES DE CONTINUITÉ :
+1. Respecter scrupuleusement le canon : personnages, lieux, statuts, relations et événements passés fournis dans recentContinuityEvents et continuitySnippets.
+2. Ne jamais ressusciter un personnage mort ni ignorer un statut "blessé" ou "disparu".
+3. Chaque beat découle causalement du précédent ; aucun saut de lieu ou de motivation non justifié.
+4. Réutiliser uniquement les personnages du cast fourni ; ne pas inventer de nouveaux noms.
+5. Le cliffhanger doit être préparé dans les beats précédents, pas surgir de nulle part.
+6. Respecter l'intention utilisateur tout en restant cohérent avec l'arc en cours.
+7. Si canonStrictness > 80, ne rien modifier qui contredise la bible ou les événements permanents.`;
 
   const userPayload = {
     projectTitle: ctx.projectTitle,
@@ -142,6 +154,7 @@ export async function generateChapterOutline(ctx: ChapterOutlineContext): Promis
     quickTag: ctx.quickTag,
     previousChapterSummary: ctx.previousSummary,
     previousCliffhanger: ctx.previousCliffhanger,
+    recentContinuityEvents: (ctx.recentContinuityEvents ?? []).slice(0, 10),
   };
 
   try {

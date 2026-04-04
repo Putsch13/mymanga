@@ -79,7 +79,7 @@ const BASE_NEGATIVE =
   "missing fingers, extra fingers, fused characters, inconsistent art style";
 
 function describeCharacter(c: CharacterRef): string {
-  const parts: string[] = [c.name];
+  const parts: string[] = [`[${c.name}]`];
   if (c.appearance) parts.push(c.appearance);
   if (c.hairColor) parts.push(`${c.hairColor} hair`);
   if (c.eyeColor) parts.push(`${c.eyeColor} eyes`);
@@ -130,7 +130,9 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
   positiveParts.push(input.action);
   positiveParts.push(moodDesc);
   if (intensityNote && layer !== "GENERAL_SAFE") positiveParts.push(intensityNote);
-  positiveParts.push("high detail, consistent character design, professional manga art, ink lines");
+  positiveParts.push(
+    "high detail, consistent character design, professional manga art, ink lines, same character appearance as previous panels",
+  );
 
   if (input.dialogueHint) {
     positiveParts.push(`emotional subtext: ${input.dialogueHint.slice(0, 120)}`);
@@ -138,8 +140,21 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
 
   const positive = positiveParts.filter(Boolean).join(", ");
 
-  // Negative prompt enrichi selon le layer
+  // Negative prompt enrichi selon le layer + verrous de dérive visuelle
   let negative = BASE_NEGATIVE;
+  if (input.characters && input.characters.length > 0) {
+    const driftGuards = input.characters
+      .map((c) => {
+        const guards: string[] = [];
+        if (c.hairColor) guards.push(`wrong hair color for ${c.name}`);
+        if (c.eyeColor) guards.push(`wrong eye color for ${c.name}`);
+        if (c.outfitDefault) guards.push(`wrong outfit for ${c.name}`);
+        return guards.join(", ");
+      })
+      .filter(Boolean)
+      .join(", ");
+    if (driftGuards) negative += `, ${driftGuards}`;
+  }
   if (layer === "GENERAL_SAFE" || layer === "TEEN") {
     negative += ", nudity, violence, blood, gore, suggestive poses";
   }

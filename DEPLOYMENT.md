@@ -225,14 +225,13 @@ Prix confirmés :
 Ordre de grandeur pour **1 chapitre** (selon longueur) :
 
 - **Chapitre standard (~6 pages, ~39 panels)** : ~0.78 USD
-- **Chapitre long (~12 pages, 5–7 panels/page = ~60–84 panels)** : ~1.18–1.66 USD
+- **Chapitre (~10 pages, 4–6 panels/page = ~40–60 panels)** : ~0.79–1.18 USD
 
 | Poste | Hypothèse | Coût approx. |
 |------|-----------|--------------|
-| Images (standard) | 39 panels × 768×1024 | **~0.7668 USD** |
-| Images (12 pages) | 60–84 panels × 768×1024 | **~1.179–1.652 USD** |
+| Images (10 pages) | 40–60 panels × 768×1024 | **~0.786–1.179 USD** |
 | Texte + embeddings | outline + dialogues + passes continuité/narration + embeddings | **~0.02–0.05 USD** |
-| **Total chapitre (12 pages)** | pipeline complet | **~1.20–1.71 USD** |
+| **Total chapitre (10 pages)** | pipeline complet | **~0.81–1.23 USD** |
 
 Lecture produit :
 

@@ -236,7 +236,7 @@ export default function ChapterGeneratorPage() {
         </Link>
         <h1 className="mt-3 text-3xl font-semibold">Labo de génération</h1>
         <p className="text-muted-foreground mt-2 max-w-2xl text-sm">
-          Ici, on vise une sortie lisible comme un vrai manga : environ <strong>12 pages</strong>, rythme propre, double passe (canon + narration), et panels réellement générés.
+          Ici, on vise une sortie lisible comme un vrai manga : environ <strong>10 pages</strong> (4–6 cases/page), double passe de cohérence (canon + narration), et panels réellement générés.
         </p>
         {diag ? (
           <div className="mt-4 flex flex-wrap gap-2 text-xs">

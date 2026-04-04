@@ -86,6 +86,13 @@ export type ProjectContextForChapter = {
     content: string;
     metadata?: unknown;
   }>;
+  recentContinuityEvents?: Array<{
+    eventType: string;
+    summary: string | null;
+    permanent: boolean;
+    importance: number;
+    entities?: unknown;
+  }>;
 };
 
 export type PanelMood =
@@ -99,7 +106,7 @@ export type PanelMood =
   | "comedy"
   | "dramatic";
 
-export type GridLayout = "A" | "B" | "C" | "D" | "E";
+export type GridLayout = "A" | "B" | "C" | "D" | "E" | "F";
 
 export type StoryboardPanel = {
   panelNumber: number;
@@ -276,12 +283,13 @@ function inferMood(tension: number, genre: string): PanelMood {
 
 function inferLayout(tension: number, panelCount: number): GridLayout {
   // Layouts in UI:
-  // - 7 panels: B, E
   // - 6 panels: A, C, D
-  if (panelCount >= 7) return tension >= 8 ? "E" : "B";
-  if (panelCount === 6) return tension >= 8 ? "D" : tension >= 6 ? "C" : "A";
-  // 5 panels -> use a 6-panel layout and leave one area empty.
-  return tension >= 7 ? "C" : "A";
+  // - 5 panels: use A or C (last area empty)
+  // - 4 panels: use layout F (2×2) or fallback to A with 2 empty areas
+  if (panelCount >= 6) return tension >= 8 ? "D" : tension >= 5 ? "C" : "A";
+  if (panelCount === 5) return tension >= 6 ? "C" : "A";
+  // 4 panels → layout F (2×2 grid)
+  return "F";
 }
 
 const STD_NEGATIVE =
@@ -535,6 +543,9 @@ export async function generateChapterBundle(input: {
       .map((memory) => memory.narrativeSummary)
       .filter((item): item is string => Boolean(item))
       .slice(0, 3),
+    recentContinuityEvents: (input.context.recentContinuityEvents ?? [])
+      .filter((e) => e.importance >= 40)
+      .slice(0, 10),
     retrievedContext: input.context.retrievedDocs.map((doc) => doc.content).slice(0, 4),
     settings: {
       dialogueDensity: input.context.settings?.dialogueDensity ?? null,
@@ -553,7 +564,7 @@ export async function generateChapterBundle(input: {
     previousCliffhanger: previous?.cliffhanger ?? null,
   });
 
-  // Cible produit : ~12 pages par chapitre, 1 scène = 1 page.
+  // Cible produit : ~10 pages par chapitre, 1 scène = 1 page.
   const rawOutlineBeats = outlineResult.outline.beats.map((beat, index) => ({
     id: `beat_${index + 1}`,
     summary: beat.summary,
@@ -571,7 +582,7 @@ export async function generateChapterBundle(input: {
     purpose: beat.emotionalTone ?? `beat_${index + 1}`,
   }));
 
-  const TARGET_PAGES = 12;
+  const TARGET_PAGES = 10;
   const beats = stretchToCount(rawOutlineBeats, TARGET_PAGES, (index) => ({
     id: `beat_${index + 1}`,
     summary: `${selected.summary} Cette étape fait avancer ${input.context.project.title} dans une nouvelle direction.`,
@@ -583,10 +594,10 @@ export async function generateChapterBundle(input: {
 
   const panelCounts = beats.map((beat, index) => {
     const t = beat.tension ?? (3 + index);
-    // 5–7 cases par page, davantage de cases quand la tension monte.
-    if (t >= 8) return 7;
-    if (t >= 6) return index % 2 === 0 ? 6 : 7;
-    return index % 3 === 0 ? 5 : 6;
+    // 4–6 cases par page maximum (lisibilité et cadrage).
+    if (t >= 8) return 6;
+    if (t >= 5) return index % 2 === 0 ? 5 : 6;
+    return index % 3 === 0 ? 4 : 5;
   });
   const scenesBase = beats.map((beat, index) => ({
     id: `scene_${index + 1}`,

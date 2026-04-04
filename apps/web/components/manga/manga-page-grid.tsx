@@ -5,11 +5,11 @@ import type { AnyPanelMood } from "./manga-panel";
 import { MangaPanel } from "./manga-panel";
 
 /**
- * 5 layout presets for manga pages.
- * Each uses CSS grid-template-areas to create varied panel arrangements.
- * Panels are mapped to grid areas a-g.
+ * Layout presets for manga pages (4–6 panels).
+ * Each uses CSS grid-template-areas.
+ * Panels are mapped to grid areas a-f.
  */
-const LAYOUT_STYLES: Record<"A" | "B" | "C" | "D" | "E", React.CSSProperties> = {
+const LAYOUT_STYLES: Record<"A" | "B" | "C" | "D" | "E" | "F", React.CSSProperties> = {
   // Layout A: 6 panels — 2 top, 1 wide, 2 + 1 tall bottom
   A: {
     display: "grid",
@@ -23,55 +23,63 @@ const LAYOUT_STYLES: Record<"A" | "B" | "C" | "D" | "E", React.CSSProperties> = 
     `,
     gap: "3px",
   },
-  // Layout B: 7 panels — 1 large left + 2 right, 1 action center, 2 bottom + 1
+  // Layout B: 6 panels — 1 large left + 2 right + 3 bottom (kept for compat)
   B: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr 1fr 1fr",
-    gridTemplateRows: "1.2fr 1fr 0.8fr 1fr",
+    gridTemplateRows: "1.3fr 1fr 0.9fr",
     gridTemplateAreas: `
-      "a a a b"
-      "a a a c"
-      "d d e e"
-      "f f f g"
+      "a a b b"
+      "c c c c"
+      "d d e f"
     `,
     gap: "3px",
   },
-  // Layout C: 6 panels — 1 wide top, 2 small + 1 tall, 1 wide bottom
+  // Layout C: 5 panels — 1 wide top, 2 mid, 1 wide bottom (last area unused for 5)
   C: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr 1fr 1fr",
-    gridTemplateRows: "0.8fr 1fr 1fr 0.9fr",
+    gridTemplateRows: "0.9fr 1.2fr 0.9fr",
     gridTemplateAreas: `
       "a a a a"
       "b b c c"
-      "d d c c"
+      "d d e e"
+    `,
+    gap: "3px",
+  },
+  // Layout D: 6 panels — 1 wide top, 2 mid, 1 action, 2 bottom
+  D: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr 1fr 1fr",
+    gridTemplateRows: "0.8fr 1.3fr 1fr 0.9fr",
+    gridTemplateAreas: `
+      "a a a a"
+      "b b c c"
+      "d d d d"
       "e e f f"
     `,
     gap: "3px",
   },
-  // Layout D: 6 panels — 1 + 1 large center + 2 + 1 wide
-  D: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr 1fr 1fr",
-    gridTemplateRows: "1fr 1.3fr 1fr 0.8fr",
-    gridTemplateAreas: `
-      "a a b b"
-      "c c c c"
-      "d d e e"
-      "f f f f"
-    `,
-    gap: "3px",
-  },
-  // Layout E: 7 panels — wide top, 2 mid, tall right + bottom wide + 1
+  // Layout E: 5 panels — 1 tall left + 2 right stacked + 2 bottom
   E: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr 1fr 1fr",
-    gridTemplateRows: "0.8fr 1fr 1.2fr 0.9fr",
+    gridTemplateRows: "1.2fr 1.2fr 0.9fr",
     gridTemplateAreas: `
-      "a a a a"
-      "b b c c"
-      "d d d e"
-      "f f g g"
+      "a a b b"
+      "a a c c"
+      "d d e e"
+    `,
+    gap: "3px",
+  },
+  // Layout F: 4 panels — 2×2 equal grid
+  F: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gridTemplateRows: "1fr 1fr",
+    gridTemplateAreas: `
+      "a b"
+      "c d"
     `,
     gap: "3px",
   },
@@ -99,7 +107,7 @@ export interface UniversalPanel {
 
 export interface UniversalMangaPage {
   id?: string;
-  layout: "A" | "B" | "C" | "D" | "E";
+  layout: "A" | "B" | "C" | "D" | "E" | "F";
   panels: UniversalPanel[];
 }
 
@@ -147,18 +155,18 @@ export interface PipelineScene {
   images?: PipelinePanel[];
 }
 
-type MangaGridLayout = "A" | "B" | "C" | "D" | "E";
+type MangaGridLayout = "A" | "B" | "C" | "D" | "E" | "F";
 
 export function pipelineScenesToPages(
   scenes: PipelineScene[],
   storyboardPages?: Array<{ pageNumber: number; layout: string }>,
 ): UniversalMangaPage[] {
   function normalizeLayout(layout: MangaGridLayout, panelCount: number): MangaGridLayout {
-    // Defensive: old data / mismatches should not break panel placement.
-    const isSeven = panelCount >= 7;
-    const sevenLayouts: MangaGridLayout[] = ["B", "E"];
-    const sixLayouts: MangaGridLayout[] = ["A", "C", "D"];
-    if (isSeven) return sevenLayouts.includes(layout) ? layout : "B";
+    // Map panel count to a layout that has exactly that many areas.
+    if (panelCount <= 4) return "F";
+    if (panelCount === 5) return layout === "C" || layout === "E" ? layout : "C";
+    // 6 panels
+    const sixLayouts: MangaGridLayout[] = ["A", "B", "D"];
     return sixLayouts.includes(layout) ? layout : "A";
   }
 
@@ -213,11 +221,12 @@ export function MangaPageGrid({ page }: Props) {
 
   return (
     <div
-      className="h-full w-full bg-stone-900"
+      className="w-full bg-stone-900"
       style={{
         ...layoutStyle,
         padding: "3px",
-        minHeight: "100%",
+        aspectRatio: "2 / 3",
+        minHeight: 0,
       }}
     >
       {universal.panels.map((panel, i) => (

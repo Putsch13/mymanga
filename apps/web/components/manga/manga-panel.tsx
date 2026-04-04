@@ -187,7 +187,7 @@ export function MangaPanel({
         <img
           src={imageUrl}
           alt={caption ?? `Panel ${(panelIndex ?? 0) + 1}`}
-          className="absolute inset-0 h-full w-full object-cover"
+          className="absolute inset-0 h-full w-full object-cover object-center"
         />
       ) : (
         overlay

@@ -176,7 +176,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       orderBy: { createdAt: "desc" },
       take: 1,
     }),
-    // Raw query pour récupérer les nouveaux champs non encore dans le client Prisma
+    // Raw query pour récupérer les champs visuels + ref image canonique
     prisma.$queryRawUnsafe<Array<{
       id: string;
       name: string;
@@ -184,8 +184,19 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       hairColor: string | null;
       eyeColor: string | null;
       outfitDefault: string | null;
+      canonicalImageUrl: string | null;
     }>>(
-      `SELECT id, name, appearance, "hairColor", "eyeColor", "outfitDefault" FROM "Character" WHERE "projectId" = $1`,
+      `SELECT c.id, c.name, c.appearance, c."hairColor", c."eyeColor", c."outfitDefault",
+              (SELECT si."imageUrl" FROM "SceneImage" si
+               JOIN "ChapterScene" cs ON si."sceneId" = cs.id
+               JOIN "Chapter" ch ON cs."chapterId" = ch.id
+               WHERE ch."projectId" = c."projectId"
+                 AND si."imageUrl" IS NOT NULL
+                 AND si.status = 'completed'
+               ORDER BY si."createdAt" DESC
+               LIMIT 1) AS "canonicalImageUrl"
+       FROM "Character" c
+       WHERE c."projectId" = $1`,
       job.projectId,
     ),
   ]);
@@ -396,6 +407,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                       hairColor: c.hairColor,
                       eyeColor: c.eyeColor,
                       outfitDefault: c.outfitDefault,
+                      canonicalImageUrl: c.canonicalImageUrl ?? null,
                     })),
               location: scene.location,
               action: panel.narration ?? panel.caption,

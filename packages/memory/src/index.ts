@@ -228,6 +228,10 @@ export async function buildProjectContext(
       arcs: { orderBy: [{ startChapterNumber: "asc" }, { name: "asc" }] },
       chapters: { orderBy: { chapterNumber: "desc" }, take: 3 },
       memorySnapshots: { orderBy: { createdAt: "desc" }, take: 3 },
+      continuityEvents: {
+        orderBy: { timelineOrder: "desc" },
+        take: 12,
+      },
     },
   });
 
@@ -333,6 +337,15 @@ export async function buildProjectContext(
       content: doc.content,
       metadata: doc.metadata,
     })),
+    recentContinuityEvents: (project.continuityEvents ?? [])
+      .slice(0, 12)
+      .map((e) => ({
+        eventType: e.eventType,
+        summary: e.summary,
+        permanent: e.permanent,
+        importance: e.importance,
+        entities: e.entities,
+      })),
   };
 }
 
