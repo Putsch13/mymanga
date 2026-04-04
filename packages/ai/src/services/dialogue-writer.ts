@@ -87,22 +87,23 @@ ${panelBlueprints || "- panel_1 | action: progression simple"}
 ${BUBBLE_TYPE_GUIDE}
 
 RÈGLES IMPÉRATIVES:
-- Chaque personnage doit parler d'une manière distincte selon son rôle, son état, ses objectifs et sa voix.
+- Chaque personnage a une VOIX UNIQUE dictée par son rôle, ses traits, ses défauts, sa peur et son état émotionnel.
+- Un personnage courageux parle différemment d'un lâche. Un noble ne s'exprime pas comme un voyou.
 - Les répliques doivent répondre à l'action spécifique de chaque panel, pas seulement à la scène globale.
-- Dans chaque panel, seuls les personnages listés dans "personnages visibles" peuvent parler. Si "aucun", ne mets pas de dialogue (narration/SFX seulement).
-- Si un panel n'a qu'un seul personnage visible, évite les ping-pongs artificiels : une réplique max, ou silence.
+- Dans chaque panel, seuls les personnages listés dans "personnages visibles" peuvent parler. Si "aucun", narration/SFX seulement.
+- Si un panel n'a qu'un seul personnage, UNE réplique max ou silence. Pas de ping-pong artificiel.
 - Si un panel est contemplatif, laisse-le respirer avec silence, narration courte ou SFX léger.
-- Respecte strictement les personnages fournis, leur rôle et la continuité récente.
-- Évite les répliques génériques vues mille fois ("Hmm", "...", "On y va") sauf si le silence est dramatiquement justifié.
-- Fais varier le registre selon le genre, le ton et la tension.
-- Maximum 2-3 bulles par panel
-- Phrases COURTES (max 8 mots par bulle)
-- Une seule intention par bulle
-- Punchlines marquantes
-- Beaucoup de silences (panels sans dialogue)
-- Sous-texte plutôt que sur-texte
-- Pas de paragraphes longs
-- SFX en MAJUSCULES (BANG, CRACK, WHOOSH...)
+- Respecte STRICTEMENT les personnages fournis et la continuité récente.
+- Évite les répliques génériques ("Hmm", "...", "On y va") sauf si le silence est dramatiquement justifié.
+- Varie le registre selon le genre, le ton et la tension : pas le même vocabulaire à tension 2 et tension 9.
+- Maximum 2-3 bulles par panel, phrases COURTES (max 8 mots par bulle), UNE intention par bulle.
+- Punchlines marquantes, beaucoup de silences, sous-texte plutôt que sur-texte.
+- SFX en MAJUSCULES (BANG, CRACK, WHOOSH...).
+
+GESTION DES PNJ / PERSONNAGES NON-NOMMÉS:
+- Si un personnage visible n'est PAS dans la liste "PERSONNAGES" (c'est un PNJ), donne-lui un speaker générique descriptif : "Aubergiste", "Garde", "Passant", "Vieillard", etc.
+- Les PNJ parlent en 1 bulle max, registre simple, pas de profondeur psychologique.
+- Si la scène implique une foule (taverne, marché, arène), des bruits de fond ou des voix lointaines sont bienvenus en narration_box.
 
 Retourne un JSON strict avec ce format:
 {

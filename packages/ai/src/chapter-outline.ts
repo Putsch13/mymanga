@@ -58,6 +58,7 @@ export type ChapterOutlineContext = {
   quickTag: string | null;
   previousSummary: string | null;
   previousCliffhanger: string | null;
+  seriesSynopsis?: string | null;
 };
 
 function fallbackOutline(ctx: ChapterOutlineContext): ChapterOutlineResult {
@@ -176,6 +177,7 @@ RÈGLES DE COHÉRENCE INTER-CHAPITRES :
     quickTag: ctx.quickTag,
     previousChapterSummary: ctx.previousSummary,
     previousCliffhanger: ctx.previousCliffhanger,
+    seriesSynopsis: ctx.seriesSynopsis ?? null,
     recentContinuityEvents: (ctx.recentContinuityEvents ?? []).slice(0, 10),
   };
 

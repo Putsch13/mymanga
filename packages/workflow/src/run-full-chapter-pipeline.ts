@@ -137,6 +137,48 @@ async function setJobProgress(jobId: string, step: JobStep, status: "running" | 
   });
 }
 
+/**
+ * Infère des détails d'environnement pour rendre l'image vivante :
+ * foule, heure du jour, météo, ambiance sonore, NPC de fond.
+ */
+function inferEnvironment(location: string, mood: string, sceneCharCount: number, panelCharCount: number): string {
+  const loc = location.toLowerCase();
+  const parts: string[] = [];
+
+  // Foule / monde selon le lieu
+  if (loc.includes("tavern") || loc.includes("bar") || loc.includes("auberge") || loc.includes("inn")) {
+    parts.push("busy tavern interior, patrons drinking in background, warm candlelight, wooden beams");
+  } else if (loc.includes("marché") || loc.includes("market") || loc.includes("bazar") || loc.includes("plaza")) {
+    parts.push("crowded marketplace, vendors and shoppers in background, colorful stalls");
+  } else if (loc.includes("ville") || loc.includes("city") || loc.includes("rue") || loc.includes("street")) {
+    parts.push("city street with pedestrians, buildings lining the road, urban atmosphere");
+  } else if (loc.includes("château") || loc.includes("castle") || loc.includes("palais") || loc.includes("throne")) {
+    parts.push("grand castle interior, stone walls, torches, guards in background");
+  } else if (loc.includes("forêt") || loc.includes("forest") || loc.includes("bois") || loc.includes("jungle")) {
+    parts.push("dense forest, dappled sunlight through canopy, nature sounds implied");
+  } else if (loc.includes("combat") || loc.includes("arène") || loc.includes("arena") || loc.includes("battlefield")) {
+    parts.push("battle arena, dust and debris, spectators or soldiers in background");
+  } else if (loc.includes("école") || loc.includes("school") || loc.includes("académie") || loc.includes("academy")) {
+    parts.push("school hallway or classroom, students in background, institutional setting");
+  }
+
+  // Heure du jour selon le mood
+  if (mood === "horror" || mood === "tension") {
+    parts.push("nighttime or twilight, dramatic shadows, low visibility");
+  } else if (mood === "romance" || mood === "calm") {
+    parts.push("golden hour or soft daylight, warm ambient lighting");
+  } else if (mood === "action") {
+    parts.push("dynamic lighting, motion particles, energy in the air");
+  }
+
+  // Interactions avec personnages non nommés si la scène en implique
+  if (sceneCharCount > panelCharCount && panelCharCount <= 2) {
+    parts.push("other characters visible in background, environmental storytelling");
+  }
+
+  return parts.join(", ");
+}
+
 function buildRoutingContext(
   intensityLayer: string,
   panel: StoryboardPanel,
@@ -480,6 +522,8 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               mood: panel.mood,
               contentIntensityLayer: intensityLayer,
               dialogueHint: panel.dialogue ? `${panel.dialogue.speaker}: ${panel.dialogue.text}` : undefined,
+              sceneContext: `${scene.summary} (${scene.purpose ?? ""})`.slice(0, 250),
+              environmentHint: inferEnvironment(scene.location, panel.mood, scene.characters.length, panel.characters.length),
             });
             composedPositive = composed.positive;
             composedNegative = composed.negative;

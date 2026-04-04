@@ -23,24 +23,19 @@ export interface StylePackRef {
 }
 
 export interface PanelPromptInput {
-  /** Style artistique du projet */
   stylePack?: StylePackRef | null;
-  /** Personnages présents dans le panel */
   characters?: CharacterRef[];
-  /** Lieu de la scène */
   location: string;
-  /** Action principale du panel */
   action: string;
-  /** Type de plan caméra */
   camera: string;
-  /** Ambiance émotionnelle */
   mood: PanelMood;
-  /** Layer de contenu (contrôle les contraintes) */
   contentIntensityLayer?: string;
-  /** Texte de dialogue à intégrer dans le prompt */
   dialogueHint?: string;
-  /** Seed pour reproductibilité */
   seed?: number;
+  /** Contexte narratif de la scène (résumé, but, tension) — enrichit l'image */
+  sceneContext?: string | null;
+  /** Ambiance d'environnement : foule, heure, météo, etc. */
+  environmentHint?: string | null;
 }
 
 export interface ComposedPrompt {
@@ -150,18 +145,29 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
   if (charDescs) positiveParts.push(`characters: ${charDescs}`);
   positiveParts.push(input.action);
   positiveParts.push(moodDesc);
+
+  // Contexte narratif : donne à l'IA le "pourquoi" de l'image
+  if (input.sceneContext) {
+    positiveParts.push(`narrative context: ${input.sceneContext.slice(0, 200)}`);
+  }
+
+  // Environnement vivant : foule, heure du jour, météo, ambiance
+  if (input.environmentHint) {
+    positiveParts.push(input.environmentHint);
+  }
+
   if (intensityNote && layer !== "GENERAL_SAFE") positiveParts.push(intensityNote);
   positiveParts.push(
     "high detail, consistent character design, professional manga art, ink lines, same character appearance as previous panels",
   );
   if (input.characters && input.characters.length > 0) {
     positiveParts.push(
-      "STRICT: preserve hair length/color, eye color, outfit, body modifications (prosthetics/bionic limbs), scars and facial features exactly; no drift",
+      "STRICT: preserve exact hair length/color, eye color, outfit, body modifications, scars, facial features; no drift",
     );
   }
 
   if (input.dialogueHint) {
-    positiveParts.push(`emotional subtext: ${input.dialogueHint.slice(0, 120)}`);
+    positiveParts.push(`emotional subtext: ${input.dialogueHint.slice(0, 150)}`);
   }
 
   const positive = positiveParts.filter(Boolean).join(", ");

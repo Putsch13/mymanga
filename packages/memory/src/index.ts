@@ -209,6 +209,38 @@ export async function retrieveRelevantMemory(
   return docs;
 }
 
+/**
+ * Construit un résumé cumulatif compressé de la série entière.
+ * Les 3 derniers chapitres sont détaillés, les anciens sont compressés en une ligne chacun.
+ * Permet au LLM de connaître l'arc global sans exploser le contexte.
+ */
+function buildSeriesSynopsis(
+  chapters: Array<{ chapterNumber: number; title: string | null; summary: string | null; cliffhanger: string | null }>,
+): string {
+  if (chapters.length === 0) return "Aucun chapitre précédent. C'est le début de la série.";
+
+  const sorted = [...chapters].sort((a, b) => a.chapterNumber - b.chapterNumber);
+
+  if (sorted.length <= 3) {
+    return sorted
+      .map((c) => `Ch.${c.chapterNumber} "${c.title ?? ""}": ${c.summary ?? "non résumé"}. Fin: ${c.cliffhanger ?? "n/a"}`)
+      .join("\n");
+  }
+
+  const older = sorted.slice(0, -3);
+  const recent = sorted.slice(-3);
+
+  const olderCompressed = older
+    .map((c) => `Ch.${c.chapterNumber}: ${(c.summary ?? "").slice(0, 80)}`)
+    .join(" → ");
+
+  const recentDetailed = recent
+    .map((c) => `Ch.${c.chapterNumber} "${c.title ?? ""}": ${c.summary ?? "non résumé"}. Fin: ${c.cliffhanger ?? "n/a"}`)
+    .join("\n");
+
+  return `ARC GLOBAL (${sorted.length} chapitres): ${olderCompressed}\n\nDERNIERS CHAPITRES:\n${recentDetailed}`;
+}
+
 export async function buildProjectContext(
   prisma: PrismaClient,
   projectId: string,
@@ -226,8 +258,8 @@ export async function buildProjectContext(
       characters: { orderBy: { createdAt: "asc" } },
       relationships: true,
       arcs: { orderBy: [{ startChapterNumber: "asc" }, { name: "asc" }] },
-      chapters: { orderBy: { chapterNumber: "desc" }, take: 3 },
-      memorySnapshots: { orderBy: { createdAt: "desc" }, take: 3 },
+      chapters: { orderBy: { chapterNumber: "desc" }, take: 10 },
+      memorySnapshots: { orderBy: { createdAt: "desc" }, take: 5 },
       continuityEvents: {
         orderBy: { timelineOrder: "desc" },
         take: 12,
@@ -363,6 +395,15 @@ export async function buildProjectContext(
         importance: e.importance,
         entities: e.entities,
       })),
+    // Résumé cumulatif compressé de toute la série (pour séries longues 50+ chapitres)
+    seriesSynopsis: buildSeriesSynopsis(
+      project.chapters.map((c) => ({
+        chapterNumber: c.chapterNumber,
+        title: c.title,
+        summary: c.summary,
+        cliffhanger: c.cliffhanger,
+      })),
+    ),
   };
 }
 
