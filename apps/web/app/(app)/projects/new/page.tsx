@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 
 const GENRE_PRESETS = ["dark fantasy", "seinen", "thriller", "horreur", "romance tragique", "cyberpunk"];
@@ -37,6 +38,26 @@ export default function NewProjectPage() {
   const [canonStrictness, setCanonStrictness] = useState(85);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function SliderField({
+    label,
+    value,
+    onChange,
+  }: {
+    label: string;
+    value: number;
+    onChange: (next: number) => void;
+  }) {
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-sm">
+          <Label>{label}</Label>
+          <span className="text-muted-foreground">{value}/100</span>
+        </div>
+        <Slider min={0} max={100} step={1} value={[value]} onValueChange={([v]) => onChange(v)} />
+      </div>
+    );
+  }
 
   function toggleSubGenre(genre: string) {
     setSubGenres((current) => (current.includes(genre) ? current.filter((value) => value !== genre) : [...current, genre]));
@@ -197,30 +218,13 @@ export default function NewProjectPage() {
 
             {step === 3 ? (
               <div className="space-y-4">
-                {[
-                  ["Violence", violenceLevel, setViolenceLevel],
-                  ["Romance", romanceLevel, setRomanceLevel],
-                  ["Sensualité", sensualityLevel, setSensualityLevel],
-                  ["Noirceur", darknessLevel, setDarknessLevel],
-                  ["Mystère", mysteryLevel, setMysteryLevel],
-                  ["Densité dialogues", dialogueDensity, setDialogueDensity],
-                  ["Canon strictness", canonStrictness, setCanonStrictness],
-                ].map(([label, value, setter]) => (
-                  <div key={label as string} className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <Label>{label as string}</Label>
-                      <span className="text-muted-foreground">{value as number}</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={value as number}
-                      onChange={(e) => (setter as (next: number) => void)(Number(e.target.value))}
-                      className="w-full accent-violet-500"
-                    />
-                  </div>
-                ))}
+                <SliderField label="Violence" value={violenceLevel} onChange={setViolenceLevel} />
+                <SliderField label="Romance" value={romanceLevel} onChange={setRomanceLevel} />
+                <SliderField label="Sensualité" value={sensualityLevel} onChange={setSensualityLevel} />
+                <SliderField label="Noirceur" value={darknessLevel} onChange={setDarknessLevel} />
+                <SliderField label="Mystère" value={mysteryLevel} onChange={setMysteryLevel} />
+                <SliderField label="Densité dialogues" value={dialogueDensity} onChange={setDialogueDensity} />
+                <SliderField label="Canon strictness" value={canonStrictness} onChange={setCanonStrictness} />
               </div>
             ) : null}
 

@@ -3,6 +3,7 @@ import {
   runRoutedImageGeneration,
   composeMangaPanelPrompt,
   runChapterContinuityPass,
+  runChapterNarrativeCoherencePass,
   type StoryboardPanel,
   type RoutingContext,
   type ProjectContextForChapter,
@@ -286,13 +287,31 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       chapterGoal: bundle.creativeDirection.chapterGoal,
       selectedPlotLabel,
     });
-    const revisedBundle = continuity.bundle;
+    let revisedBundle = continuity.bundle;
     await setJobProgress(
       jobId,
       {
         key: "continuity_pass",
         label: continuity.usedOpenAI ? "Continuité IA appliquée" : "Continuité fallback appliquée",
         detail: continuity.notes.slice(0, 2).join(" · ") || undefined,
+      },
+      "completed",
+    );
+
+    await setJobProgress(jobId, { key: "story_coherence_pass", label: "Cohérence narrative & rythme" }, "running");
+    const narrative = await runChapterNarrativeCoherencePass({
+      context,
+      bundle: revisedBundle,
+      chapterGoal: revisedBundle.creativeDirection.chapterGoal,
+      selectedPlotLabel,
+    });
+    revisedBundle = narrative.bundle;
+    await setJobProgress(
+      jobId,
+      {
+        key: "story_coherence_pass",
+        label: narrative.usedOpenAI ? "Narration peaufinée" : "Narration (fallback)",
+        detail: narrative.notes.slice(0, 2).join(" · ") || undefined,
       },
       "completed",
     );
@@ -610,6 +629,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               status: "completed",
             },
             { key: "continuity_pass", label: "Continuité IA avant images", status: "completed" },
+            { key: "story_coherence_pass", label: "Cohérence narrative", status: "completed" },
             { key: "persist_chapter", label: "Persistance chapitre", status: "completed" },
             {
               key: "generate_images",
@@ -623,6 +643,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           memorySnapshotId: snapshot.id,
           canonWarnings,
           continuityNotes: continuity.notes,
+          narrativeNotes: narrative.notes,
           imageStats: { total: plannedImages.length, generated: generatedCount, failed: failedCount },
         },
       },

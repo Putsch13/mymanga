@@ -64,7 +64,7 @@ export async function writeDialogueForScene(
   const panelBlueprints = (input.panelBlueprints ?? [])
     .map(
       (panel, index) =>
-        `- panel_${index + 1} | action: ${panel.action} | mood: ${panel.mood ?? "n/a"} | personnages: ${(panel.characters ?? []).join(", ") || "aucun"}`,
+        `- panel_${index + 1} | action: ${panel.action} | mood: ${panel.mood ?? "n/a"} | personnages visibles: ${(panel.characters ?? []).join(", ") || "aucun"}`,
     )
     .join("\n");
 
@@ -89,6 +89,8 @@ ${BUBBLE_TYPE_GUIDE}
 RÈGLES IMPÉRATIVES:
 - Chaque personnage doit parler d'une manière distincte selon son rôle, son état, ses objectifs et sa voix.
 - Les répliques doivent répondre à l'action spécifique de chaque panel, pas seulement à la scène globale.
+- Dans chaque panel, seuls les personnages listés dans "personnages visibles" peuvent parler. Si "aucun", ne mets pas de dialogue (narration/SFX seulement).
+- Si un panel n'a qu'un seul personnage visible, évite les ping-pongs artificiels : une réplique max, ou silence.
 - Si un panel est contemplatif, laisse-le respirer avec silence, narration courte ou SFX léger.
 - Respecte strictement les personnages fournis, leur rôle et la continuité récente.
 - Évite les répliques génériques vues mille fois ("Hmm", "...", "On y va") sauf si le silence est dramatiquement justifié.

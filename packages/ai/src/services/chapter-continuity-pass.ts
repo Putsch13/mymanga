@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { GeneratedChapterBundle, ProjectContextForChapter, StoryboardPanel, StoryboardPage } from "../chapter-pipeline";
+import { buildBundleDigest, buildContextDigest } from "./chapter-pass-digests";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -18,74 +19,6 @@ type ContinuityReviewPayload = {
   notes?: string[];
   scenes?: ContinuitySceneReview[];
 };
-
-function buildContextDigest(context: ProjectContextForChapter) {
-  return {
-    project: {
-      title: context.project.title,
-      pitch: context.project.pitch,
-      description: context.project.description ?? null,
-      primaryGenre: context.project.primaryGenre,
-      subGenres: context.project.subGenres ?? [],
-      tone: context.project.tone,
-      visualStyle: context.project.visualStyle ?? null,
-      intensityLayer: context.project.intensityLayer ?? null,
-    },
-    settings: context.settings ?? null,
-    stylePack: context.stylePack ?? null,
-    storyBible: context.storyBible?.summary
-      ? {
-          summary: context.storyBible.summary,
-          themes: context.storyBible.themes ?? [],
-        }
-      : null,
-    focusedCharacters: context.characters.slice(0, 5).map((character) => ({
-      name: character.name,
-      role: character.roleType,
-      objective: character.objective,
-      fear: character.fear,
-      emotionalState: character.emotionalState,
-      status: character.status,
-      biography: character.biography,
-    })),
-    recentChapters: context.recentChapters.slice(0, 3),
-    recentMemory: context.recentMemory.slice(0, 3),
-    retrievedDocs: context.retrievedDocs.slice(0, 4).map((doc) => ({
-      title: doc.title,
-      entityType: doc.entityType,
-      content: doc.content.slice(0, 500),
-    })),
-  };
-}
-
-function buildBundleDigest(bundle: GeneratedChapterBundle) {
-  return {
-    outline: bundle.outline,
-    script: {
-      scenes: bundle.script.scenes.map((scene) => ({
-        id: scene.id,
-        summary: scene.summary,
-        location: scene.location,
-        characters: scene.characters,
-        dialogue: scene.dialogue.slice(0, 10),
-      })),
-    },
-    storyboard: {
-      pages: bundle.storyboard.pages.map((page) => ({
-        pageNumber: page.pageNumber,
-        layout: page.layout,
-        panels: page.panels.map((panel) => ({
-          panelNumber: panel.panelNumber,
-          caption: panel.caption,
-          narration: panel.narration ?? null,
-          characters: panel.characters,
-          mood: panel.mood,
-        })),
-      })),
-    },
-    memory: bundle.memory,
-  };
-}
 
 function keepKnownCharacters(context: ProjectContextForChapter, names: string[], fallback: string[]) {
   const known = new Set(context.characters.map((character) => character.name));
@@ -160,10 +93,10 @@ export async function runChapterContinuityPass(input: {
   chapterGoal: string;
   selectedPlotLabel?: "safe" | "bold" | "shock";
 }): Promise<{ bundle: GeneratedChapterBundle; notes: string[]; usedOpenAI: boolean }> {
-  const baseNotes = ["Continuity pass appliqué avant génération d’images."];
+  const baseNotes = ["Passe continuité (canon / lieux / cast) avant génération d’images."];
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
-    return { bundle: input.bundle, notes: [...baseNotes, "OpenAI absent: pass limité au fallback."], usedOpenAI: false };
+    return { bundle: input.bundle, notes: [...baseNotes, "OpenAI absent: pass non exécuté."], usedOpenAI: false };
   }
 
   const model = process.env.OPENAI_CONTINUITY_MODEL?.trim() || process.env.OPENAI_DIALOGUE_MODEL || "gpt-4o-mini";
@@ -177,20 +110,25 @@ export async function runChapterContinuityPass(input: {
   try {
     const response = await openai.chat.completions.create({
       model,
-      temperature: 0.35,
+      temperature: 0.28,
       response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
-          content:
-            "Tu fais une passe de continuité sur un chapitre manga avant génération d'images. Tu dois corriger seulement ce qui nuit à la cohérence canon, aux personnages, aux lieux, à la chronologie et à la logique émotionnelle. Réponds uniquement en JSON avec les clés chapterSummary, cliffhanger, notes, scenes. Chaque scene doit garder le même sceneId et proposer summary, location, characters, panelCaptions, panelNarrations.",
+          content: `Tu es un superviseur canon pour un manga professionnel AVANT synthèse image.
+Règles strictes :
+- Corrige uniquement les incohérences factuelles : noms, lieux, chronologie, présence des personnages, statuts, contradictions avec la bible et les chapitres récents.
+- Ne change pas le ton ni l’arc émotionnel global ; une seconde passe s’occupera du rythme narratif.
+- Chaque personnage dans une scène doit exister dans le cast fourni ; pas de nouveaux noms inventés.
+- Garde les sceneId exacts (scene_1, scene_2, …). Les tableaux panelCaptions et panelNarrations doivent avoir la même longueur que les panels de la page OU être omis.
+Réponds uniquement en JSON : { "chapterSummary", "cliffhanger", "notes", "scenes" } où chaque scene a sceneId, summary, location, characters, panelCaptions?, panelNarrations?.`,
         },
         {
           role: "user",
-          content: `Relis et corrige ce chapitre pour qu'il reste cohérent de bout en bout:\n${JSON.stringify(prompt)}`,
+          content: `Corrige ce chapitre pour la cohérence canon (aucune phrase hors JSON) :\n${JSON.stringify(prompt)}`,
         },
       ],
-      max_tokens: 2200,
+      max_tokens: 3200,
     });
 
     const raw = response.choices[0]?.message?.content ?? "{}";
@@ -198,10 +136,10 @@ export async function runChapterContinuityPass(input: {
     const nextBundle = applySceneReview(input.context, input.bundle, parsed);
     return {
       bundle: nextBundle,
-      notes: [...baseNotes, ...(parsed.notes ?? []).slice(0, 8)],
+      notes: [...baseNotes, ...(parsed.notes ?? []).slice(0, 10)],
       usedOpenAI: true,
     };
   } catch {
-    return { bundle: input.bundle, notes: [...baseNotes, "Le pass IA a échoué, bundle initial conservé."], usedOpenAI: false };
+    return { bundle: input.bundle, notes: [...baseNotes, "Échec OpenAI : bundle d’origine conservé."], usedOpenAI: false };
   }
 }

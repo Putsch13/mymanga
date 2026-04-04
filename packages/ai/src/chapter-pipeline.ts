@@ -275,9 +275,13 @@ function inferMood(tension: number, genre: string): PanelMood {
 }
 
 function inferLayout(tension: number, panelCount: number): GridLayout {
-  if (panelCount === 7) return tension >= 8 ? "E" : "D";
-  if (panelCount === 6) return tension >= 7 ? "C" : "B";
-  return "A";
+  // Layouts in UI:
+  // - 7 panels: B, E
+  // - 6 panels: A, C, D
+  if (panelCount >= 7) return tension >= 8 ? "E" : "B";
+  if (panelCount === 6) return tension >= 8 ? "D" : tension >= 6 ? "C" : "A";
+  // 5 panels -> use a 6-panel layout and leave one area empty.
+  return tension >= 7 ? "C" : "A";
 }
 
 const STD_NEGATIVE =
@@ -549,7 +553,7 @@ export async function generateChapterBundle(input: {
     previousCliffhanger: previous?.cliffhanger ?? null,
   });
 
-  // Cible produit : ~6 pages par chapitre, 1 scène = 1 page.
+  // Cible produit : ~12 pages par chapitre, 1 scène = 1 page.
   const rawOutlineBeats = outlineResult.outline.beats.map((beat, index) => ({
     id: `beat_${index + 1}`,
     summary: beat.summary,
@@ -567,7 +571,8 @@ export async function generateChapterBundle(input: {
     purpose: beat.emotionalTone ?? `beat_${index + 1}`,
   }));
 
-  const beats = stretchToCount(rawOutlineBeats, 6, (index) => ({
+  const TARGET_PAGES = 12;
+  const beats = stretchToCount(rawOutlineBeats, TARGET_PAGES, (index) => ({
     id: `beat_${index + 1}`,
     summary: `${selected.summary} Cette étape fait avancer ${input.context.project.title} dans une nouvelle direction.`,
     tension: Math.min(9, 3 + index),
@@ -576,7 +581,13 @@ export async function generateChapterBundle(input: {
     purpose: `variation_${index + 1}`,
   }));
 
-  const panelCounts = [6, 7, 6, 7, 6, 7];
+  const panelCounts = beats.map((beat, index) => {
+    const t = beat.tension ?? (3 + index);
+    // 5–7 cases par page, davantage de cases quand la tension monte.
+    if (t >= 8) return 7;
+    if (t >= 6) return index % 2 === 0 ? 6 : 7;
+    return index % 3 === 0 ? 5 : 6;
+  });
   const scenesBase = beats.map((beat, index) => ({
     id: `scene_${index + 1}`,
     title: `Scene ${index + 1}`,

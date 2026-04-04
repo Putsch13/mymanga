@@ -94,6 +94,7 @@ function buildPagesFromChapter(chapter: ChapterPayload): UniversalMangaPage[] {
   const pipelineScenes = chapter.scenes.map((scene) => ({
     id: scene.id,
     images: scene.images.map((img) => ({
+      id: img.id,
       panelNumber: img.panelNumber,
       mood: img.metadata?.mood,
       imageUrl: img.imageUrl,
@@ -151,7 +152,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   const [continueMsg, setContinueMsg] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (options?: { preserveIndex?: boolean }) => {
     setLoadError(null);
     const res = await fetch(`/api/projects/${projectId}/chapters/${chapterId}`);
     if (!res.ok) {
@@ -163,13 +164,25 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
     setMemorySummary(j.memorySnapshot?.narrativeSummary ?? null);
     setImageStats(j.imageStats ?? null);
     setActiveJob(j.activeJob ?? null);
-    setPageIndex(0);
-    setShowEnd(false);
+    if (!options?.preserveIndex) {
+      setPageIndex(0);
+      setShowEnd(false);
+    }
   }, [projectId, chapterId]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Auto-refresh pendant une génération d'images / pipeline pour éviter le besoin de refresh manuel.
+  useEffect(() => {
+    if (!activeJob) return;
+    if (!["queued", "running", "waiting_external"].includes(activeJob.status)) return;
+    const interval = window.setInterval(() => {
+      void load({ preserveIndex: true });
+    }, 2500);
+    return () => window.clearInterval(interval);
+  }, [activeJob, load]);
 
   // Responsive: double page uniquement sur écrans larges
   useEffect(() => {

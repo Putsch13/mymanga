@@ -1,14 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Palette, Users } from "lucide-react";
 import { RENDERING_MODES } from "@manga-ai-studio/core";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -16,6 +17,8 @@ const intensities = ["GENERAL_SAFE", "TEEN", "MATURE_DRAMA", "MATURE_VISUAL", "R
 
 export default function ChapterGeneratorPage() {
   const params = useParams();
+  const router = useRouter();
+  const autoReaderNavigatedRef = useRef(false);
   const id = params.id as string;
   const [mode, setMode] = useState<(typeof RENDERING_MODES)[number]>("PANEL_DRAFT");
   const [intensity, setIntensity] = useState<(typeof intensities)[number]>("GENERAL_SAFE");
@@ -90,6 +93,10 @@ export default function ChapterGeneratorPage() {
   }, []);
 
   useEffect(() => {
+    autoReaderNavigatedRef.current = false;
+  }, [selectedJobId]);
+
+  useEffect(() => {
     if (!selectedJobId) return;
     const interval = window.setInterval(async () => {
       const res = await fetch(`/api/jobs/${selectedJobId}`);
@@ -99,10 +106,39 @@ export default function ChapterGeneratorPage() {
       if (["completed", "failed", "partial_success", "canceled"].includes(json.job.status)) {
         window.clearInterval(interval);
         loadChapters();
+        router.refresh();
+        if (json.job.status === "completed" && selectedChapter && !autoReaderNavigatedRef.current) {
+          autoReaderNavigatedRef.current = true;
+          window.setTimeout(() => {
+            window.location.assign(`/projects/${id}/chapters/${selectedChapter}/read?fresh=1`);
+          }, 500);
+        }
       }
     }, 2000);
     return () => window.clearInterval(interval);
-  }, [loadChapters, selectedJobId]);
+  }, [id, loadChapters, router, selectedChapter, selectedJobId]);
+
+  const progressValue = (() => {
+    const steps = jobState?.output?.steps ?? [];
+    if (!steps.length) return null;
+    const weights: Record<string, number> = {
+      build_context: 9,
+      generate_bundle: 18,
+      continuity_pass: 8,
+      story_coherence_pass: 8,
+      persist_chapter: 12,
+      generate_images: 40,
+      update_memory: 5,
+    };
+    const scoreFor = (status: string, weight: number) => {
+      if (status === "completed") return weight;
+      if (status === "running" || status === "waiting_external") return Math.max(1, Math.round(weight * 0.55));
+      return 0;
+    };
+    const total = steps.reduce((acc, step) => acc + (weights[step.key] ?? 10), 0);
+    const done = steps.reduce((acc, step) => acc + scoreFor(step.status, weights[step.key] ?? 10), 0);
+    return Math.max(0, Math.min(100, Math.round((done / Math.max(total, 1)) * 100)));
+  })();
 
   async function runEstimate() {
     const res = await fetch("/api/estimate-image", {
@@ -200,7 +236,7 @@ export default function ChapterGeneratorPage() {
         </Link>
         <h1 className="mt-3 text-3xl font-semibold">Labo de génération</h1>
         <p className="text-muted-foreground mt-2 max-w-2xl text-sm">
-          Ici, on vise une sortie lisible comme un vrai manga : environ <strong>6 pages</strong>, rythme propre, continuité, et panels réellement générés.
+          Ici, on vise une sortie lisible comme un vrai manga : environ <strong>12 pages</strong>, rythme propre, double passe (canon + narration), et panels réellement générés.
         </p>
         {diag ? (
           <div className="mt-4 flex flex-wrap gap-2 text-xs">
@@ -472,6 +508,19 @@ export default function ChapterGeneratorPage() {
               {jobState ? (
                 <div className="space-y-3">
                   <p className="text-sm font-medium">Statut : {jobState.status}</p>
+                  {typeof progressValue === "number" ? (
+                    <div className="space-y-2">
+                      <Progress value={progressValue} />
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>{progressValue}%</span>
+                        <span>
+                          {progressValue >= 100 && jobState.status === "completed"
+                            ? "Terminé — recharge automatique"
+                            : "En cours…"}
+                        </span>
+                      </div>
+                    </div>
+                  ) : null}
                   {["queued", "running"].includes(jobState.status) ? (
                     <div className="rounded-lg border border-amber-500/20 bg-amber-950/20 p-3">
                       <p className="text-xs text-amber-300">

@@ -17,3 +17,4 @@ export * from "./services/canon-physical-validator";
 export * from "./services/dialogue-writer";
 export * from "./services/panel-text-planner";
 export * from "./services/chapter-continuity-pass";
+export * from "./services/chapter-narrative-coherence-pass";

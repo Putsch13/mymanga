@@ -373,6 +373,7 @@ export default function CharacterDetailPage() {
             outfitDefault={character.outfitDefault ?? (character.wardrobeProfile.defaultOutfit as string) ?? null}
             bodyState={character.bodyState}
             imageUrl={primaryVisual?.imageUrl}
+            isGenerating={generatingVisual}
           />
 
           {/* Visual refs */}

@@ -147,13 +147,24 @@ export interface PipelineScene {
   images?: PipelinePanel[];
 }
 
+type MangaGridLayout = "A" | "B" | "C" | "D" | "E";
+
 export function pipelineScenesToPages(
   scenes: PipelineScene[],
   storyboardPages?: Array<{ pageNumber: number; layout: string }>,
 ): UniversalMangaPage[] {
+  function normalizeLayout(layout: MangaGridLayout, panelCount: number): MangaGridLayout {
+    // Defensive: old data / mismatches should not break panel placement.
+    const isSeven = panelCount >= 7;
+    const sevenLayouts: MangaGridLayout[] = ["B", "E"];
+    const sixLayouts: MangaGridLayout[] = ["A", "C", "D"];
+    if (isSeven) return sevenLayouts.includes(layout) ? layout : "B";
+    return sixLayouts.includes(layout) ? layout : "A";
+  }
+
   return scenes.map((scene, idx) => {
     const sbPage = storyboardPages?.[idx];
-    const layout = (sbPage?.layout as "A" | "B" | "C" | "D" | "E") ?? "A";
+    const rawLayout = (sbPage?.layout as "A" | "B" | "C" | "D" | "E") ?? "A";
 
     const panels: UniversalPanel[] = (scene.images ?? [])
       .sort((a, b) => a.panelNumber - b.panelNumber)
@@ -173,7 +184,8 @@ export function pipelineScenesToPages(
         textScale: img.metadata?.textScale,
       }));
 
-    return { layout, panels };
+    const layout = normalizeLayout(rawLayout, panels.length);
+    return { id: scene.id, layout, panels };
   });
 }
 

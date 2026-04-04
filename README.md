@@ -345,7 +345,6 @@ Couvre notamment le **routage image** (`packages/ai/src/image-routing-service.te
 
 Estimation issue du pipeline réellement validé localement :
 
-- **39 panels**
 - résolution moyenne : **768x1024**
 - provider image principal : **`fal-ai/flux/dev`**
 - texte : **`gpt-4o-mini`**
@@ -357,13 +356,17 @@ Prix de référence utilisés :
 - `gpt-4o-mini` : **0.15 USD / 1M tokens input** et **0.60 USD / 1M tokens output**
 - `text-embedding-3-small` : **0.02 USD / 1M tokens**
 
-Ordre de grandeur pour **1 chapitre standard** :
+Ordre de grandeur pour **1 chapitre** (selon longueur) :
+
+- **Chapitre standard (~6 pages, ~39 panels)** : ~0.78 USD
+- **Chapitre long (~12 pages, 5–7 panels/page = ~60–84 panels)** : ~1.18–1.66 USD
 
 | Poste | Hypothèse | Coût approx. |
 |------|-----------|--------------|
-| Images | 39 panels × 768×1024 | **~0.7668 USD** |
-| Outline + dialogue + continuity pass + embeddings | `gpt-4o-mini` + embeddings | **~0.0098 USD** |
-| **Total chapitre** | pipeline complet | **~0.7766 USD** |
+| Images (standard) | 39 panels × 768×1024 | **~0.7668 USD** |
+| Images (12 pages) | 60–84 panels × 768×1024 | **~1.179–1.652 USD** |
+| Texte + embeddings | outline + dialogues + passes continuité/narration + embeddings | **~0.02–0.05 USD** |
+| **Total chapitre (12 pages)** | pipeline complet | **~1.20–1.71 USD** |
 
 Lecture produit :
 
