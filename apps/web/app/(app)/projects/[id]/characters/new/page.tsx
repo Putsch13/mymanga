@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,6 +20,8 @@ export default function NewCharacterPage() {
   const params = useParams();
   const id = params.id as string;
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isOnboarding = searchParams.get("onboarding") === "1";
 
   // Identité
   const [name, setName] = useState("");
@@ -86,7 +88,12 @@ export default function NewCharacterPage() {
     const data = await res.json();
     setLoading(false);
     if (res.ok) {
-      router.push(`/projects/${id}/characters/${data.character.id}`);
+      // En mode onboarding, rediriger vers le labo après le premier personnage
+      if (isOnboarding) {
+        router.push(`/projects/${id}/generate`);
+      } else {
+        router.push(`/projects/${id}/characters/${data.character.id}`);
+      }
     } else {
       setError(data.message ?? data.error ?? "Erreur lors de la création");
     }
@@ -94,6 +101,19 @@ export default function NewCharacterPage() {
 
   return (
     <div className="space-y-6">
+      {isOnboarding && (
+        <div className="rounded-2xl border border-primary/30 bg-primary/5 px-5 py-4">
+          <p className="text-sm font-medium text-foreground">Étape 2/3 — Crée ton premier personnage</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Remplis au minimum : nom, couleur de cheveux, couleur des yeux et tenue. Ces 4 champs suffisent pour générer des images cohérentes. Tu pourras enrichir la fiche plus tard.
+          </p>
+          <div className="mt-2 flex gap-2">
+            <Link href={`/projects/${id}/generate`} className="text-xs text-muted-foreground underline hover:text-foreground">
+              Passer et générer directement →
+            </Link>
+          </div>
+        </div>
+      )}
       <div>
         <Link href={`/projects/${id}/characters`} className="text-sm text-muted-foreground hover:text-foreground">
           ← Personnages

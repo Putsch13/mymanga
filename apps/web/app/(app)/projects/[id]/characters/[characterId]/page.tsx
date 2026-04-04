@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,7 +53,6 @@ type ProjectCharacter = { id: string; name: string };
 
 export default function CharacterDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const projectId = params.id as string;
   const characterId = params.characterId as string;
   const [character, setCharacter] = useState<CharacterPayload | null>(null);
@@ -163,7 +162,20 @@ export default function CharacterDetailPage() {
     });
     if (res.ok) {
       setMessage({ text: "Relation ajoutée.", type: "ok" });
-      router.refresh();
+      // Recharger la fiche pour afficher la nouvelle relation sans full-refresh
+      const updated = await fetch(`/api/characters/${characterId}`);
+      const json = await updated.json();
+      if (json.character) {
+        setCharacter((prev) => prev ? {
+          ...prev,
+          relationshipsFrom: json.character.relationshipsFrom ?? prev.relationshipsFrom,
+          relationshipsTo: json.character.relationshipsTo ?? prev.relationshipsTo,
+        } : prev);
+      }
+      setRelationTargetId("");
+    } else {
+      const json = await res.json().catch(() => ({}));
+      setMessage({ text: (json as { message?: string }).message ?? "Impossible d'ajouter la relation.", type: "error" });
     }
   }
 
@@ -178,6 +190,26 @@ export default function CharacterDetailPage() {
 
   const isAdult = character.adultVerified && (character.age ?? 0) >= 18;
   const primaryVisual = character.visualRefs.find((r) => r.isPrimary) ?? character.visualRefs[0];
+
+  // Calcul du taux de complétion de la fiche (pour guider l'user)
+  const completionScore = (() => {
+    const checks = [
+      Boolean(character.name),
+      Boolean(character.roleType),
+      Boolean(character.biography),
+      Boolean(character.appearance),
+      Boolean(character.hairColor),
+      Boolean(character.eyeColor),
+      Boolean(character.outfitDefault),
+      Boolean(character.objective),
+      Boolean(character.fear),
+      (character.traits ?? []).length > 0,
+    ];
+    return Math.round((checks.filter(Boolean).length / checks.length) * 100);
+  })();
+
+  // Estimation coût génération visuel : 1 image 512×768 ≈ 0.025 USD (FAL flux/dev)
+  const VISUAL_COST_USD = 0.025;
 
   return (
     <div className="space-y-6">
@@ -194,14 +226,19 @@ export default function CharacterDetailPage() {
             {isAdult && <Badge className="bg-rose-900/40 text-rose-300 border-rose-700/40">18+</Badge>}
           </div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={generateVisual} disabled={generatingVisual}>
-            {generatingVisual ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
-            Générer visuel
-          </Button>
-          <Button onClick={save} disabled={saving}>
-            {saving ? "Sauvegarde…" : "Sauvegarder"}
-          </Button>
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={generateVisual} disabled={generatingVisual}>
+              {generatingVisual ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
+              Générer visuel
+            </Button>
+            <Button onClick={save} disabled={saving}>
+              {saving ? "Sauvegarde…" : "Sauvegarder"}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Génération visuel ≈ <span className="font-medium text-foreground">{VISUAL_COST_USD.toFixed(3)} USD</span>
+          </p>
         </div>
       </div>
 
@@ -375,6 +412,29 @@ export default function CharacterDetailPage() {
             imageUrl={primaryVisual?.imageUrl}
             isGenerating={generatingVisual}
           />
+
+          {/* Barre de complétion de la fiche */}
+          <div className="rounded-xl border border-border/60 bg-card/50 p-4 space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium text-foreground">Complétion fiche</span>
+              <span className={`font-semibold tabular-nums ${completionScore >= 80 ? "text-emerald-400" : completionScore >= 50 ? "text-amber-400" : "text-red-400"}`}>
+                {completionScore}%
+              </span>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-border/40 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${completionScore >= 80 ? "bg-emerald-500" : completionScore >= 50 ? "bg-amber-500" : "bg-red-500"}`}
+                style={{ width: `${completionScore}%` }}
+              />
+            </div>
+            {completionScore < 80 && (
+              <p className="text-xs text-muted-foreground">
+                {completionScore < 50
+                  ? "Remplis au moins nom, apparence, couleur cheveux/yeux et tenue pour de bonnes images."
+                  : "Ajoute objectif, peur ou traits pour enrichir les dialogues."}
+              </p>
+            )}
+          </div>
 
           {/* Visual refs */}
           <Card className="border-border/60 bg-card/50">

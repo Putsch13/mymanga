@@ -255,11 +255,23 @@ export default function ChapterGeneratorPage() {
           Ici, on vise une sortie lisible comme un vrai manga : environ <strong>10 pages</strong> (4–6 cases/page), double passe de cohérence (canon + narration), et panels réellement générés.
         </p>
         {diag ? (
-          <div className="mt-4 flex flex-wrap gap-2 text-xs">
-            <span className="rounded-full border border-border/60 px-3 py-1">AUTH {diag.authDisabled ? "OFFLINE/DEMO" : "LIVE"}</span>
-            <span className="rounded-full border border-border/60 px-3 py-1">FAL {diag.hasFalKey ? "OK" : "MANQUANT"}</span>
-            <span className="rounded-full border border-border/60 px-3 py-1">OPENAI {diag.hasOpenAI ? "OK" : "MANQUANT"}</span>
-            <span className="rounded-full border border-border/60 px-3 py-1">INNGEST {diag.hasInngestEventKey ? "OK" : "OPTIONNEL"}</span>
+          <div className="mt-4 space-y-2">
+            <div className="flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full border border-border/60 px-3 py-1">AUTH {diag.authDisabled ? "OFFLINE/DEMO" : "LIVE"}</span>
+              <span className={`rounded-full border px-3 py-1 ${diag.hasFalKey ? "border-border/60" : "border-red-500/50 text-red-400"}`}>FAL {diag.hasFalKey ? "OK" : "MANQUANT"}</span>
+              <span className={`rounded-full border px-3 py-1 ${diag.hasOpenAI ? "border-border/60" : "border-amber-500/50 text-amber-400"}`}>OPENAI {diag.hasOpenAI ? "OK" : "MANQUANT"}</span>
+              <span className="rounded-full border border-border/60 px-3 py-1">INNGEST {diag.hasInngestEventKey ? "OK" : "OPTIONNEL"}</span>
+            </div>
+            {!diag.hasOpenAI && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-950/20 p-3 text-xs text-amber-300">
+                ⚠️ <strong>OPENAI_API_KEY absente</strong> — le RAG (mémoire sémantique), les passes de cohérence et les dialogues sont dégradés ou désactivés. Les chapitres seront génériques.
+              </div>
+            )}
+            {!diag.hasFalKey && (
+              <div className="rounded-xl border border-red-500/30 bg-red-950/20 p-3 text-xs text-red-300">
+                🔴 <strong>FAL_KEY absente</strong> — aucune image ne sera générée. Le pipeline tournera en mode mock.
+              </div>
+            )}
           </div>
         ) : null}
       </div>

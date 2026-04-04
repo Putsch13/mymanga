@@ -227,7 +227,10 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     await setJobProgress(jobId, { key: "build_context", label: "Contexte projet" }, "running");
     const contextRaw = await buildProjectContext(prisma, projectId, chapter.userIntent, { focusCharacterIds });
     if (!contextRaw) throw new Error("project_context_not_found");
-    const context = contextRaw as unknown as ProjectContextForChapter;
+    // buildProjectContext retourne un objet structurellement compatible avec ProjectContextForChapter.
+    // Le cast est nécessaire car les types Prisma (Json, Decimal…) diffèrent des types pipeline.
+    // À terme : exporter ProjectContextForChapter depuis packages/memory et aligner les deux.
+    const context = contextRaw as ProjectContextForChapter;
 
     const contextDocument = [
       `Projet: ${context.project.title}`,
@@ -442,6 +445,11 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               layout: storyboardPage.layout,
             };
 
+            // Collecter les refs canoniques des personnages de ce panel
+            const panelCanonRefs = panel.characters
+              .map((name) => rawCharacters.find((c) => c.name === name)?.canonicalImageUrl)
+              .filter((url): url is string => Boolean(url));
+
             const created = await tx.sceneImage.create({
               data: {
                 sceneId: createdScene.id,
@@ -452,6 +460,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 status: "planned",
                 width: 512,
                 height: 768,
+                referenceImageIds: panelCanonRefs as unknown as Prisma.InputJsonValue,
                 metadata: baseMetadata,
               },
             });

@@ -530,11 +530,11 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
           onClick={exportChapter}
           disabled={exporting}
         >
-          {exporting ? "Export…" : "PDF"}
+          {exporting ? "Export…" : "Exporter PDF"}
         </Button>
         <Button type="button" variant="outline" size="sm" onClick={() => void load()} className="gap-1">
           <RefreshCw className="h-4 w-4" />
-          Refresh
+          Actualiser
         </Button>
         <Button
           type="button"

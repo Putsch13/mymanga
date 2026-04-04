@@ -123,7 +123,8 @@ export default function NewProjectPage() {
     setLoading(false);
     if (!res.ok) { setError("Création impossible"); return; }
     const data = await res.json();
-    router.push(`/projects/${data.project.id}/generate`);
+    // Rediriger vers la création du premier personnage — un chapitre sans personnage est pauvre
+    router.push(`/projects/${data.project.id}/characters/new?onboarding=1`);
   }
 
   const canContinue = title.trim().length > 0;
@@ -311,9 +312,26 @@ export default function NewProjectPage() {
             {/* ── ÉTAPE 3 : Réglages fins ───────────────────────────────────── */}
             {step === 3 && (
               <div className="space-y-5">
-                <p className="text-sm text-muted-foreground">
-                  Ces curseurs affinent le pipeline IA. Les valeurs par défaut sont déjà calibrées — ne les touche que si tu veux vraiment forcer un style particulier.
-                </p>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-muted-foreground">
+                    Ces curseurs affinent le pipeline IA. Les valeurs par défaut sont déjà calibrées.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setViolenceLevel(45);
+                      setRomanceLevel(20);
+                      setSensualityLevel(10);
+                      setDarknessLevel(55);
+                      setMysteryLevel(50);
+                      setDialogueDensity(55);
+                      setCanonStrictness(85);
+                    }}
+                    className="ml-4 shrink-0 rounded-lg border border-border/50 bg-background/40 px-3 py-1 text-xs text-muted-foreground hover:border-border hover:text-foreground transition-colors"
+                  >
+                    Réinitialiser
+                  </button>
+                </div>
                 <SliderField label="Violence" value={violenceLevel} onChange={setViolenceLevel} />
                 <SliderField label="Romance" value={romanceLevel} onChange={setRomanceLevel} />
                 <SliderField label="Sensualité" value={sensualityLevel} onChange={setSensualityLevel} />
