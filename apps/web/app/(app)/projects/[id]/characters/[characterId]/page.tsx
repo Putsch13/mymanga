@@ -22,6 +22,7 @@ type CharacterPayload = {
   id: string;
   name: string;
   roleType: string | null;
+  gender: "male" | "female" | null;
   biography: string | null;
   age: number | null;
   adultVerified: boolean;
@@ -81,6 +82,10 @@ export default function CharacterDetailPage() {
         speechProfile: characterJson.character.speechProfile ?? {},
         continuityProfile: characterJson.character.continuityProfile ?? {},
         adultContentProfile: characterJson.character.adultContentProfile ?? {},
+        gender:
+          characterJson.character.gender === "male" || characterJson.character.gender === "female"
+            ? characterJson.character.gender
+            : null,
       });
       setProjectCharacters(projectCharactersJson.characters ?? []);
       setLoading(false);
@@ -98,6 +103,7 @@ export default function CharacterDetailPage() {
       body: JSON.stringify({
         name: character.name,
         roleType: character.roleType,
+        gender: character.gender,
         biography: character.biography,
         age: character.age,
         adultVerified: character.adultVerified,
@@ -196,6 +202,7 @@ export default function CharacterDetailPage() {
     const checks = [
       Boolean(character.name),
       Boolean(character.roleType),
+      Boolean(character.gender),
       Boolean(character.biography),
       Boolean(character.appearance),
       Boolean(character.hairColor),
@@ -271,6 +278,28 @@ export default function CharacterDetailPage() {
                   <div className="space-y-1.5">
                     <Label>Nom</Label>
                     <Input value={character.name} onChange={(e) => setCharacter({ ...character, name: e.target.value })} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Sexe</Label>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={character.gender === "male" ? "default" : "outline"}
+                        onClick={() => setCharacter({ ...character, gender: "male" })}
+                      >
+                        Homme
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={character.gender === "female" ? "default" : "outline"}
+                        onClick={() => setCharacter({ ...character, gender: "female" })}
+                      >
+                        Femme
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Hyper important pour la cohérence visuelle IA.</p>
                   </div>
                   <div className="space-y-1.5">
                     <Label>Rôle</Label>

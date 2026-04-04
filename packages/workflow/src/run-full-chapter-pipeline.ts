@@ -181,13 +181,14 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     prisma.$queryRawUnsafe<Array<{
       id: string;
       name: string;
+      gender: string | null;
       appearance: string | null;
       hairColor: string | null;
       eyeColor: string | null;
       outfitDefault: string | null;
       canonicalImageUrl: string | null;
     }>>(
-      `SELECT c.id, c.name, c.appearance, c."hairColor", c."eyeColor", c."outfitDefault",
+      `SELECT c.id, c.name, c.gender, c.appearance, c."hairColor", c."eyeColor", c."outfitDefault",
               (SELECT si."imageUrl" FROM "SceneImage" si
                JOIN "ChapterScene" cs ON si."sceneId" = cs.id
                JOIN "Chapter" ch ON cs."chapterId" = ch.id
@@ -414,6 +415,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                       canonicalImageUrl: c.canonicalImageUrl ?? null,
                       // visualSignatureText : description compacte figée, stable entre chapitres
                       visualSignatureText: [
+                        c.gender === "male" ? "male" : c.gender === "female" ? "female" : null,
                         c.appearance,
                         c.hairColor ? `${c.hairColor} hair` : null,
                         c.eyeColor ? `${c.eyeColor} eyes` : null,

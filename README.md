@@ -33,6 +33,7 @@ Ce dépôt est un **monorepo** : site web Next.js, packages métier (IA, billing
 
 - **Projets** : univers, pitch, genres, intensité de contenu (`ContentIntensityLayer`), notation `ContentRating`.
 - **Personnages** : fiches + **Character Canon Pack** (références visuelles par slot : portrait, poses, expressions, etc.).
+- **Champ critique IA** : chaque personnage a un **sexe** (`male` / `female`) utilisé dans les prompts pour stabiliser le rendu.
 - **Style pack** : paramètres DA **canoniques** (famille de rendu, trait, ombrage, contraste, caméra, contraintes négatives, LoRAs approuvés) — moins de dépendance au seul « prompt libre ».
 - **Bible d’univers** : JSON structuré (règles du monde, lore, thèmes) pour mémoire / futur RAG.
 - **Chapitres** : brouillons, intention utilisateur, pipeline **manga-first** (canon → style → expressions → draft panels → inpaint → upscale → score cohérence) via Inngest.
@@ -111,7 +112,7 @@ flowchart TB
 | Jobs async | **Inngest** | Pipeline chapitre / étapes longues |
 | Validation | **Zod** | Entrées API, schémas env |
 | Tests unitaires | **Vitest** | Routage image (`packages/ai`) |
-| **IA image — principal stylisé** | **FLUX** via **[fal.ai](https://fal.ai)** | Appel HTTP `fal-ai/flux/schnell` si `FAL_KEY` est défini ([adapter](./packages/ai/src/adapters/fal-flux-adapter.ts)) |
+| **IA image — principal stylisé** | **FLUX** via **[fal.ai](https://fal.ai)** | Panels : `fal-ai/flux/dev`. Si une ref canonique est dispo : `fal-ai/flux-pro/v1/redux` (IP-Adapter) pour préserver l’identité visuelle ([adapter](./packages/ai/src/adapters/fal-flux-adapter.ts)) |
 | **IA image — contrôle / LoRA** | **Runware** (clé optionnelle) | Adapter stub / extension workflows Comfy-like |
 | **IA image — BFL** | **Black Forest Labs** (clé optionnelle) | Adapter stub |
 | **IA image — fallback réaliste** | **Stability** (Stable Image Ultra, clé optionnelle) | Adapter stub, routage cover photoreal |
@@ -137,6 +138,12 @@ Sans clés API image, les adapters peuvent retomber sur des placeholders en loca
 - Édition DA : `PUT /api/projects/:id/style-pack` (enums Prisma : `RenderFamily`, `LineWeight`, etc.).
 - Personnages : `POST /api/projects/:id/characters` avec création du **canon pack** associé.
 
+**Onboarding recommandé (UX)** :
+
+- **Créer projet** → redirige vers **création du 1er personnage** (`/projects/:id/characters/new?onboarding=1`)
+- **Créer personnage** → redirige vers le **labo de génération** (`/projects/:id/generate`)
+- Objectif : éviter un **chapitre 1 vide/générique** (un manga sans personnages est pauvre).
+
 ### 3. Estimation et génération d’image
 
 1. **`POST /api/estimate-image`** : calcule une **`ImageRoutingDecision`** (provider, modèle, workflow, raison) + **coût tokens** estimé (voir `packages/billing/src/pricing.ts`).
@@ -150,7 +157,8 @@ La logique de routage est centralisée dans **`decideImageRoute`** (`packages/ai
 ### 4. Pipeline chapitre (Inngest)
 
 - **`POST /api/projects/:id/pipeline`** avec `chapterId` envoie l’événement `chapter/generate.requested` à Inngest (si `INNGEST_EVENT_KEY` est défini).
-- La fonction **`generateChapterPipeline`** (`packages/workflow/src/functions.ts`) enchaîne les étapes logiques : contexte projet, bundle chapitre, **continuity pass**, persistance, génération des images, puis mise à jour mémoire.
+- La fonction **`generateChapterPipeline`** (`packages/workflow/src/functions.ts`) enchaîne les étapes logiques : contexte projet, bundle chapitre, **continuity pass** (canon), **story coherence pass** (rythme/voix/dialogues), persistance, génération des images, puis mise à jour mémoire.
+- **Persistance visuelle (niveau 1–2)** : le workflow récupère une `canonicalImageUrl` (dernière image `completed`) et l’utilise comme **référence** lors de la génération des panels (IP‑Adapter via flux redux). Le prompt inclut aussi une **signature visuelle** stable par personnage.
 - **`POST .../chapters/[chapterId]/continue`** : après lecture, enregistre l’intention de suite et crée un job **`GENERATE_CHAPTER_OUTLINE`** sur le nouveau chapitre — à traiter dans le worker Inngest quand tu branches la génération texte.
 
 ### 5. Paiement Stripe
@@ -345,7 +353,7 @@ Couvre notamment le **routage image** (`packages/ai/src/image-routing-service.te
 
 Estimation issue du pipeline réellement validé localement :
 
-- résolution moyenne : **768x1024**
+- résolution moyenne : **512×768** (mode économique par défaut)
 - provider image principal : **`fal-ai/flux/dev`**
 - texte : **`gpt-4o-mini`**
 - embeddings / mémoire : **`text-embedding-3-small`**
@@ -358,14 +366,13 @@ Prix de référence utilisés :
 
 Ordre de grandeur pour **1 chapitre** (selon longueur) :
 
-- **Chapitre standard (~6 pages, ~39 panels)** : ~0.78 USD
-- **Chapitre (~10 pages, 4–6 panels/page = ~40–60 panels)** : ~0.79–1.18 USD
+- **Chapitre (~10 pages, 4–6 panels/page = ~40–60 panels)** : ~0.42–0.64 USD (principalement image)
 
 | Poste | Hypothèse | Coût approx. |
 |------|-----------|--------------|
-| Images (10 pages) | 40–60 panels × 768×1024 | **~0.786–1.179 USD** |
+| Images (10 pages) | 40–60 panels × 512×768 | **~0.39–0.59 USD** |
 | Texte + embeddings | outline + dialogues + passes continuité/narration + embeddings | **~0.02–0.05 USD** |
-| **Total chapitre (10 pages)** | pipeline complet | **~0.81–1.23 USD** |
+| **Total chapitre (10 pages)** | pipeline complet | **~0.41–0.64 USD** |
 
 Lecture produit :
 
@@ -376,6 +383,7 @@ Lecture produit :
 
 ```text
 coût_images = nb_panels × (largeur × hauteur / 1_000_000) × prix_par_mégapixel
+ex: 512×768 → 0.393 MP → ~0.0098 USD / image @ $0.025/MP
 ```
 
 ---

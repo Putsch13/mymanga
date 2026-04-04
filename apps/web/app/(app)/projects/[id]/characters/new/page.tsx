@@ -26,6 +26,7 @@ export default function NewCharacterPage() {
   // Identité
   const [name, setName] = useState("");
   const [roleType, setRoleType] = useState("");
+  const [gender, setGender] = useState<"male" | "female" | "">("");
   const [biography, setBiography] = useState("");
   const [age, setAge] = useState("");
   const [adultVerified, setAdultVerified] = useState(false);
@@ -63,6 +64,7 @@ export default function NewCharacterPage() {
       body: JSON.stringify({
         name,
         roleType: roleType || undefined,
+        gender: gender || undefined,
         biography: biography || undefined,
         age: ageNum,
         adultVerified,
@@ -149,6 +151,28 @@ export default function NewCharacterPage() {
                       <Label htmlFor="name">Nom *</Label>
                       <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
                     </div>
+                  <div className="space-y-1.5">
+                    <Label>Sexe *</Label>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant={gender === "male" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setGender("male")}
+                      >
+                        Homme
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={gender === "female" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setGender("female")}
+                      >
+                        Femme
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Hyper important pour l’IA (silhouette, visage, vêtements, proportions).</p>
+                  </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="role">Rôle</Label>
                       <Input id="role" value={roleType} onChange={(e) => setRoleType(e.target.value)} placeholder="Héros, antagoniste, secondaire..." />
@@ -296,7 +320,7 @@ export default function NewCharacterPage() {
 
           {error && <p className="text-sm text-red-400">{error}</p>}
 
-          <Button type="submit" disabled={loading || !name} className="w-full">
+          <Button type="submit" disabled={loading || !name || !gender} className="w-full">
             {loading ? "Création…" : "Créer le personnage"}
           </Button>
         </div>

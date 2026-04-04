@@ -47,6 +47,7 @@ export type ProjectContextForChapter = {
     id: string;
     name: string;
     roleType: string | null;
+    gender?: string | null;
     biography?: string | null;
     objective: string | null;
     fear: string | null;

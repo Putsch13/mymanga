@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Palette, Users } from "lucide-react";
+import { Loader2, Palette, Users } from "lucide-react";
 import { RENDERING_MODES } from "@manga-ai-studio/core";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,6 +50,8 @@ export default function ChapterGeneratorPage() {
   } | null>(null);
   const [pipelineMsg, setPipelineMsg] = useState<string | null>(null);
   const [runningNow, setRunningNow] = useState(false);
+  const [startingPipeline, setStartingPipeline] = useState(false);
+  const [creatingDraft, setCreatingDraft] = useState(false);
   const [diag, setDiag] = useState<null | { hasFalKey: boolean; hasOpenAI: boolean; hasInngestEventKey: boolean; authDisabled: boolean }>(null);
   const [userIntent, setUserIntent] = useState("Faire monter la tension, révéler un secret et préparer une confrontation majeure.");
   const [chapterTitle, setChapterTitle] = useState("");
@@ -112,7 +114,13 @@ export default function ChapterGeneratorPage() {
     if (!selectedJobId) return;
     const interval = window.setInterval(async () => {
       const res = await fetch(`/api/jobs/${selectedJobId}`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          window.clearInterval(interval);
+          setPipelineMsg("Session expirée. Recharge la page puis relance la génération.");
+        }
+        return;
+      }
       const json = await res.json();
       setJobState(json.job);
       if (["completed", "failed", "partial_success", "canceled"].includes(json.job.status)) {
@@ -136,7 +144,12 @@ export default function ChapterGeneratorPage() {
 
   const progressValue = (() => {
     const steps = jobState?.output?.steps ?? [];
-    if (!steps.length) return null;
+    if (!steps.length) {
+      if (!jobState) return null;
+      if (jobState.status === "queued") return 2;
+      if (jobState.status === "running") return 6;
+      return null;
+    }
     const weights: Record<string, number> = {
       build_context: 9,
       generate_bundle: 18,
@@ -200,35 +213,54 @@ export default function ChapterGeneratorPage() {
   }
 
   async function createChapter() {
-    const res = await fetch(`/api/projects/${id}/chapters`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: chapterTitle || `Chapitre ${chapters.length + 1}`,
-        userIntent: buildFocusedIntent(),
-        focusCharacterIds: selectedCharacterIds,
-        selectedPlotLabel,
-      }),
-    });
-    const j = await res.json();
-    if (j.chapter) {
-      setSelectedChapter(j.chapter.id);
-      loadChapters();
+    setCreatingDraft(true);
+    try {
+      const res = await fetch(`/api/projects/${id}/chapters`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: chapterTitle || `Chapitre ${chapters.length + 1}`,
+          userIntent: buildFocusedIntent(),
+          focusCharacterIds: selectedCharacterIds,
+          selectedPlotLabel,
+        }),
+      });
+      const j = await res.json();
+      if (j.chapter) {
+        setSelectedChapter(j.chapter.id);
+        loadChapters();
+      } else {
+        setPipelineMsg(j.message ?? "Création du brouillon impossible.");
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Erreur réseau";
+      setPipelineMsg(msg);
+    } finally {
+      setCreatingDraft(false);
     }
   }
 
   async function runPipeline() {
     if (!selectedChapter) return;
+    setStartingPipeline(true);
     setPipelineMsg(null);
-    const res = await fetch(`/api/projects/${id}/pipeline`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chapterId: selectedChapter, focusCharacterIds: selectedCharacterIds, selectedPlotLabel }),
-    });
-    const j = await res.json();
-    setPipelineMsg(j.message ?? JSON.stringify(j));
-    if (j.jobId) {
-      setSelectedJobId(j.jobId);
+    try {
+      const res = await fetch(`/api/projects/${id}/pipeline`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chapterId: selectedChapter, focusCharacterIds: selectedCharacterIds, selectedPlotLabel }),
+      });
+      const j = await res.json();
+      setPipelineMsg(j.message ?? JSON.stringify(j));
+      if (j.jobId) {
+        setSelectedJobId(j.jobId);
+        setJobState({ id: j.jobId, status: "queued", output: { currentStep: "queued", steps: [] } });
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Erreur réseau";
+      setPipelineMsg(msg);
+    } finally {
+      setStartingPipeline(false);
     }
   }
 
@@ -382,7 +414,8 @@ export default function ChapterGeneratorPage() {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="secondary" onClick={createChapter}>
+                <Button type="button" variant="secondary" onClick={createChapter} disabled={creatingDraft}>
+                  {creatingDraft ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   Créer le brouillon
                 </Button>
                 <Button type="button" variant="outline" onClick={runChapterEstimate}>
@@ -472,7 +505,8 @@ export default function ChapterGeneratorPage() {
                 <p className="text-muted-foreground text-sm">Crée un brouillon pour lancer la génération.</p>
               )}
               <div className="flex flex-wrap gap-2">
-                <Button type="button" onClick={runPipeline} disabled={!selectedChapter}>
+                <Button type="button" onClick={runPipeline} disabled={!selectedChapter || startingPipeline}>
+                  {startingPipeline ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   Générer ce chapitre
                 </Button>
                 <Button type="button" variant="secondary" onClick={runNow} disabled={!selectedJobId || runningNow}>

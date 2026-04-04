@@ -299,6 +299,7 @@ export async function buildProjectContext(
         id: c.id,
         name: c.name,
         roleType: c.roleType,
+        gender: typeof raw.gender === "string" ? raw.gender : null,
         biography: c.biography,
         objective: c.objective,
         fear: c.fear,

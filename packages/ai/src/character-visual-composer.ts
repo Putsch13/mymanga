@@ -8,6 +8,8 @@
 export interface CharacterVisualInput {
   /** Nom du personnage */
   name: string;
+  /** Sexe/genre (hyper important pour l'IA) */
+  gender?: "male" | "female" | null;
   /** Description physique libre */
   appearance?: string | null;
   /** Couleur de cheveux */
@@ -80,6 +82,7 @@ export function composeCharacterVisualPrompt(
 
   // Description physique
   const physicalParts: string[] = [];
+  if (input.gender) physicalParts.push(input.gender === "male" ? "male" : "female");
   if (input.appearance) physicalParts.push(input.appearance);
   if (input.hairColor) physicalParts.push(`${input.hairColor} hair`);
   if (input.eyeColor) physicalParts.push(`${input.eyeColor} eyes`);

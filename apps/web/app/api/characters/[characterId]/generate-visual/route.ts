@@ -56,6 +56,12 @@ export async function POST(_req: Request, ctx: Ctx) {
     // Composer le prompt via character-visual-composer
     const composed = composeCharacterVisualPrompt({
       name: character.name,
+      gender:
+        typeof (character as unknown as { gender?: unknown }).gender === "string"
+          ? ((character as unknown as { gender: string }).gender === "male" || (character as unknown as { gender: string }).gender === "female"
+              ? ((character as unknown as { gender: "male" | "female" }).gender)
+              : null)
+          : null,
       appearance: typeof character.appearance === "string" ? character.appearance : null,
       hairColor: typeof (character as unknown as { hairColor?: unknown }).hairColor === "string"
         ? (character as unknown as { hairColor: string }).hairColor

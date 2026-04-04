@@ -283,6 +283,8 @@ model Character {
   roleType        String?
   age             Int?
   adultVerified   Boolean   @default(false)
+  // Important pour la génération IA : homme / femme (valeur simple, stable)
+  gender          String?
   pronouns        String?
   biography       String?
   objective       String?
