@@ -204,18 +204,47 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       } catch (e) {
         console.error("[pipeline] canonical URL query failed, continuing without:", e instanceof Error ? e.message : e);
       }
-      return chars.map((c) => ({
-        id: c.id,
-        name: c.name,
-        gender: (c as unknown as Record<string, unknown>).gender as string | null ?? null,
-        appearance: (c as unknown as Record<string, unknown>).appearance as string | null ?? null,
-        hairColor: (c as unknown as Record<string, unknown>).hairColor as string | null ?? null,
-        eyeColor: (c as unknown as Record<string, unknown>).eyeColor as string | null ?? null,
-        outfitDefault: (c as unknown as Record<string, unknown>).outfitDefault as string | null ?? null,
-        canonicalImageUrl: canonUrls[c.id] ?? null,
-        canonSignatureText: c.canonPack?.visualSignatureText ?? null,
-        forbiddenVisualDrift: c.canonPack?.forbiddenVisualDrift ?? null,
-      }));
+      return chars.map((c) => {
+        const raw = c as unknown as Record<string, unknown>;
+        const bodyState = raw.bodyState && typeof raw.bodyState === "object" ? raw.bodyState as Record<string, unknown> : {};
+        const wardrobeProfile = raw.wardrobeProfile && typeof raw.wardrobeProfile === "object" ? raw.wardrobeProfile as Record<string, unknown> : {};
+        const visualProfile = raw.visualProfile && typeof raw.visualProfile === "object" ? raw.visualProfile as Record<string, unknown> : {};
+
+        // Construire une description corporelle compacte depuis bodyState
+        const bodyParts: string[] = [];
+        if (bodyState.height) bodyParts.push(String(bodyState.height));
+        if (bodyState.build) bodyParts.push(String(bodyState.build));
+        if (bodyState.scars) bodyParts.push(`scars: ${String(bodyState.scars)}`);
+        if (bodyState.prosthetics) bodyParts.push(`prosthetic: ${String(bodyState.prosthetics)}`);
+        if (bodyState.tattoos) bodyParts.push(`tattoo: ${String(bodyState.tattoos)}`);
+        if (bodyState.injuries) bodyParts.push(`injury: ${String(bodyState.injuries)}`);
+        if (bodyState.modifications) bodyParts.push(String(bodyState.modifications));
+        const bodyDetails = bodyParts.join(", ") || null;
+
+        // Construire une description vestimentaire compacte
+        const wardrobeParts: string[] = [];
+        if (wardrobeProfile.defaultOutfit) wardrobeParts.push(String(wardrobeProfile.defaultOutfit));
+        if (wardrobeProfile.accessories) wardrobeParts.push(String(wardrobeProfile.accessories));
+        if (wardrobeProfile.armor) wardrobeParts.push(String(wardrobeProfile.armor));
+        if (wardrobeProfile.weapons) wardrobeParts.push(String(wardrobeProfile.weapons));
+        const wardrobeDetails = wardrobeParts.join(", ") || null;
+
+        return {
+          id: c.id,
+          name: c.name,
+          gender: typeof raw.gender === "string" ? raw.gender : null,
+          appearance: typeof raw.appearance === "string" ? raw.appearance : null,
+          hairColor: typeof raw.hairColor === "string" ? raw.hairColor : null,
+          eyeColor: typeof raw.eyeColor === "string" ? raw.eyeColor : null,
+          outfitDefault: typeof raw.outfitDefault === "string" ? raw.outfitDefault : null,
+          canonicalImageUrl: canonUrls[c.id] ?? null,
+          canonSignatureText: c.canonPack?.visualSignatureText ?? null,
+          forbiddenVisualDrift: c.canonPack?.forbiddenVisualDrift ?? null,
+          bodyDetails,
+          wardrobeDetails,
+          visualProfile,
+        };
+      });
     }),
   ]);
 
@@ -424,6 +453,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                     .filter((c) => panel.characters.includes(c.name))
                     .map((c) => ({
                       name: c.name,
+                      gender: c.gender,
                       appearance: c.appearance,
                       hairColor: c.hairColor,
                       eyeColor: c.eyeColor,
@@ -432,7 +462,8 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                       forbiddenDrift: Array.isArray(c.forbiddenVisualDrift)
                         ? (c.forbiddenVisualDrift as string[]).filter((item) => typeof item === "string")
                         : null,
-                      // visualSignatureText : description compacte figée, stable entre chapitres
+                      bodyDetails: c.bodyDetails,
+                      wardrobeDetails: c.wardrobeDetails,
                       visualSignatureText:
                         c.canonSignatureText ??
                         ([

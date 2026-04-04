@@ -26,7 +26,18 @@ export type ChapterOutlineContext = {
   tone?: string | null;
   visualStyle?: string | null;
   styleGuide?: string | null;
-  cast?: Array<{ name: string; roleType?: string | null; objective?: string | null; status?: string | null }>;
+  cast?: Array<{
+    name: string;
+    roleType?: string | null;
+    objective?: string | null;
+    status?: string | null;
+    fear?: string | null;
+    traits?: string[];
+    appearance?: string | null;
+  }>;
+  relationships?: Array<{ source: string; target: string; type: string }>;
+  arcs?: Array<{ name: string; summary: string | null; status: string }>;
+  allRecentChapters?: Array<{ chapterNumber: number; title: string | null; summary: string | null; cliffhanger: string | null }>;
   bibleSummary?: string | null;
   themes?: string[];
   continuitySnippets?: string[];
@@ -125,13 +136,21 @@ Réponds UNIQUEMENT en JSON valide, clés : title (optionnel), summary (string),
 Langue : français. Les beats sont des étapes narratives courtes (pas de dialogue complet).
 
 RÈGLES ABSOLUES DE CONTINUITÉ :
-1. Respecter scrupuleusement le canon : personnages, lieux, statuts, relations et événements passés fournis dans recentContinuityEvents et continuitySnippets.
+1. Respecter scrupuleusement le canon : personnages, lieux, statuts, relations et événements passés.
 2. Ne jamais ressusciter un personnage mort ni ignorer un statut "blessé" ou "disparu".
-3. Chaque beat découle causalement du précédent ; aucun saut de lieu ou de motivation non justifié.
-4. Réutiliser uniquement les personnages du cast fourni ; ne pas inventer de nouveaux noms.
-5. Le cliffhanger doit être préparé dans les beats précédents, pas surgir de nulle part.
+3. Chaque beat découle CAUSALEMENT du précédent : lieu → action → conséquence → réaction. Aucun saut non justifié.
+4. UTILISER UNIQUEMENT les personnages du cast fourni. NE PAS inventer de nouveaux noms.
+5. Le cliffhanger doit être PRÉPARÉ dans les beats précédents, pas surgir de nulle part.
 6. Respecter l'intention utilisateur tout en restant cohérent avec l'arc en cours.
-7. Si canonStrictness > 80, ne rien modifier qui contredise la bible ou les événements permanents.`;
+7. Si canonStrictness > 80, ne rien modifier qui contredise la bible ou les événements permanents.
+
+RÈGLES DE COHÉRENCE INTER-CHAPITRES :
+8. Lire attentivement allRecentChapters : chaque chapitre DOIT continuer là où le précédent s'est arrêté.
+9. Le résumé (summary) doit EXPLICITEMENT référencer le contexte précédent ("Après que X...", "Suite à...").
+10. Les relations entre personnages (relationships) doivent influencer les interactions dans les beats.
+11. Les arcs narratifs (arcs) en cours doivent progresser ; ne pas les ignorer.
+12. Les traits et peurs des personnages (cast.fear, cast.traits) doivent influencer leurs réactions.
+13. L'apparence physique du cast (cast.appearance) doit être respectée si mentionnée dans un beat.`;
 
   const userPayload = {
     projectTitle: ctx.projectTitle,
@@ -143,6 +162,9 @@ RÈGLES ABSOLUES DE CONTINUITÉ :
     visualStyle: ctx.visualStyle,
     styleGuide: ctx.styleGuide,
     cast: ctx.cast,
+    relationships: ctx.relationships?.slice(0, 8),
+    arcs: ctx.arcs?.slice(0, 4),
+    allRecentChapters: ctx.allRecentChapters?.slice(0, 3),
     bibleSummary: ctx.bibleSummary,
     themes: ctx.themes,
     continuitySnippets: ctx.continuitySnippets,

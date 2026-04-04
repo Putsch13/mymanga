@@ -316,6 +316,22 @@ export async function buildProjectContext(
           raw.speechProfile && typeof raw.speechProfile === "object"
             ? (raw.speechProfile as Record<string, unknown>)
             : {},
+        bodyState:
+          raw.bodyState && typeof raw.bodyState === "object"
+            ? (raw.bodyState as Record<string, unknown>)
+            : {},
+        wardrobeProfile:
+          raw.wardrobeProfile && typeof raw.wardrobeProfile === "object"
+            ? (raw.wardrobeProfile as Record<string, unknown>)
+            : {},
+        visualProfile:
+          raw.visualProfile && typeof raw.visualProfile === "object"
+            ? (raw.visualProfile as Record<string, unknown>)
+            : {},
+        continuityProfile:
+          raw.continuityProfile && typeof raw.continuityProfile === "object"
+            ? (raw.continuityProfile as Record<string, unknown>)
+            : {},
       };
     }),
     relationships: project.relationships,

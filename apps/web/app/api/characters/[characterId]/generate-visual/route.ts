@@ -54,22 +54,44 @@ export async function POST(_req: Request, ctx: Ctx) {
     });
 
     // Composer le prompt via character-visual-composer
+    const raw = character as unknown as Record<string, unknown>;
+    const bodyState = raw.bodyState && typeof raw.bodyState === "object" ? raw.bodyState as Record<string, unknown> : {};
+    const wardrobeProfile = raw.wardrobeProfile && typeof raw.wardrobeProfile === "object" ? raw.wardrobeProfile as Record<string, unknown> : {};
+
+    // Construire une description corporelle compacte depuis bodyState
+    const bodyParts: string[] = [];
+    if (bodyState.height) bodyParts.push(String(bodyState.height));
+    if (bodyState.build) bodyParts.push(String(bodyState.build));
+    if (bodyState.scars) bodyParts.push(`scars: ${String(bodyState.scars)}`);
+    if (bodyState.prosthetics) bodyParts.push(`prosthetic: ${String(bodyState.prosthetics)}`);
+    if (bodyState.tattoos) bodyParts.push(`tattoo: ${String(bodyState.tattoos)}`);
+    if (bodyState.injuries) bodyParts.push(`injury: ${String(bodyState.injuries)}`);
+    if (bodyState.modifications) bodyParts.push(String(bodyState.modifications));
+
+    // Fusionner appearance + bodyState pour le prompt visuel
+    const fullAppearance = [
+      typeof raw.appearance === "string" ? raw.appearance : null,
+      ...bodyParts,
+    ].filter(Boolean).join(", ") || null;
+
+    // Outfit enrichi depuis wardrobeProfile
+    const fullOutfit = [
+      typeof character.outfitDefault === "string" ? character.outfitDefault : null,
+      wardrobeProfile.accessories ? String(wardrobeProfile.accessories) : null,
+      wardrobeProfile.armor ? String(wardrobeProfile.armor) : null,
+      wardrobeProfile.weapons ? String(wardrobeProfile.weapons) : null,
+    ].filter(Boolean).join(", ") || null;
+
     const composed = composeCharacterVisualPrompt({
       name: character.name,
       gender:
-        typeof (character as unknown as { gender?: unknown }).gender === "string"
-          ? ((character as unknown as { gender: string }).gender === "male" || (character as unknown as { gender: string }).gender === "female"
-              ? ((character as unknown as { gender: "male" | "female" }).gender)
-              : null)
+        typeof raw.gender === "string"
+          ? (raw.gender === "male" || raw.gender === "female" ? raw.gender as "male" | "female" : null)
           : null,
-      appearance: typeof character.appearance === "string" ? character.appearance : null,
-      hairColor: typeof (character as unknown as { hairColor?: unknown }).hairColor === "string"
-        ? (character as unknown as { hairColor: string }).hairColor
-        : null,
-      eyeColor: typeof (character as unknown as { eyeColor?: unknown }).eyeColor === "string"
-        ? (character as unknown as { eyeColor: string }).eyeColor
-        : null,
-      outfitDefault: typeof character.outfitDefault === "string" ? character.outfitDefault : null,
+      appearance: fullAppearance,
+      hairColor: typeof raw.hairColor === "string" ? raw.hairColor : null,
+      eyeColor: typeof raw.eyeColor === "string" ? raw.eyeColor : null,
+      outfitDefault: fullOutfit,
       traits: Array.isArray(character.traits) ? (character.traits as string[]) : null,
       roleType: character.roleType,
       emotionalState: character.emotionalState,

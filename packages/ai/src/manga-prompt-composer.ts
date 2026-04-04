@@ -2,15 +2,18 @@ import type { PanelMood } from "./chapter-pipeline";
 
 export interface CharacterRef {
   name: string;
+  gender?: string | null;
   appearance?: string | null;
   hairColor?: string | null;
   eyeColor?: string | null;
   outfitDefault?: string | null;
   canonicalImageUrl?: string | null;
-  /** Signature visuelle figée : texte court, stable entre chapitres, injecté tel quel dans le prompt */
   visualSignatureText?: string | null;
-  /** Traits visuels interdits (forbiddenDrift) issus du continuityProfile */
   forbiddenDrift?: string[] | null;
+  /** Détails corps (prothèses, cicatrices, tatouages, morphologie) */
+  bodyDetails?: string | null;
+  /** Détails tenue enrichis */
+  wardrobeDetails?: string | null;
 }
 
 export interface StylePackRef {
@@ -85,19 +88,22 @@ const BASE_NEGATIVE =
 function describeCharacter(c: CharacterRef): string {
   const parts: string[] = [`[${c.name}]`];
 
-  // La signature visuelle figée est le socle
+  if (c.gender) parts.push(c.gender === "male" ? "male" : "female");
+
   if (c.visualSignatureText) parts.push(c.visualSignatureText);
 
-  // Mais on ajoute TOUJOURS appearance car il contient les détails uniques
-  // (bras bionique, cicatrice, tatouage, prothèse, etc.)
+  // appearance contient les détails uniques (bras bionique, cicatrice, tatouage…)
   if (c.appearance) parts.push(c.appearance);
 
-  // Champs structurés en renfort si pas dans la signature
   if (!c.visualSignatureText) {
     if (c.hairColor) parts.push(`${c.hairColor} hair`);
     if (c.eyeColor) parts.push(`${c.eyeColor} eyes`);
     if (c.outfitDefault) parts.push(c.outfitDefault);
   }
+
+  // Détails corporels et vestimentaires enrichis
+  if (c.bodyDetails) parts.push(c.bodyDetails);
+  if (c.wardrobeDetails) parts.push(c.wardrobeDetails);
 
   return parts.join(", ");
 }

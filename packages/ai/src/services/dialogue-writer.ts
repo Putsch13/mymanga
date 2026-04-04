@@ -56,8 +56,8 @@ export async function writeDialogueForScene(
 ): Promise<DialogueWriterResult> {
   const characterList = input.characters
     .map((c) => {
-      const voice = c.speechProfile ? JSON.stringify(c.speechProfile).slice(0, 180) : "voix non précisée";
-      return `- ${c.name} | rôle: ${c.roleType ?? "inconnu"} | état: ${c.emotionalState ?? "neutre"} | objectif: ${c.objective ?? "non précisé"} | peur: ${c.fear ?? "non précisée"} | traits: ${(c.traits ?? []).join(", ") || "aucun"} | défauts: ${(c.flaws ?? []).join(", ") || "aucun"} | bio: ${c.biography ?? "n/a"} | voix: ${voice}`;
+      const voice = c.speechProfile ? JSON.stringify(c.speechProfile).slice(0, 350) : "voix non précisée";
+      return `- ${c.name} | rôle: ${c.roleType ?? "inconnu"} | état: ${c.emotionalState ?? "neutre"} | objectif: ${c.objective ?? "non précisé"} | peur: ${c.fear ?? "non précisée"} | traits: ${(c.traits ?? []).join(", ") || "aucun"} | défauts: ${(c.flaws ?? []).join(", ") || "aucun"} | bio: ${(c.biography ?? "n/a").slice(0, 200)} | voix: ${voice}`;
     })
     .join("\n");
   const continuityContext = (input.continuityContext ?? []).filter(Boolean).slice(0, 6).join("\n- ");

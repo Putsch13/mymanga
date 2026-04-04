@@ -20,7 +20,7 @@ export function buildContextDigest(context: ProjectContextForChapter) {
           themes: context.storyBible.themes ?? [],
         }
       : null,
-    focusedCharacters: context.characters.slice(0, 5).map((character) => ({
+    focusedCharacters: context.characters.slice(0, 8).map((character) => ({
       name: character.name,
       role: character.roleType,
       objective: character.objective,
@@ -28,6 +28,9 @@ export function buildContextDigest(context: ProjectContextForChapter) {
       emotionalState: character.emotionalState,
       status: character.status,
       biography: character.biography,
+      traits: character.traits?.slice(0, 4),
+      flaws: character.flaws?.slice(0, 3),
+      appearance: character.appearance,
     })),
     recentChapters: context.recentChapters.slice(0, 3),
     recentMemory: context.recentMemory.slice(0, 3),

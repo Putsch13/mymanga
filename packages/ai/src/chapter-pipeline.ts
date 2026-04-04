@@ -53,6 +53,7 @@ export type ProjectContextForChapter = {
     fear: string | null;
     emotionalState: string | null;
     status: string;
+    canonLocked?: boolean;
     traits?: string[];
     flaws?: string[];
     speechProfile?: Record<string, unknown>;
@@ -60,6 +61,10 @@ export type ProjectContextForChapter = {
     outfitDefault?: string | null;
     hairColor?: string | null;
     eyeColor?: string | null;
+    bodyState?: Record<string, unknown>;
+    wardrobeProfile?: Record<string, unknown>;
+    visualProfile?: Record<string, unknown>;
+    continuityProfile?: Record<string, unknown>;
   }>;
   relationships: Array<{
     sourceCharacterId: string;
@@ -532,12 +537,22 @@ export async function generateChapterBundle(input: {
           .filter(Boolean)
           .join(", ")
       : null,
-    cast: input.context.characters.slice(0, 5).map((character) => ({
+    cast: input.context.characters.slice(0, 8).map((character) => ({
       name: character.name,
       roleType: character.roleType,
       objective: character.objective,
       status: character.status,
+      fear: character.fear,
+      traits: character.traits,
+      appearance: character.appearance,
     })),
+    relationships: (input.context.relationships ?? []).slice(0, 8).map((r) => ({
+      source: input.context.characters.find((c) => c.id === r.sourceCharacterId)?.name ?? r.sourceCharacterId,
+      target: input.context.characters.find((c) => c.id === r.targetCharacterId)?.name ?? r.targetCharacterId,
+      type: r.relationType,
+    })),
+    arcs: (input.context.arcs ?? []).slice(0, 4),
+    allRecentChapters: input.context.recentChapters.slice(0, 3),
     bibleSummary: input.context.storyBible?.summary ?? null,
     themes: input.context.storyBible?.themes ?? [],
     continuitySnippets: input.context.recentMemory
