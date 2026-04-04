@@ -181,7 +181,9 @@ Utilise scene_1, scene_2, … et les panelNumber existants. Pour retirer une nar
       notes: [...baseNotes, ...(parsed.notes ?? []).slice(0, 12)],
       usedOpenAI: true,
     };
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[narrative-coherence-pass] error=${msg}`);
     return { bundle: input.bundle, notes: [...baseNotes, "Échec OpenAI : narrative pass ignorée."], usedOpenAI: false };
   }
 }

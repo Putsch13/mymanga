@@ -140,12 +140,13 @@ async function setJobProgress(jobId: string, step: JobStep, status: "running" | 
 function buildRoutingContext(
   intensityLayer: string,
   panel: StoryboardPanel,
+  hasCanonRef: boolean,
 ): RoutingContext {
   return {
     mode: "PANEL_DRAFT",
     contentIntensityLayer: intensityLayer,
     isNewCharacter: false,
-    hasCanonReferences: false,
+    hasCanonReferences: hasCanonRef,
     characterCountInScene: panel.characters.length,
     needsInpaint: false,
     needsPoseVariation: false,
@@ -408,6 +409,13 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                       eyeColor: c.eyeColor,
                       outfitDefault: c.outfitDefault,
                       canonicalImageUrl: c.canonicalImageUrl ?? null,
+                      // visualSignatureText : description compacte figée, stable entre chapitres
+                      visualSignatureText: [
+                        c.appearance,
+                        c.hairColor ? `${c.hairColor} hair` : null,
+                        c.eyeColor ? `${c.eyeColor} eyes` : null,
+                        c.outfitDefault,
+                      ].filter(Boolean).join(", ") || null,
                     })),
               location: scene.location,
               action: panel.narration ?? panel.caption,
@@ -442,8 +450,8 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 prompt: composedPositive,
                 negativePrompt: composedNegative,
                 status: "planned",
-                width: 768,
-                height: 1024,
+                width: 512,
+                height: 768,
                 metadata: baseMetadata,
               },
             });
@@ -457,7 +465,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           }
         }
       },
-      { timeout: 30_000, maxWait: 10_000 },
+      { timeout: 60_000, maxWait: 15_000 },
     );
     await setJobProgress(
       jobId,
@@ -475,15 +483,28 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     let generatedCount = 0;
     let failedCount = 0;
 
-    for (const item of plannedImages) {
+    // Construire un index canonicalImageUrl par nom de personnage pour les refs IP-Adapter
+    const canonRefByName = new Map<string, string>();
+    for (const c of rawCharacters) {
+      if (c.canonicalImageUrl) canonRefByName.set(c.name, c.canonicalImageUrl);
+    }
+
+    async function processOneImage(item: PlannedImage): Promise<"ok" | "fail"> {
+      const panelCharacterNames: string[] = item.panel.characters ?? [];
+      // Prendre la première ref canonique disponible parmi les personnages du panel
+      const canonRef = panelCharacterNames.map((n) => canonRefByName.get(n)).find(Boolean) ?? null;
+      const hasCanonRef = Boolean(canonRef);
+
       try {
-        const routingCtx = buildRoutingContext(intensityLayer, item.panel);
+        const routingCtx = buildRoutingContext(intensityLayer, item.panel, hasCanonRef);
         const result = await runRoutedImageGeneration(routingCtx, {
           mode: "PANEL_DRAFT",
           positivePrompt: item.panel.prompt,
           negativePrompt: item.panel.negativePrompt,
-          width: 768,
-          height: 1024,
+          // 512×768 : -50% coût image, qualité suffisante pour panels manga mobile
+          width: 512,
+          height: 768,
+          referenceImageUrls: canonRef ? [canonRef] : undefined,
           providerParams: {
             contentIntensityLayer: intensityLayer,
             mode: "PANEL_DRAFT",
@@ -511,8 +532,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 } as unknown) as Prisma.InputJsonValue,
               },
             });
-            failedCount++;
-            continue;
+            return "fail";
           }
 
           await prisma.sceneImage.update({
@@ -527,10 +547,11 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 ...item.baseMetadata,
                 generationLog: result.log,
                 persisted: persisted.persisted,
+                canonRefUsed: canonRef ?? null,
               } as unknown) as Prisma.InputJsonValue,
             },
           });
-          generatedCount++;
+          return "ok";
         } else {
           await prisma.sceneImage.update({
             where: { id: item.sceneImageId },
@@ -543,10 +564,11 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               } as unknown) as Prisma.InputJsonValue,
             },
           });
-          failedCount++;
+          return "fail";
         }
       } catch (imgError) {
         const msg = imgError instanceof Error ? imgError.message : "image_error";
+        console.error(`[pipeline] image failed sceneImageId=${item.sceneImageId} error=${msg}`);
         await prisma.sceneImage.update({
           where: { id: item.sceneImageId },
           data: {
@@ -554,21 +576,28 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             metadata: ({ ...item.baseMetadata, error: msg } as unknown) as Prisma.InputJsonValue,
           },
         });
-        failedCount++;
+        return "fail";
       }
+    }
 
-      // Mise à jour du progrès toutes les 3 images
-      if ((generatedCount + failedCount) % 3 === 0) {
-        await setJobProgress(
-          jobId,
-          {
-            key: "generate_images",
-            label: `Génération images (${generatedCount}/${plannedImages.length})`,
-            detail: failedCount > 0 ? `${failedCount} échecs` : undefined,
-          },
-          "running",
-        );
+    // Génération en batches parallèles de 5 (équilibre vitesse / rate-limit FAL)
+    const BATCH_SIZE = 5;
+    for (let batchStart = 0; batchStart < plannedImages.length; batchStart += BATCH_SIZE) {
+      const batch = plannedImages.slice(batchStart, batchStart + BATCH_SIZE);
+      const results = await Promise.all(batch.map(processOneImage));
+      for (const r of results) {
+        if (r === "ok") generatedCount++;
+        else failedCount++;
       }
+      await setJobProgress(
+        jobId,
+        {
+          key: "generate_images",
+          label: `Génération images (${generatedCount}/${plannedImages.length})`,
+          detail: failedCount > 0 ? `${failedCount} échec(s)` : undefined,
+        },
+        "running",
+      );
     }
 
     await setJobProgress(

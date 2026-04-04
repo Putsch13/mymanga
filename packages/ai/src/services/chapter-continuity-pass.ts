@@ -139,7 +139,9 @@ Réponds uniquement en JSON : { "chapterSummary", "cliffhanger", "notes", "scene
       notes: [...baseNotes, ...(parsed.notes ?? []).slice(0, 10)],
       usedOpenAI: true,
     };
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[continuity-pass] error=${msg}`);
     return { bundle: input.bundle, notes: [...baseNotes, "Échec OpenAI : bundle d’origine conservé."], usedOpenAI: false };
   }
 }

@@ -53,6 +53,8 @@ export default function ChapterGeneratorPage() {
   const [diag, setDiag] = useState<null | { hasFalKey: boolean; hasOpenAI: boolean; hasInngestEventKey: boolean; authDisabled: boolean }>(null);
   const [userIntent, setUserIntent] = useState("Faire monter la tension, révéler un secret et préparer une confrontation majeure.");
   const [chapterTitle, setChapterTitle] = useState("");
+  const [projectIntensityLayer, setProjectIntensityLayer] = useState<string | null>(null);
+  const [hasCharacters, setHasCharacters] = useState<boolean | null>(null);
 
   const loadChapters = useCallback(() => {
     fetch(`/api/projects/${id}/chapters`)
@@ -73,6 +75,7 @@ export default function ChapterGeneratorPage() {
           roleType: character.roleType,
         }));
         setCharacters(nextCharacters);
+        setHasCharacters(nextCharacters.length > 0);
         setSelectedCharacterIds((current) => {
           if (current.length > 0) return current.filter((value) => nextCharacters.some((character: { id: string }) => character.id === value));
           return nextCharacters.slice(0, 3).map((character: { id: string }) => character.id);
@@ -84,6 +87,15 @@ export default function ChapterGeneratorPage() {
     loadChapters();
     loadCharacters();
   }, [loadCharacters, loadChapters]);
+
+  useEffect(() => {
+    fetch(`/api/projects/${id}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.project?.intensityLayer) setProjectIntensityLayer(j.project.intensityLayer);
+      })
+      .catch(() => null);
+  }, [id]);
 
   useEffect(() => {
     fetch("/api/diagnostics/public", { cache: "no-store" })
@@ -107,7 +119,11 @@ export default function ChapterGeneratorPage() {
         window.clearInterval(interval);
         loadChapters();
         router.refresh();
-        if (json.job.status === "completed" && selectedChapter && !autoReaderNavigatedRef.current) {
+        if (
+          (json.job.status === "completed" || json.job.status === "partial_success") &&
+          selectedChapter &&
+          !autoReaderNavigatedRef.current
+        ) {
           autoReaderNavigatedRef.current = true;
           window.setTimeout(() => {
             window.location.assign(`/projects/${id}/chapters/${selectedChapter}/read?fresh=1`);
@@ -410,6 +426,21 @@ export default function ChapterGeneratorPage() {
               <CardDescription>Le pipeline va créer les scènes, le storyboard et les images.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {hasCharacters === false && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-300">
+                  ⚠️ Aucun personnage créé sur ce projet. Les images générées seront génériques.{" "}
+                  <Link href={`/projects/${id}/characters/new`} className="underline hover:text-amber-200">
+                    Créer un personnage →
+                  </Link>
+                </div>
+              )}
+              {projectIntensityLayer && (
+                <div className="flex items-center gap-2 rounded-lg border border-border/40 bg-background/40 px-3 py-2 text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">Intensité projet :</span>
+                  <span className="rounded-full bg-primary/15 px-2 py-0.5 font-mono text-primary">{projectIntensityLayer}</span>
+                  <span className="opacity-60">— c&apos;est cette valeur qui est utilisée par le pipeline</span>
+                </div>
+              )}
               {chapters.length > 0 ? (
                 <select
                   className="flex h-10 w-full rounded-lg border border-border bg-background/80 px-3 text-sm"
@@ -433,7 +464,7 @@ export default function ChapterGeneratorPage() {
                   Générer ce chapitre
                 </Button>
                 <Button type="button" variant="secondary" onClick={runNow} disabled={!selectedJobId || runningNow}>
-                  {runningNow ? "Exécution…" : "Run now sans Inngest"}
+                  {runningNow ? "Exécution…" : "Exécuter maintenant (sans Inngest)"}
                 </Button>
                 <Button asChild variant="outline">
                   <Link href={`/projects/${id}/chapters`}>Aller lire →</Link>

@@ -151,7 +151,9 @@ Retourne un JSON strict avec ce format:
       panels,
       totalBubbles: panels.reduce((acc, p) => acc + (p.bubbles?.length ?? 0), 0),
     };
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[dialogue-writer] sceneId=${input.sceneId} error=${msg}`);
     const panels = generateFallbackPanels(input);
     return { panels, totalBubbles: panels.reduce((acc, p) => acc + p.bubbles.length, 0) };
   }

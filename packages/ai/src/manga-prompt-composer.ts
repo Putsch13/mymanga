@@ -7,6 +7,10 @@ export interface CharacterRef {
   eyeColor?: string | null;
   outfitDefault?: string | null;
   canonicalImageUrl?: string | null;
+  /** Signature visuelle figée : texte court, stable entre chapitres, injecté tel quel dans le prompt */
+  visualSignatureText?: string | null;
+  /** Traits visuels interdits (forbiddenDrift) issus du continuityProfile */
+  forbiddenDrift?: string[] | null;
 }
 
 export interface StylePackRef {
@@ -79,6 +83,10 @@ const BASE_NEGATIVE =
   "missing fingers, extra fingers, fused characters, inconsistent art style";
 
 function describeCharacter(c: CharacterRef): string {
+  // Si une signature visuelle figée est disponible, elle prime sur la reconstruction champ par champ
+  if (c.visualSignatureText) {
+    return `[${c.name}]: ${c.visualSignatureText}`;
+  }
   const parts: string[] = [`[${c.name}]`];
   if (c.appearance) parts.push(c.appearance);
   if (c.hairColor) parts.push(`${c.hairColor} hair`);
@@ -144,12 +152,17 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
   let negative = BASE_NEGATIVE;
   if (input.characters && input.characters.length > 0) {
     const driftGuards = input.characters
-      .map((c) => {
+      .flatMap((c) => {
         const guards: string[] = [];
+        // Verrous standards champ par champ
         if (c.hairColor) guards.push(`wrong hair color for ${c.name}`);
         if (c.eyeColor) guards.push(`wrong eye color for ${c.name}`);
         if (c.outfitDefault) guards.push(`wrong outfit for ${c.name}`);
-        return guards.join(", ");
+        // forbiddenDrift : liste de traits visuels explicitement interdits
+        if (c.forbiddenDrift && c.forbiddenDrift.length > 0) {
+          guards.push(...c.forbiddenDrift.slice(0, 6));
+        }
+        return guards;
       })
       .filter(Boolean)
       .join(", ");

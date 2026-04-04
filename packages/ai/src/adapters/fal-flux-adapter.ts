@@ -3,6 +3,8 @@ import { createMockImageProvider } from "./mock-image-provider";
 
 // flux/dev : qualité premium, $0.025/MP — idéal pour panels manga
 const FAL_FLUX_DEV = "https://fal.run/fal-ai/flux/dev";
+// flux/dev avec IP-Adapter pour la cohérence visuelle des personnages
+const FAL_FLUX_DEV_REDUX = "https://fal.run/fal-ai/flux-pro/v1/redux";
 
 type FalImageResponse = {
   images?: Array<{ url: string; content_type?: string }>;
@@ -16,14 +18,15 @@ function extractUrl(data: FalImageResponse): string | undefined {
 async function callFal(
   apiKey: string,
   body: Record<string, unknown>,
+  endpoint = FAL_FLUX_DEV,
   retries = 2,
 ): Promise<FalImageResponse> {
   let lastError: Error = new Error("fal.run: échec inconnu");
   for (let attempt = 0; attempt <= retries; attempt++) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 45_000);
+    const timeout = setTimeout(() => controller.abort(), 60_000);
     try {
-      const res = await fetch(FAL_FLUX_DEV, {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: {
           Authorization: `Key ${apiKey}`,
@@ -80,27 +83,49 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
         String(input.providerParams?.mode ?? "").includes("LOCATION");
       const imageSize = isCover ? "landscape_4_3" : "portrait_4_3";
 
-      const body: Record<string, unknown> = {
-        prompt: input.positivePrompt,
-        image_size: imageSize,
-        num_inference_steps: 28,
-        guidance_scale: 3.5,
-        num_images: 1,
-        enable_safety_checker: !isMature,
-        output_format: "jpeg",
-      };
+      // Si une image de référence est fournie, utiliser flux-redux (IP-Adapter)
+      // pour préserver l'identité visuelle du personnage.
+      const referenceUrl =
+        input.referenceImageUrls && input.referenceImageUrls.length > 0
+          ? input.referenceImageUrls[0]
+          : null;
 
-      if (input.negativePrompt) {
-        // flux/dev ne supporte pas nativement le negative prompt mais on l'ajoute
-        // dans le prompt principal avec un préfixe conventionnel
-        body.prompt = `${input.positivePrompt}. Avoid: ${input.negativePrompt}`;
-      }
+      const useRedux = Boolean(referenceUrl);
+      const endpoint = useRedux ? FAL_FLUX_DEV_REDUX : FAL_FLUX_DEV;
+
+      const promptWithNeg = input.negativePrompt
+        ? `${input.positivePrompt}. Avoid: ${input.negativePrompt}`
+        : input.positivePrompt;
+
+      const body: Record<string, unknown> = useRedux
+        ? {
+            prompt: promptWithNeg,
+            image_url: referenceUrl,
+            image_size: imageSize,
+            num_inference_steps: 28,
+            guidance_scale: 3.5,
+            num_images: 1,
+            enable_safety_checker: !isMature,
+            output_format: "jpeg",
+            // Strength contrôle combien l'image de référence influence le résultat
+            // 0.75 = forte ressemblance personnage, 0.6 = plus de liberté créative
+            strength: 0.72,
+          }
+        : {
+            prompt: promptWithNeg,
+            image_size: imageSize,
+            num_inference_steps: 28,
+            guidance_scale: 3.5,
+            num_images: 1,
+            enable_safety_checker: !isMature,
+            output_format: "jpeg",
+          };
 
       if (input.providerParams?.seed && typeof input.providerParams.seed === "number") {
         body.seed = input.providerParams.seed;
       }
 
-      const data = await callFal(apiKey, body);
+      const data = await callFal(apiKey, body, endpoint);
       const imageUrl = extractUrl(data);
       if (!imageUrl) {
         throw new Error("fal.run: pas d'URL image dans la réponse");
