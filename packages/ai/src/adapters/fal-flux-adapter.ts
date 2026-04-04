@@ -4,7 +4,7 @@ import { createMockImageProvider } from "./mock-image-provider";
 // flux/dev : qualité premium, $0.025/MP — idéal pour panels manga
 const FAL_FLUX_DEV = "https://fal.run/fal-ai/flux/dev";
 // flux/dev avec IP-Adapter pour la cohérence visuelle des personnages
-const FAL_FLUX_DEV_REDUX = "https://fal.run/fal-ai/flux-pro/v1/redux";
+const FAL_FLUX_DEV_REDUX = "https://fal.run/fal-ai/flux/dev/redux";
 
 type FalImageResponse = {
   images?: Array<{ url: string; content_type?: string }>;
@@ -81,7 +81,10 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
       const isCover =
         String(input.providerParams?.mode ?? "").includes("COVER") ||
         String(input.providerParams?.mode ?? "").includes("LOCATION");
-      const imageSize = isCover ? "landscape_4_3" : "portrait_4_3";
+      const imageSize =
+        typeof input.width === "number" && typeof input.height === "number"
+          ? { width: input.width, height: input.height }
+          : (isCover ? "landscape_4_3" : "portrait_4_3");
 
       // Si une image de référence est fournie, utiliser flux-redux (IP-Adapter)
       // pour préserver l'identité visuelle du personnage.
@@ -103,7 +106,7 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
             image_url: referenceUrl,
             image_size: imageSize,
             num_inference_steps: 28,
-            guidance_scale: 3.5,
+            guidance_scale: 3.9,
             num_images: 1,
             enable_safety_checker: !isMature,
             output_format: "jpeg",
@@ -115,7 +118,7 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
             prompt: promptWithNeg,
             image_size: imageSize,
             num_inference_steps: 28,
-            guidance_scale: 3.5,
+            guidance_scale: 3.9,
             num_images: 1,
             enable_safety_checker: !isMature,
             output_format: "jpeg",

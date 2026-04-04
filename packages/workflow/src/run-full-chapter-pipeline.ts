@@ -187,6 +187,8 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       eyeColor: string | null;
       outfitDefault: string | null;
       canonicalImageUrl: string | null;
+      canonSignatureText: string | null;
+      forbiddenVisualDrift: unknown;
     }>>(
       `SELECT c.id, c.name, c.gender, c.appearance, c."hairColor", c."eyeColor", c."outfitDefault",
               (SELECT si."imageUrl" FROM "SceneImage" si
@@ -197,7 +199,10 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                  AND si.status = 'completed'
                ORDER BY si."createdAt" DESC
                LIMIT 1) AS "canonicalImageUrl"
+              , ccp."visualSignatureText" AS "canonSignatureText"
+              , ccp."forbiddenVisualDrift" AS "forbiddenVisualDrift"
        FROM "Character" c
+       LEFT JOIN "CharacterCanonPack" ccp ON ccp."characterId" = c.id
        WHERE c."projectId" = $1`,
       job.projectId,
     ),
@@ -413,14 +418,19 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                       eyeColor: c.eyeColor,
                       outfitDefault: c.outfitDefault,
                       canonicalImageUrl: c.canonicalImageUrl ?? null,
+                      forbiddenDrift: Array.isArray(c.forbiddenVisualDrift)
+                        ? (c.forbiddenVisualDrift as string[]).filter((item) => typeof item === "string")
+                        : null,
                       // visualSignatureText : description compacte figée, stable entre chapitres
-                      visualSignatureText: [
-                        c.gender === "male" ? "male" : c.gender === "female" ? "female" : null,
-                        c.appearance,
-                        c.hairColor ? `${c.hairColor} hair` : null,
-                        c.eyeColor ? `${c.eyeColor} eyes` : null,
-                        c.outfitDefault,
-                      ].filter(Boolean).join(", ") || null,
+                      visualSignatureText:
+                        c.canonSignatureText ??
+                        ([
+                          c.gender === "male" ? "male" : c.gender === "female" ? "female" : null,
+                          c.appearance,
+                          c.hairColor ? `${c.hairColor} hair` : null,
+                          c.eyeColor ? `${c.eyeColor} eyes` : null,
+                          c.outfitDefault,
+                        ].filter(Boolean).join(", ") || null),
                     })),
               location: scene.location,
               action: panel.narration ?? panel.caption,

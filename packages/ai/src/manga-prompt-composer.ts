@@ -141,6 +141,11 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
   positiveParts.push(
     "high detail, consistent character design, professional manga art, ink lines, same character appearance as previous panels",
   );
+  if (input.characters && input.characters.length > 0) {
+    positiveParts.push(
+      "STRICT: preserve hair length/color, eye color, outfit, body modifications (prosthetics/bionic limbs), scars and facial features exactly; no drift",
+    );
+  }
 
   if (input.dialogueHint) {
     positiveParts.push(`emotional subtext: ${input.dialogueHint.slice(0, 120)}`);

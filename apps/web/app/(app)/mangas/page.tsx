@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/auth/get-app-user";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { DeleteProjectButton } from "@/components/projects/delete-project-button";
 
 export const dynamic = "force-dynamic";
 
@@ -119,6 +120,7 @@ export default async function MyMangasPage() {
                     <Button asChild variant="outline">
                       <Link href={`/projects/${p.id}/characters`}>Personnages</Link>
                     </Button>
+                    <DeleteProjectButton projectId={p.id} projectTitle={p.title} />
                   </div>
                 </CardContent>
               </Card>
