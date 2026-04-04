@@ -125,6 +125,7 @@ export function composeCharacterVisualPrompt(
     traitDesc,
     intensityNote,
     "white background, character sheet style, clean linework, high detail, consistent design",
+    "IMPORTANT: all body modifications, prosthetics, bionic limbs, scars, tattoos, and unique physical features MUST be clearly visible and accurate",
   ].filter(Boolean);
 
   const positive = positiveParts.join(", ");

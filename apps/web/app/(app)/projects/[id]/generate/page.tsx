@@ -254,7 +254,10 @@ export default function ChapterGeneratorPage() {
       setPipelineMsg(j.message ?? JSON.stringify(j));
       if (j.jobId) {
         setSelectedJobId(j.jobId);
-        setJobState({ id: j.jobId, status: "queued", output: { currentStep: "queued", steps: [] } });
+        const jobStatus = j.ok === false ? "failed" : "queued";
+        setJobState({ id: j.jobId, status: jobStatus, output: { currentStep: jobStatus, steps: [] }, ...(j.ok === false ? { error: { message: j.message } } : {}) });
+      } else if (!res.ok || j.ok === false) {
+        setJobState(null);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Erreur réseau";

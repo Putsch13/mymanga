@@ -90,14 +90,24 @@ export async function POST(req: Request, ctx: Ctx) {
   });
 
   if (!sent.ok) {
-    const run = await runFullChapterPipelineFromJob(job.id);
-    return NextResponse.json({
-      ok: run.ok,
-      jobId: job.id,
-      message: run.ok
-        ? "Pipeline exécuté immédiatement (Inngest non configuré)."
-        : `Échec pipeline local : ${run.error ?? "inconnu"}`,
-    });
+    try {
+      const run = await runFullChapterPipelineFromJob(job.id);
+      return NextResponse.json({
+        ok: run.ok,
+        jobId: job.id,
+        message: run.ok
+          ? "Pipeline exécuté immédiatement (Inngest non configuré)."
+          : `Échec pipeline : ${run.error ?? "inconnu"}`,
+      });
+    } catch (pipelineError) {
+      const msg = pipelineError instanceof Error ? pipelineError.message : "pipeline_crash";
+      console.error("[pipeline/route] crash:", msg);
+      return NextResponse.json({
+        ok: false,
+        jobId: job.id,
+        message: `Crash pipeline : ${msg}`,
+      }, { status: 500 });
+    }
   }
 
   return NextResponse.json({

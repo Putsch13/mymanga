@@ -83,15 +83,22 @@ const BASE_NEGATIVE =
   "missing fingers, extra fingers, fused characters, inconsistent art style";
 
 function describeCharacter(c: CharacterRef): string {
-  // Si une signature visuelle figée est disponible, elle prime sur la reconstruction champ par champ
-  if (c.visualSignatureText) {
-    return `[${c.name}]: ${c.visualSignatureText}`;
-  }
   const parts: string[] = [`[${c.name}]`];
+
+  // La signature visuelle figée est le socle
+  if (c.visualSignatureText) parts.push(c.visualSignatureText);
+
+  // Mais on ajoute TOUJOURS appearance car il contient les détails uniques
+  // (bras bionique, cicatrice, tatouage, prothèse, etc.)
   if (c.appearance) parts.push(c.appearance);
-  if (c.hairColor) parts.push(`${c.hairColor} hair`);
-  if (c.eyeColor) parts.push(`${c.eyeColor} eyes`);
-  if (c.outfitDefault) parts.push(c.outfitDefault);
+
+  // Champs structurés en renfort si pas dans la signature
+  if (!c.visualSignatureText) {
+    if (c.hairColor) parts.push(`${c.hairColor} hair`);
+    if (c.eyeColor) parts.push(`${c.eyeColor} eyes`);
+    if (c.outfitDefault) parts.push(c.outfitDefault);
+  }
+
   return parts.join(", ");
 }
 

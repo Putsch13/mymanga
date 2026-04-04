@@ -177,35 +177,46 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       orderBy: { createdAt: "desc" },
       take: 1,
     }),
-    // Raw query pour récupérer les champs visuels + ref image canonique
-    prisma.$queryRawUnsafe<Array<{
-      id: string;
-      name: string;
-      gender: string | null;
-      appearance: string | null;
-      hairColor: string | null;
-      eyeColor: string | null;
-      outfitDefault: string | null;
-      canonicalImageUrl: string | null;
-      canonSignatureText: string | null;
-      forbiddenVisualDrift: unknown;
-    }>>(
-      `SELECT c.id, c.name, c.gender, c.appearance, c."hairColor", c."eyeColor", c."outfitDefault",
-              (SELECT si."imageUrl" FROM "SceneImage" si
-               JOIN "ChapterScene" cs ON si."sceneId" = cs.id
-               JOIN "Chapter" ch ON cs."chapterId" = ch.id
-               WHERE ch."projectId" = c."projectId"
-                 AND si."imageUrl" IS NOT NULL
-                 AND si.status = 'completed'
-               ORDER BY si."createdAt" DESC
-               LIMIT 1) AS "canonicalImageUrl"
-              , ccp."visualSignatureText" AS "canonSignatureText"
-              , ccp."forbiddenVisualDrift" AS "forbiddenVisualDrift"
-       FROM "Character" c
-       LEFT JOIN "CharacterCanonPack" ccp ON ccp."characterId" = c.id
-       WHERE c."projectId" = $1`,
-      job.projectId,
-    ),
+    prisma.character.findMany({
+      where: { projectId: job.projectId },
+      include: { canonPack: true },
+    }).then(async (chars) => {
+      // Récupérer les canonical image URLs en raw SQL (subquery sur SceneImage)
+      let canonUrls: Record<string, string> = {};
+      try {
+        const rows = await prisma.$queryRawUnsafe<Array<{ characterId: string; canonicalImageUrl: string | null }>>(
+          `SELECT c.id AS "characterId",
+                  (SELECT si."imageUrl" FROM "SceneImage" si
+                   JOIN "ChapterScene" cs ON si."sceneId" = cs.id
+                   JOIN "Chapter" ch ON cs."chapterId" = ch.id
+                   WHERE ch."projectId" = c."projectId"
+                     AND si."imageUrl" IS NOT NULL
+                     AND si.status = 'completed'
+                   ORDER BY si."createdAt" DESC
+                   LIMIT 1) AS "canonicalImageUrl"
+           FROM "Character" c
+           WHERE c."projectId" = $1`,
+          job.projectId,
+        );
+        for (const r of rows) {
+          if (r.canonicalImageUrl) canonUrls[r.characterId] = r.canonicalImageUrl;
+        }
+      } catch (e) {
+        console.error("[pipeline] canonical URL query failed, continuing without:", e instanceof Error ? e.message : e);
+      }
+      return chars.map((c) => ({
+        id: c.id,
+        name: c.name,
+        gender: (c as unknown as Record<string, unknown>).gender as string | null ?? null,
+        appearance: (c as unknown as Record<string, unknown>).appearance as string | null ?? null,
+        hairColor: (c as unknown as Record<string, unknown>).hairColor as string | null ?? null,
+        eyeColor: (c as unknown as Record<string, unknown>).eyeColor as string | null ?? null,
+        outfitDefault: (c as unknown as Record<string, unknown>).outfitDefault as string | null ?? null,
+        canonicalImageUrl: canonUrls[c.id] ?? null,
+        canonSignatureText: c.canonPack?.visualSignatureText ?? null,
+        forbiddenVisualDrift: c.canonPack?.forbiddenVisualDrift ?? null,
+      }));
+    }),
   ]);
 
   if (!chapter) {
@@ -714,14 +725,20 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     return { ok: true as const };
   } catch (error) {
     const message = error instanceof Error ? error.message : "pipeline_failed";
-    await prisma.job.update({
-      where: { id: jobId },
-      data: {
-        status: "failed",
-        finishedAt: new Date(),
-        error: { message },
-      },
-    });
+    const stack = error instanceof Error ? error.stack?.slice(0, 500) : undefined;
+    console.error(`[pipeline] FAILED jobId=${jobId} error=${message}`, stack ?? "");
+    try {
+      await prisma.job.update({
+        where: { id: jobId },
+        data: {
+          status: "failed",
+          finishedAt: new Date(),
+          error: { message, stack },
+        },
+      });
+    } catch (dbErr) {
+      console.error(`[pipeline] Cannot update job status:`, dbErr instanceof Error ? dbErr.message : dbErr);
+    }
     return { ok: false as const, error: message };
   }
 }
