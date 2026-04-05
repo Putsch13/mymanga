@@ -150,7 +150,26 @@ export default function CharacterDetailPage() {
     const result = await safeFetch<{ visualRef: CharacterPayload["visualRefs"][0] }>(`/api/characters/${characterId}/generate-visual`, { method: "POST" });
     setGeneratingVisual(false);
     if (!result.ok) {
-      setMessage({ text: result.error, type: "error" });
+      const status = result.status;
+      if (status === 429) {
+        setMessage({ text: `Trop de tentatives de génération. ${result.error}`, type: "error" });
+        return;
+      }
+      if (status === 402) {
+        setMessage({
+          text: "Tokens insuffisants pour générer un visuel (vérifie le wallet/bypass admin illimité).",
+          type: "error",
+        });
+        return;
+      }
+      if (status === 422) {
+        setMessage({
+          text: `Stack IA incomplète pour générer l'image. ${result.error}`,
+          type: "error",
+        });
+        return;
+      }
+      setMessage({ text: `Échec génération visuel: ${result.error}`, type: "error" });
       return;
     }
     setCharacter((current) =>

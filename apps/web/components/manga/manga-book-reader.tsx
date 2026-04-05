@@ -70,6 +70,35 @@ type ReaderResponse = {
   imageStats?: { total: number; completed: number; failed: number; pending: number } | null;
 };
 
+function normalizeForReaderDup(value: string | null | undefined) {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function dedupeReaderPages(pages: UniversalMangaPage[]): UniversalMangaPage[] {
+  const seen = new Set<string>();
+  const deduped: UniversalMangaPage[] = [];
+  for (const page of pages) {
+    const signature = page.panels
+      .map((panel) =>
+        [
+          normalizeForReaderDup(panel.caption),
+          normalizeForReaderDup(panel.dialogue),
+          normalizeForReaderDup(panel.narration),
+          panel.imageUrl ?? "",
+        ].join("|"),
+      )
+      .join("||");
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    deduped.push(page);
+  }
+  return deduped;
+}
+
 function buildPagesFromChapter(chapter: ChapterPayload): UniversalMangaPage[] {
   const storyboard = chapter.storyboard as {
     pages?: Array<{ pageNumber: number; layout: string }>;
@@ -102,7 +131,7 @@ function buildPagesFromChapter(chapter: ChapterPayload): UniversalMangaPage[] {
     })),
   }));
 
-  return pipelineScenesToPages(pipelineScenes, sbPages);
+  return dedupeReaderPages(pipelineScenesToPages(pipelineScenes, sbPages));
 }
 
 const SUGGESTIONS = [
@@ -287,7 +316,10 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
     return <p className="text-sm text-muted-foreground">Ouverture du livre&hellip;</p>;
 
   const leftPage = pages[pageIndex];
-  const rightPage = spreadMode ? pages[pageIndex + 1] : undefined;
+  const spreadFirstPage = spreadMode ? pages[pageIndex] : undefined;
+  const spreadSecondPage = spreadMode ? pages[pageIndex + 1] : undefined;
+  const spreadLeftPage = spreadMode ? (mangaRtl ? spreadSecondPage : spreadFirstPage) : undefined;
+  const spreadRightPage = spreadMode ? (mangaRtl ? spreadFirstPage : spreadSecondPage) : undefined;
 
   const renderPage = () => {
     if (!leftPage) return null;
@@ -342,16 +374,19 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                   onKeyDown={(e) => e.key === "Enter" && (mangaRtl ? goNext() : goPrev())}
                 >
                   <div className="absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-black/30 to-transparent" />
-                  <div className="absolute bottom-3 left-3 z-20 rounded-full border border-black/20 bg-white/85 px-2 py-1 text-[10px] font-medium text-stone-900">
-                    Page {pageIndex + 1}
-                  </div>
-                  {showTextOnly ? (
+                  {spreadLeftPage ? (
+                    <div className="absolute bottom-3 left-3 z-20 rounded-full border border-black/20 bg-white/85 px-2 py-1 text-[10px] font-medium text-stone-900">
+                      Page {mangaRtl ? pageIndex + 2 : pageIndex + 1}
+                    </div>
+                  ) : null}
+                  {spreadLeftPage ? (
+                  showTextOnly ? (
                     <div className="h-full overflow-y-auto p-5">
                       <h3 className="font-serif text-base font-bold text-stone-200">
-                        Page {pageIndex + 1}
+                        Page {mangaRtl ? pageIndex + 2 : pageIndex + 1}
                       </h3>
                       <div className="mt-3 space-y-3">
-                        {leftPage.panels.map((panel, i) => (
+                        {spreadLeftPage.panels.map((panel, i) => (
                           <div key={i} className="rounded-lg border border-stone-700 bg-stone-900 p-3">
                             {panel.narration ? (
                               <p className="mb-1 text-xs italic text-stone-400">{panel.narration}</p>
@@ -372,7 +407,12 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                       </div>
                     </div>
                   ) : (
-                    <MangaPageGrid page={leftPage} />
+                    <MangaPageGrid page={spreadLeftPage} />
+                  )
+                  ) : (
+                    <div className="flex h-full items-center justify-center bg-stone-950">
+                      <span className="text-sm text-muted-foreground">Page vide</span>
+                    </div>
                   )}
                 </div>
 
@@ -386,19 +426,19 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                   onKeyDown={(e) => e.key === "Enter" && (mangaRtl ? goPrev() : goNext())}
                 >
                   <div className="absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-black/30 to-transparent" />
-                  {rightPage ? (
+                  {spreadRightPage ? (
                     <div className="absolute bottom-3 right-3 z-20 rounded-full border border-black/20 bg-white/85 px-2 py-1 text-[10px] font-medium text-stone-900">
-                      Page {pageIndex + 2}
+                      Page {mangaRtl ? pageIndex + 1 : pageIndex + 2}
                     </div>
                   ) : null}
-                  {rightPage ? (
+                  {spreadRightPage ? (
                     showTextOnly ? (
                       <div className="h-full overflow-y-auto p-5">
                         <h3 className="font-serif text-base font-bold text-stone-200">
-                          Page {pageIndex + 2}
+                          Page {mangaRtl ? pageIndex + 1 : pageIndex + 2}
                         </h3>
                         <div className="mt-3 space-y-3">
-                          {rightPage.panels.map((panel, i) => (
+                          {spreadRightPage.panels.map((panel, i) => (
                             <div key={i} className="rounded-lg border border-stone-700 bg-stone-900 p-3">
                               {panel.narration ? (
                                 <p className="mb-1 text-xs italic text-stone-400">{panel.narration}</p>
@@ -419,11 +459,11 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                         </div>
                       </div>
                     ) : (
-                      <MangaPageGrid page={rightPage} />
+                      <MangaPageGrid page={spreadRightPage} />
                     )
                   ) : (
                     <div className="flex h-full items-center justify-center bg-stone-950">
-                      <span className="text-sm text-muted-foreground">—</span>
+                      <span className="text-sm text-muted-foreground">Page vide</span>
                     </div>
                   )}
                 </div>

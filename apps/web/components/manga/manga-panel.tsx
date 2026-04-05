@@ -129,6 +129,7 @@ type Props = {
   sfx?: string;
   caption?: string;
   textScale?: "normal" | "compact" | "micro";
+  imageFit?: "cover" | "contain";
   className?: string;
   style?: React.CSSProperties;
   /** Numéro du panel pour l'accessibilité */
@@ -149,6 +150,7 @@ export function MangaPanel({
   sfx,
   caption,
   textScale = "normal",
+  imageFit = "cover",
   className,
   style,
   panelIndex,
@@ -187,7 +189,7 @@ export function MangaPanel({
         <img
           src={imageUrl}
           alt={caption ?? `Panel ${(panelIndex ?? 0) + 1}`}
-          className="absolute inset-0 h-full w-full object-cover object-center"
+          className={`absolute inset-0 h-full w-full ${imageFit === "contain" ? "object-contain object-center" : "object-cover object-center"}`}
         />
       ) : (
         overlay

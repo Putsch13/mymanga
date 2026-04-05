@@ -172,7 +172,7 @@ export function pipelineScenesToPages(
 
   return scenes.map((scene, idx) => {
     const sbPage = storyboardPages?.[idx];
-    const rawLayout = (sbPage?.layout as "A" | "B" | "C" | "D" | "E") ?? "A";
+    const rawLayout = (sbPage?.layout as MangaGridLayout) ?? "A";
 
     const panels: UniversalPanel[] = (scene.images ?? [])
       .sort((a, b) => a.panelNumber - b.panelNumber)
@@ -203,6 +203,20 @@ type Props = {
   page: UniversalMangaPage | DemoMangaPage;
 };
 
+function pickPanelImageFit(layout: UniversalMangaPage["layout"], area: string): "cover" | "contain" {
+  // Les cases en bandeau horizontal rognent facilement les persos en portrait :
+  // on privilégie "contain" pour préserver le sujet principal.
+  const horizontalSlots: Record<UniversalMangaPage["layout"], string[]> = {
+    A: ["c"],
+    B: ["c"],
+    C: ["a"],
+    D: ["a", "d"],
+    E: ["d", "e"],
+    F: [],
+  };
+  return horizontalSlots[layout]?.includes(area) ? "contain" : "cover";
+}
+
 function isDemoPage(page: UniversalMangaPage | DemoMangaPage): page is DemoMangaPage {
   // DemoMangaPage panels ont un champ `size` et un `id`
   return (
@@ -218,38 +232,45 @@ export function MangaPageGrid({ page }: Props) {
     : (page as UniversalMangaPage);
 
   const layoutStyle = LAYOUT_STYLES[universal.layout] ?? LAYOUT_STYLES.A;
+  const renderedPanels = universal.panels.map((panel, i) => {
+    const area = AREA_NAMES[i] ?? "a";
+    const fit = pickPanelImageFit(universal.layout, area);
+    return (
+      <MangaPanel
+        key={panel.id ?? `panel-${i}`}
+        mood={panel.mood}
+        imageUrl={panel.imageUrl}
+        status={panel.status}
+        provider={panel.provider}
+        model={panel.model}
+        error={panel.error}
+        sceneImageId={panel.id}
+        dialogue={panel.dialogue}
+        speaker={panel.speaker}
+        narration={panel.narration}
+        sfx={panel.sfx}
+        caption={panel.caption}
+        textScale={panel.textScale}
+        imageFit={fit}
+        panelIndex={i}
+        className="min-h-0"
+        style={{ gridArea: area }}
+      />
+    );
+  });
 
   return (
     <div
-      className="w-full bg-stone-900"
+      className="h-full w-full bg-stone-900"
       style={{
         ...layoutStyle,
         padding: "3px",
         aspectRatio: "2 / 3",
+        maxHeight: "100%",
         minHeight: 0,
       }}
     >
-      {universal.panels.map((panel, i) => (
-        <MangaPanel
-          key={panel.id ?? `panel-${i}`}
-          mood={panel.mood}
-          imageUrl={panel.imageUrl}
-          status={panel.status}
-          provider={panel.provider}
-          model={panel.model}
-          error={panel.error}
-          sceneImageId={panel.id}
-          dialogue={panel.dialogue}
-          speaker={panel.speaker}
-          narration={panel.narration}
-          sfx={panel.sfx}
-          caption={panel.caption}
-          textScale={panel.textScale}
-          panelIndex={i}
-          className="min-h-0"
-          style={{ gridArea: AREA_NAMES[i] }}
-        />
-      ))}
+      {renderedPanels}
     </div>
   );
 }

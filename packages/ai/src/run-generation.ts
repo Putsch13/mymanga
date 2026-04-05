@@ -50,22 +50,35 @@ export async function runRoutedImageGeneration(
   | { ok: true; result: GenerateImageResult; routing: Exclude<ReturnType<typeof decideImageRoute>, { blocked: true }>; log: ImageGenerationLog }
   | { ok: false; blocked: true; reason: string; textOnlyFallback?: boolean; log: ImageGenerationLog }
 > {
-  const decision = decideImageRoute(ctx);
+  const rawDecision = decideImageRoute(ctx);
   const promptHash = hashPrompt(input.positivePrompt);
 
-  if ("blocked" in decision) {
+  if ("blocked" in rawDecision) {
     const log: ImageGenerationLog = {
       provider: "blocked",
       model: "none",
       promptHash,
       responseTimeMs: 0,
       success: false,
-      error: decision.reason,
+      error: rawDecision.reason,
       moderationDecision: "BLOCKED",
     };
-    console.warn(`[image-gen] BLOCKED promptHash=${promptHash} reason=${decision.reason}`);
-    return { ok: false, blocked: true, reason: decision.reason, textOnlyFallback: decision.textOnlyFallback, log };
+    console.warn(`[image-gen] BLOCKED promptHash=${promptHash} reason=${rawDecision.reason}`);
+    return { ok: false, blocked: true, reason: rawDecision.reason, textOnlyFallback: rawDecision.textOnlyFallback, log };
   }
+
+  // Les workflows LoRA/multi-ref ne sont pleinement supportés que via FAL ici.
+  const needsFal =
+    Array.isArray(input.loras) && input.loras.length > 0 ||
+    Array.isArray(input.referenceImageUrls) && input.referenceImageUrls.length > 0;
+  const decision = needsFal && rawDecision.provider !== "fal"
+    ? {
+        ...rawDecision,
+        provider: "fal" as const,
+        model: rawDecision.model || "flux-pro/v1.1",
+        reason: `${rawDecision.reason} | forced_fal_for_lora_or_refs`,
+      }
+    : rawDecision;
 
   const provider = getProvider(decision.provider);
   const startMs = Date.now();

@@ -36,9 +36,11 @@ export function CharacterPreviewCard({
   className,
 }: CharacterPreviewCardProps) {
   const [imageReady, setImageReady] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
 
   useEffect(() => {
     setImageReady(false);
+    setImageFailed(false);
   }, [imageUrl]);
 
   const bs = bodyState ?? {};
@@ -75,10 +77,23 @@ export function CharacterPreviewCard({
                   "absolute inset-0 h-full w-full object-cover object-top transition-opacity duration-500 ease-out",
                   imageReady ? "opacity-100" : "opacity-0",
                 )}
-                onLoad={() => setImageReady(true)}
+                onLoad={() => {
+                  setImageFailed(false);
+                  setImageReady(true);
+                }}
+                onError={() => {
+                  setImageFailed(true);
+                  setImageReady(true);
+                }}
               />
               {!imageReady ? (
                 <div className="absolute inset-0 animate-pulse bg-gradient-to-t from-muted/60 to-transparent" aria-hidden />
+              ) : null}
+              {imageFailed ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-background/75 px-4 text-center">
+                  <span className="text-xs font-medium text-muted-foreground">Aperçu indisponible</span>
+                  <span className="text-[11px] text-muted-foreground/80">Le visuel a été généré mais son URL n&apos;est plus valide.</span>
+                </div>
               ) : null}
             </>
           ) : (
@@ -93,7 +108,7 @@ export function CharacterPreviewCard({
             </div>
           )}
 
-          {(isGenerating || (imageUrl && !imageReady)) ? (
+          {(isGenerating || (imageUrl && !imageReady && !imageFailed)) ? (
             <div className="absolute inset-0 flex items-center justify-center bg-background/55 backdrop-blur-[2px]">
               <Loader2 className="h-8 w-8 animate-spin text-primary/90" aria-hidden />
               <span className="sr-only">Chargement du visuel</span>

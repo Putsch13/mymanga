@@ -290,11 +290,11 @@ function inferMood(tension: number, genre: string): PanelMood {
 
 function inferLayout(tension: number, panelCount: number): GridLayout {
   // Layouts in UI:
-  // - 6 panels: A, C, D
-  // - 5 panels: use A or C (last area empty)
-  // - 4 panels: use layout F (2×2) or fallback to A with 2 empty areas
-  if (panelCount >= 6) return tension >= 8 ? "D" : tension >= 5 ? "C" : "A";
-  if (panelCount === 5) return tension >= 6 ? "C" : "A";
+  // - 6 panels: A, B, D
+  // - 5 panels: C ou E
+  // - 4 panels: F (2x2)
+  if (panelCount >= 6) return tension >= 8 ? "D" : tension >= 5 ? "B" : "A";
+  if (panelCount === 5) return tension >= 6 ? "E" : "C";
   // 4 panels → layout F (2×2 grid)
   return "F";
 }
@@ -433,10 +433,16 @@ function buildPanelsForScene(
     const mood = blueprint?.mood ?? inferMood(panelTension, genre);
     const camera = cameras[i % cameras.length] ?? "medium shot";
     const action = blueprint?.action ?? scene.summary;
-    const charSubset = blueprint?.characters?.length ? blueprint.characters : scene.characters;
+    const charSubsetRaw = blueprint?.characters?.length ? blueprint.characters : scene.characters;
 
     const textPlan = panelTextPlan?.[i];
     const leadBubble = textPlan?.bubbles?.[0];
+    const normalizedChars = [...new Set((charSubsetRaw ?? []).filter(Boolean))];
+    const leadSpeaker = leadBubble?.speaker;
+    if (leadSpeaker && !/narrateur|narration/i.test(leadSpeaker)) {
+      const hasSpeaker = normalizedChars.some((name) => name.toLowerCase() === leadSpeaker.toLowerCase());
+      if (!hasSpeaker) normalizedChars.push(leadSpeaker);
+    }
     const sfxMap: Record<PanelMood, string | undefined> = {
       action: "WHAM!",
       tension: undefined,
@@ -456,7 +462,7 @@ function buildPanelsForScene(
       caption: i === 0 ? scene.summary : i === panelBlueprints.length - 1 ? `${action}` : action,
       prompt: buildPanelPrompt(
         context,
-        charSubset,
+        normalizedChars,
         scene.location,
         camera,
         action,
@@ -465,17 +471,72 @@ function buildPanelsForScene(
       ),
       negativePrompt: STD_NEGATIVE,
       camera,
-      characters: charSubset,
+      characters: normalizedChars,
       mood,
       sfx: textPlan?.sfx?.[0] ?? sfxMap[mood],
       dialogue: leadBubble
-        ? { speaker: leadBubble.speaker ?? charSubset[0] ?? scene.characters[0] ?? "Narrateur", text: leadBubble.text }
+        ? { speaker: leadBubble.speaker ?? normalizedChars[0] ?? scene.characters[0] ?? "Narrateur", text: leadBubble.text }
         : undefined,
       narration: textPlan?.narration?.[0] ?? (i === 0 ? scene.summary : undefined),
       textScale: textPlan?.textScale ?? "normal",
     });
   }
   return panels;
+}
+
+function normalizeTextForDup(value: string | undefined): string {
+  return (value ?? "")
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function pageDupSignature(page: StoryboardPage): string {
+  return page.panels
+    .map((panel) => {
+      const chars = [...new Set(panel.characters.map((c) => c.toLowerCase()))].sort().join(",");
+      return [
+        normalizeTextForDup(panel.caption),
+        normalizeTextForDup(panel.dialogue?.text),
+        normalizeTextForDup(panel.narration),
+        chars,
+      ].join("|");
+    })
+    .join("||");
+}
+
+function duplicatePageIndexes(pages: StoryboardPage[]): number[] {
+  const seen = new Map<string, number>();
+  const duplicates = new Set<number>();
+  for (let index = 0; index < pages.length; index++) {
+    const page = pages[index];
+    const signature = pageDupSignature(page);
+    const prev = seen.get(signature);
+    if (typeof prev === "number") {
+      // On régénère la page la plus récente pour préserver l'intention du flow narratif.
+      duplicates.add(index);
+      continue;
+    }
+    seen.set(signature, index);
+  }
+  return [...duplicates];
+}
+
+function buildRegeneratedBlueprints(
+  scene: { id: string; summary: string; location: string; characters: string[]; purpose: string },
+  beat: { summary: string; tension: number },
+  panelCount: number,
+  genre: string,
+  attempt: number,
+): PanelBlueprint[] {
+  const base = buildPanelBlueprints(scene, beat, panelCount, genre);
+  const variationTag = attempt % 2 === 0 ? "Conséquence immédiate" : "Nouveau contretemps";
+  return base.map((panel, idx) => ({
+    ...panel,
+    action: `${panel.action} ${variationTag} ${idx + 1}: ${scene.purpose}.`,
+  }));
 }
 
 export async function generateChapterBundle(input: {
@@ -711,6 +772,44 @@ export async function generateChapterBundle(input: {
       panels,
     };
   });
+
+  // Garde-fou strict anti-duplication: régénération ciblée des pages répétées.
+  const MAX_DUP_REGEN = 2;
+  for (let attempt = 1; attempt <= MAX_DUP_REGEN; attempt++) {
+    const duplicates = duplicatePageIndexes(storyboardPages);
+    if (duplicates.length === 0) break;
+    console.warn(`[chapter-pipeline] duplicate pages detected: attempt=${attempt} pages=${duplicates.join(",")}`);
+
+    for (const pageIndex of duplicates) {
+      const scene = scenes[pageIndex];
+      const beat = beats[pageIndex] ?? beats[0];
+      const count = panelCounts[pageIndex] ?? 6;
+      const regenBlueprints = buildRegeneratedBlueprints(scene, beat, count, genre, attempt);
+      const regeneratedPanels = buildPanelsForScene(
+        input.context,
+        scene,
+        beat,
+        regenBlueprints,
+        visualStyle,
+        genre,
+        dialoguePlans[pageIndex],
+      ).map((panel, panelIndex) => ({
+        ...panel,
+        panelNumber: panelIndex + 1,
+      }));
+
+      storyboardPages[pageIndex] = {
+        pageNumber: pageIndex + 1,
+        layout: inferLayout(Math.min(9, beat.tension + attempt), count),
+        panels: regeneratedPanels,
+      };
+    }
+  }
+
+  const remainingDuplicates = duplicatePageIndexes(storyboardPages);
+  if (remainingDuplicates.length > 0) {
+    console.warn(`[chapter-pipeline] duplicate pages still present after regen: ${remainingDuplicates.join(",")}`);
+  }
 
   const cliffhanger = outlineResult.outline.cliffhanger;
   const narrativeSummary = buildNarrativeSummary({

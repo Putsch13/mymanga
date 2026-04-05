@@ -20,19 +20,43 @@ function looksLikeBflDelivery(url: string) {
   }
 }
 
+function isHttpImageUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+function isAlreadyStableStorageUrl(url: string) {
+  const supabaseBase = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (supabaseBase && url.startsWith(supabaseBase)) return true;
+  return false;
+}
+
 export async function persistGeneratedImageIfNeeded(opts: {
   imageUrl: string;
   objectPath: string;
 }) {
   const bucket = process.env.STORAGE_BUCKET ?? "mymanga-images";
   const client = getStorageClient();
-  const mustPersist = isDataUrl(opts.imageUrl) || looksLikeBflDelivery(opts.imageUrl);
+  const canPersistHttp =
+    isHttpImageUrl(opts.imageUrl) &&
+    !looksLikeBflDelivery(opts.imageUrl) &&
+    !isAlreadyStableStorageUrl(opts.imageUrl);
+  const mustPersist = isDataUrl(opts.imageUrl) || looksLikeBflDelivery(opts.imageUrl) || canPersistHttp;
 
   if (!mustPersist) {
     return { ok: true as const, url: opts.imageUrl, persisted: false as const };
   }
 
   if (!client) {
+    // On n'échoue pas pour une URL http(s) externe : mieux vaut afficher un aperçu
+    // temporaire que bloquer la génération complète.
+    if (canPersistHttp) {
+      return { ok: true as const, url: opts.imageUrl, persisted: false as const };
+    }
     return {
       ok: false as const,
       error:

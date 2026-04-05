@@ -5,6 +5,8 @@ import {
   composeEnvironment,
   runChapterContinuityPass,
   runChapterNarrativeCoherencePass,
+  buildTriggerWord,
+  trainCharacterLora,
   type StoryboardPanel,
   type RoutingContext,
   type ProjectContextForChapter,
@@ -36,6 +38,8 @@ type PipelineJobInput = {
   focusCharacterIds?: string[];
   selectedPlotLabel?: "safe" | "bold" | "shock";
 };
+
+type PipelineBundle = Awaited<ReturnType<typeof generateChapterBundle>>;
 
 function getStorageClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -158,6 +162,234 @@ function buildRoutingContext(
   };
 }
 
+type LoadedLoraAttachment = {
+  id: string;
+  enabled: boolean;
+  weight: number;
+  characterId: string | null;
+  lora: {
+    id: string;
+    name: string;
+    status: string;
+    weightsMeta: unknown;
+  };
+};
+
+type LoadedCharacterForPipeline = {
+  id: string;
+  name: string;
+  gender: string | null;
+  appearance: string | null;
+  hairColor: string | null;
+  eyeColor: string | null;
+  outfitDefault: string | null;
+  canonicalImageUrl: string | null;
+  canonSignatureText: string | null;
+  forbiddenVisualDrift: unknown;
+  bodyDetails: string | null;
+  wardrobeDetails: string | null;
+  visualProfile: Record<string, unknown>;
+  visualRefUrls: string[];
+};
+
+async function queueAutoLoraTrainingIfEligible(input: {
+  projectId: string;
+  characters: LoadedCharacterForPipeline[];
+  loraAttachments: LoadedLoraAttachment[];
+}) {
+  const readyByCharId = new Set<string>();
+  const trainingByCharId = new Set<string>();
+
+  for (const att of input.loraAttachments) {
+    if (!att.characterId) continue;
+    const meta = att.lora.weightsMeta as Record<string, unknown>;
+    const hasWeights = typeof meta.loraUrl === "string" && meta.loraUrl.length > 0;
+    if (att.enabled && att.lora.status === "active" && hasWeights) {
+      readyByCharId.add(att.characterId);
+      continue;
+    }
+    if (att.lora.status === "training" || att.lora.status === "queued") {
+      trainingByCharId.add(att.characterId);
+    }
+  }
+
+  const candidates = input.characters
+    .filter((c) => c.visualRefUrls.length >= 3)
+    .filter((c) => !readyByCharId.has(c.id))
+    .filter((c) => !trainingByCharId.has(c.id))
+    .slice(0, 2);
+
+  if (candidates.length === 0) return 0;
+
+  for (const candidate of candidates) {
+    const triggerWord = buildTriggerWord(candidate.name, input.projectId);
+    const seedRefs = candidate.visualRefUrls.slice(0, 20);
+    const lora = await prisma.loraModel.create({
+      data: {
+        projectId: input.projectId,
+        provider: "fal",
+        externalId: triggerWord,
+        name: `LoRA ${candidate.name}`,
+        status: "training",
+        weightsMeta: {
+          autoQueued: true,
+          triggerWord,
+          characterId: candidate.id,
+          imageCount: seedRefs.length,
+          queuedAt: new Date().toISOString(),
+        },
+      },
+    });
+
+    await prisma.loraAttachment.create({
+      data: {
+        loraId: lora.id,
+        projectId: input.projectId,
+        characterId: candidate.id,
+        weight: 1,
+        enabled: false,
+      },
+    });
+
+    console.log(`[auto-lora] queued character=${candidate.name} refs=${seedRefs.length}`);
+
+    void (async () => {
+      const result = await trainCharacterLora({
+        characterName: candidate.name,
+        triggerWord,
+        imageUrls: seedRefs,
+        steps: 300,
+      });
+      if (!result.ok) {
+        await prisma.loraModel.update({
+          where: { id: lora.id },
+          data: {
+            status: "error",
+            weightsMeta: {
+              autoQueued: true,
+              triggerWord,
+              characterId: candidate.id,
+              imageCount: seedRefs.length,
+              error: result.error ?? "training_failed",
+              failedAt: new Date().toISOString(),
+            },
+          },
+        });
+        console.error(`[auto-lora] failed character=${candidate.name} error=${result.error ?? "unknown"}`);
+        return;
+      }
+
+      await prisma.loraModel.update({
+        where: { id: lora.id },
+        data: {
+          status: "active",
+          weightsMeta: {
+            autoQueued: true,
+            triggerWord,
+            characterId: candidate.id,
+            imageCount: seedRefs.length,
+            loraUrl: result.loraUrl,
+            configUrl: result.configUrl ?? null,
+            trainedAt: new Date().toISOString(),
+          },
+        },
+      });
+      await prisma.loraAttachment.updateMany({
+        where: { loraId: lora.id, characterId: candidate.id, projectId: input.projectId },
+        data: { enabled: true, weight: 1 },
+      });
+      console.log(`[auto-lora] ready character=${candidate.name}`);
+    })().catch((error) => {
+      const message = error instanceof Error ? error.message : "auto_lora_background_error";
+      console.error(`[auto-lora] background crash character=${candidate.name} error=${message}`);
+    });
+  }
+
+  return candidates.length;
+}
+
+function enforceBundleIntegrity(bundle: PipelineBundle): { bundle: PipelineBundle; notes: string[] } {
+  const notes: string[] = [];
+  const scenes = [...bundle.script.scenes];
+  const pages = [...bundle.storyboard.pages];
+
+  const alignedCount = Math.min(scenes.length, pages.length);
+  if (scenes.length !== pages.length) {
+    notes.push(`alignment_fixed: scenes=${scenes.length} pages=${pages.length} => ${alignedCount}`);
+  }
+
+  const safeScenes = scenes.slice(0, alignedCount);
+  const safePages = pages.slice(0, alignedCount).map((page, pageIndex) => {
+    const scene = safeScenes[pageIndex];
+    const originalPanels = Array.isArray(page.panels) ? page.panels : [];
+    const normalizedPanels = originalPanels
+      .slice(0, 6)
+      .map((panel, panelIndex) => {
+        const speaker = panel.dialogue?.speaker?.trim();
+        const normalizedCharacters = [...new Set((panel.characters ?? []).filter(Boolean))];
+        if (speaker && !/narrateur|narration/i.test(speaker)) {
+          const hasSpeaker = normalizedCharacters.some((c) => c.toLowerCase() === speaker.toLowerCase());
+          if (!hasSpeaker) normalizedCharacters.push(speaker);
+        }
+        return {
+          ...panel,
+          panelNumber: panelIndex + 1,
+          sceneId: scene?.id ?? panel.sceneId,
+          characters: normalizedCharacters.length > 0 ? normalizedCharacters : (scene?.characters ?? []),
+        };
+      });
+
+    if (normalizedPanels.length < 4 && scene) {
+      notes.push(`panel_floor_applied: page=${pageIndex + 1}`);
+      while (normalizedPanels.length < 4) {
+        const fallbackPanel = normalizedPanels[normalizedPanels.length - 1] ?? normalizedPanels[0];
+        if (fallbackPanel) {
+          normalizedPanels.push({
+            ...fallbackPanel,
+            panelNumber: normalizedPanels.length + 1,
+            caption: `${scene.summary}`,
+            dialogue: undefined,
+            narration: scene.summary,
+          });
+        } else {
+          normalizedPanels.push({
+            panelNumber: normalizedPanels.length + 1,
+            sceneId: scene.id,
+            beatId: `fallback_${pageIndex + 1}_${normalizedPanels.length + 1}`,
+            caption: scene.summary,
+            prompt: scene.summary,
+            negativePrompt: "",
+            camera: "medium shot",
+            characters: scene.characters.slice(0, 2),
+            mood: "dramatic",
+            narration: scene.summary,
+            textScale: "normal",
+          });
+        }
+      }
+    }
+
+    return {
+      ...page,
+      pageNumber: pageIndex + 1,
+      panels: normalizedPanels,
+    };
+  });
+
+  return {
+    bundle: {
+      ...bundle,
+      script: { ...bundle.script, scenes: safeScenes },
+      storyboard: {
+        ...bundle.storyboard,
+        pageCount: safePages.length,
+        pages: safePages,
+      },
+    },
+    notes,
+  };
+}
+
 export async function runFullChapterPipelineFromJob(jobId: string) {
   const job = await prisma.job.findUnique({
     where: { id: jobId },
@@ -178,14 +410,21 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       orderBy: { createdAt: "desc" },
       take: 1,
     }),
-    // Charger les LoRAs actifs par personnage (entraînés via train-lora)
+    // Charger tous les LoRAs liés au projet (actifs + en entraînement)
     prisma.loraAttachment.findMany({
-      where: { projectId: job.projectId, enabled: true },
+      where: { projectId: job.projectId },
       include: { lora: true },
     }),
     prisma.character.findMany({
       where: { projectId: job.projectId },
-      include: { canonPack: true },
+      include: {
+        canonPack: true,
+        visualRefs: {
+          orderBy: { createdAt: "desc" },
+          take: 20,
+          select: { imageUrl: true },
+        },
+      },
     }).then(async (chars) => {
       // Récupérer les canonical image URLs en raw SQL (subquery sur SceneImage)
       let canonUrls: Record<string, string> = {};
@@ -249,6 +488,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           bodyDetails,
           wardrobeDetails,
           visualProfile,
+          visualRefUrls: c.visualRefs.map((v) => v.imageUrl).filter(Boolean),
         };
       });
     }),
@@ -275,6 +515,20 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
   });
 
   try {
+    // LoRA auto non bloquant: on queue l'entraînement, sans retarder le chapitre courant.
+    const autoLoraQueued = await queueAutoLoraTrainingIfEligible({
+      projectId,
+      characters: rawCharacters,
+      loraAttachments: loraAttachments as LoadedLoraAttachment[],
+    }).catch((error) => {
+      const msg = error instanceof Error ? error.message : "auto_lora_queue_failed";
+      console.error(`[auto-lora] queue failed project=${projectId} error=${msg}`);
+      return 0;
+    });
+    if (autoLoraQueued > 0) {
+      console.log(`[auto-lora] queued_for_project=${projectId} count=${autoLoraQueued}`);
+    }
+
     // ── Étape 1 : Contexte projet ──────────────────────────────────────────
     await setJobProgress(jobId, { key: "build_context", label: "Contexte projet" }, "running");
     const contextRaw = await buildProjectContext(prisma, projectId, chapter.userIntent, { focusCharacterIds });
@@ -380,12 +634,17 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       selectedPlotLabel,
     });
     revisedBundle = narrative.bundle;
+    const integrity = enforceBundleIntegrity(revisedBundle);
+    revisedBundle = integrity.bundle;
+    if (integrity.notes.length > 0) {
+      console.warn(`[pipeline] bundle integrity fixes: ${integrity.notes.join(" | ")}`);
+    }
     await setJobProgress(
       jobId,
       {
         key: "story_coherence_pass",
         label: narrative.usedOpenAI ? "Narration peaufinée" : "Narration (fallback)",
-        detail: narrative.notes.slice(0, 2).join(" · ") || undefined,
+        detail: [...narrative.notes.slice(0, 2), ...integrity.notes.slice(0, 1)].join(" · ") || undefined,
       },
       "completed",
     );
@@ -586,7 +845,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       const meta = att.lora.weightsMeta as Record<string, unknown>;
       const loraUrl = typeof meta.loraUrl === "string" ? meta.loraUrl : null;
       const triggerWord = typeof meta.triggerWord === "string" ? meta.triggerWord : att.lora.name;
-      if (loraUrl && att.characterId) {
+      if (loraUrl && att.characterId && att.enabled && att.lora.status === "active") {
         loraByCharId.set(att.characterId, { url: loraUrl, triggerWord, scale: att.weight });
       }
     }
