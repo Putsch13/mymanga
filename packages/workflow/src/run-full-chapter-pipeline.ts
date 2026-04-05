@@ -279,6 +279,13 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     // À terme : exporter ProjectContextForChapter depuis packages/memory et aligner les deux.
     const context = contextRaw as ProjectContextForChapter;
 
+    // Charger les lieux nommés du projet (pour le scene-environment-engine)
+    const knownLocations = await prisma.location.findMany({
+      where: { projectId },
+      select: { name: true, description: true },
+      take: 20,
+    }).catch(() => [] as Array<{ name: string; description: string | null }>);
+
     const contextDocument = [
       `Projet: ${context.project.title}`,
       context.project.pitch ? `Pitch: ${context.project.pitch}` : "",
@@ -490,6 +497,8 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 visualStyle: context.project.visualStyle ?? "manga",
                 lore: typeof context.storyBible?.lore === "string" ? context.storyBible.lore : null,
                 worldRules: context.storyBible?.worldRules,
+                glossary: context.storyBible?.glossary,
+                knownLocations: knownLocations,
                 sceneCharCount: scene.characters.length,
                 panelCharCount: panel.characters.length,
                 sceneSummary: scene.summary,
@@ -686,6 +695,47 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       },
       failedCount === plannedImages.length ? "failed" : "completed",
     );
+
+    // ── Couverture de chapitre (hero shot) ────────────────────────────────
+    let coverUrl: string | null = null;
+    try {
+      const { composeCoverPrompt, inferCoverMood } = await import("@manga-ai-studio/ai");
+      const coverMood = inferCoverMood(context.project.tone ?? "dramatique", context.project.primaryGenre ?? "fantasy");
+      const coverPrompt = composeCoverPrompt({
+        chapterTitle: revisedBundle.outline.chapter_title ?? `Chapitre ${chapterNumber}`,
+        chapterNumber,
+        chapterSummary: revisedBundle.memory.narrativeSummary,
+        cliffhanger: revisedBundle.outline.cliffhanger,
+        genre: context.project.primaryGenre ?? "fantasy",
+        tone: context.project.tone ?? "dramatique",
+        visualStyle: context.project.visualStyle ?? "manga",
+        mood: coverMood,
+        characters: rawCharacters.slice(0, 2).map((c) => ({
+          name: c.name,
+          gender: c.gender,
+          appearance: c.appearance,
+          hairColor: c.hairColor,
+          eyeColor: c.eyeColor,
+          outfitDefault: c.outfitDefault,
+        })),
+        stylePack: stylePacks[0] ? { name: stylePacks[0].renderFamily, visualStyle: project?.visualStyle ?? null } : null,
+        contentIntensityLayer: intensityLayer,
+      });
+
+      const coverResult = await runRoutedImageGeneration(
+        { mode: "PANEL_DRAFT", contentIntensityLayer: intensityLayer, isNewCharacter: false, hasCanonReferences: false, characterCountInScene: 2, needsInpaint: false, needsPoseVariation: false, preferPhotorealCover: false, explicitBlocked: false, goreStylizedMature: false },
+        { mode: "PANEL_DRAFT", positivePrompt: coverPrompt.positive, negativePrompt: coverPrompt.negative, width: coverPrompt.width, height: coverPrompt.height, providerParams: { contentIntensityLayer: intensityLayer, mode: "COVER_ART" } },
+      );
+      if (coverResult.ok) {
+        const persisted = await persistImageIfNeeded({ imageUrl: coverResult.result.imageUrl, projectId, chapterId, sceneImageId: `cover_${chapterId}` });
+        if (persisted.ok) {
+          coverUrl = persisted.url;
+          await prisma.chapter.update({ where: { id: chapterId }, data: { coverImageUrl: coverUrl } });
+        }
+      }
+    } catch (e) {
+      console.warn("[pipeline] cover generation skipped:", e instanceof Error ? e.message : e);
+    }
 
     // Mettre à jour le statut du chapitre
     await prisma.chapter.update({

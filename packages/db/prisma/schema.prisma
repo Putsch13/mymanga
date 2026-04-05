@@ -457,6 +457,7 @@ model Chapter {
   storyboard     Json     @default("{}")
   summary        String?
   cliffhanger    String?
+  coverImageUrl  String?
   tokenEstimate  Int?
   tokenActual    Int?
   createdAt      DateTime @default(now())

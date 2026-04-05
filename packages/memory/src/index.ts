@@ -418,6 +418,7 @@ export async function persistChapterMemory(prisma: PrismaClient, input: ChapterM
     },
   });
 
+  // RAG profond : indexer le résumé du chapitre avec embedding pour recherche sémantique
   await replaceRagDocument(prisma, {
     projectId: input.projectId,
     entityType: "chapter_summary",
@@ -426,6 +427,25 @@ export async function persistChapterMemory(prisma: PrismaClient, input: ChapterM
     content: input.summary,
     metadata: { chapterId: input.chapterId, chapterNumber: input.chapterNumber },
   });
+
+  // Indexer aussi les événements clés comme documents RAG séparés (recherche sémantique profonde)
+  const keyEvents = (input.timelineEvents ?? [])
+    .filter((e) => Number(e?.importance ?? 0) >= 60)
+    .slice(0, 5);
+  for (const event of keyEvents) {
+    if (!event) continue;
+    const eventSummary = String(event.summary ?? "");
+    if (eventSummary.length > 20) {
+      await indexRagDocument(prisma, {
+        projectId: input.projectId,
+        entityType: "key_event",
+        entityId: `${input.chapterId}_evt_${String(event.eventType ?? "event")}`,
+        title: `Ch.${input.chapterNumber} — ${String(event.eventType ?? "event")}`,
+        content: eventSummary,
+        metadata: { chapterId: input.chapterId, chapterNumber: input.chapterNumber, importance: event.importance },
+      });
+    }
+  }
 
   const timelineEvents = input.timelineEvents ?? [];
   for (let i = 0; i < timelineEvents.length; i++) {

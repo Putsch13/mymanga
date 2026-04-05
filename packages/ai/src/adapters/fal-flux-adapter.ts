@@ -1,5 +1,6 @@
 import type { GenerateImageInput, GenerateImageResult, ImageGenerationProvider } from "../types";
 import { createMockImageProvider } from "./mock-image-provider";
+import { optimizePromptForFal } from "../services/prompt-translator";
 
 // flux/dev : qualité premium, $0.025/MP — idéal pour panels manga
 const FAL_FLUX_DEV = "https://fal.run/fal-ai/flux/dev";
@@ -96,9 +97,11 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
       const useRedux = Boolean(referenceUrl);
       const endpoint = useRedux ? FAL_FLUX_DEV_REDUX : FAL_FLUX_DEV;
 
+      // Traduire FR→EN et dédupliquer avant envoi à FAL
+      const translatedPositive = optimizePromptForFal(input.positivePrompt);
       const promptWithNeg = input.negativePrompt
-        ? `${input.positivePrompt}. Avoid: ${input.negativePrompt}`
-        : input.positivePrompt;
+        ? `${translatedPositive}. Avoid: ${optimizePromptForFal(input.negativePrompt, 500)}`
+        : translatedPositive;
 
       const body: Record<string, unknown> = useRedux
         ? {

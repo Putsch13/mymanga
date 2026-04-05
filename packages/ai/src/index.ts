@@ -19,3 +19,7 @@ export * from "./services/panel-text-planner";
 export * from "./services/chapter-continuity-pass";
 export * from "./services/chapter-narrative-coherence-pass";
 export * from "./services/scene-environment-engine";
+export * from "./services/lora-training-service";
+export * from "./services/prompt-translator";
+export * from "./services/cover-generator";
+export * from "./services/tts-service";

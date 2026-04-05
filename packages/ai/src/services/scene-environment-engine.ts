@@ -17,6 +17,10 @@ export interface EnvironmentContext {
   sceneCharCount: number;
   panelCharCount: number;
   sceneSummary?: string | null;
+  /** Lieux nommés connus dans la bible/lore du projet */
+  knownLocations?: Array<{ name: string; description: string | null }> | null;
+  /** Glossaire du projet (termes, technos, factions…) */
+  glossary?: unknown;
 }
 
 // ── Genre flavors : ajustent CHAQUE lieu selon l'univers ──────────────────
@@ -286,10 +290,32 @@ export function composeEnvironment(ctx: EnvironmentContext): string {
     parts.push(UNIVERSAL_SCENES[category] ?? "detailed environment, atmospheric setting");
   }
 
-  // 3. Si le lore/worldRules mentionne des éléments spécifiques, les injecter
+  // 3. Villes / lieux nommés : si l'user a défini "Neo-Tokyo" ou "La Citadelle de Kael",
+  //    on détecte le nom dans le lieu et on injecte sa description unique.
+  if (ctx.knownLocations && ctx.knownLocations.length > 0) {
+    for (const known of ctx.knownLocations) {
+      if (locLower.includes(known.name.toLowerCase()) && known.description) {
+        parts.push(`named location "${known.name}": ${known.description.slice(0, 200)}`);
+        break;
+      }
+    }
+  }
+
+  // 3b. Lore / worldRules → inject context-specific details
   if (ctx.lore && typeof ctx.lore === "string" && ctx.lore.length > 10) {
-    const loreHint = ctx.lore.slice(0, 120).replace(/\n/g, " ");
+    const loreHint = ctx.lore.slice(0, 150).replace(/\n/g, " ");
     parts.push(`world lore: ${loreHint}`);
+  }
+
+  // 3c. Glossaire → si un terme du glossaire apparaît dans la scène
+  if (ctx.glossary && typeof ctx.glossary === "object") {
+    const glossaryEntries = Object.entries(ctx.glossary as Record<string, unknown>);
+    for (const [term, def] of glossaryEntries.slice(0, 10)) {
+      if (locLower.includes(term.toLowerCase()) || (ctx.sceneSummary ?? "").toLowerCase().includes(term.toLowerCase())) {
+        parts.push(`${term}: ${String(def).slice(0, 80)}`);
+        break;
+      }
+    }
   }
 
   // 4. Lighting / heure du jour selon mood
