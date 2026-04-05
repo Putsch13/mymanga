@@ -4,14 +4,17 @@ export type ReserveResult =
   | { ok: true; balanceAfter: number; reservationId: string }
   | { ok: false; reason: "insufficient_balance" };
 
+// Emails qui bypassent le wallet (liste hardcodée + env var)
+const FORCED_UNLIMITED = ["test@gmail.com", "puccini.f13@gmail.com"];
+
 function isUnlimitedAdminEmail(email: string | null | undefined) {
   if (!email) return false;
-  const raw = process.env.ADMIN_UNLIMITED_EMAILS ?? "test@gmail.com";
-  const list = raw
-    .split(",")
-    .map((entry) => entry.trim().toLowerCase())
-    .filter(Boolean);
-  return list.includes(email.toLowerCase());
+  const normalized = email.toLowerCase();
+  if (FORCED_UNLIMITED.includes(normalized)) return true;
+  const raw = process.env.ADMIN_UNLIMITED_EMAILS ?? "";
+  if (!raw.trim()) return false;
+  const list = raw.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+  return list.includes(normalized);
 }
 
 async function shouldBypassWallet(prisma: PrismaClient, userId: string) {
@@ -19,15 +22,29 @@ async function shouldBypassWallet(prisma: PrismaClient, userId: string) {
     where: { id: userId },
     select: { email: true, role: true },
   });
-  return Boolean(user && user.role === "admin" && isUnlimitedAdminEmail(user.email));
+  if (!user) return false;
+  // Bypass si l'email est dans la liste unlimited (indépendamment du role en base)
+  return isUnlimitedAdminEmail(user.email);
 }
 
 export async function ensureWallet(prisma: PrismaClient, userId: string) {
   let wallet = await prisma.wallet.findUnique({ where: { userId } });
   if (!wallet) {
+    // Vérifier si l'user est unlimited pour lui donner un solde de départ généreux
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+    const startBalance = isUnlimitedAdminEmail(user?.email) ? 999999 : 0;
     wallet = await prisma.wallet.create({
-      data: { userId, balance: 0, lifetimePurchased: 0, lifetimeSpent: 0, lifetimeRefunded: 0 },
+      data: { userId, balance: startBalance, lifetimePurchased: startBalance, lifetimeSpent: 0, lifetimeRefunded: 0 },
     });
+  } else if (wallet.balance < 100) {
+    // Si le wallet d'un admin unlimited est épuisé, le recharger automatiquement
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+    if (isUnlimitedAdminEmail(user?.email)) {
+      wallet = await prisma.wallet.update({
+        where: { userId },
+        data: { balance: 999999, lifetimePurchased: 999999 },
+      });
+    }
   }
   return wallet;
 }
