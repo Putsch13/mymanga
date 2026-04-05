@@ -18,3 +18,4 @@ export * from "./services/dialogue-writer";
 export * from "./services/panel-text-planner";
 export * from "./services/chapter-continuity-pass";
 export * from "./services/chapter-narrative-coherence-pass";
+export * from "./services/scene-environment-engine";

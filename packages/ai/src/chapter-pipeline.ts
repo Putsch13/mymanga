@@ -394,19 +394,6 @@ function buildPanelPrompt(
     dramatic: "dramatic composition, strong shadows, cinematic",
   };
 
-  // Inférer des éléments d'ambiance selon le lieu
-  const locLower = location.toLowerCase();
-  let ambiance = "";
-  if (locLower.includes("tavern") || locLower.includes("bar") || locLower.includes("auberge")) {
-    ambiance = "busy tavern, patrons in background, warm light";
-  } else if (locLower.includes("marché") || locLower.includes("market")) {
-    ambiance = "bustling market, vendors and crowd";
-  } else if (locLower.includes("forêt") || locLower.includes("forest")) {
-    ambiance = "dense forest, filtered sunlight";
-  } else if (locLower.includes("combat") || locLower.includes("arena")) {
-    ambiance = "battle environment, dust and debris";
-  }
-
   return [
     visualStyle,
     `manga panel, ${camera}`,
@@ -414,7 +401,6 @@ function buildPanelPrompt(
     charDescs,
     action,
     moodMap[mood],
-    ambiance,
     "high detail, professional manga art, consistent character design, environmental storytelling",
   ]
     .filter(Boolean)
