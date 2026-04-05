@@ -9,6 +9,7 @@ import {
 import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { persistGeneratedImageIfNeeded } from "@/lib/images/persist-generated-image";
 import { notFound, paymentRequired, unauthorized } from "@/lib/api-response";
 import { getOwnedCharacter } from "@/lib/ownership";
@@ -18,6 +19,10 @@ type Ctx = { params: Promise<{ characterId: string }> };
 export async function POST(_req: Request, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return unauthorized();
+  const rl = checkRateLimit(user.id, "generate_visual");
+  if (!rl.ok) {
+    return NextResponse.json({ error: rl.message }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSecs) } });
+  }
   const stack = getGenerationStackStatus();
   if (!stack.canGenerateImages) {
     return NextResponse.json(

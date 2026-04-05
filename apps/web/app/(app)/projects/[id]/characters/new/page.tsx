@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { safeFetch } from "@/lib/safe-fetch";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -58,7 +59,7 @@ export default function NewCharacterPage() {
 
     const ageNum = age ? Number(age) : undefined;
 
-    const res = await fetch(`/api/projects/${id}/characters`, {
+    const result = await safeFetch<{ character: { id: string } }>(`/api/projects/${id}/characters`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -87,17 +88,15 @@ export default function NewCharacterPage() {
       }),
     });
 
-    const data = await res.json();
     setLoading(false);
-    if (res.ok) {
-      // En mode onboarding, rediriger vers le labo après le premier personnage
+    if (result.ok) {
       if (isOnboarding) {
         router.push(`/projects/${id}/generate`);
       } else {
-        router.push(`/projects/${id}/characters/${data.character.id}`);
+        router.push(`/projects/${id}/characters/${result.data.character.id}`);
       }
     } else {
-      setError(data.message ?? data.error ?? "Erreur lors de la création");
+      setError(result.error);
     }
   }
 

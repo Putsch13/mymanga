@@ -112,34 +112,58 @@ export default function ChapterGeneratorPage() {
 
   useEffect(() => {
     if (!selectedJobId) return;
-    const interval = window.setInterval(async () => {
-      const res = await fetch(`/api/jobs/${selectedJobId}`);
-      if (!res.ok) {
-        if (res.status === 401 || res.status === 403) {
-          window.clearInterval(interval);
-          setPipelineMsg("Session expirée. Recharge la page puis relance la génération.");
+    let timeoutId: number;
+    let delay = 2000;
+    let stopped = false;
+
+    async function poll() {
+      if (stopped) return;
+      try {
+        const res = await fetch(`/api/jobs/${selectedJobId}`);
+        if (!res.ok) {
+          if (res.status === 401 || res.status === 403) {
+            stopped = true;
+            setPipelineMsg("Session expirée. Recharge la page puis relance la génération.");
+            return;
+          }
+          // Erreur transitoire : backoff
+          delay = Math.min(delay * 1.5, 15000);
+          timeoutId = window.setTimeout(poll, delay);
+          return;
         }
-        return;
-      }
-      const json = await res.json();
-      setJobState(json.job);
-      if (["completed", "failed", "partial_success", "canceled"].includes(json.job.status)) {
-        window.clearInterval(interval);
-        loadChapters();
-        router.refresh();
-        if (
-          (json.job.status === "completed" || json.job.status === "partial_success") &&
-          selectedChapter &&
-          !autoReaderNavigatedRef.current
-        ) {
-          autoReaderNavigatedRef.current = true;
-          window.setTimeout(() => {
-            window.location.assign(`/projects/${id}/chapters/${selectedChapter}/read?fresh=1`);
-          }, 500);
+        const json = await res.json();
+        setJobState(json.job);
+        if (["completed", "failed", "partial_success", "canceled"].includes(json.job.status)) {
+          stopped = true;
+          loadChapters();
+          router.refresh();
+          if (
+            (json.job.status === "completed" || json.job.status === "partial_success") &&
+            selectedChapter &&
+            !autoReaderNavigatedRef.current
+          ) {
+            autoReaderNavigatedRef.current = true;
+            window.setTimeout(() => {
+              window.location.assign(`/projects/${id}/chapters/${selectedChapter}/read?fresh=1`);
+            }, 500);
+          }
+          return;
         }
+        // Job en cours : backoff progressif 2s → 4s → 8s → max 12s
+        if (json.job.status === "running") {
+          delay = Math.min(delay * 1.3, 12000);
+        } else {
+          // Queued : rester rapide
+          delay = 2000;
+        }
+      } catch {
+        delay = Math.min(delay * 2, 15000);
       }
-    }, 2000);
-    return () => window.clearInterval(interval);
+      timeoutId = window.setTimeout(poll, delay);
+    }
+
+    timeoutId = window.setTimeout(poll, delay);
+    return () => { stopped = true; window.clearTimeout(timeoutId); };
   }, [id, loadChapters, router, selectedChapter, selectedJobId]);
 
   const progressValue = (() => {

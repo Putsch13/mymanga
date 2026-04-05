@@ -27,13 +27,13 @@ export interface CoverGeneratorInput {
 function inferCoverMood(tone: string, genre: string): CoverGeneratorInput["mood"] {
   const t = tone.toLowerCase();
   const g = genre.toLowerCase();
-  if (t.includes("sombre") || t.includes("brutal") || g.includes("horror")) return "dramatic";
-  if (t.includes("épique") || g.includes("action") || g.includes("shōnen")) return "action";
-  if (t.includes("romantique") || g.includes("romance") || g.includes("shōjo")) return "romance";
-  if (t.includes("mélancolique")) return "emotion";
-  if (t.includes("mystérieux") || g.includes("thriller")) return "tension";
-  if (t.includes("humoristique") || g.includes("comédie")) return "comedy";
   if (g.includes("horror") || g.includes("horreur")) return "horror";
+  if (t.includes("sombre") || t.includes("brutal") || t.includes("oppressant")) return "dramatic";
+  if (t.includes("épique") || g.includes("action") || g.includes("shōnen") || g.includes("shonen")) return "action";
+  if (t.includes("romantique") || g.includes("romance") || g.includes("shōjo") || g.includes("shojo")) return "romance";
+  if (t.includes("mélancolique") || t.includes("melancholic")) return "emotion";
+  if (t.includes("mystérieux") || g.includes("thriller") || g.includes("mystère")) return "tension";
+  if (t.includes("humoristique") || g.includes("comédie") || g.includes("comedy")) return "comedy";
   return "dramatic";
 }
 
@@ -47,7 +47,8 @@ export function composeCoverPrompt(input: CoverGeneratorInput) {
     chapterTitle: input.chapterTitle,
     tone: input.tone,
     mood: input.mood,
-    contentIntensityLayer: input.contentIntensityLayer,
+    // Transmettre le layer de contenu pour que la modération s'applique aussi à la couverture
+    contentIntensityLayer: input.contentIntensityLayer ?? "TEEN",
   });
 
   // Enrichir le prompt avec le contexte narratif

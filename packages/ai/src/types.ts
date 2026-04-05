@@ -17,6 +17,15 @@ export interface ImageRoutingDecision {
   reason: string;
 }
 
+export interface LoraRef {
+  /** URL des poids .safetensors hébergés (ex: fal.media) */
+  url: string;
+  /** Mot déclencheur à injecter dans le prompt */
+  triggerWord: string;
+  /** Poids du LoRA (0.5–1.0) */
+  scale?: number;
+}
+
 export interface GenerateImageInput {
   mode: RenderingMode;
   positivePrompt: string;
@@ -25,6 +34,8 @@ export interface GenerateImageInput {
   height?: number;
   referenceImageUrls?: string[];
   maskUrl?: string;
+  /** LoRA(s) à appliquer pour ce panel */
+  loras?: LoraRef[];
   providerParams?: Record<string, unknown>;
 }
 

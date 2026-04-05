@@ -16,7 +16,8 @@ import { CharacterWardrobeConfig } from "@/components/characters/character-wardr
 import { CharacterSpeechConfig } from "@/components/characters/character-speech-config";
 import { CharacterCanonLocks } from "@/components/characters/character-canon-locks";
 import { CharacterPreviewCard } from "@/components/characters/character-preview-card";
-import { Loader2, Wand2 } from "lucide-react";
+import { Loader2, Sparkles, Wand2 } from "lucide-react";
+import { safeFetch } from "@/lib/safe-fetch";
 
 type CharacterPayload = {
   id: string;
@@ -60,6 +61,8 @@ export default function CharacterDetailPage() {
   const [projectCharacters, setProjectCharacters] = useState<ProjectCharacter[]>([]);
   const [saving, setSaving] = useState(false);
   const [generatingVisual, setGeneratingVisual] = useState(false);
+  const [trainingLora, setTrainingLora] = useState(false);
+  const [loraStatus, setLoraStatus] = useState<"none" | "training" | "ready" | "error">("none");
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ text: string; type: "ok" | "error" } | null>(null);
   const [relationTargetId, setRelationTargetId] = useState("");
@@ -68,26 +71,29 @@ export default function CharacterDetailPage() {
   useEffect(() => {
     async function load() {
       setLoading(true);
-      const [characterRes, projectCharactersRes] = await Promise.all([
-        fetch(`/api/characters/${characterId}`),
-        fetch(`/api/projects/${projectId}/characters`),
+      const [charResult, projCharsResult] = await Promise.all([
+        safeFetch<{ character: CharacterPayload }>(`/api/characters/${characterId}`),
+        safeFetch<{ characters: ProjectCharacter[] }>(`/api/projects/${projectId}/characters`),
       ]);
-      const characterJson = await characterRes.json();
-      const projectCharactersJson = await projectCharactersRes.json();
+      if (!charResult.ok) {
+        setMessage({ text: charResult.error, type: "error" });
+        setLoading(false);
+        return;
+      }
+      const c = charResult.data.character;
       setCharacter({
-        ...characterJson.character,
-        visualProfile: characterJson.character.visualProfile ?? {},
-        bodyState: characterJson.character.bodyState ?? {},
-        wardrobeProfile: characterJson.character.wardrobeProfile ?? {},
-        speechProfile: characterJson.character.speechProfile ?? {},
-        continuityProfile: characterJson.character.continuityProfile ?? {},
-        adultContentProfile: characterJson.character.adultContentProfile ?? {},
-        gender:
-          characterJson.character.gender === "male" || characterJson.character.gender === "female"
-            ? characterJson.character.gender
-            : null,
+        ...c,
+        visualProfile: c.visualProfile ?? {},
+        bodyState: c.bodyState ?? {},
+        wardrobeProfile: c.wardrobeProfile ?? {},
+        speechProfile: c.speechProfile ?? {},
+        continuityProfile: c.continuityProfile ?? {},
+        adultContentProfile: c.adultContentProfile ?? {},
+        gender: c.gender === "male" || c.gender === "female" ? c.gender : null,
       });
-      setProjectCharacters(projectCharactersJson.characters ?? []);
+      if (projCharsResult.ok) {
+        setProjectCharacters(projCharsResult.data.characters ?? []);
+      }
       setLoading(false);
     }
     load();
@@ -141,17 +147,36 @@ export default function CharacterDetailPage() {
   async function generateVisual() {
     setMessage(null);
     setGeneratingVisual(true);
-    const res = await fetch(`/api/characters/${characterId}/generate-visual`, { method: "POST" });
-    const json = await res.json();
+    const result = await safeFetch<{ visualRef: CharacterPayload["visualRefs"][0] }>(`/api/characters/${characterId}/generate-visual`, { method: "POST" });
     setGeneratingVisual(false);
-    if (!res.ok) {
-      setMessage({ text: json.message ?? json.error ?? "Impossible de générer le visuel.", type: "error" });
+    if (!result.ok) {
+      setMessage({ text: result.error, type: "error" });
       return;
     }
     setCharacter((current) =>
-      current ? { ...current, visualRefs: [json.visualRef, ...current.visualRefs] } : current
+      current ? { ...current, visualRefs: [result.data.visualRef, ...current.visualRefs] } : current
     );
     setMessage({ text: "Visuel généré.", type: "ok" });
+  }
+
+  async function trainLora() {
+    if (!character) return;
+    if (character.visualRefs.length < 3) {
+      setMessage({ text: "Il faut au moins 3 visuels générés pour entraîner un LoRA. Génère d'abord plusieurs visuels.", type: "error" });
+      return;
+    }
+    setTrainingLora(true);
+    setLoraStatus("training");
+    setMessage({ text: "Entraînement LoRA lancé (~5-10 min). Tu peux continuer à utiliser l'app.", type: "ok" });
+    const result = await safeFetch<{ ok: boolean; triggerWord?: string }>(`/api/characters/${characterId}/train-lora`, { method: "POST" });
+    setTrainingLora(false);
+    if (!result.ok) {
+      setLoraStatus("error");
+      setMessage({ text: result.error, type: "error" });
+      return;
+    }
+    setLoraStatus("ready");
+    setMessage({ text: `LoRA entraîné ! Mot déclencheur : "${result.data.triggerWord ?? ""}". Les prochains chapitres utiliseront ce modèle.`, type: "ok" });
   }
 
   async function createRelationship() {
@@ -234,18 +259,40 @@ export default function CharacterDetailPage() {
           </div>
         </div>
         <div className="flex flex-col items-end gap-2">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={generateVisual} disabled={generatingVisual}>
               {generatingVisual ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
               Générer visuel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={trainLora}
+              disabled={trainingLora || loraStatus === "training"}
+              title={character.visualRefs.length < 3 ? "Génère au moins 3 visuels d'abord" : "Entraîner un modèle LoRA pour ce personnage"}
+            >
+              {trainingLora ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="mr-2 h-4 w-4" />
+              )}
+              {loraStatus === "ready" ? "LoRA actif" : loraStatus === "training" ? "Entraînement…" : "Entraîner LoRA"}
             </Button>
             <Button onClick={save} disabled={saving}>
               {saving ? "Sauvegarde…" : "Sauvegarder"}
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Génération visuel ≈ <span className="font-medium text-foreground">{VISUAL_COST_USD.toFixed(3)} USD</span>
-          </p>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span>Visuel ≈ <span className="font-medium text-foreground">{VISUAL_COST_USD.toFixed(3)} USD</span></span>
+            {loraStatus === "ready" && (
+              <span className="rounded-full bg-emerald-900/30 px-2 py-0.5 text-emerald-400">LoRA entraîné</span>
+            )}
+            {loraStatus === "training" && (
+              <span className="rounded-full bg-amber-900/30 px-2 py-0.5 text-amber-400">LoRA en cours…</span>
+            )}
+            {character.visualRefs.length < 3 && (
+              <span className="text-amber-400">{3 - character.visualRefs.length} visuel(s) manquant(s) pour LoRA</span>
+            )}
+          </div>
         </div>
       </div>
 

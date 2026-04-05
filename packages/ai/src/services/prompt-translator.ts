@@ -55,29 +55,37 @@ const FR_EN_ACTION_MAP: Record<string, string> = {
 
 /**
  * Traduit les termes français courants dans un prompt image en anglais.
- * Préserve les noms propres (commencent par une majuscule) et les termes techniques.
+ * Utilise une détection par délimiteurs non-alphanumériques (compatible accents FR).
  */
 export function translatePromptToEnglish(prompt: string): string {
   let result = prompt;
+
+  // Normaliser les accents pour la comparaison (NFKC)
+  const normalized = result.normalize("NFKC");
+  let working = normalized;
+
+  // Délimiteur : début/fin de chaîne ou caractère non-lettre (compatible accents)
+  const wordBoundary = (term: string) =>
+    new RegExp(`(?<![a-zA-ZÀ-ÿ])${escapeRegex(term)}(?![a-zA-ZÀ-ÿ])`, "gi");
 
   // Traduire les lieux (du plus long au plus court pour éviter les collisions)
   const sortedLocations = Object.entries(FR_EN_LOCATION_MAP)
     .sort(([a], [b]) => b.length - a.length);
   for (const [fr, en] of sortedLocations) {
-    result = result.replace(new RegExp(`\\b${escapeRegex(fr)}\\b`, "gi"), en);
+    working = working.replace(wordBoundary(fr), en);
   }
 
   // Traduire les moods
   for (const [fr, en] of Object.entries(FR_EN_MOOD_MAP)) {
-    result = result.replace(new RegExp(`\\b${escapeRegex(fr)}\\b`, "gi"), en);
+    working = working.replace(wordBoundary(fr), en);
   }
 
   // Traduire les actions
   for (const [fr, en] of Object.entries(FR_EN_ACTION_MAP)) {
-    result = result.replace(new RegExp(`\\b${escapeRegex(fr)}\\b`, "gi"), en);
+    working = working.replace(wordBoundary(fr), en);
   }
 
-  return result;
+  return working;
 }
 
 function escapeRegex(str: string): string {

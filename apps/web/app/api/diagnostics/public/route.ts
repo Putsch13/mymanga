@@ -9,18 +9,37 @@ export const dynamic = "force-dynamic";
  * Ne retourne que des booléens/strings non sensibles.
  */
 export async function GET() {
-  const env = {
-    nodeEnv: process.env.NODE_ENV ?? null,
-    authDisabled: process.env.AUTH_DISABLED === "true",
-    hasSupabaseUrl: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
-    hasSupabaseAnonKey: Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
-    hasDatabaseUrl: Boolean(process.env.DATABASE_URL),
-    hasFalKey: Boolean(process.env.FAL_KEY),
-    hasOpenAI: Boolean(process.env.OPENAI_API_KEY),
-    hasInngestEventKey: Boolean(process.env.INNGEST_EVENT_KEY),
-    hasInngestSigningKey: Boolean(process.env.INNGEST_SIGNING_KEY),
-    adminEmailsConfigured: Boolean((process.env.ADMIN_EMAILS ?? process.env.ADMIN_EMAIL ?? "").trim()),
-  };
+  const isProd = process.env.NODE_ENV === "production";
+  const hasFalKey = Boolean(process.env.FAL_KEY);
+  const hasOpenAI = Boolean(process.env.OPENAI_API_KEY);
+  const hasInngestEventKey = Boolean(process.env.INNGEST_EVENT_KEY);
+  const authDisabled = process.env.AUTH_DISABLED === "true";
+
+  // En production : on expose uniquement un agrégat "ready/degraded/offline"
+  // pour ne pas révéler la configuration interne.
+  const env = isProd
+    ? {
+        authDisabled,
+        hasFalKey,
+        hasOpenAI,
+        hasInngestEventKey,
+        // Masquer les détails sensibles en prod
+        imageStack: hasFalKey ? "ready" : "offline",
+        textStack: hasOpenAI ? "ready" : "offline",
+        queueStack: hasInngestEventKey ? "ready" : "sync-fallback",
+      }
+    : {
+        nodeEnv: process.env.NODE_ENV ?? null,
+        authDisabled,
+        hasSupabaseUrl: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
+        hasSupabaseAnonKey: Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
+        hasDatabaseUrl: Boolean(process.env.DATABASE_URL),
+        hasFalKey,
+        hasOpenAI,
+        hasInngestEventKey,
+        hasInngestSigningKey: Boolean(process.env.INNGEST_SIGNING_KEY),
+        adminEmailsConfigured: Boolean((process.env.ADMIN_EMAILS ?? process.env.ADMIN_EMAIL ?? "").trim()),
+      };
 
   let dbReachable: boolean | null = null;
   let dbHint: string | null = null;

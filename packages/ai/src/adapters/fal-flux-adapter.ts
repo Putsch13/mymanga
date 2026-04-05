@@ -6,6 +6,8 @@ import { optimizePromptForFal } from "../services/prompt-translator";
 const FAL_FLUX_DEV = "https://fal.run/fal-ai/flux/dev";
 // flux/dev avec IP-Adapter pour la cohérence visuelle des personnages
 const FAL_FLUX_DEV_REDUX = "https://fal.run/fal-ai/flux/dev/redux";
+// flux-lora : flux/dev + injection de LoRA personnalisé (personnage entraîné)
+const FAL_FLUX_LORA = "https://fal.run/fal-ai/flux-lora";
 
 type FalImageResponse = {
   images?: Array<{ url: string; content_type?: string }>;
@@ -87,45 +89,72 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
           ? { width: input.width, height: input.height }
           : (isCover ? "landscape_4_3" : "portrait_4_3");
 
-      // Si une image de référence est fournie, utiliser flux-redux (IP-Adapter)
-      // pour préserver l'identité visuelle du personnage.
+      // Traduire FR→EN et dédupliquer avant envoi à FAL
+      const translatedPositive = optimizePromptForFal(input.positivePrompt);
+
+      // Injecter les trigger words des LoRAs dans le prompt
+      const activeLoras = input.loras?.filter((l) => l.url) ?? [];
+      const loraPromptPrefix = activeLoras.map((l) => l.triggerWord).filter(Boolean).join(", ");
+      const promptWithLoras = loraPromptPrefix
+        ? `${loraPromptPrefix}, ${translatedPositive}`
+        : translatedPositive;
+
+      const promptWithNeg = input.negativePrompt
+        ? `${promptWithLoras}. Avoid: ${optimizePromptForFal(input.negativePrompt, 500)}`
+        : promptWithLoras;
+
+      // Priorité : LoRA > IP-Adapter (redux) > txt2img standard
       const referenceUrl =
         input.referenceImageUrls && input.referenceImageUrls.length > 0
           ? input.referenceImageUrls[0]
           : null;
 
-      const useRedux = Boolean(referenceUrl);
-      const endpoint = useRedux ? FAL_FLUX_DEV_REDUX : FAL_FLUX_DEV;
+      const useLora = activeLoras.length > 0;
+      const useRedux = !useLora && Boolean(referenceUrl);
+      const endpoint = useLora ? FAL_FLUX_LORA : useRedux ? FAL_FLUX_DEV_REDUX : FAL_FLUX_DEV;
 
-      // Traduire FR→EN et dédupliquer avant envoi à FAL
-      const translatedPositive = optimizePromptForFal(input.positivePrompt);
-      const promptWithNeg = input.negativePrompt
-        ? `${translatedPositive}. Avoid: ${optimizePromptForFal(input.negativePrompt, 500)}`
-        : translatedPositive;
+      let body: Record<string, unknown>;
 
-      const body: Record<string, unknown> = useRedux
-        ? {
-            prompt: promptWithNeg,
-            image_url: referenceUrl,
-            image_size: imageSize,
-            num_inference_steps: 28,
-            guidance_scale: 3.9,
-            num_images: 1,
-            enable_safety_checker: !isMature,
-            output_format: "jpeg",
-            // Strength contrôle combien l'image de référence influence le résultat
-            // 0.75 = forte ressemblance personnage, 0.6 = plus de liberté créative
-            strength: 0.72,
-          }
-        : {
-            prompt: promptWithNeg,
-            image_size: imageSize,
-            num_inference_steps: 28,
-            guidance_scale: 3.9,
-            num_images: 1,
-            enable_safety_checker: !isMature,
-            output_format: "jpeg",
-          };
+      if (useLora) {
+        // flux-lora : prompt + loras array
+        body = {
+          prompt: promptWithNeg,
+          image_size: imageSize,
+          num_inference_steps: 28,
+          guidance_scale: 3.9,
+          num_images: 1,
+          enable_safety_checker: !isMature,
+          output_format: "jpeg",
+          loras: activeLoras.map((l) => ({
+            path: l.url,
+            scale: l.scale ?? 0.85,
+          })),
+        };
+      } else if (useRedux) {
+        // flux-redux : IP-Adapter avec image de référence
+        body = {
+          prompt: promptWithNeg,
+          image_url: referenceUrl,
+          image_size: imageSize,
+          num_inference_steps: 28,
+          guidance_scale: 3.9,
+          num_images: 1,
+          enable_safety_checker: !isMature,
+          output_format: "jpeg",
+          strength: 0.72,
+        };
+      } else {
+        // flux/dev standard
+        body = {
+          prompt: promptWithNeg,
+          image_size: imageSize,
+          num_inference_steps: 28,
+          guidance_scale: 3.9,
+          num_images: 1,
+          enable_safety_checker: !isMature,
+          output_format: "jpeg",
+        };
+      }
 
       if (input.providerParams?.seed && typeof input.providerParams.seed === "number") {
         body.seed = input.providerParams.seed;
@@ -140,7 +169,7 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
       return {
         imageUrl,
         provider: "fal",
-        model: "fal-ai/flux/dev",
+        model: useLora ? "fal-ai/flux-lora" : useRedux ? "fal-ai/flux/dev/redux" : "fal-ai/flux/dev",
         raw: data,
       };
     },

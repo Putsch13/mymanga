@@ -167,7 +167,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     return { ok: false as const, error: "invalid_job" };
   }
 
-  const [chapter, project, stylePacks, rawCharacters] = await Promise.all([
+  const [chapter, project, stylePacks, loraAttachments, rawCharacters] = await Promise.all([
     prisma.chapter.findUnique({ where: { id: job.chapterId } }),
     prisma.project.findUnique({
       where: { id: job.projectId },
@@ -177,6 +177,11 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       where: { projectId: job.projectId },
       orderBy: { createdAt: "desc" },
       take: 1,
+    }),
+    // Charger les LoRAs actifs par personnage (entraînés via train-lora)
+    prisma.loraAttachment.findMany({
+      where: { projectId: job.projectId, enabled: true },
+      include: { lora: true },
     }),
     prisma.character.findMany({
       where: { projectId: job.projectId },
@@ -575,11 +580,34 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       if (c.canonicalImageUrl) canonRefByName.set(c.name, c.canonicalImageUrl);
     }
 
+    // Construire un index LoRA par characterId → { url, triggerWord, scale }
+    const loraByCharId = new Map<string, { url: string; triggerWord: string; scale: number }>();
+    for (const att of loraAttachments) {
+      const meta = att.lora.weightsMeta as Record<string, unknown>;
+      const loraUrl = typeof meta.loraUrl === "string" ? meta.loraUrl : null;
+      const triggerWord = typeof meta.triggerWord === "string" ? meta.triggerWord : att.lora.name;
+      if (loraUrl && att.characterId) {
+        loraByCharId.set(att.characterId, { url: loraUrl, triggerWord, scale: att.weight });
+      }
+    }
+    // Index LoRA par nom de personnage
+    const loraByCharName = new Map<string, { url: string; triggerWord: string; scale: number }>();
+    for (const c of rawCharacters) {
+      const lora = loraByCharId.get(c.id);
+      if (lora) loraByCharName.set(c.name, lora);
+    }
+
     async function processOneImage(item: PlannedImage): Promise<"ok" | "fail"> {
       const panelCharacterNames: string[] = item.panel.characters ?? [];
       // Prendre la première ref canonique disponible parmi les personnages du panel
       const canonRef = panelCharacterNames.map((n) => canonRefByName.get(n)).find(Boolean) ?? null;
       const hasCanonRef = Boolean(canonRef);
+
+      // Collecter les LoRAs des personnages du panel
+      const panelLoras = panelCharacterNames
+        .map((n) => loraByCharName.get(n))
+        .filter((l): l is { url: string; triggerWord: string; scale: number } => Boolean(l))
+        .slice(0, 2); // max 2 LoRAs par panel
 
       try {
         const routingCtx = buildRoutingContext(intensityLayer, item.panel, hasCanonRef);
@@ -590,7 +618,9 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           // 512×768 : -50% coût image, qualité suffisante pour panels manga mobile
           width: 512,
           height: 768,
-          referenceImageUrls: canonRef ? [canonRef] : undefined,
+          // LoRA prioritaire sur IP-Adapter (meilleure fidélité personnage)
+          loras: panelLoras.length > 0 ? panelLoras : undefined,
+          referenceImageUrls: panelLoras.length === 0 && canonRef ? [canonRef] : undefined,
           providerParams: {
             contentIntensityLayer: intensityLayer,
             mode: "PANEL_DRAFT",

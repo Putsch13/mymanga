@@ -7,6 +7,7 @@ import { getAppUser } from "@/lib/auth/get-app-user";
 import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
 import { notFound, unauthorized, badRequest, validationError } from "@/lib/api-response";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -27,6 +28,10 @@ const draftSetupSchema = z.object({
 export async function POST(req: Request, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return unauthorized();
+  const rl = checkRateLimit(user.id, "pipeline");
+  if (!rl.ok) {
+    return NextResponse.json({ error: rl.message }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSecs) } });
+  }
   const stack = getGenerationStackStatus();
   if (!stack.canGenerateChapters) {
     return validationError("La stack de generation n'est pas prete pour un chapitre complet.", stack);

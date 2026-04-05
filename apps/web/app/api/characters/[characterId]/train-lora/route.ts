@@ -4,12 +4,17 @@ import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
 import { getOwnedCharacter } from "@/lib/ownership";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 type Ctx = { params: Promise<{ characterId: string }> };
 
 export async function POST(_req: Request, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return unauthorized();
+  const rl = checkRateLimit(user.id, "train_lora");
+  if (!rl.ok) {
+    return NextResponse.json({ error: rl.message }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSecs) } });
+  }
   const { characterId } = await ctx.params;
   const character = await getOwnedCharacter(user.id, characterId);
   if (!character) return notFound();
