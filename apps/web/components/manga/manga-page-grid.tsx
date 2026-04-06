@@ -195,6 +195,20 @@ export function pipelineScenesToPages(
         textScale: img.metadata?.textScale,
       }));
 
+    // Garde : si aucun panel, créer un placeholder pour éviter une page visuellement vide
+    if (panels.length === 0) {
+      return {
+        id: scene.id,
+        layout: "F",
+        panels: [{
+          mood: "dramatic" as AnyPanelMood,
+          imageUrl: null,
+          status: "pending",
+          narration: "Génération en cours…",
+        }],
+      };
+    }
+
     const layout = normalizeLayout(rawLayout, panels.length);
     return { id: scene.id, layout, panels };
   });

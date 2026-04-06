@@ -145,6 +145,7 @@ export async function POST(_req: Request, ctx: Ctx) {
     const persisted = await persistGeneratedImageIfNeeded({
       imageUrl: output.result.imageUrl,
       objectPath: `projects/${character.project.id}/characters/${character.id}/refs/${Date.now()}`,
+      allowTemporary: true,
     });
 
     if (!persisted.ok) {
@@ -154,14 +155,10 @@ export async function POST(_req: Request, ctx: Ctx) {
         reservation.reservationId,
         "character_visual_storage_failed",
       );
-      const isStorageConfig = persisted.error?.includes("Stockage non configuré");
-      return NextResponse.json({
-        error: isStorageConfig
-          ? "Le stockage d'images n'est pas configuré sur ce serveur. Configure NEXT_PUBLIC_SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY dans les variables d'environnement Render."
-          : persisted.error,
-        storageNotConfigured: isStorageConfig,
-      }, { status: 502 });
+      return NextResponse.json({ error: persisted.error }, { status: 502 });
     }
+
+    const isTemporary = "temporary" in persisted && persisted.temporary === true;
 
     const visualRef = await prisma.characterVisualRef.create({
       data: {
@@ -175,6 +172,8 @@ export async function POST(_req: Request, ctx: Ctx) {
           model: output.result.model,
           negativePrompt: composed.negative,
           persisted: persisted.persisted,
+          temporary: isTemporary,
+          storageWarning: isTemporary ? "Image temporaire — configure Supabase Storage pour la rendre permanente." : undefined,
         },
       },
     });

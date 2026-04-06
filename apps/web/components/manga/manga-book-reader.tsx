@@ -32,13 +32,19 @@ type SceneImage = {
   imageUrl: string | null;
   panelNumber: number;
   status?: string;
+  provider?: string | null;
+  model?: string | null;
   metadata?: {
-    dialogue?: { speaker: string; text: string };
+    dialogue?: { speaker: string; text: string } | Array<{ speaker: string; text: string }>;
+    dialogues?: Array<{ speaker: string; text: string }>;
     narration?: string;
     sfx?: string;
     caption?: string;
     layout?: string;
     mood?: string;
+    textScale?: "normal" | "compact" | "micro";
+    error?: string;
+    blockedReason?: string;
   };
 };
 
@@ -127,6 +133,9 @@ function buildPagesFromChapter(chapter: ChapterPayload): UniversalMangaPage[] {
       panelNumber: img.panelNumber,
       mood: img.metadata?.mood,
       imageUrl: img.imageUrl,
+      status: img.status,
+      provider: img.provider,
+      model: img.model,
       metadata: img.metadata,
     })),
   }));

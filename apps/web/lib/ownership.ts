@@ -14,11 +14,12 @@ export async function getOwnedChapter(userId: string, projectId: string, chapter
   });
 }
 
-export async function getOwnedCharacter(userId: string, characterId: string) {
+export async function getOwnedCharacter(userId: string, characterId: string, projectId?: string) {
   return prisma.character.findFirst({
     where: {
       id: characterId,
       project: { userId },
+      ...(projectId ? { projectId } : {}),
     },
     include: {
       project: true,

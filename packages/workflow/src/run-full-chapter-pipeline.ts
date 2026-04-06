@@ -860,11 +860,13 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                         ].filter(Boolean).join(", ") || null),
                     })),
               location: scene.location,
-              action: panel.narration ?? panel.caption,
+              action: panel.narration ?? panel.caption ?? (panel as { turn?: string }).turn ?? scene.summary.slice(0, 120),
               camera: panel.camera,
               mood: panel.mood,
               contentIntensityLayer: intensityLayer,
-              dialogueHint: panel.dialogue ? `${panel.dialogue.speaker}: ${panel.dialogue.text}` : undefined,
+              dialogueHint: panel.dialogues?.length
+                ? panel.dialogues.slice(0, 2).map((d) => `${d.speaker}: ${d.text}`).join(" / ")
+                : panel.dialogue ? `${panel.dialogue.speaker}: ${panel.dialogue.text}` : undefined,
               sceneContext: `${scene.summary} (${scene.purpose ?? ""})`.slice(0, 250),
               environmentHint: composeEnvironment({
                 location: scene.location,

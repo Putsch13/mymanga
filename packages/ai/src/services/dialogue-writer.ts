@@ -183,7 +183,9 @@ function generateFallbackPanels(input: DialogueWriterInput): MangaPanelText[] {
             {
               id: `b_${i}_1`,
               speaker: input.characters[i % Math.max(input.characters.length, 1)]?.name,
-              text: i === 0 ? (input.characters[0]?.emotionalState ? `${input.characters[0]?.emotionalState}.` : "...") : fallbackLines[i % fallbackLines.length] ?? "On continue.",
+              text: i === 0
+                ? (input.emotionalObjective?.slice(0, 60) ?? input.sceneSummary?.slice(0, 60) ?? input.characters[0]?.emotionalState ?? "L'action se déroule.")
+                : fallbackLines[i % fallbackLines.length] ?? "On continue.",
               bubbleType: "speech" as const,
               emotion: input.characters[i % Math.max(input.characters.length, 1)]?.emotionalState ?? "neutre",
               priority: 1,

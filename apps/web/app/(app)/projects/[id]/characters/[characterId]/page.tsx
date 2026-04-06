@@ -21,6 +21,7 @@ import { safeFetch } from "@/lib/safe-fetch";
 
 type CharacterPayload = {
   id: string;
+  projectId?: string;
   name: string;
   roleType: string | null;
   gender: "male" | "female" | null;
@@ -79,6 +80,12 @@ export default function CharacterDetailPage() {
         return;
       }
       const c = charResult.data.character;
+      // Vérification d'isolation : le personnage doit appartenir au projet courant
+      if (c.projectId && c.projectId !== projectId) {
+        setMessage({ text: "Ce personnage n'appartient pas à ce projet.", type: "error" });
+        setLoading(false);
+        return;
+      }
       setCharacter({
         ...c,
         visualProfile: c.visualProfile ?? {},

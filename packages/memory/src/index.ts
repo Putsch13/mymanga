@@ -279,8 +279,10 @@ export async function buildProjectContext(
 
   const latestStylePack = project.stylePacks[0];
 
-  const retrieved = userIntent
-    ? await retrieveRelevantMemory(prisma, projectId, userIntent, 5)
+  // Fallback RAG : si pas d'intention, utiliser le titre du projet pour récupérer le contexte pertinent
+  const ragQuery = userIntent?.trim() || project.title;
+  const retrieved = ragQuery
+    ? await retrieveRelevantMemory(prisma, projectId, ragQuery, 5)
     : [];
 
   return {

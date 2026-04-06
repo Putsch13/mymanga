@@ -38,6 +38,8 @@ function isAlreadyStableStorageUrl(url: string) {
 export async function persistGeneratedImageIfNeeded(opts: {
   imageUrl: string;
   objectPath: string;
+  /** Si true : retourner ok:true avec l'URL originale si Supabase n'est pas configuré (image temporaire) */
+  allowTemporary?: boolean;
 }) {
   const bucket = process.env.STORAGE_BUCKET ?? "mymanga-images";
   const client = getStorageClient();
@@ -52,6 +54,10 @@ export async function persistGeneratedImageIfNeeded(opts: {
   }
 
   if (!client) {
+    if (opts.allowTemporary) {
+      // Mode dégradé : pas de Supabase, on retourne l'URL temporaire avec un flag
+      return { ok: true as const, url: opts.imageUrl, persisted: false as const, temporary: true as const };
+    }
     return {
       ok: false as const,
       error:

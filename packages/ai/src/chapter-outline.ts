@@ -20,10 +20,10 @@ const outlineResultSchema = z.object({
       z.object({
         summary: z.string().min(10),
         emotionalTone: z.string().optional(),
-        pageRole: z.enum(PAGE_ROLES).optional(),
-        turn: z.string().optional(),
-        emotionalDelta: z.number().min(-3).max(3).optional(),
-        characters: z.array(z.string()).optional(),
+        pageRole: z.enum(PAGE_ROLES).default("escalation"),
+        turn: z.string().default(""),
+        emotionalDelta: z.number().min(-3).max(3).default(0),
+        characters: z.array(z.string()).default([]),
       }),
     )
     .min(3)
@@ -80,7 +80,8 @@ function fallbackOutline(ctx: ChapterOutlineContext): ChapterOutlineResult {
   const intent = ctx.userIntent.slice(0, 400);
   const genre = (ctx.primaryGenre ?? "manga").toLowerCase();
   const quickTag = (ctx.quickTag ?? "bold").toLowerCase();
-  const cast = (ctx.cast ?? []).slice(0, 3).map((item) => item.name).join(", ");
+  const castNames = (ctx.cast ?? []).slice(0, 4).map((item) => item.name);
+  const cast = castNames.join(", ");
   const previousSummary = ctx.previousSummary ? `Après ${ctx.previousSummary.slice(0, 140)}` : "Sans récapitulatif récent";
   const previousCliffhanger = ctx.previousCliffhanger
     ? `Le précédent cliffhanger était : ${ctx.previousCliffhanger.slice(0, 120)}`
@@ -124,10 +125,10 @@ function fallbackOutline(ctx: ChapterOutlineContext): ChapterOutlineResult {
           ? "La situation semble tenue, mais un nouveau détail compromet l'équilibre."
           : "Au moment de souffler, un retournement rend la suite inévitable.",
     beats: [
-      { summary: `${genreBeats[0]} Intent: ${intent.slice(0, 100)}.`, emotionalTone: "tension", pageRole: "establishing" as const, turn: "Le décor est planté, un élément attire l'attention.", emotionalDelta: 1 },
-      { summary: `${genreBeats[1]} Le chapitre cherche une variation ${quickTag}.`, emotionalTone: "montée", pageRole: "escalation" as const, turn: "La pression monte, un choix se dessine.", emotionalDelta: 2 },
-      { summary: `${genreBeats[2]} Les conséquences deviennent visibles.`, emotionalTone: "pic", pageRole: "revelation" as const, turn: "Une vérité éclate et change la donne.", emotionalDelta: -1 },
-      { summary: `${genreBeats[3]} La fin du chapitre prépare une vraie relance.`, emotionalTone: "chute", pageRole: "cliffhanger" as const, turn: "Un retournement final rend la suite inévitable.", emotionalDelta: -2 },
+      { summary: `${genreBeats[0]} Intent: ${intent.slice(0, 100)}.`, emotionalTone: "tension", pageRole: "establishing" as const, turn: "Le décor est planté, un élément attire l'attention.", emotionalDelta: 1, characters: castNames.slice(0, 2) },
+      { summary: `${genreBeats[1]} Le chapitre cherche une variation ${quickTag}.`, emotionalTone: "montée", pageRole: "escalation" as const, turn: "La pression monte, un choix se dessine.", emotionalDelta: 2, characters: castNames.slice(0, 3) },
+      { summary: `${genreBeats[2]} Les conséquences deviennent visibles.`, emotionalTone: "pic", pageRole: "revelation" as const, turn: "Une vérité éclate et change la donne.", emotionalDelta: -1, characters: castNames.slice(0, 2) },
+      { summary: `${genreBeats[3]} La fin du chapitre prépare une vraie relance.`, emotionalTone: "chute", pageRole: "cliffhanger" as const, turn: "Un retournement final rend la suite inévitable.", emotionalDelta: -2, characters: castNames },
     ],
   };
 }
