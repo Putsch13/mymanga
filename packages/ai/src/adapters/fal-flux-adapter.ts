@@ -111,12 +111,12 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
 
       const useLora = activeLoras.length > 0;
       const useRedux = !useLora && Boolean(referenceUrl);
+      const useLoraWithRef = useLora && Boolean(referenceUrl);
       const endpoint = useLora ? FAL_FLUX_LORA : useRedux ? FAL_FLUX_DEV_REDUX : FAL_FLUX_DEV;
 
       let body: Record<string, unknown>;
 
       if (useLora) {
-        // flux-lora : prompt + loras array
         body = {
           prompt: promptWithNeg,
           image_size: imageSize,
@@ -130,6 +130,10 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
             scale: l.scale ?? 0.85,
           })),
         };
+        if (useLoraWithRef && referenceUrl) {
+          body.image_url = referenceUrl;
+          body.strength = 0.55;
+        }
       } else if (useRedux) {
         // flux-redux : IP-Adapter avec image de référence
         body = {

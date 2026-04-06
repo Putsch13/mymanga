@@ -1,5 +1,16 @@
 import { z } from "zod";
 
+const PAGE_ROLES = [
+  "establishing",
+  "escalation",
+  "confrontation",
+  "revelation",
+  "aftermath",
+  "cliffhanger",
+] as const;
+
+export type PageRole = (typeof PAGE_ROLES)[number];
+
 const outlineResultSchema = z.object({
   title: z.string().min(1).optional(),
   summary: z.string().min(20),
@@ -9,6 +20,9 @@ const outlineResultSchema = z.object({
       z.object({
         summary: z.string().min(10),
         emotionalTone: z.string().optional(),
+        pageRole: z.enum(PAGE_ROLES).optional(),
+        turn: z.string().optional(),
+        emotionalDelta: z.number().min(-3).max(3).optional(),
       }),
     )
     .min(3)
@@ -109,10 +123,10 @@ function fallbackOutline(ctx: ChapterOutlineContext): ChapterOutlineResult {
           ? "La situation semble tenue, mais un nouveau détail compromet l'équilibre."
           : "Au moment de souffler, un retournement rend la suite inévitable.",
     beats: [
-      { summary: `${genreBeats[0]} Intent: ${intent.slice(0, 100)}.`, emotionalTone: "tension" },
-      { summary: `${genreBeats[1]} Le chapitre cherche une variation ${quickTag}.`, emotionalTone: "montée" },
-      { summary: `${genreBeats[2]} Les conséquences deviennent visibles.`, emotionalTone: "pic" },
-      { summary: `${genreBeats[3]} La fin du chapitre prépare une vraie relance.`, emotionalTone: "chute" },
+      { summary: `${genreBeats[0]} Intent: ${intent.slice(0, 100)}.`, emotionalTone: "tension", pageRole: "establishing" as const, turn: "Le décor est planté, un élément attire l'attention.", emotionalDelta: 1 },
+      { summary: `${genreBeats[1]} Le chapitre cherche une variation ${quickTag}.`, emotionalTone: "montée", pageRole: "escalation" as const, turn: "La pression monte, un choix se dessine.", emotionalDelta: 2 },
+      { summary: `${genreBeats[2]} Les conséquences deviennent visibles.`, emotionalTone: "pic", pageRole: "revelation" as const, turn: "Une vérité éclate et change la donne.", emotionalDelta: -1 },
+      { summary: `${genreBeats[3]} La fin du chapitre prépare une vraie relance.`, emotionalTone: "chute", pageRole: "cliffhanger" as const, turn: "Un retournement final rend la suite inévitable.", emotionalDelta: -2 },
     ],
   };
 }
@@ -133,8 +147,23 @@ export async function generateChapterOutline(ctx: ChapterOutlineContext): Promis
 
   const model = process.env.OPENAI_OUTLINE_MODEL?.trim() || "gpt-4o-mini";
   const system = `Tu es scénariste manga / webtoon senior pour un outil de production professionnelle.
-Réponds UNIQUEMENT en JSON valide, clés : title (optionnel), summary (string), cliffhanger (string), beats (array de { summary, emotionalTone? }).
+Réponds UNIQUEMENT en JSON valide, clés : title (optionnel), summary (string), cliffhanger (string), beats (array).
+Chaque beat DOIT contenir :
+  - summary (string, min 10 chars)
+  - emotionalTone (string, optionnel)
+  - pageRole (OBLIGATOIRE) : un parmi "establishing", "escalation", "confrontation", "revelation", "aftermath", "cliffhanger"
+  - turn (OBLIGATOIRE) : le micro-retournement ou événement clé de cette page (1 phrase)
+  - emotionalDelta (OBLIGATOIRE) : nombre entier de -3 à +3, variation émotionnelle par rapport au beat précédent
+
 Langue : français. Les beats sont des étapes narratives courtes (pas de dialogue complet).
+
+RÈGLES DE RYTHME MANGA :
+- INTERDIT : 2 beats consécutifs avec le même pageRole.
+- OBLIGATOIRE : au moins 1 beat "revelation" et 1 beat "aftermath" par chapitre.
+- Le premier beat doit être "establishing" ou "escalation".
+- Le dernier beat doit être "cliffhanger".
+- Varier les emotionalDelta : alterner montées (+1/+2) et descentes (-1/-2) pour créer un vrai rythme.
+- Chaque turn doit être UNIQUE et faire progresser l'intrigue de manière irréversible.
 
 RÈGLES ABSOLUES DE CONTINUITÉ :
 1. Respecter scrupuleusement le canon : personnages, lieux, statuts, relations et événements passés.

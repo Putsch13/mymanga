@@ -23,3 +23,4 @@ export * from "./services/lora-training-service";
 export * from "./services/prompt-translator";
 export * from "./services/cover-generator";
 export * from "./services/tts-service";
+export * from "./services/visual-drift-detector";

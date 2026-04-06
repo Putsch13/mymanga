@@ -28,6 +28,7 @@ export async function POST(_req: Request, ctx: Ctx) {
   if (!img) return notFound();
 
   const project = img.scene.chapter.project;
+  const projectId = project.id;
   const intensityLayer = (project.intensityLayer as string | null) ?? "TEEN";
 
   if (!img.prompt) {
@@ -35,7 +36,42 @@ export async function POST(_req: Request, ctx: Ctx) {
   }
 
   const metadata = ((img.metadata ?? {}) as unknown) as Record<string, unknown>;
-  const characters = Array.isArray(metadata.characters) ? metadata.characters : [];
+  const characters = Array.isArray(metadata.characters) ? (metadata.characters as string[]) : [];
+  const savedReferenceIds = Array.isArray(img.referenceImageIds) ? (img.referenceImageIds as string[]) : [];
+
+  // Reconstruire les LoRAs actifs du projet pour ce panel
+  const loraAttachments = await prisma.loraAttachment.findMany({
+    where: { projectId, enabled: true },
+    include: { lora: true },
+  });
+  const loraByCharId = new Map<string, { url: string; triggerWord: string; scale: number }>();
+  for (const att of loraAttachments) {
+    const meta = att.lora.weightsMeta as Record<string, unknown>;
+    const loraUrl = typeof meta.loraUrl === "string" ? meta.loraUrl : null;
+    const triggerWord = typeof meta.triggerWord === "string" ? meta.triggerWord : att.lora.name;
+    if (loraUrl && att.characterId && att.lora.status === "active") {
+      loraByCharId.set(att.characterId, { url: loraUrl, triggerWord, scale: att.weight });
+    }
+  }
+  const projectChars = await prisma.character.findMany({
+    where: { projectId },
+    select: { id: true, name: true },
+  });
+  const panelLoras = characters
+    .map((name) => {
+      const c = projectChars.find((pc) => pc.name === name);
+      return c ? loraByCharId.get(c.id) : undefined;
+    })
+    .filter((l): l is { url: string; triggerWord: string; scale: number } => Boolean(l))
+    .slice(0, 2);
+
+  // Reconstruire les refs : savedReferenceIds du panel original, puis ref canon perso
+  const referenceImageUrls = savedReferenceIds.filter((url) => typeof url === "string" && url.startsWith("http"));
+  if (referenceImageUrls.length === 0 && typeof metadata.canonRefUsed === "string") {
+    referenceImageUrls.push(metadata.canonRefUsed);
+  }
+
+  const hasCanonRef = referenceImageUrls.length > 0 || panelLoras.length > 0;
 
   await prisma.sceneImage.update({
     where: { id: img.id },
@@ -51,7 +87,7 @@ export async function POST(_req: Request, ctx: Ctx) {
         mode: "PANEL_DRAFT",
         contentIntensityLayer: intensityLayer,
         isNewCharacter: false,
-        hasCanonReferences: false,
+        hasCanonReferences: hasCanonRef,
         characterCountInScene: characters.length > 0 ? characters.length : 1,
         needsInpaint: false,
         needsPoseVariation: false,
@@ -63,8 +99,10 @@ export async function POST(_req: Request, ctx: Ctx) {
         mode: "PANEL_DRAFT",
         positivePrompt: img.prompt,
         negativePrompt: img.negativePrompt ?? undefined,
-        width: img.width ?? 768,
-        height: img.height ?? 1024,
+        width: img.width ?? 512,
+        height: img.height ?? 768,
+        loras: panelLoras.length > 0 ? panelLoras : undefined,
+        referenceImageUrls: referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
         providerParams: { contentIntensityLayer: intensityLayer, mode: "PANEL_DRAFT" },
       },
     );
@@ -104,7 +142,13 @@ export async function POST(_req: Request, ctx: Ctx) {
         provider: out.result.provider,
         model: out.result.model,
         routingDecision: (out.routing as unknown) as Prisma.InputJsonValue,
-        metadata: ({ ...metadata, generationLog: out.log, persisted: persisted.persisted } as unknown) as Prisma.InputJsonValue,
+        metadata: ({
+          ...metadata,
+          generationLog: out.log,
+          persisted: persisted.persisted,
+          retryUsedLoras: panelLoras.length,
+          retryUsedRefs: referenceImageUrls.length,
+        } as unknown) as Prisma.InputJsonValue,
       },
     });
 
@@ -118,4 +162,3 @@ export async function POST(_req: Request, ctx: Ctx) {
     return NextResponse.json({ ok: false, error: msg }, { status: 502 });
   }
 }
-

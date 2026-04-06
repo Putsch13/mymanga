@@ -310,23 +310,77 @@ function extractCharactersFromText(context: ProjectContextForChapter, text: stri
   return matched.length > 0 ? matched : fallback;
 }
 
+type PageRoleKey = "establishing" | "escalation" | "confrontation" | "revelation" | "aftermath" | "cliffhanger";
+
+const PAGE_ROLE_TEMPLATES: Record<PageRoleKey, (ctx: { mainA: string; mainB: string; location: string; summary: string; purpose: string; turn: string }) => string[]> = {
+  establishing: (c) => [
+    `Plan large : ${c.location} s'étend devant ${c.mainA}. Ambiance posée.`,
+    `${c.mainA} observe un détail du décor qui révèle l'atmosphère.`,
+    `${c.mainA} entre dans le lieu, posture et expression lisibles.`,
+    `Un élément de l'environnement annonce la suite : ${c.turn}`,
+    `Narration visuelle : le regard de ${c.mainA} se pose sur un indice.`,
+    `Transition douce vers l'action : ${c.mainA} s'approche de ${c.mainB}.`,
+  ],
+  escalation: (c) => [
+    `${c.mainA} et ${c.mainB} dans une situation qui se tend.`,
+    `Un échange de regards chargé de tension autour de ${c.purpose}.`,
+    `${c.mainA} réalise quelque chose : ${c.turn}`,
+    `La pression monte : un détail concret aggrave la situation.`,
+    `${c.mainB} réagit violemment ou émotionnellement.`,
+    `Point de non-retour : ${c.mainA} doit agir maintenant.`,
+  ],
+  confrontation: (c) => [
+    `Face à face : ${c.mainA} vs ${c.mainB}. Tension maximale.`,
+    `Champ/contre-champ : expressions opposées, enjeux lisibles.`,
+    `Action : ${c.mainA} fait un geste décisif. ${c.turn}`,
+    `Impact : la conséquence est immédiate et visuelle.`,
+    `${c.mainB} encaisse ou riposte. Le rapport de force bascule.`,
+    `Respiration : un silence après l'impact, poussière ou souffle.`,
+  ],
+  revelation: (c) => [
+    `Moment de silence : case sombre ou vide, suspense.`,
+    `Zoom lent : un détail change tout — ${c.turn}`,
+    `Réaction choc de ${c.mainA} : expression extrême, yeux écarquillés.`,
+    `Plan large conséquence : l'ampleur de la révélation apparaît.`,
+    `${c.mainB} comprend aussi. Regard échangé, chargé de sens.`,
+    `Narration intérieure de ${c.mainA} sur ce que ça change.`,
+  ],
+  aftermath: (c) => [
+    `Calme après la tempête : ${c.location} sous un nouveau jour.`,
+    `${c.mainA} fait le point, expression fatiguée ou déterminée.`,
+    `Dialogue posé entre ${c.mainA} et ${c.mainB} sur ce qui vient de se passer.`,
+    `Un geste simple (soigner, ranger, marcher) montre l'état intérieur.`,
+    `${c.turn} — une nouvelle perspective émerge.`,
+    `Transition : le regard se porte vers l'horizon ou la prochaine étape.`,
+  ],
+  cliffhanger: (c) => [
+    `Accélération : plusieurs cases rapides, rythme pressé.`,
+    `${c.mainA} fait face à une dernière décision — ${c.purpose}.`,
+    `Montée : chaque case rapproche du point de rupture.`,
+    `${c.turn} — le retournement frappe.`,
+    `Image symbolique : ombre, lumière ou silhouette — impact maximal.`,
+    `Dernière case : question ouverte, le lecteur DOIT tourner la page.`,
+  ],
+};
+
 function buildPanelBlueprints(
   scene: { id: string; summary: string; location: string; characters: string[]; purpose: string },
-  beat: { summary: string; tension: number },
+  beat: { summary: string; tension: number; pageRole?: string; turn?: string },
   panelCount: number,
   genre: string,
 ): PanelBlueprint[] {
   const mainA = scene.characters[0] ?? "Le protagoniste";
   const mainB = scene.characters[1] ?? mainA;
-  const actionTemplates = [
-    `Installer ${scene.location} et l'état émotionnel de ${mainA}.`,
-    `${mainA} perçoit un détail lié à : ${beat.summary}`,
-    `${mainA} et ${mainB} se répondent avec tension autour de ${scene.purpose}.`,
-    `Un geste, regard ou silence change la lecture de la scène.`,
-    `La pression monte concrètement autour de ${beat.summary}.`,
-    `${mainA} prend une décision qui coûte quelque chose.`,
-    `La dernière image relance la suite avec une conséquence immédiate.`,
-  ];
+  const role = (beat.pageRole ?? "escalation") as PageRoleKey;
+  const templateFn = PAGE_ROLE_TEMPLATES[role] ?? PAGE_ROLE_TEMPLATES.escalation;
+  const templates = templateFn({
+    mainA,
+    mainB,
+    location: scene.location,
+    summary: beat.summary,
+    purpose: scene.purpose,
+    turn: beat.turn ?? beat.summary.slice(0, 60),
+  });
 
   return Array.from({ length: panelCount }).map((_, panelIndex) => {
     const mood = inferMood(beat.tension + panelIndex / Math.max(panelCount, 1), genre);
@@ -338,9 +392,7 @@ function buildPanelBlueprints(
           : [scene.characters[panelIndex % Math.max(scene.characters.length, 1)] ?? mainA].filter(Boolean);
     return {
       panelId: `panel_${panelIndex + 1}`,
-      action:
-        actionTemplates[panelIndex] ??
-        `${scene.summary} Progression panel ${panelIndex + 1} dans ${scene.location}.`,
+      action: templates[panelIndex] ?? `${scene.summary} — ${beat.turn ?? "progression"}.`,
       mood,
       characters: baseCharacters,
     };
@@ -416,22 +468,24 @@ function buildPanelsForScene(
   genre: string,
   panelTextPlan?: PanelTextPlan[],
 ): StoryboardPanel[] {
-  const cameras = [
-    "wide establishing shot",
-    "medium shot",
-    "close-up on face",
-    "over-the-shoulder shot",
-    "extreme close-up on eyes",
-    "low angle shot",
-    "bird's eye view",
-  ];
+  const PANEL_FUNCTION_CAMERAS: Record<string, string[]> = {
+    establishing: ["wide establishing shot", "medium shot", "close-up on face", "medium shot", "wide shot", "medium shot"],
+    escalation: ["medium shot", "over-the-shoulder shot", "close-up on face", "low angle shot", "medium shot", "extreme close-up on eyes"],
+    confrontation: ["medium shot", "close-up on face", "low angle dynamic shot", "extreme close-up on eyes", "over-the-shoulder shot", "dutch angle shot"],
+    revelation: ["medium shot", "slow zoom close-up", "extreme close-up shocked eyes", "wide shot consequences", "over-the-shoulder shot", "high angle distant shot"],
+    aftermath: ["wide establishing shot", "medium shot", "close-up on face", "medium shot", "wide shot", "medium shot"],
+    cliffhanger: ["medium shot", "close-up on face", "low angle shot", "extreme close-up on eyes", "silhouette shot", "dramatic wide shot"],
+  };
+
+  const pageRole = (beat as { pageRole?: string }).pageRole ?? "escalation";
+  const roleCameras = PANEL_FUNCTION_CAMERAS[pageRole] ?? PANEL_FUNCTION_CAMERAS.escalation;
 
   const panels: StoryboardPanel[] = [];
   for (let i = 0; i < panelBlueprints.length; i++) {
     const blueprint = panelBlueprints[i];
     const panelTension = beat.tension + (i / Math.max(panelBlueprints.length, 1)) * 2;
     const mood = blueprint?.mood ?? inferMood(panelTension, genre);
-    const camera = cameras[i % cameras.length] ?? "medium shot";
+    const camera = roleCameras[i] ?? roleCameras[i % roleCameras.length] ?? "medium shot";
     const action = blueprint?.action ?? scene.summary;
     const charSubsetRaw = blueprint?.characters?.length ? blueprint.characters : scene.characters;
 
@@ -644,6 +698,12 @@ export async function generateChapterBundle(input: {
   });
 
   // Cible produit : ~10 pages par chapitre, 1 scène = 1 page.
+  const PAGE_ROLE_SEQUENCE: import("./chapter-outline").PageRole[] = [
+    "establishing", "escalation", "confrontation", "escalation",
+    "revelation", "aftermath", "escalation", "confrontation",
+    "aftermath", "cliffhanger",
+  ];
+
   const rawOutlineBeats = outlineResult.outline.beats.map((beat, index) => ({
     id: `beat_${index + 1}`,
     summary: beat.summary,
@@ -659,6 +719,9 @@ export async function generateChapterBundle(input: {
     ),
     location: locAt(index),
     purpose: beat.emotionalTone ?? `beat_${index + 1}`,
+    pageRole: beat.pageRole ?? PAGE_ROLE_SEQUENCE[index % PAGE_ROLE_SEQUENCE.length] ?? "escalation",
+    turn: beat.turn ?? beat.summary.slice(0, 80),
+    emotionalDelta: beat.emotionalDelta ?? (index % 2 === 0 ? 1 : -1),
   }));
 
   const TARGET_PAGES = 10;
@@ -669,6 +732,9 @@ export async function generateChapterBundle(input: {
     characters: mainCast.slice(0, Math.min(2 + (index % 2), mainCast.length)),
     location: locAt(index),
     purpose: `variation_${index + 1}`,
+    pageRole: PAGE_ROLE_SEQUENCE[index % PAGE_ROLE_SEQUENCE.length] ?? "escalation",
+    turn: `Progression inattendue vers ${input.context.project.title}.`,
+    emotionalDelta: index % 2 === 0 ? 1 : -1,
   }));
 
   const panelCounts = beats.map((beat, index) => {

@@ -7,6 +7,7 @@ import {
   runChapterNarrativeCoherencePass,
   buildTriggerWord,
   trainCharacterLora,
+  detectVisualDrift,
   type StoryboardPanel,
   type RoutingContext,
   type ProjectContextForChapter,
@@ -40,6 +41,9 @@ type PipelineJobInput = {
 };
 
 type PipelineBundle = Awaited<ReturnType<typeof generateChapterBundle>>;
+
+const STD_NEGATIVE =
+  "blurry, deformed hands, extra limbs, wrong hair color, inconsistent outfit, bad anatomy, watermark, text overlay, low quality, duplicate character";
 
 function getStorageClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -308,6 +312,43 @@ async function queueAutoLoraTrainingIfEligible(input: {
   return candidates.length;
 }
 
+function syncVisualsAfterNarrativePass(bundle: PipelineBundle): PipelineBundle {
+  const pages = bundle.storyboard.pages;
+  const scenes = bundle.script.scenes;
+  const beats = bundle.outline.beats;
+
+  const ROLE_CAMERAS: Record<string, string[]> = {
+    establishing: ["wide establishing shot", "medium shot", "close-up on face", "medium shot", "wide shot", "medium shot"],
+    escalation: ["medium shot", "over-the-shoulder shot", "close-up on face", "low angle shot", "medium shot", "extreme close-up on eyes"],
+    confrontation: ["medium shot", "close-up on face", "low angle dynamic shot", "extreme close-up on eyes", "over-the-shoulder shot", "dutch angle shot"],
+    revelation: ["medium shot", "slow zoom close-up", "extreme close-up shocked eyes", "wide shot consequences", "over-the-shoulder shot", "high angle distant shot"],
+    aftermath: ["wide establishing shot", "medium shot", "close-up on face", "medium shot", "wide shot", "medium shot"],
+    cliffhanger: ["medium shot", "close-up on face", "low angle shot", "extreme close-up on eyes", "silhouette shot", "dramatic wide shot"],
+  };
+
+  const updatedPages = pages.map((page, pageIndex) => {
+    const scene = scenes[pageIndex];
+    const beat = beats[pageIndex];
+    if (!scene || !beat) return page;
+
+    const beatRaw = beat as Record<string, unknown>;
+    const role = (typeof beatRaw.pageRole === "string" ? beatRaw.pageRole : "escalation") as string;
+    const roleCams = ROLE_CAMERAS[role] ?? ROLE_CAMERAS.escalation;
+
+    const updatedPanels = page.panels.map((panel, panelIndex) => {
+      const camera = roleCams[panelIndex] ?? roleCams[panelIndex % roleCams.length] ?? "medium shot";
+      return { ...panel, camera };
+    });
+
+    return { ...page, panels: updatedPanels };
+  });
+
+  return {
+    ...bundle,
+    storyboard: { ...bundle.storyboard, pages: updatedPages },
+  };
+}
+
 function enforceBundleIntegrity(bundle: PipelineBundle): { bundle: PipelineBundle; notes: string[] } {
   const notes: string[] = [];
   const scenes = [...bundle.script.scenes];
@@ -420,34 +461,20 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       include: {
         canonPack: true,
         visualRefs: {
-          orderBy: { createdAt: "desc" },
+          orderBy: [{ isPrimary: "desc" }, { createdAt: "desc" }],
           take: 20,
-          select: { imageUrl: true },
+          select: { imageUrl: true, isPrimary: true },
         },
       },
     }).then(async (chars) => {
-      // Récupérer les canonical image URLs en raw SQL (subquery sur SceneImage)
-      let canonUrls: Record<string, string> = {};
-      try {
-        const rows = await prisma.$queryRawUnsafe<Array<{ characterId: string; canonicalImageUrl: string | null }>>(
-          `SELECT c.id AS "characterId",
-                  (SELECT si."imageUrl" FROM "SceneImage" si
-                   JOIN "ChapterScene" cs ON si."sceneId" = cs.id
-                   JOIN "Chapter" ch ON cs."chapterId" = ch.id
-                   WHERE ch."projectId" = c."projectId"
-                     AND si."imageUrl" IS NOT NULL
-                     AND si.status = 'completed'
-                   ORDER BY si."createdAt" DESC
-                   LIMIT 1) AS "canonicalImageUrl"
-           FROM "Character" c
-           WHERE c."projectId" = $1`,
-          job.projectId,
-        );
-        for (const r of rows) {
-          if (r.canonicalImageUrl) canonUrls[r.characterId] = r.canonicalImageUrl;
+      // Ref canon par personnage : prendre CharacterVisualRef.isPrimary (ou la plus récente)
+      const canonUrls: Record<string, string> = {};
+      for (const c of chars) {
+        const primaryRef = c.visualRefs.find((v) => v.isPrimary && v.imageUrl);
+        const bestRef = primaryRef ?? c.visualRefs.find((v) => v.imageUrl);
+        if (bestRef?.imageUrl) {
+          canonUrls[c.id] = bestRef.imageUrl;
         }
-      } catch (e) {
-        console.error("[pipeline] canonical URL query failed, continuing without:", e instanceof Error ? e.message : e);
       }
       return chars.map((c) => {
         const raw = c as unknown as Record<string, unknown>;
@@ -636,6 +663,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     revisedBundle = narrative.bundle;
     const integrity = enforceBundleIntegrity(revisedBundle);
     revisedBundle = integrity.bundle;
+    revisedBundle = syncVisualsAfterNarrativePass(revisedBundle);
     if (integrity.notes.length > 0) {
       console.warn(`[pipeline] bundle integrity fixes: ${integrity.notes.join(" | ")}`);
     }
@@ -823,6 +851,114 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       "completed",
     );
 
+    // ── Étape 3b : Anchors visuels (style frame + keyframes scène) ─────────
+    await setJobProgress(jobId, { key: "generate_anchors", label: "Ancres visuelles" }, "running");
+
+    // Construire index canonicalImageUrl et LoRA par nom de personnage (réutilisé partout)
+    const canonRefByName = new Map<string, string>();
+    for (const c of rawCharacters) {
+      if (c.canonicalImageUrl) canonRefByName.set(c.name, c.canonicalImageUrl);
+    }
+    const loraByCharId = new Map<string, { url: string; triggerWord: string; scale: number }>();
+    for (const att of loraAttachments) {
+      const meta = att.lora.weightsMeta as Record<string, unknown>;
+      const loraUrl = typeof meta.loraUrl === "string" ? meta.loraUrl : null;
+      const triggerWord = typeof meta.triggerWord === "string" ? meta.triggerWord : att.lora.name;
+      if (loraUrl && att.characterId && att.enabled && att.lora.status === "active") {
+        loraByCharId.set(att.characterId, { url: loraUrl, triggerWord, scale: att.weight });
+      }
+    }
+    const loraByCharName = new Map<string, { url: string; triggerWord: string; scale: number }>();
+    for (const c of rawCharacters) {
+      const lora = loraByCharId.get(c.id);
+      if (lora) loraByCharName.set(c.name, lora);
+    }
+
+    let styleFrameUrl: string | null = null;
+    const sceneKeyframeUrls = new Map<number, string>();
+
+    // Style frame : 1 image "ambiance + style" pour le chapitre entier
+    try {
+      const mainCharNames = rawCharacters.slice(0, 2).map((c) => c.name).join(", ");
+      const stylePrompt = [
+        project?.visualStyle ?? "manga",
+        `${context.project.primaryGenre ?? "fantasy"} atmosphere`,
+        `tone: ${context.project.tone ?? "dramatic"}`,
+        `characters: ${mainCharNames}`,
+        revisedBundle.outline.chapter_title,
+        "establishing mood shot, wide composition, professional manga art, consistent palette",
+      ].filter(Boolean).join(", ");
+
+      const styleResult = await runRoutedImageGeneration(
+        { mode: "PANEL_DRAFT", contentIntensityLayer: intensityLayer, isNewCharacter: false, hasCanonReferences: false, characterCountInScene: 2, needsInpaint: false, needsPoseVariation: false, preferPhotorealCover: false, explicitBlocked: false, goreStylizedMature: false },
+        { mode: "PANEL_DRAFT", positivePrompt: stylePrompt, negativePrompt: STD_NEGATIVE, width: 512, height: 768, providerParams: { contentIntensityLayer: intensityLayer, mode: "STYLE_FRAME" } },
+      );
+      if (styleResult.ok) {
+        const persisted = await persistImageIfNeeded({ imageUrl: styleResult.result.imageUrl, projectId, chapterId, sceneImageId: `style_frame_${chapterId}` });
+        if (persisted.ok) styleFrameUrl = persisted.url;
+      }
+    } catch (e) {
+      console.warn("[pipeline] style frame generation skipped:", e instanceof Error ? e.message : e);
+    }
+
+    // Scene keyframes : 1 establishing shot par scène
+    for (let scIdx = 0; scIdx < revisedBundle.script.scenes.length; scIdx++) {
+      const scene = revisedBundle.script.scenes[scIdx];
+      if (!scene) continue;
+      try {
+        const sceneChars = scene.characters.slice(0, 3);
+        const sceneCharDescs = sceneChars.map((name) => {
+          const c = rawCharacters.find((rc) => rc.name === name);
+          return c ? `${c.name}, ${c.gender ?? ""}, ${c.appearance ?? ""}, ${c.hairColor ? c.hairColor + " hair" : ""}`.replace(/, ,/g, ",") : name;
+        }).join(" | ");
+        const sceneKeyPrompt = [
+          project?.visualStyle ?? "manga",
+          `wide establishing shot, ${scene.location}`,
+          sceneCharDescs,
+          scene.summary.slice(0, 120),
+          composeEnvironment({
+            location: scene.location,
+            mood: "dramatic",
+            genre: context.project.primaryGenre ?? "fantasy",
+            tone: context.project.tone ?? "dramatique",
+            visualStyle: context.project.visualStyle ?? "manga",
+            lore: typeof context.storyBible?.lore === "string" ? context.storyBible.lore : null,
+            worldRules: context.storyBible?.worldRules,
+            glossary: context.storyBible?.glossary,
+            knownLocations: knownLocations,
+            sceneCharCount: scene.characters.length,
+            panelCharCount: sceneChars.length,
+            sceneSummary: scene.summary,
+          }),
+          "professional manga art, consistent character design",
+        ].filter(Boolean).join(", ");
+
+        const sceneCharLoras = sceneChars
+          .map((n) => loraByCharName.get(n))
+          .filter((l): l is { url: string; triggerWord: string; scale: number } => Boolean(l))
+          .slice(0, 2);
+        const sceneCanonRef = sceneChars.map((n) => canonRefByName.get(n)).find(Boolean) ?? null;
+
+        const refs: string[] = [];
+        if (styleFrameUrl) refs.push(styleFrameUrl);
+        if (!sceneCharLoras.length && sceneCanonRef) refs.push(sceneCanonRef);
+
+        const keyResult = await runRoutedImageGeneration(
+          { mode: "PANEL_DRAFT", contentIntensityLayer: intensityLayer, isNewCharacter: false, hasCanonReferences: refs.length > 0, characterCountInScene: sceneChars.length, needsInpaint: false, needsPoseVariation: false, preferPhotorealCover: false, explicitBlocked: false, goreStylizedMature: false },
+          { mode: "PANEL_DRAFT", positivePrompt: sceneKeyPrompt, negativePrompt: STD_NEGATIVE, width: 512, height: 768, loras: sceneCharLoras.length > 0 ? sceneCharLoras : undefined, referenceImageUrls: refs.length > 0 ? refs : undefined, providerParams: { contentIntensityLayer: intensityLayer, mode: "SCENE_KEYFRAME" } },
+        );
+        if (keyResult.ok) {
+          const persisted = await persistImageIfNeeded({ imageUrl: keyResult.result.imageUrl, projectId, chapterId, sceneImageId: `keyframe_scene_${scIdx}_${chapterId}` });
+          if (persisted.ok) sceneKeyframeUrls.set(scIdx, persisted.url);
+        }
+      } catch (e) {
+        console.warn(`[pipeline] scene keyframe ${scIdx} skipped:`, e instanceof Error ? e.message : e);
+      }
+    }
+
+    console.log(`[pipeline] anchors: styleFrame=${Boolean(styleFrameUrl)} keyframes=${sceneKeyframeUrls.size}/${revisedBundle.script.scenes.length}`);
+    await setJobProgress(jobId, { key: "generate_anchors", label: `Ancres: style=${Boolean(styleFrameUrl)} scenes=${sceneKeyframeUrls.size}` }, "completed");
+
     // ── Étape 4 : Génération des images réelles via FAL ────────────────────
     await setJobProgress(
       jobId,
@@ -833,40 +969,23 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     let generatedCount = 0;
     let failedCount = 0;
 
-    // Construire un index canonicalImageUrl par nom de personnage pour les refs IP-Adapter
-    const canonRefByName = new Map<string, string>();
-    for (const c of rawCharacters) {
-      if (c.canonicalImageUrl) canonRefByName.set(c.name, c.canonicalImageUrl);
-    }
-
-    // Construire un index LoRA par characterId → { url, triggerWord, scale }
-    const loraByCharId = new Map<string, { url: string; triggerWord: string; scale: number }>();
-    for (const att of loraAttachments) {
-      const meta = att.lora.weightsMeta as Record<string, unknown>;
-      const loraUrl = typeof meta.loraUrl === "string" ? meta.loraUrl : null;
-      const triggerWord = typeof meta.triggerWord === "string" ? meta.triggerWord : att.lora.name;
-      if (loraUrl && att.characterId && att.enabled && att.lora.status === "active") {
-        loraByCharId.set(att.characterId, { url: loraUrl, triggerWord, scale: att.weight });
-      }
-    }
-    // Index LoRA par nom de personnage
-    const loraByCharName = new Map<string, { url: string; triggerWord: string; scale: number }>();
-    for (const c of rawCharacters) {
-      const lora = loraByCharId.get(c.id);
-      if (lora) loraByCharName.set(c.name, lora);
-    }
-
     async function processOneImage(item: PlannedImage): Promise<"ok" | "fail"> {
       const panelCharacterNames: string[] = item.panel.characters ?? [];
-      // Prendre la première ref canonique disponible parmi les personnages du panel
       const canonRef = panelCharacterNames.map((n) => canonRefByName.get(n)).find(Boolean) ?? null;
-      const hasCanonRef = Boolean(canonRef);
+      const sceneKeyRef = sceneKeyframeUrls.get(item.sceneIndex) ?? null;
 
-      // Collecter les LoRAs des personnages du panel
       const panelLoras = panelCharacterNames
         .map((n) => loraByCharName.get(n))
         .filter((l): l is { url: string; triggerWord: string; scale: number } => Boolean(l))
-        .slice(0, 2); // max 2 LoRAs par panel
+        .slice(0, 2);
+
+      // Construire les refs : keyframe scène prioritaire, puis canon perso, puis style frame
+      const refs: string[] = [];
+      if (sceneKeyRef) refs.push(sceneKeyRef);
+      else if (canonRef) refs.push(canonRef);
+      else if (styleFrameUrl) refs.push(styleFrameUrl);
+
+      const hasCanonRef = refs.length > 0 || panelLoras.length > 0;
 
       try {
         const routingCtx = buildRoutingContext(intensityLayer, item.panel, hasCanonRef);
@@ -874,12 +993,10 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           mode: "PANEL_DRAFT",
           positivePrompt: item.panel.prompt,
           negativePrompt: item.panel.negativePrompt,
-          // 512×768 : -50% coût image, qualité suffisante pour panels manga mobile
           width: 512,
           height: 768,
-          // LoRA prioritaire sur IP-Adapter (meilleure fidélité personnage)
           loras: panelLoras.length > 0 ? panelLoras : undefined,
-          referenceImageUrls: panelLoras.length === 0 && canonRef ? [canonRef] : undefined,
+          referenceImageUrls: refs.length > 0 ? refs : undefined,
           providerParams: {
             contentIntensityLayer: intensityLayer,
             mode: "PANEL_DRAFT",
@@ -887,8 +1004,67 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         });
 
         if (result.ok) {
+          // Drift detection + auto-reroll
+          const panelCharDetails = panelCharacterNames.map((name) => {
+            const c = rawCharacters.find((rc) => rc.name === name);
+            return {
+              name,
+              gender: c?.gender ?? null,
+              hairColor: c?.hairColor ?? null,
+              eyeColor: c?.eyeColor ?? null,
+              bodyDetails: c?.bodyDetails ?? null,
+              appearance: c?.appearance ?? null,
+            };
+          });
+          const drift = detectVisualDrift({
+            prompt: item.panel.prompt,
+            characters: panelCharDetails,
+            usedLoras: panelLoras.length > 0,
+            usedRefs: refs.length > 0,
+          });
+
+          const MAX_REROLL = 2;
+          let finalResult = result;
+          let rerollCount = 0;
+
+          if (!drift.pass && MAX_REROLL > 0) {
+            console.warn(`[pipeline] drift detected score=${drift.score} panel=${item.sceneImageId} issues=${drift.issues.slice(0, 2).join("; ")}`);
+
+            for (let attempt = 0; attempt < MAX_REROLL; attempt++) {
+              const boostNeg = drift.issues
+                .filter((issue) => issue.includes("absent"))
+                .map((issue) => {
+                  const match = issue.match(/"([^"]+)" absent/);
+                  return match ? `wrong ${match[1]}` : "";
+                })
+                .filter(Boolean)
+                .join(", ");
+
+              const rerollResult = await runRoutedImageGeneration(routingCtx, {
+                mode: "PANEL_DRAFT",
+                positivePrompt: item.panel.prompt,
+                negativePrompt: [item.panel.negativePrompt, boostNeg].filter(Boolean).join(", "),
+                width: 512,
+                height: 768,
+                loras: panelLoras.length > 0 ? panelLoras : undefined,
+                referenceImageUrls: refs.length > 0 ? refs : undefined,
+                providerParams: {
+                  contentIntensityLayer: intensityLayer,
+                  mode: "PANEL_DRAFT",
+                  seed: Date.now() + attempt,
+                },
+              });
+              rerollCount++;
+
+              if (rerollResult.ok) {
+                finalResult = rerollResult;
+                break;
+              }
+            }
+          }
+
           const persisted = await persistImageIfNeeded({
-            imageUrl: result.result.imageUrl,
+            imageUrl: finalResult.ok ? finalResult.result.imageUrl : result.result.imageUrl,
             projectId,
             chapterId,
             sceneImageId: item.sceneImageId,
@@ -902,27 +1078,37 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 metadata: ({
                   ...item.baseMetadata,
                   error: persisted.error,
-                  sourceUrl: result.result.imageUrl,
-                  generationLog: result.log,
+                  sourceUrl: finalResult.ok ? finalResult.result.imageUrl : result.result.imageUrl,
+                  generationLog: finalResult.ok ? finalResult.log : result.log,
                 } as unknown) as Prisma.InputJsonValue,
               },
             });
             return "fail";
           }
 
+          const finalLog = finalResult.ok ? finalResult.log : result.log;
+          const finalRouting = finalResult.ok ? finalResult.routing : result.routing;
+          const finalProvider = finalResult.ok ? finalResult.result.provider : result.result.provider;
+          const finalModel = finalResult.ok ? finalResult.result.model : result.result.model;
+
           await prisma.sceneImage.update({
             where: { id: item.sceneImageId },
             data: {
               imageUrl: persisted.url,
-              provider: result.result.provider,
-              model: result.result.model,
+              provider: finalProvider,
+              model: finalModel,
               status: "completed",
-              routingDecision: result.routing as unknown as Prisma.InputJsonValue,
+              consistencyScore: drift.score,
+              routingDecision: finalRouting as unknown as Prisma.InputJsonValue,
               metadata: ({
                 ...item.baseMetadata,
-                generationLog: result.log,
+                generationLog: finalLog,
                 persisted: persisted.persisted,
                 canonRefUsed: canonRef ?? null,
+                driftScore: drift.score,
+                driftPass: drift.pass,
+                driftIssues: drift.issues.slice(0, 5),
+                rerollCount,
               } as unknown) as Prisma.InputJsonValue,
             },
           });
@@ -955,11 +1141,27 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       }
     }
 
-    // Génération en batches parallèles de 5 (équilibre vitesse / rate-limit FAL)
-    const BATCH_SIZE = 5;
-    for (let batchStart = 0; batchStart < plannedImages.length; batchStart += BATCH_SIZE) {
-      const batch = plannedImages.slice(batchStart, batchStart + BATCH_SIZE);
-      const results = await Promise.all(batch.map(processOneImage));
+    // Round-robin : séquentiel intra-scène, parallèle inter-scènes
+    const imagesByScene = new Map<number, PlannedImage[]>();
+    for (const img of plannedImages) {
+      const arr = imagesByScene.get(img.sceneIndex) ?? [];
+      arr.push(img);
+      imagesByScene.set(img.sceneIndex, arr);
+    }
+    const sceneIndexes = [...imagesByScene.keys()].sort((a, b) => a - b);
+    const maxPanelsPerScene = Math.max(...sceneIndexes.map((s) => imagesByScene.get(s)?.length ?? 0), 0);
+
+    for (let round = 0; round < maxPanelsPerScene; round++) {
+      const roundBatch: PlannedImage[] = [];
+      for (const scIdx of sceneIndexes) {
+        const sceneImages = imagesByScene.get(scIdx);
+        if (sceneImages && round < sceneImages.length) {
+          roundBatch.push(sceneImages[round]!);
+        }
+      }
+      if (roundBatch.length === 0) continue;
+
+      const results = await Promise.all(roundBatch.map(processOneImage));
       for (const r of results) {
         if (r === "ok") generatedCount++;
         else failedCount++;
