@@ -459,6 +459,7 @@ export default function CharacterDetailPage() {
             bodyState={character.bodyState}
             imageUrl={primaryVisual?.imageUrl}
             isGenerating={generatingVisual}
+            onRegenerate={generateVisual}
           />
 
           {/* Barre de complétion de la fiche */}

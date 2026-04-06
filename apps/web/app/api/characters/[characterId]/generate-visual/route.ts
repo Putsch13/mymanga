@@ -154,7 +154,13 @@ export async function POST(_req: Request, ctx: Ctx) {
         reservation.reservationId,
         "character_visual_storage_failed",
       );
-      return NextResponse.json({ error: persisted.error }, { status: 502 });
+      const isStorageConfig = persisted.error?.includes("Stockage non configuré");
+      return NextResponse.json({
+        error: isStorageConfig
+          ? "Le stockage d'images n'est pas configuré sur ce serveur. Configure NEXT_PUBLIC_SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY dans les variables d'environnement Render."
+          : persisted.error,
+        storageNotConfigured: isStorageConfig,
+      }, { status: 502 });
     }
 
     const visualRef = await prisma.characterVisualRef.create({

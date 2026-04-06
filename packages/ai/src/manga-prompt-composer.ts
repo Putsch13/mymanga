@@ -83,7 +83,9 @@ const BASE_NEGATIVE =
 function describeCharacter(c: CharacterRef): string {
   const parts: string[] = [`[${c.name}]`];
 
-  if (c.gender) parts.push(c.gender === "male" ? "male" : "female");
+  const normalizedGender = c.gender?.trim().toLowerCase();
+  if (normalizedGender === "male") parts.push("male, adult man");
+  else if (normalizedGender === "female") parts.push("female, adult woman");
 
   if (c.visualSignatureText) parts.push(c.visualSignatureText);
 
@@ -191,6 +193,16 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
       .filter(Boolean)
       .join(", ");
     if (driftGuards) negative += `, ${driftGuards}`;
+  }
+  // Verrous de genre : empêcher le modèle de changer le sexe des personnages
+  if (input.characters && input.characters.length > 0) {
+    const maleChars = input.characters.filter((c) => c.gender?.trim().toLowerCase() === "male");
+    const femaleChars = input.characters.filter((c) => c.gender?.trim().toLowerCase() === "female");
+    if (maleChars.length > 0 && femaleChars.length === 0) {
+      negative += ", woman, female, feminine, girl, long feminine hair";
+    } else if (femaleChars.length > 0 && maleChars.length === 0) {
+      negative += ", man, male, masculine, boy, beard, facial hair";
+    }
   }
   if (layer === "GENERAL_SAFE" || layer === "TEEN") {
     negative += ", nudity, violence, blood, gore, suggestive poses";

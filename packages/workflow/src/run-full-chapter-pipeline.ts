@@ -852,7 +852,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                       visualSignatureText:
                         c.canonSignatureText ??
                         ([
-                          c.gender === "male" ? "male" : c.gender === "female" ? "female" : null,
+                          c.gender?.trim().toLowerCase() === "male" ? "male, adult man" : c.gender?.trim().toLowerCase() === "female" ? "female, adult woman" : null,
                           c.appearance,
                           c.hairColor ? `${c.hairColor} hair` : null,
                           c.eyeColor ? `${c.eyeColor} eyes` : null,
@@ -895,6 +895,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               textScale: panel.textScale ?? "normal",
               sfx: panel.sfx,
               dialogue: panel.dialogue,
+              dialogues: panel.dialogues,
               narration: panel.narration,
               layout: storyboardPage.layout,
             };
@@ -936,10 +937,9 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       "completed",
     );
 
-    // ── Étape 3b : Anchors visuels (style frame + keyframes scène) ─────────
-    await setJobProgress(jobId, { key: "generate_anchors", label: "Ancres visuelles" }, "running");
-
-    // Construire index canonicalImageUrl et LoRA par nom de personnage (réutilisé partout)
+    // ── Étape 3b : Index refs canon et LoRA par personnage ────────────────
+    // (les keyframes images ont été supprimées : elles polluaient la fidélité des persos)
+    // La cohérence décor est assurée par composeEnvironment dans les prompts de panels.
     const canonRefByName = new Map<string, string>();
     for (const c of rawCharacters) {
       if (c.canonicalImageUrl) canonRefByName.set(c.name, c.canonicalImageUrl);
@@ -959,91 +959,6 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       if (lora) loraByCharName.set(c.name, lora);
     }
 
-    let styleFrameUrl: string | null = null;
-    const sceneKeyframeUrls = new Map<number, string>();
-
-    // Style frame : 1 image "ambiance + style" pour le chapitre entier
-    try {
-      const mainCharNames = rawCharacters.slice(0, 2).map((c) => c.name).join(", ");
-      const stylePrompt = [
-        project?.visualStyle ?? "manga",
-        `${context.project.primaryGenre ?? "fantasy"} atmosphere`,
-        `tone: ${context.project.tone ?? "dramatic"}`,
-        `characters: ${mainCharNames}`,
-        revisedBundle.outline.chapter_title,
-        "establishing mood shot, wide composition, professional manga art, consistent palette",
-      ].filter(Boolean).join(", ");
-
-      const styleResult = await runRoutedImageGeneration(
-        { mode: "PANEL_DRAFT", contentIntensityLayer: intensityLayer, isNewCharacter: false, hasCanonReferences: false, characterCountInScene: 2, needsInpaint: false, needsPoseVariation: false, preferPhotorealCover: false, explicitBlocked: false, goreStylizedMature: false },
-        { mode: "PANEL_DRAFT", positivePrompt: stylePrompt, negativePrompt: STD_NEGATIVE, width: 512, height: 768, providerParams: { contentIntensityLayer: intensityLayer, mode: "STYLE_FRAME" } },
-      );
-      if (styleResult.ok) {
-        const persisted = await persistImageIfNeeded({ imageUrl: styleResult.result.imageUrl, projectId, chapterId, sceneImageId: `style_frame_${chapterId}` });
-        if (persisted.ok) styleFrameUrl = persisted.url;
-      }
-    } catch (e) {
-      console.warn("[pipeline] style frame generation skipped:", e instanceof Error ? e.message : e);
-    }
-
-    // Scene keyframes : 1 establishing shot par scène
-    for (let scIdx = 0; scIdx < revisedBundle.script.scenes.length; scIdx++) {
-      const scene = revisedBundle.script.scenes[scIdx];
-      if (!scene) continue;
-      try {
-        const sceneChars = scene.characters.slice(0, 3);
-        const sceneCharDescs = sceneChars.map((name) => {
-          const c = rawCharacters.find((rc) => rc.name === name);
-          return c ? `${c.name}, ${c.gender ?? ""}, ${c.appearance ?? ""}, ${c.hairColor ? c.hairColor + " hair" : ""}`.replace(/, ,/g, ",") : name;
-        }).join(" | ");
-        const sceneKeyPrompt = [
-          project?.visualStyle ?? "manga",
-          `wide establishing shot, ${scene.location}`,
-          sceneCharDescs,
-          scene.summary.slice(0, 120),
-          composeEnvironment({
-            location: scene.location,
-            mood: "dramatic",
-            genre: context.project.primaryGenre ?? "fantasy",
-            tone: context.project.tone ?? "dramatique",
-            visualStyle: context.project.visualStyle ?? "manga",
-            lore: typeof context.storyBible?.lore === "string" ? context.storyBible.lore : null,
-            worldRules: context.storyBible?.worldRules,
-            glossary: context.storyBible?.glossary,
-            knownLocations: knownLocations,
-            sceneCharCount: scene.characters.length,
-            panelCharCount: sceneChars.length,
-            sceneSummary: scene.summary,
-          }),
-          "professional manga art, consistent character design",
-        ].filter(Boolean).join(", ");
-
-        const sceneCharLoras = sceneChars
-          .map((n) => loraByCharName.get(n))
-          .filter((l): l is { url: string; triggerWord: string; scale: number } => Boolean(l))
-          .slice(0, 2);
-        const sceneCanonRef = sceneChars.map((n) => canonRefByName.get(n)).find(Boolean) ?? null;
-
-        const refs: string[] = [];
-        if (styleFrameUrl) refs.push(styleFrameUrl);
-        if (!sceneCharLoras.length && sceneCanonRef) refs.push(sceneCanonRef);
-
-        const keyResult = await runRoutedImageGeneration(
-          { mode: "PANEL_DRAFT", contentIntensityLayer: intensityLayer, isNewCharacter: false, hasCanonReferences: refs.length > 0, characterCountInScene: sceneChars.length, needsInpaint: false, needsPoseVariation: false, preferPhotorealCover: false, explicitBlocked: false, goreStylizedMature: false },
-          { mode: "PANEL_DRAFT", positivePrompt: sceneKeyPrompt, negativePrompt: STD_NEGATIVE, width: 512, height: 768, loras: sceneCharLoras.length > 0 ? sceneCharLoras : undefined, referenceImageUrls: refs.length > 0 ? refs : undefined, providerParams: { contentIntensityLayer: intensityLayer, mode: "SCENE_KEYFRAME" } },
-        );
-        if (keyResult.ok) {
-          const persisted = await persistImageIfNeeded({ imageUrl: keyResult.result.imageUrl, projectId, chapterId, sceneImageId: `keyframe_scene_${scIdx}_${chapterId}` });
-          if (persisted.ok) sceneKeyframeUrls.set(scIdx, persisted.url);
-        }
-      } catch (e) {
-        console.warn(`[pipeline] scene keyframe ${scIdx} skipped:`, e instanceof Error ? e.message : e);
-      }
-    }
-
-    console.log(`[pipeline] anchors: styleFrame=${Boolean(styleFrameUrl)} keyframes=${sceneKeyframeUrls.size}/${revisedBundle.script.scenes.length}`);
-    await setJobProgress(jobId, { key: "generate_anchors", label: `Ancres: style=${Boolean(styleFrameUrl)} scenes=${sceneKeyframeUrls.size}` }, "completed");
-
     // ── Étape 4 : Génération des images réelles via FAL ────────────────────
     await setJobProgress(
       jobId,
@@ -1056,19 +971,18 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
 
     async function processOneImage(item: PlannedImage): Promise<"ok" | "fail"> {
       const panelCharacterNames: string[] = item.panel.characters ?? [];
+      // Ref canon : prendre la première ref disponible parmi les persos du panel
       const canonRef = panelCharacterNames.map((n) => canonRefByName.get(n)).find(Boolean) ?? null;
-      const sceneKeyRef = sceneKeyframeUrls.get(item.sceneIndex) ?? null;
 
       const panelLoras = panelCharacterNames
         .map((n) => loraByCharName.get(n))
         .filter((l): l is { url: string; triggerWord: string; scale: number } => Boolean(l))
         .slice(0, 2);
 
-      // Construire les refs : keyframe scène prioritaire, puis canon perso, puis style frame
+      // Priorité : LoRA > ref canon perso > txt2img
+      // (pas de keyframe image : la cohérence décor passe par composeEnvironment dans le prompt)
       const refs: string[] = [];
-      if (sceneKeyRef) refs.push(sceneKeyRef);
-      else if (canonRef) refs.push(canonRef);
-      else if (styleFrameUrl) refs.push(styleFrameUrl);
+      if (canonRef) refs.push(canonRef);
 
       const hasCanonRef = refs.length > 0 || panelLoras.length > 0;
 

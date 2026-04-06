@@ -12,14 +12,13 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 
 const STEP_LABELS: Record<string, string> = {
-  build_context: "Préparation de l'univers…",
-  generate_bundle: "Écriture du scénario…",
-  continuity_pass: "Vérification de la cohérence…",
-  story_coherence_pass: "Peaufinage du récit…",
-  persist_chapter: "Sauvegarde du chapitre…",
-  generate_anchors: "Création des repères visuels…",
-  generate_images: "Génération des images…",
-  update_memory: "Mémorisation de l'histoire…",
+  build_context: "Phase 1 — Analyse de l'univers et des personnages…",
+  generate_bundle: "Phase 1 — Écriture du scénario et des dialogues…",
+  continuity_pass: "Phase 1 — Vérification de la cohérence narrative…",
+  story_coherence_pass: "Phase 1 — Peaufinage du rythme manga…",
+  persist_chapter: "Phase 1 — Finalisation du chapitre écrit…",
+  generate_images: "Phase 2 — Génération des images…",
+  update_memory: "Phase 3 — Mise en page et mémorisation…",
 };
 
 export default function ChapterGeneratorPage() {
@@ -487,7 +486,11 @@ export default function ChapterGeneratorPage() {
                 <div className="space-y-1.5">
                   {jobState.output.steps.map((step) => (
                     <div key={step.key} className="flex items-center justify-between text-sm">
-                      <span>{STEP_LABELS[step.key] ?? step.label}</span>
+                      <span>
+                        {step.key === "generate_images" && step.status === "running"
+                          ? step.label.replace("Génération images", "Phase 2 — Images")
+                          : (STEP_LABELS[step.key] ?? step.label)}
+                      </span>
                       <span className={step.status === "completed" ? "text-emerald-400" : step.status === "running" ? "text-primary" : "text-muted-foreground"}>
                         {step.status === "completed" ? "Fait" : step.status === "running" ? "En cours…" : "En attente"}
                       </span>

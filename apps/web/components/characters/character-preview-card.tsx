@@ -18,6 +18,8 @@ interface CharacterPreviewCardProps {
   imageUrl?: string | null;
   /** Affiche un voile de chargement (ex. génération visuel). */
   isGenerating?: boolean;
+  /** Callback pour relancer la génération depuis la carte */
+  onRegenerate?: () => void;
   className?: string;
 }
 
@@ -33,6 +35,7 @@ export function CharacterPreviewCard({
   bodyState,
   imageUrl,
   isGenerating = false,
+  onRegenerate,
   className,
 }: CharacterPreviewCardProps) {
   const [imageReady, setImageReady] = useState(false);
@@ -90,9 +93,18 @@ export function CharacterPreviewCard({
                 <div className="absolute inset-0 animate-pulse bg-gradient-to-t from-muted/60 to-transparent" aria-hidden />
               ) : null}
               {imageFailed ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-background/75 px-4 text-center">
-                  <span className="text-xs font-medium text-muted-foreground">Aperçu indisponible</span>
-                  <span className="text-[11px] text-muted-foreground/80">Le visuel a été généré mais son URL n&apos;est plus valide.</span>
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/80 px-4 text-center">
+                  <span className="text-xs font-medium text-muted-foreground">Image expirée</span>
+                  <span className="text-[11px] text-muted-foreground/70">Le visuel a expiré (URL temporaire). Regénère pour obtenir une image permanente.</span>
+                  {onRegenerate ? (
+                    <button
+                      type="button"
+                      onClick={onRegenerate}
+                      className="mt-1 rounded-md border border-border/60 bg-card/80 px-3 py-1 text-[11px] font-medium text-foreground hover:bg-card"
+                    >
+                      Regénérer
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
             </>
