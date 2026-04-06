@@ -643,7 +643,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     const bundle = await generateChapterBundle({
       chapterNumber,
       chapterTitle: chapter.title,
-      userIntent: chapter.userIntent ?? `Continuer ${context.project.title}`,
+      userIntent: enrichedIntent || chapter.userIntent || `Continuer ${context.project.title}`,
       selectedPlotLabel,
       context,
     });

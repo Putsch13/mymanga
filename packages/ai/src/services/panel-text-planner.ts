@@ -26,7 +26,7 @@ export interface PanelTextPlan {
 }
 
 const MAX_BUBBLES_DEFAULT = 3;
-const MAX_CHARS_DEFAULT = 60;
+const MAX_CHARS_DEFAULT = 90;
 
 const PANEL_AREA_WEIGHTS: Record<NonNullable<PanelTextPlannerInput["layout"]>, number[]> = {
   A: [1.2, 1.1, 1.4, 1.0, 0.95, 0.95],
@@ -100,7 +100,7 @@ export function planPanelText(input: PanelTextPlannerInput): PanelTextPlan[] {
     // Alterner panels denses et silencieux si trop lourd
     const isHeavy = density === "heavy";
     const isEvenPanel = panelIndex % 2 === 0;
-    const finalBubbles = isHeavy && isEvenPanel ? bubbles.slice(0, Math.max(1, panelMaxBubbles - 1)) : bubbles;
+    const finalBubbles = bubbles;
 
     return {
       panelId: panel.panelId,

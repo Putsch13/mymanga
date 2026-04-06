@@ -44,6 +44,16 @@ export default function ChapterGeneratorPage() {
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [userIntent, setUserIntent] = useState("");
   const [chapterTitle, setChapterTitle] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewData, setPreviewData] = useState<{
+    estimatedTokens: number;
+    plotOptions: Array<{ id: string; title: string; label: string; summary: string }>;
+    creativeDirection: { chapterGoal: string; tone: string; whyNow: string };
+    contextPreview: {
+      characters: Array<{ name: string; roleType: string | null }>;
+      arcs: Array<{ name: string; summary: string | null }>;
+    };
+  } | null>(null);
 
   const loadChapters = useCallback(() => {
     fetch(`/api/projects/${id}/chapters`)
@@ -166,6 +176,32 @@ export default function ChapterGeneratorPage() {
       .map((c) => c.name);
     if (focusedNames.length === 0) return userIntent;
     return `Focus personnages: ${focusedNames.join(", ")}. ${userIntent}`;
+  }
+
+  async function fetchPreview() {
+    setPreviewLoading(true);
+    setPipelineMsg(null);
+    try {
+      const res = await fetch(`/api/projects/${id}/chapters/estimate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userIntent: buildFocusedIntent(),
+          focusCharacterIds: selectedCharacterIds,
+          selectedPlotLabel,
+        }),
+      });
+      const j = await res.json();
+      if (res.ok && j.plotOptions) {
+        setPreviewData(j);
+      } else {
+        setPipelineMsg(j.message ?? "Impossible de prévisualiser le chapitre.");
+      }
+    } catch (e) {
+      setPipelineMsg(e instanceof Error ? e.message : "Erreur réseau");
+    } finally {
+      setPreviewLoading(false);
+    }
   }
 
   async function runPipeline() {
@@ -344,18 +380,78 @@ export default function ChapterGeneratorPage() {
         </CardContent>
       </Card>
 
+      {/* Preview outline */}
+      {previewData && !isGenerating && !isDone && (
+        <Card className="border-violet-500/30 bg-violet-950/10">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Ce que l&apos;IA va raconter</CardTitle>
+            <CardDescription>Vérifie que les personnages et l&apos;intrigue correspondent à ce que tu veux avant de lancer la génération.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg border border-border/40 bg-background/40 p-3">
+              <p className="text-sm font-medium">{previewData.creativeDirection.chapterGoal}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{previewData.creativeDirection.whyNow}</p>
+            </div>
+            {previewData.plotOptions.length > 0 && (
+              <div className="grid gap-2 sm:grid-cols-3">
+                {previewData.plotOptions.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setSelectedPlotLabel(opt.label as "safe" | "bold" | "shock")}
+                    className={`rounded-xl border p-3 text-left transition ${
+                      selectedPlotLabel === opt.label ? "border-primary bg-primary/10" : "border-border/60 bg-card/30 hover:border-border"
+                    }`}
+                  >
+                    <p className="text-sm font-medium">{opt.title}</p>
+                    <p className="mt-1 text-xs text-muted-foreground line-clamp-3">{opt.summary}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+              <div>
+                <span className="font-medium text-foreground">Personnages impliqués : </span>
+                {previewData.contextPreview.characters.map((c) => c.name).join(", ") || "aucun"}
+              </div>
+              {previewData.contextPreview.arcs.length > 0 && (
+                <div>
+                  <span className="font-medium text-foreground">Arcs en cours : </span>
+                  {previewData.contextPreview.arcs.map((a) => a.name).join(", ")}
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="lg"
+                className="flex-1 text-base"
+                onClick={chapters.length > 0 && selectedChapter ? runPipeline : createAndGenerate}
+                disabled={creatingDraft || startingPipeline}
+              >
+                {creatingDraft || startingPipeline ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <BookOpen className="mr-2 h-5 w-5" />}
+                Valider et générer
+              </Button>
+              <Button type="button" variant="outline" onClick={() => setPreviewData(null)}>
+                Modifier
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Bouton principal + suivi */}
       <div className="space-y-4">
-        {!isGenerating && !isDone && (
+        {!isGenerating && !isDone && !previewData && (
           <Button
             type="button"
             size="lg"
             className="w-full text-base"
-            onClick={chapters.length > 0 && selectedChapter ? runPipeline : createAndGenerate}
-            disabled={creatingDraft || startingPipeline || !userIntent.trim()}
+            onClick={fetchPreview}
+            disabled={previewLoading || !userIntent.trim()}
           >
-            {creatingDraft || startingPipeline ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <BookOpen className="mr-2 h-5 w-5" />}
-            {chapters.length > 0 && selectedChapter ? "Générer ce chapitre" : "Créer et générer le chapitre"}
+            {previewLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <BookOpen className="mr-2 h-5 w-5" />}
+            Prévisualiser le chapitre
           </Button>
         )}
 

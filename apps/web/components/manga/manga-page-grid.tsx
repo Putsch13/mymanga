@@ -98,6 +98,7 @@ export interface UniversalPanel {
   model?: string | null;
   error?: string | null;
   dialogue?: string;
+  dialogues?: Array<{ speaker: string; text: string }>;
   speaker?: string;
   narration?: string;
   sfx?: string;
@@ -139,7 +140,8 @@ export interface PipelinePanel {
   provider?: string | null;
   model?: string | null;
   metadata?: {
-    dialogue?: { speaker: string; text: string };
+    dialogue?: { speaker: string; text: string } | Array<{ speaker: string; text: string }>;
+    dialogues?: Array<{ speaker: string; text: string }>;
     narration?: string;
     sfx?: string;
     caption?: string;
@@ -184,8 +186,9 @@ export function pipelineScenesToPages(
         provider: img.provider ?? null,
         model: img.model ?? null,
         error: (img.metadata?.error ?? img.metadata?.blockedReason) ?? null,
-        dialogue: img.metadata?.dialogue?.text,
-        speaker: img.metadata?.dialogue?.speaker,
+        dialogue: Array.isArray(img.metadata?.dialogue) ? img.metadata.dialogue[0]?.text : img.metadata?.dialogue?.text,
+        dialogues: Array.isArray(img.metadata?.dialogues) ? img.metadata.dialogues : Array.isArray(img.metadata?.dialogue) ? img.metadata.dialogue : img.metadata?.dialogue ? [img.metadata.dialogue] : undefined,
+        speaker: Array.isArray(img.metadata?.dialogue) ? img.metadata.dialogue[0]?.speaker : img.metadata?.dialogue?.speaker,
         narration: img.metadata?.narration,
         sfx: img.metadata?.sfx,
         caption: img.metadata?.caption,
@@ -261,6 +264,7 @@ export function MangaPageGrid({ page }: Props) {
         error={panel.error}
         sceneImageId={panel.id}
         dialogue={panel.dialogue}
+        dialogues={panel.dialogues}
         speaker={panel.speaker}
         narration={panel.narration}
         sfx={panel.sfx}

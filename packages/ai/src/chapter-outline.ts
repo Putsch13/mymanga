@@ -23,6 +23,7 @@ const outlineResultSchema = z.object({
         pageRole: z.enum(PAGE_ROLES).optional(),
         turn: z.string().optional(),
         emotionalDelta: z.number().min(-3).max(3).optional(),
+        characters: z.array(z.string()).optional(),
       }),
     )
     .min(3)
@@ -154,6 +155,7 @@ Chaque beat DOIT contenir :
   - pageRole (OBLIGATOIRE) : un parmi "establishing", "escalation", "confrontation", "revelation", "aftermath", "cliffhanger"
   - turn (OBLIGATOIRE) : le micro-retournement ou événement clé de cette page (1 phrase)
   - emotionalDelta (OBLIGATOIRE) : nombre entier de -3 à +3, variation émotionnelle par rapport au beat précédent
+  - characters (OBLIGATOIRE) : tableau de noms des personnages PRESENTS dans cette page (utiliser les noms exacts du cast fourni)
 
 Langue : français. Les beats sont des étapes narratives courtes (pas de dialogue complet).
 
@@ -164,6 +166,8 @@ RÈGLES DE RYTHME MANGA :
 - Le dernier beat doit être "cliffhanger".
 - Varier les emotionalDelta : alterner montées (+1/+2) et descentes (-1/-2) pour créer un vrai rythme.
 - Chaque turn doit être UNIQUE et faire progresser l'intrigue de manière irréversible.
+- TOUS les personnages du cast doivent apparaître dans au moins 2 beats chacun.
+- Ne pas concentrer l'action sur un seul personnage : varier les combinaisons de personnages par beat.
 
 RÈGLES DE CONTINUITÉ STRICTE :
 - Si previousCliffhanger est fourni, le PREMIER beat DOIT répondre directement à ce cliffhanger.

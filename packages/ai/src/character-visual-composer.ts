@@ -80,9 +80,16 @@ export function composeCharacterVisualPrompt(
   const visualStyle =
     input.projectVisualStyle ?? "detailed manga art, professional character sheet";
 
-  // Description physique
+  const normalizedGender = input.gender?.trim().toLowerCase() === "male" ? "male"
+    : input.gender?.trim().toLowerCase() === "female" ? "female"
+    : null;
+
   const physicalParts: string[] = [];
-  if (input.gender) physicalParts.push(input.gender === "male" ? "male" : "female");
+  if (normalizedGender === "male") {
+    physicalParts.push("adult man, male, masculine features");
+  } else if (normalizedGender === "female") {
+    physicalParts.push("adult woman, female, feminine features");
+  }
   if (input.appearance) physicalParts.push(input.appearance);
   if (input.hairColor) physicalParts.push(`${input.hairColor} hair`);
   if (input.eyeColor) physicalParts.push(`${input.eyeColor} eyes`);
@@ -132,6 +139,11 @@ export function composeCharacterVisualPrompt(
 
   // Negative enrichi pour éviter les incohérences canoniques
   let negative = BASE_NEGATIVE;
+  if (normalizedGender === "male") {
+    negative += ", woman, female, feminine, girl, long feminine hair, makeup, breasts";
+  } else if (normalizedGender === "female") {
+    negative += ", man, male, masculine, boy, beard, facial hair, adam's apple";
+  }
   if (input.hairColor) {
     negative += `, wrong hair color, not ${input.hairColor} hair`;
   }

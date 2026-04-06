@@ -45,6 +45,20 @@ const FR_EN_MOOD_MAP: Record<string, string> = {
   "calme": "calm", "chaotique": "chaotic", "tendu": "tense",
 };
 
+const FR_EN_CHARACTER_MAP: Record<string, string> = {
+  "homme": "man", "femme": "woman", "garçon": "boy", "fille": "girl",
+  "cheveux courts": "short hair", "cheveux longs": "long hair", "cheveux mi-longs": "medium length hair",
+  "cheveux rasés": "shaved head", "chauve": "bald", "barbe": "beard", "moustache": "mustache",
+  "cicatrice": "scar", "tatouage": "tattoo", "prothèse": "prosthetic",
+  "bras bionique": "bionic arm", "œil mécanique": "mechanical eye",
+  "musclé": "muscular", "mince": "slim", "corpulent": "heavyset",
+  "grand": "tall", "petit": "short", "âgé": "elderly", "jeune": "young",
+  "yeux bleus": "blue eyes", "yeux verts": "green eyes", "yeux marrons": "brown eyes",
+  "yeux noirs": "black eyes", "yeux rouges": "red eyes",
+  "cheveux blonds": "blonde hair", "cheveux noirs": "black hair", "cheveux bruns": "brown hair",
+  "cheveux roux": "red hair", "cheveux blancs": "white hair", "cheveux gris": "gray hair",
+};
+
 const FR_EN_ACTION_MAP: Record<string, string> = {
   "combat": "fighting", "fuite": "fleeing", "discussion": "talking",
   "exploration": "exploring", "repos": "resting", "entraînement": "training",
@@ -82,6 +96,11 @@ export function translatePromptToEnglish(prompt: string): string {
 
   // Traduire les actions
   for (const [fr, en] of Object.entries(FR_EN_ACTION_MAP)) {
+    working = working.replace(wordBoundary(fr), en);
+  }
+
+  // Traduire les termes personnage (genre, cheveux, corps)
+  for (const [fr, en] of Object.entries(FR_EN_CHARACTER_MAP)) {
     working = working.replace(wordBoundary(fr), en);
   }
 

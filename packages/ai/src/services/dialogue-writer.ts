@@ -96,7 +96,7 @@ RÈGLES IMPÉRATIVES:
 - Respecte STRICTEMENT les personnages fournis et la continuité récente.
 - Évite les répliques génériques ("Hmm", "...", "On y va") sauf si le silence est dramatiquement justifié.
 - Varie le registre selon le genre, le ton et la tension : pas le même vocabulaire à tension 2 et tension 9.
-- Maximum 2-3 bulles par panel, phrases COURTES (max 8 mots par bulle), UNE intention par bulle.
+- Maximum 2-3 bulles par panel, phrases concises mais expressives (max 15 mots par bulle), UNE intention par bulle.
 - Punchlines marquantes, beaucoup de silences, sous-texte plutôt que sur-texte.
 - SFX en MAJUSCULES (BANG, CRACK, WHOOSH...).
 
@@ -141,7 +141,7 @@ Retourne un JSON strict avec ce format:
       ],
       response_format: { type: "json_object" },
       temperature: 0.65,
-      max_tokens: 2000,
+      max_tokens: 3000,
     });
 
     const raw = response.choices[0]?.message?.content ?? "{}";

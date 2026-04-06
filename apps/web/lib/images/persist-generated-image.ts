@@ -52,15 +52,10 @@ export async function persistGeneratedImageIfNeeded(opts: {
   }
 
   if (!client) {
-    // On n'échoue pas pour une URL http(s) externe : mieux vaut afficher un aperçu
-    // temporaire que bloquer la génération complète.
-    if (canPersistHttp) {
-      return { ok: true as const, url: opts.imageUrl, persisted: false as const };
-    }
     return {
       ok: false as const,
       error:
-        "Image generee mais non persistable sans NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY + STORAGE_BUCKET.",
+        "Stockage non configuré (NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY). L'image a été générée mais ne peut pas être sauvegardée de façon permanente.",
     };
   }
 

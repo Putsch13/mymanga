@@ -124,6 +124,7 @@ type Props = {
   error?: string | null;
   sceneImageId?: string;
   dialogue?: string;
+  dialogues?: Array<{ speaker: string; text: string }>;
   speaker?: string;
   narration?: string;
   sfx?: string;
@@ -145,6 +146,7 @@ export function MangaPanel({
   error,
   sceneImageId,
   dialogue,
+  dialogues,
   speaker,
   narration,
   sfx,
@@ -163,20 +165,22 @@ export function MangaPanel({
 
   const narrationClass =
     textScale === "micro"
-      ? "text-[9px] leading-tight text-stone-200 md:text-[10px]"
+      ? "text-[10px] leading-tight text-stone-200 md:text-[11px]"
       : textScale === "compact"
-        ? "text-[9px] leading-tight text-stone-200 md:text-[11px]"
-        : "text-[10px] leading-tight text-stone-200 md:text-xs";
+        ? "text-[10px] leading-tight text-stone-200 md:text-xs"
+        : "text-[11px] leading-snug text-stone-200 md:text-sm";
   const speakerClass =
     textScale === "micro"
-      ? "mb-0.5 text-[7px] font-bold uppercase tracking-wide text-stone-500 md:text-[8px]"
-      : "mb-0.5 text-[8px] font-bold uppercase tracking-wider text-stone-500 md:text-[9px]";
+      ? "mb-0.5 text-[8px] font-bold uppercase tracking-wide text-stone-500 md:text-[9px]"
+      : "mb-0.5 text-[9px] font-bold uppercase tracking-wider text-stone-500 md:text-[10px]";
   const dialogueClass =
     textScale === "micro"
-      ? "text-[9px] font-medium leading-tight text-stone-900 md:text-[10px]"
+      ? "text-[10px] font-medium leading-tight text-stone-900 md:text-[11px]"
       : textScale === "compact"
-        ? "text-[9px] font-medium leading-tight text-stone-900 md:text-[11px]"
-        : "text-[10px] font-medium leading-tight text-stone-900 md:text-xs";
+        ? "text-[10px] font-medium leading-tight text-stone-900 md:text-xs"
+        : "text-[11px] font-medium leading-snug text-stone-900 md:text-sm";
+
+  const allDialogues = dialogues ?? (dialogue && speaker ? [{ speaker, text: dialogue }] : dialogue ? [{ speaker: "", text: dialogue }] : []);
 
   return (
     <div
@@ -280,23 +284,25 @@ export function MangaPanel({
           </div>
         ) : null}
 
-        {/* Dialogue bubble */}
-        {dialogue ? (
-          <div className="relative">
-            <div className="rounded-xl border-2 border-stone-900 bg-white px-2 py-1.5 shadow-md">
-              {speaker ? (
-                <p className={speakerClass}>
-                  {speaker}
-                </p>
-              ) : null}
-              <p className={dialogueClass}>
-                {dialogue}
-              </p>
-            </div>
-            <div
-              className="absolute -bottom-1.5 left-4 h-3 w-3 rotate-45 border-b-2 border-r-2 border-stone-900 bg-white"
-              aria-hidden
-            />
+        {/* Dialogue bubbles */}
+        {allDialogues.length > 0 ? (
+          <div className="space-y-1">
+            {allDialogues.slice(0, 3).map((d, idx) => (
+              <div key={idx} className="relative">
+                <div className="rounded-xl border-2 border-stone-900 bg-white px-2 py-1.5 shadow-md">
+                  {d.speaker ? (
+                    <p className={speakerClass}>{d.speaker}</p>
+                  ) : null}
+                  <p className={dialogueClass}>{d.text}</p>
+                </div>
+                {idx === allDialogues.length - 1 && (
+                  <div
+                    className="absolute -bottom-1.5 left-4 h-3 w-3 rotate-45 border-b-2 border-r-2 border-stone-900 bg-white"
+                    aria-hidden
+                  />
+                )}
+              </div>
+            ))}
           </div>
         ) : null}
 

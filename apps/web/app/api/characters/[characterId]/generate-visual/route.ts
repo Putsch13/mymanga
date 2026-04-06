@@ -91,7 +91,7 @@ export async function POST(_req: Request, ctx: Ctx) {
       name: character.name,
       gender:
         typeof raw.gender === "string"
-          ? (raw.gender === "male" || raw.gender === "female" ? raw.gender as "male" | "female" : null)
+          ? (raw.gender.trim().toLowerCase() === "male" ? "male" : raw.gender.trim().toLowerCase() === "female" ? "female" : null)
           : null,
       appearance: fullAppearance,
       hairColor: typeof raw.hairColor === "string" ? raw.hairColor : null,

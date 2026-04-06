@@ -127,6 +127,7 @@ export type StoryboardPanel = {
   mood: PanelMood;
   sfx?: string;
   dialogue?: { speaker: string; text: string };
+  dialogues?: Array<{ speaker: string; text: string }>;
   narration?: string;
   textScale?: "normal" | "compact" | "micro";
 };
@@ -212,6 +213,19 @@ function takeNames(context: ProjectContextForChapter, count: number) {
     return aRole - bRole;
   });
   return prioritized.slice(0, count).map((c) => c.name);
+}
+
+function mergeCharactersFromBeat(
+  context: ProjectContextForChapter,
+  beatCharacters: string[] | undefined,
+  beatSummary: string,
+  fallback: string[],
+): string[] {
+  const fromBeat = (beatCharacters ?? []).filter((name) =>
+    context.characters.some((c) => c.name.toLowerCase() === name.toLowerCase()),
+  );
+  if (fromBeat.length > 0) return fromBeat;
+  return extractCharactersFromText(context, beatSummary, fallback);
 }
 
 function stretchToCount<T>(items: T[], count: number, fallbackFactory: (index: number) => T): T[] {
@@ -497,23 +511,21 @@ function buildPanelsForScene(
       const hasSpeaker = normalizedChars.some((name) => name.toLowerCase() === leadSpeaker.toLowerCase());
       if (!hasSpeaker) normalizedChars.push(leadSpeaker);
     }
-    const sfxMap: Record<PanelMood, string | undefined> = {
-      action: "WHAM!",
-      tension: undefined,
-      emotion: undefined,
-      revelation: "...",
-      calm: undefined,
-      horror: "CREAK...",
-      romance: undefined,
-      comedy: "BOING!",
-      dramatic: undefined,
-    };
+    const allBubbles = (textPlan?.bubbles ?? [])
+      .filter((b) => b.text?.trim())
+      .slice(0, 3)
+      .map((b) => ({
+        speaker: b.speaker ?? normalizedChars[0] ?? scene.characters[0] ?? "Narrateur",
+        text: b.text,
+      }));
+
+    const beatTurn = (beat as { turn?: string }).turn;
 
     panels.push({
       panelNumber: i + 1,
       sceneId: scene.id,
       beatId: beat.id,
-      caption: i === 0 ? scene.summary : i === panelBlueprints.length - 1 ? `${action}` : action,
+      caption: i === 0 && beatTurn ? beatTurn : action,
       prompt: buildPanelPrompt(
         context,
         normalizedChars,
@@ -527,11 +539,10 @@ function buildPanelsForScene(
       camera,
       characters: normalizedChars,
       mood,
-      sfx: textPlan?.sfx?.[0] ?? sfxMap[mood],
-      dialogue: leadBubble
-        ? { speaker: leadBubble.speaker ?? normalizedChars[0] ?? scene.characters[0] ?? "Narrateur", text: leadBubble.text }
-        : undefined,
-      narration: textPlan?.narration?.[0] ?? (i === 0 ? scene.summary : undefined),
+      sfx: textPlan?.sfx?.[0] ?? undefined,
+      dialogue: allBubbles[0] ?? undefined,
+      dialogues: allBubbles.length > 0 ? allBubbles : undefined,
+      narration: textPlan?.narration?.[0] ?? undefined,
       textScale: textPlan?.textScale ?? "normal",
     });
   }
@@ -600,7 +611,7 @@ export async function generateChapterBundle(input: {
   selectedPlotLabel?: "safe" | "bold" | "shock";
   context: ProjectContextForChapter;
 }): Promise<GeneratedChapterBundle> {
-  const cast = takeNames(input.context, 4);
+  const cast = takeNames(input.context, 6);
   const mainCast = cast.length > 0 ? cast : ["Le protagoniste", "L'antagoniste"];
   const locations = inferLocations(input.context);
   const [locA, locB, locC, locD] = locations;
@@ -708,13 +719,14 @@ export async function generateChapterBundle(input: {
     id: `beat_${index + 1}`,
     summary: beat.summary,
     tension: Math.min(9, 2 + index + Math.floor(index / 2)),
-    characters: extractCharactersFromText(
+    characters: mergeCharactersFromBeat(
       input.context,
+      beat.characters,
       beat.summary,
       index % 3 === 0
-        ? mainCast.slice(0, Math.min(3, mainCast.length))
+        ? mainCast.slice(0, Math.min(4, mainCast.length))
         : index % 2 === 0
-          ? mainCast.slice(0, Math.min(2, mainCast.length))
+          ? mainCast.slice(0, Math.min(3, mainCast.length))
           : [mainCast[index % mainCast.length] ?? mainCast[0], mainCast[(index + 1) % mainCast.length] ?? mainCast[0]].filter(Boolean),
     ),
     location: locAt(index),
