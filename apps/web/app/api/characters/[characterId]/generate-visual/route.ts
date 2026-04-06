@@ -8,6 +8,7 @@ import {
 } from "@manga-ai-studio/billing";
 import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
+import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { persistGeneratedImageIfNeeded } from "@/lib/images/persist-generated-image";
@@ -34,6 +35,17 @@ export async function POST(_req: Request, ctx: Ctx) {
   const { characterId } = await ctx.params;
   const character = await getOwnedCharacter(user.id, characterId);
   if (!character) return notFound();
+  const projectForGate = await prisma.project.findFirst({
+    where: { id: character.project.id, userId: user.id },
+    include: { user: { include: { preferences: true } } },
+  });
+  if (!projectForGate) return notFound();
+  if (projectRequiresAgeGate(projectForGate.contentRating, projectForGate.intensityLayer) && !canAccessMatureContent(projectForGate.user, projectForGate.user.preferences)) {
+    return NextResponse.json({ error: getAgeGateMessage(projectForGate.contentRating) }, { status: 403 });
+  }
+  if (canAccessMatureContent(projectForGate.user, projectForGate.user.preferences) && projectForGate.user.email?.toLowerCase() === "test@gmail.com") {
+    console.warn(`[adult-bypass] test@gmail.com bypassed mature gate on /api/characters/${characterId}/generate-visual`);
+  }
 
   const intensityLayer = (character.project.intensityLayer as string | null) ?? "TEEN";
   const mode = "CHARACTER_SHEET" as const;

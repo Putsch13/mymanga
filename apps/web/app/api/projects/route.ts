@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { ContentIntensityLayer, ContentRating, prisma } from "@manga-ai-studio/db";
+import { requiresAgeVerification } from "@manga-ai-studio/moderation";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { unauthorized } from "@/lib/api-response";
 import { slugify } from "@/lib/slug";
@@ -48,6 +49,10 @@ export async function POST(req: Request) {
   const user = await getAppUser();
   if (!user) return unauthorized();
   const body = createSchema.parse(await req.json());
+  const normalizedContentRating =
+    requiresAgeVerification(body.intensityLayer)
+      ? body.contentRating === "ADULT_RESTRICTED" ? "ADULT_RESTRICTED" : "MATURE"
+      : body.contentRating;
   const base = slugify(body.title);
   let slug = base;
   let n = 0;
@@ -67,7 +72,7 @@ export async function POST(req: Request) {
       tone: body.tone,
       format: body.format,
       visualStyle: body.visualStyle,
-      contentRating: body.contentRating,
+      contentRating: normalizedContentRating,
       intensityLayer: body.intensityLayer,
       settings: { create: body.settings ?? {} },
       stylePacks: {

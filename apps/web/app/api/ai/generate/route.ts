@@ -39,6 +39,27 @@ export async function POST(req: Request) {
   }
   const body = bodySchema.parse(await req.json());
   const mode = body.mode as RenderingMode;
+  const currentUser = await prisma.user.findUnique({
+    where: { id: user.id },
+    include: { preferences: true },
+  });
+  if (
+    !body.projectId &&
+    projectRequiresAgeGate("GENERAL", body.contentIntensityLayer) &&
+    !canAccessMatureContent(
+      { ageVerifiedAt: currentUser?.ageVerifiedAt ?? null, email: currentUser?.email ?? user.email },
+      currentUser?.preferences,
+    )
+  ) {
+    return validationError(getAgeGateMessage("MATURE"));
+  }
+  if (
+    currentUser &&
+    canAccessMatureContent({ ageVerifiedAt: currentUser.ageVerifiedAt, email: currentUser.email }, currentUser.preferences) &&
+    currentUser.email?.toLowerCase() === "test@gmail.com"
+  ) {
+    console.warn(`[adult-bypass] test@gmail.com bypassed mature gate on /api/ai/generate${body.projectId ? ` project=${body.projectId}` : ""}`);
+  }
 
   if (body.projectId) {
     const project = await prisma.project.findFirst({
@@ -48,8 +69,11 @@ export async function POST(req: Request) {
     if (!project) {
       return validationError("Projet introuvable pour la génération.");
     }
-    if (projectRequiresAgeGate(project.contentRating) && !canAccessMatureContent(project.user, project.user.preferences)) {
+    if (projectRequiresAgeGate(project.contentRating, project.intensityLayer) && !canAccessMatureContent(project.user, project.user.preferences)) {
       return validationError(getAgeGateMessage(project.contentRating));
+    }
+    if (canAccessMatureContent(project.user, project.user.preferences) && project.user.email?.toLowerCase() === "test@gmail.com") {
+      console.warn(`[adult-bypass] test@gmail.com bypassed mature gate on /api/ai/generate project=${body.projectId}`);
     }
   }
 

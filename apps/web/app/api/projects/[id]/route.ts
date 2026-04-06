@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, ContentRating, ContentIntensityLayer, ProjectStatus } from "@manga-ai-studio/db";
+import { requiresAgeVerification } from "@manga-ai-studio/moderation";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
 
@@ -62,6 +63,13 @@ export async function PATCH(req: Request, ctx: Ctx) {
   const existing = await prisma.project.findFirst({ where: { id, userId: user.id } });
   if (!existing) return notFound();
   const body = patchSchema.parse(await req.json());
+  const normalizedIntensity = body.intensityLayer ?? existing.intensityLayer;
+  const normalizedContentRating =
+    body.contentRating
+      ? (requiresAgeVerification(normalizedIntensity)
+          ? body.contentRating === "ADULT_RESTRICTED" ? "ADULT_RESTRICTED" : "MATURE"
+          : body.contentRating)
+      : existing.contentRating;
   const project = await prisma.project.update({
     where: { id },
     data: {
@@ -74,7 +82,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
       format: body.format,
       visualStyle: body.visualStyle,
       status: body.status,
-      contentRating: body.contentRating,
+      contentRating: normalizedContentRating,
       intensityLayer: body.intensityLayer,
       ...(body.settings
         ? {

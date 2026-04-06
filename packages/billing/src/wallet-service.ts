@@ -5,7 +5,7 @@ export type ReserveResult =
   | { ok: false; reason: "insufficient_balance" };
 
 // Emails qui bypassent le wallet (liste hardcodée + env var)
-const FORCED_UNLIMITED = ["test@gmail.com", "puccini.f13@gmail.com"];
+const FORCED_UNLIMITED = ["test@gmail.com"];
 
 function isUnlimitedAdminEmail(email: string | null | undefined) {
   if (!email) return false;

@@ -48,6 +48,8 @@ export type ProjectContextForChapter = {
     type?: string | null;
     description?: string | null;
     aliases?: string[];
+    visualBrief?: string | null;
+    canonLocked?: boolean;
   }>;
   characters: Array<{
     id: string;
@@ -270,6 +272,14 @@ function stretchToCount<T>(items: T[], count: number, fallbackFactory: (index: n
 
 function inferLocations(context: ProjectContextForChapter, userIntent?: string | null) {
   const intent = (userIntent ?? "").toLowerCase();
+  const knownLocations = context.locations ?? [];
+  for (const loc of knownLocations) {
+    const names = [loc.name, ...(loc.aliases ?? [])].filter(Boolean).map((value) => value.toLowerCase());
+    if (names.some((name) => intent.includes(name))) {
+      const canonical = loc.description ? `${loc.name} — ${loc.description}` : loc.name;
+      return [canonical, canonical, canonical, canonical];
+    }
+  }
   const explicitMatches = [
     "banque",
     "café",
@@ -328,6 +338,22 @@ function inferLocations(context: ProjectContextForChapter, userIntent?: string |
     "forêt de cendres",
     "falaise au-dessus du vide",
   ];
+}
+
+function resolveCanonicalLocation(
+  context: ProjectContextForChapter,
+  rawLocation: string | null | undefined,
+): string | null {
+  const input = rawLocation?.trim();
+  if (!input) return null;
+  const lowered = input.toLowerCase();
+  for (const loc of context.locations ?? []) {
+    const names = [loc.name, ...(loc.aliases ?? [])].filter(Boolean).map((value) => value.toLowerCase());
+    if (names.some((name) => lowered.includes(name) || name.includes(lowered))) {
+      return loc.description ? `${loc.name} — ${loc.description}` : loc.name;
+    }
+  }
+  return input;
 }
 
 function buildDynamicPlotOptions(input: {
@@ -812,7 +838,7 @@ export async function generateChapterBundle(input: {
           ? mainCast.slice(0, Math.min(3, mainCast.length))
           : [mainCast[index % mainCast.length] ?? mainCast[0], mainCast[(index + 1) % mainCast.length] ?? mainCast[0]].filter(Boolean),
     ),
-    location: beat.location?.trim() || locAt(index === 0 ? 0 : Math.min(index, 1)),
+    location: resolveCanonicalLocation(input.context, beat.location?.trim()) ?? locAt(index === 0 ? 0 : Math.min(index, 1)),
     purpose: beat.emotionalTone ?? `beat_${index + 1}`,
     pageRole: beat.pageRole ?? PAGE_ROLE_SEQUENCE[index % PAGE_ROLE_SEQUENCE.length] ?? "escalation",
     turn: beat.turn ?? beat.summary.slice(0, 80),

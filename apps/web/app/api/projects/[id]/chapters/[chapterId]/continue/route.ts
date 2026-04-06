@@ -27,8 +27,11 @@ export async function POST(req: Request, ctx: Ctx) {
     include: { user: { include: { preferences: true } } },
   });
   if (!project) return notFound();
-  if (projectRequiresAgeGate(project.contentRating) && !canAccessMatureContent(project.user, project.user.preferences)) {
+  if (projectRequiresAgeGate(project.contentRating, project.intensityLayer) && !canAccessMatureContent(project.user, project.user.preferences)) {
     return validationError(getAgeGateMessage(project.contentRating));
+  }
+  if (canAccessMatureContent(project.user, project.user.preferences) && project.user.email?.toLowerCase() === "test@gmail.com") {
+    console.warn(`[adult-bypass] test@gmail.com bypassed mature gate on /api/projects/${projectId}/chapters/${chapterId}/continue`);
   }
   const chapter = await prisma.chapter.findFirst({ where: { id: chapterId, projectId } });
   if (!chapter) return notFound();

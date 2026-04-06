@@ -5,8 +5,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isAuthDisabled, requireSafeAuthMode } from "@/lib/auth/auth-mode";
 
 const DEV_EMAIL = "dev@manga-ai.studio";
-const FORCED_ADMIN_EMAILS = ["test@gmail.com", "puccini.f13@gmail.com"];
-const FORCED_UNLIMITED_EMAILS = ["test@gmail.com", "puccini.f13@gmail.com"];
+const FORCED_ADMIN_EMAILS = ["test@gmail.com"];
+const FORCED_UNLIMITED_EMAILS = ["test@gmail.com"];
 
 function emailInEnvList(email: string, raw: string): boolean {
   const list = raw

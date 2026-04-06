@@ -3,6 +3,7 @@ import type { Prisma } from "@manga-ai-studio/db";
 import { prisma } from "@manga-ai-studio/db";
 import { runRoutedImageGeneration } from "@manga-ai-studio/ai";
 import { getAppUser } from "@/lib/auth/get-app-user";
+import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
 import { notFound, unauthorized, validationError } from "@/lib/api-response";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { persistGeneratedImageIfNeeded } from "@/lib/images/persist-generated-image";
@@ -30,6 +31,17 @@ export async function POST(_req: Request, ctx: Ctx) {
   const project = img.scene.chapter.project;
   const projectId = project.id;
   const intensityLayer = (project.intensityLayer as string | null) ?? "TEEN";
+  const projectForGate = await prisma.project.findFirst({
+    where: { id: projectId, userId: user.id },
+    include: { user: { include: { preferences: true } } },
+  });
+  if (!projectForGate) return notFound();
+  if (projectRequiresAgeGate(projectForGate.contentRating, projectForGate.intensityLayer) && !canAccessMatureContent(projectForGate.user, projectForGate.user.preferences)) {
+    return validationError(getAgeGateMessage(projectForGate.contentRating));
+  }
+  if (canAccessMatureContent(projectForGate.user, projectForGate.user.preferences) && projectForGate.user.email?.toLowerCase() === "test@gmail.com") {
+    console.warn(`[adult-bypass] test@gmail.com bypassed mature gate on /api/scene-images/${sceneImageId}/retry`);
+  }
 
   if (!img.prompt) {
     return validationError("Ce panel n'a pas de prompt à régénérer.");
