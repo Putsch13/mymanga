@@ -1,51 +1,52 @@
 # Manga AI Studio
 
-Plateforme web **studio IA** pour créer des séries **manga / webtoon / roman graphique** avec **mémoire narrative**, **direction artistique structurée** (style packs, canon packs), **pipeline chapitre cohérent** et **génération d’images multi-fournisseurs** (FLUX via fal, Runware, Stability, etc.).
+Plateforme web **studio IA** pour creer des series **manga / webtoon / roman graphique** avec **memoire narrative**, **direction artistique structuree**, **pipeline chapitre coherent** (anchors visuels, rythme manga, anti-duplication, drift detection) et **generation d'images multi-fournisseurs** (FLUX via fal, Runware, Stability, etc.).
 
-Ce dépôt est un **monorepo** : site web Next.js, packages métier (IA, billing, modération, workflows) et schéma Prisma partagés.
-
-> **Référence produit** : la spec à respecter est le document **Manga-ai-studio-master-spec.pdf** (master spec).
+Ce depot est un **monorepo** : site web Next.js, packages metier (IA, billing, moderation, workflows) et schema Prisma partages.
 
 ---
 
-## Table des matières
+## Table des matieres
 
 1. [Ce que fait le produit](#ce-que-fait-le-produit)
 2. [Architecture technique](#architecture-technique)
-3. [Logiciels, services et IA utilisés](#logiciels-services-et-ia-utilisés)
-4. [Comment ça tourne (flux de données)](#comment-ça-tourne-flux-de-données)
-5. [Structure du dépôt](#structure-du-dépôt)
-6. [Prérequis](#prérequis)
-7. [Installation et exécution locale](#installation-et-exécution-locale)
-8. [Variables d’environnement](#variables-denvironnement)
-9. [Base de données (Prisma)](#base-de-données-prisma)
-10. [API et authentification](#api-et-authentification)
-11. [Paiement et tokens](#paiement-et-tokens)
-12. [Orchestration (Inngest)](#orchestration-inngest)
-13. [Tests](#tests)
-14. [Déploiement](#déploiement)
-15. [Coût IA par chapitre](#coût-ia-par-chapitre)
-16. [Feuille de route / limites connues](#feuille-de-route--limites-connues)
+3. [Pipeline chapitre V5](#pipeline-chapitre-v5)
+4. [Logiciels, services et IA](#logiciels-services-et-ia)
+5. [Structure du depot](#structure-du-depot)
+6. [Installation et execution locale](#installation-et-execution-locale)
+7. [Variables d'environnement](#variables-denvironnement)
+8. [Base de donnees (Prisma)](#base-de-donnees-prisma)
+9. [API et authentification](#api-et-authentification)
+10. [Paiement et tokens](#paiement-et-tokens)
+11. [Cout IA par chapitre](#cout-ia-par-chapitre)
+12. [IA a brancher / feuille de route](#ia-a-brancher--feuille-de-route)
 
 ---
 
 ## Ce que fait le produit
 
-- **Projets** : univers, pitch, genres, intensité de contenu (`ContentIntensityLayer`), notation `ContentRating`.
-- **Personnages** : fiches + **Character Canon Pack** (références visuelles par slot : portrait, poses, expressions, etc.).
-- **Champ critique IA** : chaque personnage a un **sexe** (`male` / `female`) utilisé dans les prompts pour stabiliser le rendu.
-- **Style pack** : paramètres DA **canoniques** (famille de rendu, trait, ombrage, contraste, caméra, contraintes négatives, LoRAs approuvés) — moins de dépendance au seul « prompt libre ».
-- **Bible d’univers** : JSON structuré (règles du monde, lore, thèmes) pour mémoire / futur RAG.
-- **Chapitres** : brouillons, intention utilisateur, pipeline **manga-first** (canon → style → expressions → draft panels → inpaint → upscale → score cohérence) via Inngest.
-- **Images** : **routage dynamique** vers le bon backend (fal / BFL / Runware / Stability) selon le mode de rendu, le contenu et les refs disponibles.
-- **Modération** : matrice **intensité × fournisseur** + scan du **payload assemblé** (PromptComposer v2).
-- **Monétisation web** : **Stripe** → crédit du **wallet** (ledger interne en tokens).
-- **Wallet V3** : réservation, régularisation, refunds partiels, historique du ledger et idempotence Stripe côté webhook.
-- **Lecteur manga (spec §19.4)** : pages construites depuis `storyboard` / `outline` + images de scènes ; **double page** (spread), navigation **Retour** / **Tourner la page**, bascule **texte seul** / **cases + texte**.
-- **Suite de chapitre (spec §4.9)** : à la fin du feuilletage, carte **fin de chapitre** — instruction libre, suggestions et tags rapides → `POST .../chapters/[chapterId]/continue` crée le brouillon suivant et un job `GENERATE_CHAPTER_OUTLINE`.
-- **Pipeline chapitre V4** : création d’un contexte projet riche, génération structurée `creativeDirection` / `plotOptions` / `outline` / `script` / `storyboard`, **continuity pass IA avant images**, **post-pass de dialogues/bulles selon la place dispo**, persistance scènes + panneaux, snapshot mémoire et timeline.
-- **Auth produit** : expérience **compte obligatoire** en production, connexion **email + mot de passe** ou **magic link**, synchro automatique vers `User` Prisma et possibilité d’admins illimités pour le QA.
-- **Admin & exports** : backoffice minimal, export chapitre, bible série, package projet, events de modération.
+### UX simplifiee (3 etapes)
+
+1. **Creer le projet** : univers, pitch, genres, ton, style visuel (+ reglages fins optionnels)
+2. **Creer les personnages** : fiche detaillee (sexe, apparence, traits, voix) + generation visuelle
+3. **Generer un chapitre** : zone texte libre "Raconte ton chapitre" + rythme (Progressif / Intense / Explosif) → generation complete (scenario + images)
+
+L'interface est pensee grand public : **aucun jargon technique** (pas de mention LoRA, FAL, Inngest, tokens, pipeline dans l'UI). Le technique tourne en arriere-plan.
+
+### Features cles
+
+- **Projets** : univers, pitch, genres, intensite de contenu, rating
+- **Personnages** : fiches completes + Canon Pack (references visuelles). Champ `gender` (male/female) utilise dans les prompts IA
+- **PNJ auto-generes** : les personnages non declares par l'user mais mentionnes dans l'histoire sont automatiquement crees en base (`autoGenerated: true`) et reutilises dans les chapitres suivants
+- **Style pack** : parametres DA canoniques (rendu, trait, ombrage, contraste, camera, contraintes negatives)
+- **Bible d'univers** : JSON structure (regles du monde, lore, themes) pour le RAG
+- **Chapitres** : pipeline manga-first avec **anchors visuels**, **rythme kishoteketsu**, et **drift detection**
+- **Images** : routage dynamique multi-backend (fal / BFL / Runware / Stability) avec **LoRA auto** + **IP-Adapter** + **keyframes scene**
+- **Lecteur manga** : double page, navigation RTL, bascule texte/cases, cadrage intelligent (cover/contain dynamique)
+- **Suite de chapitre** : instruction libre + tags rapides en fin de lecture
+- **Moderation** : matrice intensite x fournisseur
+- **Monetisation** : Stripe → wallet tokens avec ledger
+- **Auth** : Supabase (email + mot de passe ou magic link), admins illimites pour QA
 
 ---
 
@@ -59,22 +60,21 @@ flowchart TB
   subgraph edge [Serveur Next.js]
     API[Route Handlers /api/*]
     MW[Middleware Supabase session]
-    RSC[Server Components]
   end
-  subgraph data [Données]
-    PG[(PostgreSQL)]
+  subgraph data [Donnees]
+    PG[(PostgreSQL + pgvector)]
     Prisma[Prisma ORM]
   end
   subgraph external [Services externes]
     SB[Supabase Auth]
     ST[Stripe]
     ING[Inngest]
-    FAL[fal.ai FLUX]
+    FAL[fal.ai FLUX + LoRA]
+    OAI[OpenAI GPT + TTS]
     RW[Runware]
     STAB[Stability AI]
   end
   NextUI --> MW
-  NextUI --> RSC
   NextUI --> API
   MW --> SB
   API --> Prisma
@@ -82,326 +82,238 @@ flowchart TB
   API --> ST
   API --> ING
   API --> FAL
+  API --> OAI
   API --> RW
   API --> STAB
 ```
 
-- **Frontend** : [Next.js 15](https://nextjs.org) (App Router), React 19, TypeScript strict, Tailwind CSS v4.
-- **UI** : composants inspirés shadcn (Radix UI, `class-variance-authority`, `lucide-react`), utilitaire `cn` dans `@manga-ai-studio/ui`.
-- **Backend dans l’app** : Route Handlers sous `apps/web/app/api/**` ; la logique métier riche vit dans `packages/*`.
-- **Auth** : [Supabase Auth](https://supabase.com/docs/guides/auth) (email + mot de passe, magic link) + synchronisation vers la table `User` Prisma (`supabaseAuthId`). En production, pas de démo publique : soit l’utilisateur a un compte, soit il se connecte. Mode développement possible sans Supabase via `AUTH_DISABLED=true`.
-- **Persistance** : PostgreSQL + [Prisma](https://www.prisma.io).
+- **Frontend** : Next.js 15 (App Router), React 19, TypeScript strict, Tailwind CSS v4
+- **UI** : composants shadcn (Radix UI, CVA, lucide-react)
+- **Auth** : Supabase Auth + sync vers User Prisma. Mode dev sans Supabase via `AUTH_DISABLED=true`
+- **Persistance** : PostgreSQL + Prisma + pgvector (RAG/memoire semantique)
 
 ---
 
-## Logiciels, services et IA utilisés
+## Pipeline chapitre V5
 
-| Catégorie | Technologie | Rôle dans le projet |
-|-----------|-------------|---------------------|
-| Runtime | **Node.js 20+** | Build et serveur Next.js |
-| Gestionnaire de paquets | **pnpm** (workspaces) | Monorepo |
-| Framework web | **Next.js** | UI, API, SSR/RSC |
-| Langage | **TypeScript** | Typage strict |
-| Styles | **Tailwind CSS** | Design system |
-| Composants | **Radix UI**, **CVA** | Accessibilité, variants |
-| Icônes | **lucide-react** | Iconographie |
-| Base de données | **PostgreSQL** | Données applicatives |
-| ORM | **Prisma** | Schéma, client, migrations (`db push` / futures migrations) |
-| Auth | **Supabase** (`@supabase/ssr`, `@supabase/supabase-js`) | Sessions, compte email/mot de passe, magic link |
-| Paiement | **Stripe** | Checkout packs de tokens, webhooks |
-| Jobs async | **Inngest** | Pipeline chapitre / étapes longues |
-| Validation | **Zod** | Entrées API, schémas env |
-| Tests unitaires | **Vitest** | Routage image (`packages/ai`) |
-| **IA image — principal stylisé** | **FLUX** via **[fal.ai](https://fal.ai)** | Panels : `fal-ai/flux/dev`. Si une ref canonique est dispo : `fal-ai/flux-pro/v1/redux` (IP-Adapter) pour préserver l’identité visuelle ([adapter](./packages/ai/src/adapters/fal-flux-adapter.ts)) |
-| **IA image — contrôle / LoRA** | **Runware** (clé optionnelle) | Adapter stub / extension workflows Comfy-like |
-| **IA image — BFL** | **Black Forest Labs** (clé optionnelle) | Adapter stub |
-| **IA image — fallback réaliste** | **Stability** (Stable Image Ultra, clé optionnelle) | Adapter stub, routage cover photoreal |
-| **IA texte** (prévu / extension) | **OpenAI** ou autre via `OPENAI_API_KEY` | PromptComposer v2 structuré, agents chapitre |
-| Hébergement (doc) | **Render** | `render.yaml` + [DEPLOYMENT.md](./DEPLOYMENT.md) |
+Le pipeline a ete entierement refonde pour maximiser la coherence visuelle et narrative.
 
-Sans clés API image, les adapters peuvent retomber sur des placeholders en local. En production, il faut brancher de vraies clés providers pour éviter tout comportement mocké.
+```mermaid
+flowchart TD
+  A[Contexte projet + RAG] --> B[Outline enrichi avec pageRole/turn/emotionalDelta]
+  B --> C[Script + dialogues par scene]
+  C --> D[Storyboard: blueprints par role + cameras narratives]
+  D --> E[Continuity pass IA]
+  E --> F[Narrative coherence pass IA]
+  F --> G[Bundle integrity + visual sync]
+  G --> H[Auto-detection PNJ et creation en base]
+  H --> I[Style frame chapitre]
+  I --> J[Keyframes scene - 1 establishing shot par scene]
+  J --> K[Generation panels - round-robin intra-scene]
+  K --> L[Drift detection + auto-reroll]
+  L --> M[Cover chapitre]
+  M --> N[Memoire et timeline]
+```
 
----
+### Rythme manga (kishoteketsu)
 
-## Comment ça tourne (flux de données)
+Chaque beat de l'outline a :
+- `pageRole` : establishing / escalation / confrontation / revelation / aftermath / cliffhanger
+- `turn` : micro-retournement unique
+- `emotionalDelta` : variation -3 a +3
 
-### 1. Connexion utilisateur
+Regles strictes : pas 2 pageRoles identiques consecutifs, au moins 1 revelation et 1 aftermath par chapitre.
 
-1. L’utilisateur se connecte sur `/login` soit en **email + mot de passe**, soit en **magic link**.
-2. Après authentification, Supabase établit une **session** (cookies) et `/auth/callback` finalise l’échange pour le flow e-mail.
-3. Le **middleware** rafraîchit la session Supabase sur les requêtes concernées.
-4. Les pages sous `(app)/` appellent `getCurrentUser()` : création ou mise à jour du **`User` Prisma** (email, `supabaseAuthId`, rôle admin si configuré, wallet initial si besoin).
+### Anchors visuels
 
-### 2. Projet et DA
+- **Style frame** : 1 image ambiance/palette par chapitre (injectee comme ref dans toutes les keyframes)
+- **Keyframes scene** : 1 establishing shot par scene (lieu + persos principaux + LoRA + environnement)
+- **Injection** : chaque panel recoit la keyframe de sa scene comme reference (IP-Adapter ou LoRA+ref)
 
-- Création d’un projet via `POST /api/projects` : crée aussi un **StylePack** v1 par défaut.
-- Édition DA : `PUT /api/projects/:id/style-pack` (enums Prisma : `RenderFamily`, `LineWeight`, etc.).
-- Personnages : `POST /api/projects/:id/characters` avec création du **canon pack** associé.
+### Coherence personnages
 
-**Onboarding recommandé (UX)** :
+- **Ref canon** : `CharacterVisualRef.isPrimary` (pas la derniere SceneImage du projet)
+- **LoRA auto** : entrainement automatique en arriere-plan (non bloquant) des que 3+ visuels existent
+- **LoRA + ref image** : FAL supporte simultanement LoRA et ref image (`image_url` + `strength`)
+- **Drift detection** : scoring heuristique post-generation (traits, couleurs, genre) + auto-reroll (max 2 tentatives)
 
-- **Créer projet** → redirige vers **création du 1er personnage** (`/projects/:id/characters/new?onboarding=1`)
-- **Créer personnage** → redirige vers le **labo de génération** (`/projects/:id/generate`)
-- Objectif : éviter un **chapitre 1 vide/générique** (un manga sans personnages est pauvre).
+### Sequencement
 
-### 3. Estimation et génération d’image
-
-1. **`POST /api/estimate-image`** : calcule une **`ImageRoutingDecision`** (provider, modèle, workflow, raison) + **coût tokens** estimé (voir `packages/billing/src/pricing.ts`).
-2. **`POST /api/ai/generate`** :
-   - Vérifie l’utilisateur et le **routage** (modération / blocage éventuel).
-   - **Réserve / débite** les tokens via le wallet (`packages/billing`).
-   - Appelle **`runRoutedImageGeneration`** (`packages/ai`) qui sélectionne l’adapter et exécute la génération.
-
-La logique de routage est centralisée dans **`decideImageRoute`** (`packages/ai/src/image-routing-service.ts`), avec règles alignées sur la spec produit (inpaint, multi-ref, cover photoreal → Stability, etc.).
-
-### 4. Pipeline chapitre (Inngest)
-
-- **`POST /api/projects/:id/pipeline`** avec `chapterId` envoie l’événement `chapter/generate.requested` à Inngest (si `INNGEST_EVENT_KEY` est défini).
-- La fonction **`generateChapterPipeline`** (`packages/workflow/src/functions.ts`) enchaîne les étapes logiques : contexte projet, bundle chapitre, **continuity pass** (canon), **story coherence pass** (rythme/voix/dialogues), persistance, génération des images, puis mise à jour mémoire.
-- **Persistance visuelle (niveau 1–2)** : le workflow récupère une `canonicalImageUrl` (dernière image `completed`) et l’utilise comme **référence** lors de la génération des panels (IP‑Adapter via flux redux). Le prompt inclut aussi une **signature visuelle** stable par personnage.
-- **`POST .../chapters/[chapterId]/continue`** : après lecture, enregistre l’intention de suite et crée un job **`GENERATE_CHAPTER_OUTLINE`** sur le nouveau chapitre — à traiter dans le worker Inngest quand tu branches la génération texte.
-
-### 5. Paiement Stripe
-
-- **`POST /api/billing/checkout-session`** : session Checkout Stripe avec métadonnées `userId`, `packCode`, `tokensGranted`.
-- **`POST /api/billing/webhooks/stripe`** : sur `checkout.session.completed`, crédit du wallet via **`creditPurchase`** (ledger).
+Round-robin : sequentiel intra-scene (panel 1 puis 2 puis 3...) mais parallele inter-scenes. Cela garantit que les panels d'une meme scene partagent le meme contexte visuel.
 
 ---
 
-## Structure du dépôt
+## Logiciels, services et IA
+
+| Categorie | Technologie | Role | Statut |
+|-----------|-------------|------|--------|
+| Runtime | **Node.js 20+** | Build et serveur | Actif |
+| Monorepo | **pnpm** (workspaces) | Gestion packages | Actif |
+| Framework | **Next.js 15** | UI, API, SSR | Actif |
+| Styles | **Tailwind CSS v4** | Design system | Actif |
+| BDD | **PostgreSQL + pgvector** | Donnees + RAG vectoriel | Actif |
+| ORM | **Prisma** | Schema, client, migrations | Actif |
+| Auth | **Supabase** | Sessions, email/password, magic link | Actif |
+| Paiement | **Stripe** | Checkout packs tokens, webhooks | Actif |
+| Jobs async | **Inngest** | Pipeline chapitre (optionnel, fallback sync) | Actif |
+| **IA image principale** | **fal.ai** (FLUX dev, FLUX LoRA, FLUX Redux) | Panels, keyframes, covers, LoRA training | **Actif** |
+| **IA image secondaire** | **Runware** | Adapter HTTP (CivitAI models) | **Partiel** (a valider en prod) |
+| **IA image secondaire** | **Black Forest Labs** | Adapter HTTP (FLUX via BFL) | **Partiel** (a valider en prod) |
+| **IA image fallback** | **Stability AI** | Stable Image Ultra (cover photoreal) | **Partiel** (a valider en prod) |
+| **IA texte** | **OpenAI** (gpt-4o-mini) | Outline, dialogues, coherence, continuity | **Actif** |
+| **IA embeddings** | **OpenAI** (text-embedding-3-small) | RAG / memoire semantique | **Actif** |
+| **IA TTS** | **OpenAI** (audio/speech) | Text-to-Speech dialogues | **Route API prete, UI non branchee** |
+| **IA traduction** | Module interne (prompt-translator) | FR->EN pour FLUX | **Actif** |
+
+---
+
+## Structure du depot
 
 ```
 MYMANGA/
 ├── apps/web/                 # Site web Next.js (UI + API routes)
 ├── packages/
-│   ├── ai/                   # Routage image, adapters fal/BFL/Runware/Stability, PromptComposer v2
-│   ├── billing/              # Stripe checkout, wallet, pricing par mode/provider
-│   ├── config/               # Schéma Zod des variables d’environnement
-│   ├── core/                 # Modes de rendu, cohérence prod, **pages lecteur manga** (`manga-reader-pages.ts`)
-│   ├── db/                   # Prisma schema + client exporté
-│   ├── exports/              # Stubs export PDF/ZIP
-│   ├── memory/               # Stubs RAG / indexation
-│   ├── moderation/           # Intensité contenu, matrice fournisseur, garde-fous payload
-│   ├── prompts/              # Prompts système (texte)
+│   ├── ai/                   # Routage image, adapters, prompt composers, LoRA, TTS, drift detection
+│   ├── billing/              # Stripe checkout, wallet, pricing
+│   ├── config/               # Schema Zod des variables d'environnement
+│   ├── core/                 # Modes de rendu, coherence, types partages
+│   ├── db/                   # Prisma schema + client
+│   ├── exports/              # Export PDF/ZIP (stub - a remplacer par vrai moteur)
+│   ├── memory/               # RAG pgvector, embeddings, contexte projet, memoire chapitre
+│   ├── moderation/           # Intensite contenu, matrice fournisseur
 │   ├── ui/                   # Utilitaire cn (Tailwind merge)
-│   └── workflow/             # Client Inngest + fonctions + envoi d’événements
-├── .env.example
+│   └── workflow/             # Pipeline chapitre complet, Inngest, LoRA auto
 ├── DEPLOYMENT.md             # Guide Render, Supabase, Stripe, IA
-├── render.yaml               # Blueprint Render (à adapter)
-├── package.json              # Scripts racine
+├── render.yaml               # Blueprint Render
 └── pnpm-workspace.yaml
 ```
 
 ---
 
-## Prérequis
-
-- **Node.js** ≥ 20
-- **pnpm** 10+ (le repo définit `packageManager` dans `package.json`)
-- **PostgreSQL** accessible (local, Docker, Supabase, Neon, Render Postgres, etc.)
-
----
-
-## Installation et exécution locale
+## Installation et execution locale
 
 ```bash
-# À la racine du monorepo
 pnpm install
-
-# Générer le client Prisma
 pnpm db:generate
-
-# Appliquer le schéma à la base (dev)
 pnpm db:push
-
-# (Optionnel) données de démo pricing
-pnpm db:seed
-
-# Lancer l’app web (http://localhost:3000)
 pnpm dev
 ```
 
-Scripts utiles définis à la racine :
-
 | Commande | Description |
 |----------|-------------|
-| `pnpm dev` | Démarre `apps/web` en mode développement |
+| `pnpm dev` | Demarre apps/web en mode dev |
 | `pnpm build` | Build production Next.js |
-| `pnpm db:generate` | `prisma generate` |
-| `pnpm db:push` | `prisma db push` |
+| `pnpm db:generate` | Prisma generate |
+| `pnpm db:push` | Prisma db push |
 | `pnpm db:studio` | Prisma Studio |
-| `pnpm db:seed` | Seed des règles de pricing |
-| `pnpm test` | Tests Vitest du package `ai` |
+| `pnpm test` | Tests Vitest (packages/ai) |
 
 ---
 
-## Variables d’environnement
+## Variables d'environnement
 
-Copie [`.env.example`](./.env.example) vers `apps/web/.env.local` (ou `.env` selon ton habitude) **et** assure-toi que Prisma lit `DATABASE_URL` (souvent même fichier ou lien symbolique).
+Variables critiques :
 
-Les variables critiques :
+- **`DATABASE_URL`** : PostgreSQL
+- **`NEXT_PUBLIC_SUPABASE_URL`**, **`NEXT_PUBLIC_SUPABASE_ANON_KEY`** : auth
+- **`FAL_KEY`** : generation images (obligatoire en prod)
+- **`OPENAI_API_KEY`** : texte, coherence, embeddings, TTS
+- **`STRIPE_SECRET_KEY`**, **`STRIPE_WEBHOOK_SECRET`** : paiement
+- **`INNGEST_EVENT_KEY`** : jobs async (optionnel, fallback sync)
+- **`ADMIN_UNLIMITED_EMAILS`** : comptes QA illimites (ex: `test@gmail.com`)
+- **`STORAGE_BUCKET`** : bucket Supabase pour les images persistees
 
-- **`DATABASE_URL`** : connexion PostgreSQL
-- **`NEXT_PUBLIC_SUPABASE_URL`**, **`NEXT_PUBLIC_SUPABASE_ANON_KEY`** : auth (production)
-- **`AUTH_DISABLED=true`** : uniquement en local pour skipper Supabase (ne jamais activer en prod)
-- **`ADMIN_EMAILS`**, **`ADMIN_UNLIMITED_EMAILS`** : comptes admin / QA (ex. `puccini.f13@gmail.com,test@gmail.com`)
-- **`NEXT_PUBLIC_APP_URL`** : URL publique (Stripe redirects, e-mails)
-- **`STRIPE_SECRET_KEY`**, **`STRIPE_WEBHOOK_SECRET`**
-- **`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`**, **`RESEND_API_KEY`**
-- **`INNGEST_EVENT_KEY`**, **`INNGEST_SIGNING_KEY`**
-- **`FAL_KEY`**, **`BFL_API_KEY`**, **`RUNWARE_API_KEY`**, **`STABILITY_API_KEY`**, **`OPENAI_API_KEY`** : selon les fournisseurs activés
-- **`POSTHOG_KEY`**, **`SENTRY_DSN`**, **`STORAGE_BUCKET`** : analytics / observabilité / assets
+Optionnelles : `BFL_API_KEY`, `RUNWARE_API_KEY`, `STABILITY_API_KEY`, `POSTHOG_KEY`, `SENTRY_DSN`
 
-Détail et procédures cloud : **[DEPLOYMENT.md](./DEPLOYMENT.md)**.
+Detail : **[DEPLOYMENT.md](./DEPLOYMENT.md)**
 
 ---
 
-## Base de données (Prisma)
+## Base de donnees (Prisma)
 
-- Schéma : [`packages/db/prisma/schema.prisma`](./packages/db/prisma/schema.prisma)
-- Modèles notables : `User`, `Project`, `StylePack`, `Character`, `CharacterCanonPack`, `CanonPackAsset`, `LoraModel`, `LoraAttachment`, `Chapter`, `SceneImage` (modes de rendu, routing JSON, score cohérence), `Wallet`, `WalletTransaction`, `Job`, etc.
+Schema : `packages/db/prisma/schema.prisma`
 
-Après modification du schéma :
-
-```bash
-pnpm db:generate
-pnpm db:push
-```
+Modeles notables : `User`, `Project`, `Character` (avec `autoGenerated`, `gender`), `CharacterCanonPack`, `LoraModel`, `LoraAttachment`, `Chapter`, `ChapterScene`, `SceneImage` (avec `consistencyScore`, `renderingMode` incluant `SCENE_KEYFRAME` et `STYLE_FRAME`), `Wallet`, `Job`, `RagDocument` (pgvector)
 
 ---
 
 ## API et authentification
 
-Les routes sous `apps/web/app/api/**` utilisent en général **`getAppUser()`** : retourne `null` si non connecté → réponse **401**. Le produit est documenté et pensé pour une **auth obligatoire en production**, sans parcours démo public.
+Routes principales :
 
-Principales routes :
-
-| Méthode | Chemin | Rôle |
+| Methode | Chemin | Role |
 |---------|--------|------|
-| `GET`/`POST` | `/api/projects` | Liste / création projets |
-| `GET`/`PATCH`/`DELETE` | `/api/projects/[id]` | Détail / mise à jour / archivage |
-| `GET`/`POST` | `/api/projects/[id]/characters` | Personnages |
-| `GET`/`PATCH`/`DELETE` | `/api/characters/[characterId]` | Fiche personnage détaillée |
-| `POST` | `/api/characters/[characterId]/generate-visual` | Génération de référence visuelle |
-| `GET`/`PUT` | `/api/projects/[id]/style-pack` | Style pack |
-| `PUT` | `/api/projects/[id]/bible` | Bible |
-| `GET`/`POST` | `/api/projects/[id]/relationships` | Matrice de relations |
-| `GET`/`POST` | `/api/projects/[id]/arcs` | Arcs narratifs |
-| `GET`/`POST` | `/api/projects/[id]/chapters` | Chapitres |
-| `POST` | `/api/projects/[id]/chapters/estimate` | Estimation V3 + preview mémoire |
-| `GET`/`PATCH` | `/api/projects/[id]/chapters/[chapterId]` | Détail chapitre (scènes + images) / mise à jour partielle |
-| `POST` | `/api/projects/[id]/chapters/[chapterId]/continue` | Suite utilisateur → nouveau chapitre brouillon + job outline |
-| `POST` | `/api/projects/[id]/pipeline` | Enqueue Inngest |
-| `POST` | `/api/estimate-image` | Routing + coût tokens |
-| `POST` | `/api/ai/generate` | Génération image (débit wallet) |
-| `GET` | `/api/wallet` | Solde + dernières transactions |
-| `GET` | `/api/wallet/transactions` | Ledger wallet |
-| `POST` | `/api/billing/checkout-session` | Stripe Checkout |
-| `POST` | `/api/billing/webhooks/stripe` | Webhook Stripe |
-| `GET` | `/api/jobs/[jobId]` | Suivi d’un job |
-| `POST` | `/api/jobs/[jobId]/cancel` | Annulation |
-| `GET` | `/api/account/me` | Profil / préférences |
-| `POST` | `/api/account/age-gate` | Vérification d’âge |
-| `GET` | `/api/moderation/events` | Historique modération |
-| `POST` | `/api/moderation/review-request` | Demande de revue |
-| `POST` | `/api/chapters/[chapterId]/export/pdf` | Export chapitre |
-| `POST` | `/api/projects/[id]/export/bible` | Export bible |
-| `POST` | `/api/projects/[id]/export/package` | Export package |
-| `GET`/`POST`/`PUT` | `/api/inngest` | Handler Inngest |
+| GET/POST | `/api/projects` | Liste / creation projets |
+| GET/PATCH/DELETE | `/api/projects/[id]` | Detail / mise a jour / archivage |
+| GET/POST | `/api/projects/[id]/characters` | Personnages |
+| GET/PATCH | `/api/characters/[characterId]` | Fiche personnage |
+| POST | `/api/characters/[characterId]/generate-visual` | Generation visuelle |
+| POST | `/api/characters/[characterId]/train-lora` | Entrainement LoRA |
+| POST | `/api/projects/[id]/pipeline` | Lancement pipeline chapitre |
+| GET | `/api/projects/[id]/chapters/[chapterId]` | Detail chapitre + scenes + images |
+| POST | `/api/projects/[id]/chapters/[chapterId]/continue` | Suite chapitre |
+| POST | `/api/scene-images/[sceneImageId]/retry` | Retry image (avec LoRA/refs reconstitues) |
+| POST | `/api/tts` | Text-to-Speech |
+| POST | `/api/ai/generate` | Generation image unitaire |
+| GET | `/api/wallet` | Solde wallet |
+| POST | `/api/billing/checkout-session` | Stripe Checkout |
 
 ---
 
 ## Paiement et tokens
 
-- Les **tokens** sont une unité métier ; le **wallet** et les **transactions** sont la source de vérité (pas un simple compteur flottant).
-- Les **prix** par mode de rendu et multiplicateur par **provider** sont dans `packages/billing/src/pricing.ts`.
-- L’achat Stripe crédite le wallet ; la génération image **débite** via `reserveTokens` (à terme : politique de remboursement si échec API à durcir).
+- **Tokens** = unite metier ; **wallet** + **ledger** = source de verite
+- Achat Stripe credite le wallet ; generation debite via `reserveTokens`
+- Admins dans `ADMIN_UNLIMITED_EMAILS` ont un wallet auto-recharge (999 999 tokens)
 
 ---
 
-## Orchestration (Inngest)
+## Cout IA par chapitre
 
-- **Développement** : [Inngest Dev Server](https://www.inngest.com/docs/local-development) ou compte cloud avec l’URL de l’app pointant vers `/api/inngest`.
-- **Événements** :
-  - `chapter/generate.requested` — pipeline manga-first ; génération de l’outline, dialogues, storyboard, **continuity pass IA**, images puis mémoire.
-  - `chapter/outline.job.requested` — traitement du job Prisma `GENERATE_CHAPTER_OUTLINE` après une **suite** utilisateur (`POST .../continue`). Sans `INNGEST_EVENT_KEY`, la même logique s’exécute **de façon synchrone** dans la route API.
+Pour **1 chapitre** (~10 pages, 4-6 panels/page) :
 
----
-
-## Tests
-
-```bash
-pnpm test
-```
-
-Couvre notamment le **routage image** (`packages/ai/src/image-routing-service.test.ts`). À étendre avec tests d’intégration API et E2E (Playwright) pour les parcours critiques.
-
----
-
-## Déploiement
-
-- Guide pas à pas : **[DEPLOYMENT.md](./DEPLOYMENT.md)**
-- Exemple Blueprint : **[render.yaml](./render.yaml)**
-- Pour la prod actuelle, vérifier en plus :
-  - `AUTH_DISABLED` absent
-  - `ADMIN_EMAILS` et `ADMIN_UNLIMITED_EMAILS` correctement renseignés
-  - `FAL_KEY` + `OPENAI_API_KEY` présents pour éviter les flows incomplets
-
----
-
-## Coût IA par chapitre
-
-Estimation issue du pipeline réellement validé localement :
-
-- résolution moyenne : **512×768** (mode économique par défaut)
-- provider image principal : **`fal-ai/flux/dev`**
-- texte : **`gpt-4o-mini`**
-- embeddings / mémoire : **`text-embedding-3-small`**
-
-Prix de référence utilisés :
-
-- `fal-ai/flux/dev` : **0.025 USD / mégapixel**
-- `gpt-4o-mini` : **0.15 USD / 1M tokens input** et **0.60 USD / 1M tokens output**
-- `text-embedding-3-small` : **0.02 USD / 1M tokens**
-
-Ordre de grandeur pour **1 chapitre** (selon longueur) :
-
-- **Chapitre (~10 pages, 4–6 panels/page = ~40–60 panels)** : ~0.42–0.64 USD (principalement image)
-
-| Poste | Hypothèse | Coût approx. |
+| Poste | Hypothese | Cout approx. |
 |------|-----------|--------------|
-| Images (10 pages) | 40–60 panels × 512×768 | **~0.39–0.59 USD** |
-| Texte + embeddings | outline + dialogues + passes continuité/narration + embeddings | **~0.02–0.05 USD** |
-| **Total chapitre (10 pages)** | pipeline complet | **~0.41–0.64 USD** |
-
-Lecture produit :
-
-- le coût est aujourd’hui **très majoritairement porté par l’image**
-- la couche texte / continuité / RAG reste **faible** à ce niveau de volume
-- si tu augmentes la résolution ou passes sur un provider plus premium, le coût chapitre monte vite
-- formule utile :
-
-```text
-coût_images = nb_panels × (largeur × hauteur / 1_000_000) × prix_par_mégapixel
-ex: 512×768 → 0.393 MP → ~0.0098 USD / image @ $0.025/MP
-```
+| Images panels (40-60) | 512x768 via fal flux/dev | ~0.39-0.59 USD |
+| Style frame | 1 image | ~0.01 USD |
+| Keyframes scene | 10 images | ~0.10 USD |
+| Cover | 1 image 768x1024 | ~0.02 USD |
+| Auto-reroll drift | ~2% panels | ~0.01 USD |
+| Texte (outline + dialogues + passes) | gpt-4o-mini | ~0.02-0.05 USD |
+| Embeddings | text-embedding-3-small | ~0.001 USD |
+| **Total chapitre** | | **~0.55-0.78 USD** |
 
 ---
 
-## Feuille de route / limites connues
+## IA a brancher / feuille de route
 
-- **Exports** : implémentation utilitaire en texte/binaire simple ; remplacer par vrai moteur PDF/ZIP si tu veux une prod premium.
-- **Adapters Runware / BFL / Stability** : stubs ou partiels — à brancher sur les APIs officielles pour la prod.
-- **RAG / pgvector** : mémoire, snapshots et contexte enrichi en place ; la profondeur du retrieval vectoriel et l’industrialisation pgvector restent à durcir pour une prod très ambitieuse.
-- **Rate limiting** : helper léger en mémoire présent ; Upstash reste à brancher pour une prod multi-instances.
-- **OpenAI / agents texte** : pipeline structuré, continuity pass et post-traitement bulles en place ; encore à densifier si tu veux aller vers une orchestration multi-agents plus poussée.
+### A brancher
+
+| Service | Etat | Action |
+|---------|------|--------|
+| **TTS (Text-to-Speech)** | Route API prete (`POST /api/tts`), UI lecteur non branchee | Ajouter bouton lecture audio dans le manga reader |
+| **Adapters Runware / BFL / Stability** | Code HTTP present, non valides en prod | Tester avec comptes reels, aligner endpoints/modeles |
+| **Export PDF** | Stub (texte seulement) | Remplacer par vrai moteur PDF (pdfkit, puppeteer, etc.) |
+
+### Deja fonctionnel
+
+- fal.ai (FLUX dev + FLUX LoRA + FLUX Redux + training LoRA)
+- OpenAI (outline, dialogues, coherence, continuity, embeddings)
+- LoRA auto-training (non bloquant, en arriere-plan)
+- Drift detection + auto-reroll
+- Anchors visuels (style frame + keyframes scene)
+- PNJ auto-generes
+- RAG pgvector (si OPENAI_API_KEY + pgvector actif)
+- Lecteur manga double page RTL
+- Stripe + wallet
+
+### Ameliorations futures
+
+- **Rate limiting prod** : Upstash pour multi-instances (actuellement en memoire)
+- **RAG** : durcir pgvector, migrations propres, monitoring queries
+- **Vision API** : scoring visuel par vision (CLIP) au lieu de heuristique texte
+- **Multi-agents** : orchestration LLM plus poussee pour la generation de scenario
 
 ---
 
-## Licence et contribution
-
-Projet privé / produit — adapte la licence selon ta stratégie. Pour contribuer : respecter la séparation **domaine** (`packages/core`, `packages/ai`, …) vs **transport** (`apps/web/app/api`).
-
----
-
-*README du site web Manga AI Studio — stack, auth, pipeline et coûts alignés sur l’état actuel du produit.*
+*README Manga AI Studio — pipeline V5 avec anchors visuels, rythme manga, PNJ auto, UX simplifiee.*
