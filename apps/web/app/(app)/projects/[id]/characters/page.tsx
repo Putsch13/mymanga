@@ -14,16 +14,27 @@ type Props = { params: Promise<{ id: string }> };
 export default async function CharactersPage({ params }: Props) {
   const user = await getCurrentUser();
   const { id } = await params;
-  const project = await prisma.project.findFirst({
-    where: { id, userId: user.id },
-    include: {
-      characters: {
-        orderBy: { createdAt: "desc" },
-        include: { visualRefs: { where: { isPrimary: true }, take: 1 } },
+  let project;
+  try {
+    project = await prisma.project.findFirst({
+      where: { id, userId: user.id },
+      include: {
+        characters: {
+          orderBy: { createdAt: "desc" },
+          include: { visualRefs: { where: { isPrimary: true }, take: 1 } },
+        },
+        relationships: true,
       },
-      relationships: true,
-    },
-  });
+    });
+  } catch (e) {
+    console.error("[characters-page] DB error:", e instanceof Error ? e.message : e);
+    return (
+      <div className="space-y-4 p-6">
+        <p className="text-red-400 text-sm">Erreur de chargement des personnages. La base de donnees necessite une migration.</p>
+        <p className="text-xs text-muted-foreground">Execute <code>pnpm db:push</code> sur la base distante, ou ajoute manuellement la colonne manquante.</p>
+      </div>
+    );
+  }
   if (!project) notFound();
 
   return (

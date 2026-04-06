@@ -12,12 +12,21 @@ export default function AppError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const msg = error.message ?? "";
   const isDbError =
-    error.message?.includes("Can't reach database") ||
-    error.message?.includes("Connection refused") ||
-    error.message?.includes("ECONNREFUSED") ||
-    error.message?.includes("P1001") ||
-    error.message?.includes("P1002");
+    msg.includes("Can't reach database") ||
+    msg.includes("Connection refused") ||
+    msg.includes("ECONNREFUSED") ||
+    msg.includes("P1001") ||
+    msg.includes("P1002");
+  const isMigrationError =
+    msg.includes("column") ||
+    msg.includes("does not exist") ||
+    msg.includes("Unknown arg") ||
+    msg.includes("P2002") ||
+    msg.includes("P2003") ||
+    msg.includes("P2010") ||
+    msg.includes("P2025");
 
   return (
     <div className="min-h-[70vh] px-6 py-12">
@@ -32,8 +41,12 @@ export default function AppError({
           <CardContent className="space-y-5 text-sm text-muted-foreground">
             {isDbError ? (
               <p>
-                La connexion à la base de données a échoué. Vérifie que <code className="rounded bg-background/60 px-1 py-0.5">DATABASE_URL</code> est bien
-                configuré sur Render et que la base Supabase est active.
+                La connexion à la base de données a échoué. Vérifie que la base est active et accessible.
+              </p>
+            ) : isMigrationError ? (
+              <p>
+                La base de données n&apos;est pas à jour avec la dernière version de l&apos;application.
+                Une migration est nécessaire (contacte l&apos;administrateur).
               </p>
             ) : (
               <p>

@@ -54,17 +54,28 @@ const tiles = (id: string) =>
 export default async function ProjectOverviewPage({ params }: Props) {
   const user = await getCurrentUser();
   const { id } = await params;
-  const project = await prisma.project.findFirst({
-    where: { id, userId: user.id },
-    include: {
-      stylePacks: { orderBy: { version: "desc" }, take: 1 },
-      characters: { take: 8, orderBy: { createdAt: "desc" } },
-      chapters: { take: 4, orderBy: { chapterNumber: "desc" } },
-      arcs: { take: 4, orderBy: [{ startChapterNumber: "asc" }, { name: "asc" }] },
-      relationships: { take: 8, orderBy: { updatedAt: "desc" } },
-      settings: true,
-    },
-  });
+  let project;
+  try {
+    project = await prisma.project.findFirst({
+      where: { id, userId: user.id },
+      include: {
+        stylePacks: { orderBy: { version: "desc" }, take: 1 },
+        characters: { take: 8, orderBy: { createdAt: "desc" } },
+        chapters: { take: 4, orderBy: { chapterNumber: "desc" } },
+        arcs: { take: 4, orderBy: [{ startChapterNumber: "asc" }, { name: "asc" }] },
+        relationships: { take: 8, orderBy: { updatedAt: "desc" } },
+        settings: true,
+      },
+    });
+  } catch (e) {
+    console.error("[project-page] DB error:", e instanceof Error ? e.message : e);
+    return (
+      <div className="space-y-4 p-6">
+        <p className="text-red-400 text-sm">Erreur de chargement du projet. La base de donnees necessite une migration.</p>
+        <p className="text-xs text-muted-foreground">Execute <code>pnpm db:push</code> sur la base distante.</p>
+      </div>
+    );
+  }
   if (!project) notFound();
 
   const sp = project.stylePacks[0];
