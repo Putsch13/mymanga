@@ -23,6 +23,7 @@ const outlineResultSchema = z.object({
         pageRole: z.enum(PAGE_ROLES).default("escalation"),
         turn: z.string().default(""),
         emotionalDelta: z.number().min(-3).max(3).default(0),
+        location: z.string().default(""),
         characters: z.array(z.string()).default([]),
       }),
     )
@@ -77,11 +78,38 @@ export type ChapterOutlineContext = {
 };
 
 function fallbackOutline(ctx: ChapterOutlineContext): ChapterOutlineResult {
+  const inferPrimaryLocation = () => {
+    const text = `${ctx.userIntent} ${ctx.previousSummary ?? ""} ${ctx.previousCliffhanger ?? ""}`.toLowerCase();
+    const matches = [
+      ["banque", "banque centrale sous haute sécurité"],
+      ["café", "café néon du centre-ville"],
+      ["cafe", "café néon du centre-ville"],
+      ["taverne", "taverne enfumée aux lumières basses"],
+      ["rue", "rue néon sous la pluie"],
+      ["ruelle", "ruelle néon sous la pluie"],
+      ["ville", "centre-ville cyberpunk"],
+      ["toit", "toit d'immeuble au-dessus de la ville"],
+      ["forêt", "forêt de cendres"],
+      ["foret", "forêt de cendres"],
+      ["falaise", "falaise au-dessus du vide"],
+      ["palais", "salle du trône en ruines"],
+      ["trône", "salle du trône en ruines"],
+    ] as const;
+    for (const [needle, value] of matches) {
+      if (text.includes(needle)) return value;
+    }
+    if (genre.includes("cyber") || genre.includes("sci")) return "quartier financier cyberpunk";
+    if (genre.includes("romance") || genre.includes("shojo")) return "café calme en soirée";
+    if (genre.includes("horror") || genre.includes("horreur")) return "couloir sans fenêtres";
+    return "porte de la ville fissurée";
+  };
+
   const intent = ctx.userIntent.slice(0, 400);
   const genre = (ctx.primaryGenre ?? "manga").toLowerCase();
   const quickTag = (ctx.quickTag ?? "bold").toLowerCase();
   const castNames = (ctx.cast ?? []).slice(0, 4).map((item) => item.name);
   const cast = castNames.join(", ");
+  const primaryLocation = inferPrimaryLocation();
   const previousSummary = ctx.previousSummary ? `Après ${ctx.previousSummary.slice(0, 140)}` : "Sans récapitulatif récent";
   const previousCliffhanger = ctx.previousCliffhanger
     ? `Le précédent cliffhanger était : ${ctx.previousCliffhanger.slice(0, 120)}`
@@ -125,10 +153,10 @@ function fallbackOutline(ctx: ChapterOutlineContext): ChapterOutlineResult {
           ? "La situation semble tenue, mais un nouveau détail compromet l'équilibre."
           : "Au moment de souffler, un retournement rend la suite inévitable.",
     beats: [
-      { summary: `${genreBeats[0]} Intent: ${intent.slice(0, 100)}.`, emotionalTone: "tension", pageRole: "establishing" as const, turn: "Le décor est planté, un élément attire l'attention.", emotionalDelta: 1, characters: castNames.slice(0, 2) },
-      { summary: `${genreBeats[1]} Le chapitre cherche une variation ${quickTag}.`, emotionalTone: "montée", pageRole: "escalation" as const, turn: "La pression monte, un choix se dessine.", emotionalDelta: 2, characters: castNames.slice(0, 3) },
-      { summary: `${genreBeats[2]} Les conséquences deviennent visibles.`, emotionalTone: "pic", pageRole: "revelation" as const, turn: "Une vérité éclate et change la donne.", emotionalDelta: -1, characters: castNames.slice(0, 2) },
-      { summary: `${genreBeats[3]} La fin du chapitre prépare une vraie relance.`, emotionalTone: "chute", pageRole: "cliffhanger" as const, turn: "Un retournement final rend la suite inévitable.", emotionalDelta: -2, characters: castNames },
+      { summary: `${genreBeats[0]} Intent: ${intent.slice(0, 100)}.`, emotionalTone: "tension", pageRole: "establishing" as const, turn: "Le décor est planté, un élément attire l'attention.", emotionalDelta: 1, location: primaryLocation, characters: castNames.slice(0, 2) },
+      { summary: `${genreBeats[1]} Le chapitre cherche une variation ${quickTag}.`, emotionalTone: "montée", pageRole: "escalation" as const, turn: "La pression monte, un choix se dessine.", emotionalDelta: 2, location: primaryLocation, characters: castNames.slice(0, 3) },
+      { summary: `${genreBeats[2]} Les conséquences deviennent visibles.`, emotionalTone: "pic", pageRole: "revelation" as const, turn: "Une vérité éclate et change la donne.", emotionalDelta: -1, location: primaryLocation, characters: castNames.slice(0, 2) },
+      { summary: `${genreBeats[3]} La fin du chapitre prépare une vraie relance.`, emotionalTone: "chute", pageRole: "cliffhanger" as const, turn: "Un retournement final rend la suite inévitable.", emotionalDelta: -2, location: primaryLocation, characters: castNames },
     ],
   };
 }
@@ -156,6 +184,7 @@ Chaque beat DOIT contenir :
   - pageRole (OBLIGATOIRE) : un parmi "establishing", "escalation", "confrontation", "revelation", "aftermath", "cliffhanger"
   - turn (OBLIGATOIRE) : le micro-retournement ou événement clé de cette page (1 phrase)
   - emotionalDelta (OBLIGATOIRE) : nombre entier de -3 à +3, variation émotionnelle par rapport au beat précédent
+  - location (OBLIGATOIRE) : lieu principal de cette page, cohérent avec l'intention utilisateur et les pages voisines
   - characters (OBLIGATOIRE) : tableau de noms des personnages PRESENTS dans cette page (utiliser les noms exacts du cast fourni)
 
 Langue : français. Les beats sont des étapes narratives courtes (pas de dialogue complet).
@@ -169,6 +198,7 @@ RÈGLES DE RYTHME MANGA :
 - Chaque turn doit être UNIQUE et faire progresser l'intrigue de manière irréversible.
 - TOUS les personnages du cast doivent apparaître dans au moins 2 beats chacun.
 - Ne pas concentrer l'action sur un seul personnage : varier les combinaisons de personnages par beat.
+- Ne pas changer de décor sans raison narrative claire. Si l'intention utilisateur se déroule surtout dans un même lieu, la majorité des beats doivent rester dans ce lieu.
 
 RÈGLES DE CONTINUITÉ STRICTE :
 - Si previousCliffhanger est fourni, le PREMIER beat DOIT répondre directement à ce cliffhanger.
@@ -176,13 +206,13 @@ RÈGLES DE CONTINUITÉ STRICTE :
 - Chaque beat DOIT nommer explicitement les personnages du cast par leur nom (PAS de "le protagoniste", "le héros", etc.).
 - seriesSynopsis résume TOUTE l'histoire : ne pas la contredire, la continuer logiquement.
 - Si un personnage a un statut "blessé", "disparu" ou "mort", cela DOIT se refléter dans les beats.
-- Les nouveaux personnages non listés dans le cast doivent être signalés dans le beat (ex: "Un inconnu", "Le tavernier").
+- Si l'utilisateur nomme explicitement un nouveau personnage dans son intention (ex: "Suko"), tu peux utiliser ce nom comme nouveau PNJ récurrent, même s'il n'est pas encore dans le cast.
 
 RÈGLES ABSOLUES DE CONTINUITÉ :
 1. Respecter scrupuleusement le canon : personnages, lieux, statuts, relations et événements passés.
 2. Ne jamais ressusciter un personnage mort ni ignorer un statut "blessé" ou "disparu".
 3. Chaque beat découle CAUSALEMENT du précédent : lieu → action → conséquence → réaction. Aucun saut non justifié.
-4. UTILISER UNIQUEMENT les personnages du cast fourni. NE PAS inventer de nouveaux noms.
+4. UTILISER EN PRIORITÉ les personnages du cast fourni. N'invente de nouveaux noms QUE s'ils sont explicitement écrits dans l'intention utilisateur.
 5. Le cliffhanger doit être PRÉPARÉ dans les beats précédents, pas surgir de nulle part.
 6. Respecter l'intention utilisateur tout en restant cohérent avec l'arc en cours.
 7. Si canonStrictness > 80, ne rien modifier qui contredise la bible ou les événements permanents.

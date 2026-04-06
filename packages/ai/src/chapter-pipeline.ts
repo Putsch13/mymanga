@@ -221,9 +221,7 @@ function mergeCharactersFromBeat(
   beatSummary: string,
   fallback: string[],
 ): string[] {
-  const fromBeat = (beatCharacters ?? []).filter((name) =>
-    context.characters.some((c) => c.name.toLowerCase() === name.toLowerCase()),
-  );
+  const fromBeat = [...new Set((beatCharacters ?? []).map((name) => name.trim()).filter(Boolean))];
   if (fromBeat.length > 0) return fromBeat;
   return extractCharactersFromText(context, beatSummary, fallback);
 }
@@ -237,7 +235,35 @@ function stretchToCount<T>(items: T[], count: number, fallbackFactory: (index: n
   return next;
 }
 
-function inferLocations(context: ProjectContextForChapter) {
+function inferLocations(context: ProjectContextForChapter, userIntent?: string | null) {
+  const intent = (userIntent ?? "").toLowerCase();
+  const explicitMatches = [
+    "banque",
+    "café",
+    "cafe",
+    "taverne",
+    "rue",
+    "ruelle",
+    "ville",
+    "toit",
+    "forêt",
+    "foret",
+    "falaise",
+    "palais",
+    "trône",
+    "trone",
+  ].filter((token) => intent.includes(token));
+  if (explicitMatches.length > 0) {
+    const normalized = explicitMatches[0];
+    if (normalized === "banque") return ["banque centrale sous haute sécurité", "banque centrale sous haute sécurité", "banque centrale sous haute sécurité", "sortie de la banque"];
+    if (normalized === "café" || normalized === "cafe") return ["café calme en soirée", "café calme en soirée", "rue devant le café", "arrière-salle du café"];
+    if (normalized === "taverne") return ["taverne enfumée aux lumières basses", "taverne enfumée aux lumières basses", "taverne enfumée aux lumières basses", "entrée de la taverne"];
+    if (normalized === "forêt" || normalized === "foret") return ["forêt de cendres", "forêt de cendres", "clairière silencieuse", "lisière de la forêt"];
+    if (normalized === "ville" || normalized === "rue" || normalized === "ruelle") return ["centre-ville cyberpunk", "ruelle néon sous la pluie", "rue commerçante cyberpunk", "toit d'immeuble au-dessus de la ville"];
+    if (normalized === "toit") return ["toit d'immeuble au-dessus de la ville", "toit d'immeuble au-dessus de la ville", "escalier de service", "toit d'immeuble au-dessus de la ville"];
+    if (normalized === "palais" || normalized === "trône" || normalized === "trone") return ["salle du trône en ruines", "salle du trône en ruines", "couloir du palais", "salle du trône en ruines"];
+  }
+
   const genre = (context.project.primaryGenre ?? "fantasy").toLowerCase();
   if (genre.includes("cyber") || genre.includes("sci")) {
     return [
@@ -268,6 +294,45 @@ function inferLocations(context: ProjectContextForChapter) {
     "salle du trône en ruines",
     "forêt de cendres",
     "falaise au-dessus du vide",
+  ];
+}
+
+function buildDynamicPlotOptions(input: {
+  userIntent: string;
+  mainCast: string[];
+  previousSummary: string | null;
+  previousCliffhanger: string | null;
+  outline: {
+    summary: string;
+    cliffhanger: string;
+    beats: Array<{ summary: string; turn?: string; location?: string; pageRole?: string }>;
+  };
+}) {
+  const [hero = "Le héros", second = "un allié"] = input.mainCast;
+  const firstBeat = input.outline.beats[0];
+  const middleBeat = input.outline.beats.find((b) => b.pageRole === "confrontation" || b.pageRole === "revelation") ?? input.outline.beats[1];
+  const lastBeat = input.outline.beats[input.outline.beats.length - 1];
+  const previousAnchor = input.previousCliffhanger ?? input.previousSummary ?? "les événements récents";
+
+  return [
+    {
+      id: "safe",
+      title: "Progression logique",
+      label: "safe" as const,
+      summary: `Après ${previousAnchor}, ${hero} suit ${firstBeat?.turn?.toLowerCase() ?? "une piste concrète"} à ${firstBeat?.location ?? "un lieu clé"} pour faire avancer ${input.userIntent.slice(0, 80)}.`,
+    },
+    {
+      id: "bold",
+      title: "Accélération émotionnelle",
+      label: "bold" as const,
+      summary: `${hero} et ${second} se heurtent autour de ${middleBeat?.summary?.slice(0, 90) ?? input.userIntent.slice(0, 90)}, ce qui force une décision risquée et plus intime.`,
+    },
+    {
+      id: "shock",
+      title: "Rupture dramatique",
+      label: "shock" as const,
+      summary: `Le chapitre pousse vers ${lastBeat?.turn?.toLowerCase() ?? input.outline.cliffhanger.toLowerCase()} et transforme ${input.outline.cliffhanger.toLowerCase()} en vraie ouverture de saga.`,
+    },
   ];
 }
 
@@ -506,11 +571,6 @@ function buildPanelsForScene(
     const textPlan = panelTextPlan?.[i];
     const leadBubble = textPlan?.bubbles?.[0];
     const normalizedChars = [...new Set((charSubsetRaw ?? []).filter(Boolean))];
-    const leadSpeaker = leadBubble?.speaker;
-    if (leadSpeaker && !/narrateur|narration/i.test(leadSpeaker)) {
-      const hasSpeaker = normalizedChars.some((name) => name.toLowerCase() === leadSpeaker.toLowerCase());
-      if (!hasSpeaker) normalizedChars.push(leadSpeaker);
-    }
     const allBubbles = (textPlan?.bubbles ?? [])
       .filter((b) => b.text?.trim())
       .slice(0, 3)
@@ -518,6 +578,13 @@ function buildPanelsForScene(
         speaker: b.speaker ?? normalizedChars[0] ?? scene.characters[0] ?? "Narrateur",
         text: b.text,
       }));
+    for (const bubble of allBubbles) {
+      const bubbleSpeaker = bubble.speaker?.trim();
+      if (bubbleSpeaker && !/narrateur|narration/i.test(bubbleSpeaker)) {
+        const hasSpeaker = normalizedChars.some((name) => name.toLowerCase() === bubbleSpeaker.toLowerCase());
+        if (!hasSpeaker) normalizedChars.push(bubbleSpeaker);
+      }
+    }
 
     const beatTurn = (beat as { turn?: string }).turn;
 
@@ -613,37 +680,14 @@ export async function generateChapterBundle(input: {
 }): Promise<GeneratedChapterBundle> {
   const cast = takeNames(input.context, 6);
   const mainCast = cast.length > 0 ? cast : ["Le protagoniste", "L'antagoniste"];
-  const locations = inferLocations(input.context);
+  const locations = inferLocations(input.context, input.userIntent);
   const [locA, locB, locC, locD] = locations;
   const locAt = (i: number) => locations[i % Math.max(locations.length, 1)] ?? locA;
   const tone = input.context.project.tone ?? "dramatique";
   const genre = (input.context.project.primaryGenre ?? "fantasy").toLowerCase();
   const visualStyle = inferVisualStyle(input.context);
   const chapterGoal = `Faire avancer l'intrigue autour de : ${input.userIntent}`;
-
-  const optionSeed = [
-    {
-      id: "safe",
-      title: "Progression logique",
-      label: "safe" as const,
-      summary: `${mainCast[0]} suit la conséquence immédiate du chapitre précédent et obtient une piste concrète.`,
-    },
-    {
-      id: "bold",
-      title: "Accélération émotionnelle",
-      label: "bold" as const,
-      summary: `${mainCast[0]} confronte directement ${mainCast[1] ?? "un allié ambigu"} et force une décision risquée.`,
-    },
-    {
-      id: "shock",
-      title: "Rupture dramatique",
-      label: "shock" as const,
-      summary: `Une révélation sur ${mainCast[1] ?? "le passé du groupe"} change la lecture de tous les événements récents.`,
-    },
-  ];
-
-  const selected =
-    optionSeed.find((o) => o.label === (input.selectedPlotLabel ?? "bold")) ?? optionSeed[1];
+  const selectedLabel = input.selectedPlotLabel ?? "bold";
 
   const previous = input.context.recentChapters[0];
   const outlineResult = await generateChapterOutline({
@@ -729,7 +773,7 @@ export async function generateChapterBundle(input: {
           ? mainCast.slice(0, Math.min(3, mainCast.length))
           : [mainCast[index % mainCast.length] ?? mainCast[0], mainCast[(index + 1) % mainCast.length] ?? mainCast[0]].filter(Boolean),
     ),
-    location: locAt(index),
+    location: beat.location?.trim() || locAt(index === 0 ? 0 : Math.min(index, 1)),
     purpose: beat.emotionalTone ?? `beat_${index + 1}`,
     pageRole: beat.pageRole ?? PAGE_ROLE_SEQUENCE[index % PAGE_ROLE_SEQUENCE.length] ?? "escalation",
     turn: beat.turn ?? beat.summary.slice(0, 80),
@@ -737,17 +781,35 @@ export async function generateChapterBundle(input: {
   }));
 
   const TARGET_PAGES = 10;
+  const dominantLocation = rawOutlineBeats[0]?.location || locA;
   const beats = stretchToCount(rawOutlineBeats, TARGET_PAGES, (index) => ({
     id: `beat_${index + 1}`,
-    summary: `${selected.summary} Cette étape fait avancer ${input.context.project.title} dans une nouvelle direction.`,
+    summary: `${chapterGoal}. Cette étape approfondit ${input.userIntent.slice(0, 120)} avec une progression plus ${selectedLabel}.`,
     tension: Math.min(9, 3 + index),
-    characters: mainCast.slice(0, Math.min(2 + (index % 2), mainCast.length)),
-    location: locAt(index),
+    characters: mainCast.slice(0, Math.min(index % 3 === 0 ? 4 : 3, mainCast.length)),
+    location: dominantLocation,
     purpose: `variation_${index + 1}`,
     pageRole: PAGE_ROLE_SEQUENCE[index % PAGE_ROLE_SEQUENCE.length] ?? "escalation",
     turn: `Progression inattendue vers ${input.context.project.title}.`,
     emotionalDelta: index % 2 === 0 ? 1 : -1,
   }));
+
+  const dynamicPlotOptions = buildDynamicPlotOptions({
+    userIntent: input.userIntent,
+    mainCast,
+    previousSummary: previous?.summary ?? null,
+    previousCliffhanger: previous?.cliffhanger ?? null,
+    outline: {
+      summary: outlineResult.outline.summary,
+      cliffhanger: outlineResult.outline.cliffhanger,
+      beats: rawOutlineBeats.map((beat) => ({
+        summary: beat.summary,
+        turn: beat.turn,
+        location: beat.location,
+        pageRole: beat.pageRole,
+      })),
+    },
+  });
 
   const panelCounts = beats.map((beat, index) => {
     const t = beat.tension ?? (3 + index);
@@ -903,7 +965,7 @@ export async function generateChapterBundle(input: {
       tone,
       whyNow: `Le chapitre capitalise sur les récents événements pour faire progresser ${input.context.project.title} sans casser la continuité.`,
     },
-    plotOptions: optionSeed,
+    plotOptions: dynamicPlotOptions,
     outline: {
       chapter_title: outlineResult.outline.title ?? input.chapterTitle ?? `Chapitre ${input.chapterNumber}`,
       chapter_goal: chapterGoal,

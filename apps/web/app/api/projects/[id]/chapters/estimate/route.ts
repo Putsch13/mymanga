@@ -51,5 +51,14 @@ export async function POST(req: Request, ctx: Ctx) {
     },
     plotOptions: bundle.plotOptions,
     creativeDirection: bundle.creativeDirection,
+    outlinePreview: {
+      summary: bundle.outline.chapter_goal,
+      cliffhanger: bundle.outline.cliffhanger,
+      beats: bundle.outline.beats.slice(0, 5).map((beat) => ({
+        summary: beat.summary,
+        characters: beat.characters,
+        location: beat.location,
+      })),
+    },
   });
 }

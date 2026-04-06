@@ -52,6 +52,11 @@ export default function ChapterGeneratorPage() {
       characters: Array<{ name: string; roleType: string | null }>;
       arcs: Array<{ name: string; summary: string | null }>;
     };
+    outlinePreview?: {
+      summary: string;
+      cliffhanger: string;
+      beats: Array<{ summary: string; characters: string[]; location: string }>;
+    };
   } | null>(null);
 
   const loadChapters = useCallback(() => {
@@ -391,6 +396,30 @@ export default function ChapterGeneratorPage() {
               <p className="text-sm font-medium">{previewData.creativeDirection.chapterGoal}</p>
               <p className="mt-1 text-xs text-muted-foreground">{previewData.creativeDirection.whyNow}</p>
             </div>
+            {previewData.outlinePreview ? (
+              <div className="space-y-3 rounded-lg border border-border/40 bg-background/30 p-4">
+                <div>
+                  <p className="text-sm font-medium">Résumé proposé</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{previewData.outlinePreview.summary}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium">Cliffhanger</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{previewData.outlinePreview.cliffhanger}</p>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Déroulé du chapitre</p>
+                  {previewData.outlinePreview.beats.map((beat, index) => (
+                    <div key={`${beat.summary}-${index}`} className="rounded-lg border border-border/40 bg-card/30 p-3 text-sm">
+                      <p className="font-medium">Page {index + 1}</p>
+                      <p className="mt-1 text-muted-foreground">{beat.summary}</p>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {beat.characters.length > 0 ? `Personnages : ${beat.characters.join(", ")}` : "Personnages : à préciser"}{beat.location ? ` · Lieu : ${beat.location}` : ""}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {previewData.plotOptions.length > 0 && (
               <div className="grid gap-2 sm:grid-cols-3">
                 {previewData.plotOptions.map((opt) => (
