@@ -3,39 +3,30 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Palette, Users } from "lucide-react";
-import { RENDERING_MODES } from "@manga-ai-studio/core";
+import { Loader2, Users, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 
-const intensities = ["GENERAL_SAFE", "TEEN", "MATURE_DRAMA", "MATURE_VISUAL", "RESTRICTED_BLOCKED_VISUAL"] as const;
+const STEP_LABELS: Record<string, string> = {
+  build_context: "Préparation de l'univers…",
+  generate_bundle: "Écriture du scénario…",
+  continuity_pass: "Vérification de la cohérence…",
+  story_coherence_pass: "Peaufinage du récit…",
+  persist_chapter: "Sauvegarde du chapitre…",
+  generate_anchors: "Création des repères visuels…",
+  generate_images: "Génération des images…",
+  update_memory: "Mémorisation de l'histoire…",
+};
 
 export default function ChapterGeneratorPage() {
   const params = useParams();
   const router = useRouter();
   const autoReaderNavigatedRef = useRef(false);
   const id = params.id as string;
-  const [mode, setMode] = useState<(typeof RENDERING_MODES)[number]>("PANEL_DRAFT");
-  const [intensity, setIntensity] = useState<(typeof intensities)[number]>("GENERAL_SAFE");
-  const [hasCanon, setHasCanon] = useState(true);
-  const [photorealCover, setPhotorealCover] = useState(false);
-  const [imageEstimate, setImageEstimate] = useState<unknown>(null);
-  const [chapterEstimate, setChapterEstimate] = useState<{
-    estimatedTokens: number;
-    contextPreview: {
-      recentChapters: Array<{ chapterNumber: number; title: string | null; summary: string | null }>;
-      retrievedDocs: Array<{ title: string | null; content: string }>;
-      arcs: Array<{ id?: string; name: string; summary: string | null }>;
-      characters: Array<{ id: string; name: string; roleType: string | null }>;
-    };
-    plotOptions: Array<{ id: string; title: string; label: string; summary: string }>;
-    creativeDirection: { chapterGoal: string; tone: string; whyNow: string };
-  } | null>(null);
   const [chapters, setChapters] = useState<{ id: string; title: string | null; chapterNumber: number }[]>([]);
   const [characters, setCharacters] = useState<Array<{ id: string; name: string; roleType: string | null }>>([]);
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>([]);
@@ -49,14 +40,10 @@ export default function ChapterGeneratorPage() {
     error?: { message?: string };
   } | null>(null);
   const [pipelineMsg, setPipelineMsg] = useState<string | null>(null);
-  const [runningNow, setRunningNow] = useState(false);
   const [startingPipeline, setStartingPipeline] = useState(false);
   const [creatingDraft, setCreatingDraft] = useState(false);
-  const [diag, setDiag] = useState<null | { hasFalKey: boolean; hasOpenAI: boolean; hasInngestEventKey: boolean; authDisabled: boolean }>(null);
-  const [userIntent, setUserIntent] = useState("Faire monter la tension, révéler un secret et préparer une confrontation majeure.");
+  const [userIntent, setUserIntent] = useState("");
   const [chapterTitle, setChapterTitle] = useState("");
-  const [projectIntensityLayer, setProjectIntensityLayer] = useState<string | null>(null);
-  const [hasCharacters, setHasCharacters] = useState<boolean | null>(null);
 
   const loadChapters = useCallback(() => {
     fetch(`/api/projects/${id}/chapters`)
@@ -71,16 +58,13 @@ export default function ChapterGeneratorPage() {
     fetch(`/api/projects/${id}/characters`)
       .then((r) => r.json())
       .then((j) => {
-        const nextCharacters = (j.characters ?? []).map((character: { id: string; name: string; roleType: string | null }) => ({
-          id: character.id,
-          name: character.name,
-          roleType: character.roleType,
+        const list = (j.characters ?? []).map((c: { id: string; name: string; roleType: string | null }) => ({
+          id: c.id, name: c.name, roleType: c.roleType,
         }));
-        setCharacters(nextCharacters);
-        setHasCharacters(nextCharacters.length > 0);
+        setCharacters(list);
         setSelectedCharacterIds((current) => {
-          if (current.length > 0) return current.filter((value) => nextCharacters.some((character: { id: string }) => character.id === value));
-          return nextCharacters.slice(0, 3).map((character: { id: string }) => character.id);
+          if (current.length > 0) return current.filter((v) => list.some((c: { id: string }) => c.id === v));
+          return list.slice(0, 3).map((c: { id: string }) => c.id);
         });
       });
   }, [id]);
@@ -89,22 +73,6 @@ export default function ChapterGeneratorPage() {
     loadChapters();
     loadCharacters();
   }, [loadCharacters, loadChapters]);
-
-  useEffect(() => {
-    fetch(`/api/projects/${id}`, { cache: "no-store" })
-      .then((r) => r.json())
-      .then((j) => {
-        if (j.project?.intensityLayer) setProjectIntensityLayer(j.project.intensityLayer);
-      })
-      .catch(() => null);
-  }, [id]);
-
-  useEffect(() => {
-    fetch("/api/diagnostics/public", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((j) => setDiag(j.env ?? null))
-      .catch(() => setDiag(null));
-  }, []);
 
   useEffect(() => {
     autoReaderNavigatedRef.current = false;
@@ -123,10 +91,9 @@ export default function ChapterGeneratorPage() {
         if (!res.ok) {
           if (res.status === 401 || res.status === 403) {
             stopped = true;
-            setPipelineMsg("Session expirée. Recharge la page puis relance la génération.");
+            setPipelineMsg("Session expirée. Recharge la page.");
             return;
           }
-          // Erreur transitoire : backoff
           delay = Math.min(delay * 1.5, 15000);
           timeoutId = window.setTimeout(poll, delay);
           return;
@@ -149,11 +116,9 @@ export default function ChapterGeneratorPage() {
           }
           return;
         }
-        // Job en cours : backoff progressif 2s → 4s → 8s → max 12s
         if (json.job.status === "running") {
           delay = Math.min(delay * 1.3, 12000);
         } else {
-          // Queued : rester rapide
           delay = 2000;
         }
       } catch {
@@ -175,13 +140,9 @@ export default function ChapterGeneratorPage() {
       return null;
     }
     const weights: Record<string, number> = {
-      build_context: 9,
-      generate_bundle: 18,
-      continuity_pass: 8,
-      story_coherence_pass: 8,
-      persist_chapter: 12,
-      generate_images: 40,
-      update_memory: 5,
+      build_context: 9, generate_bundle: 18, continuity_pass: 8,
+      story_coherence_pass: 8, persist_chapter: 12, generate_anchors: 5,
+      generate_images: 35, update_memory: 5,
     };
     const scoreFor = (status: string, weight: number) => {
       if (status === "completed") return weight;
@@ -193,75 +154,18 @@ export default function ChapterGeneratorPage() {
     return Math.max(0, Math.min(100, Math.round((done / Math.max(total, 1)) * 100)));
   })();
 
-  async function runEstimate() {
-    const res = await fetch("/api/estimate-image", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        mode,
-        contentIntensityLayer: intensity,
-        hasCanonReferences: hasCanon,
-        preferPhotorealCover: photorealCover && mode === "COVER_ART",
-        characterCountInScene: 2,
-      }),
-    });
-    setImageEstimate(await res.json());
-  }
-
   function toggleCharacter(characterId: string) {
     setSelectedCharacterIds((current) =>
-      current.includes(characterId) ? current.filter((value) => value !== characterId) : [...current, characterId]
+      current.includes(characterId) ? current.filter((v) => v !== characterId) : [...current, characterId]
     );
   }
 
   function buildFocusedIntent() {
     const focusedNames = characters
-      .filter((character) => selectedCharacterIds.includes(character.id))
-      .map((character) => character.name);
+      .filter((c) => selectedCharacterIds.includes(c.id))
+      .map((c) => c.name);
     if (focusedNames.length === 0) return userIntent;
     return `Focus personnages: ${focusedNames.join(", ")}. ${userIntent}`;
-  }
-
-  async function runChapterEstimate() {
-    const res = await fetch(`/api/projects/${id}/chapters/estimate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userIntent: buildFocusedIntent(),
-        focusCharacterIds: selectedCharacterIds,
-        selectedPlotLabel,
-      }),
-    });
-    const json = await res.json();
-    setChapterEstimate(json);
-  }
-
-  async function createChapter() {
-    setCreatingDraft(true);
-    try {
-      const res = await fetch(`/api/projects/${id}/chapters`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: chapterTitle || `Chapitre ${chapters.length + 1}`,
-          userIntent: buildFocusedIntent(),
-          focusCharacterIds: selectedCharacterIds,
-          selectedPlotLabel,
-        }),
-      });
-      const j = await res.json();
-      if (j.chapter) {
-        setSelectedChapter(j.chapter.id);
-        loadChapters();
-      } else {
-        setPipelineMsg(j.message ?? "Création du brouillon impossible.");
-      }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Erreur réseau";
-      setPipelineMsg(msg);
-    } finally {
-      setCreatingDraft(false);
-    }
   }
 
   async function runPipeline() {
@@ -275,412 +179,257 @@ export default function ChapterGeneratorPage() {
         body: JSON.stringify({ chapterId: selectedChapter, focusCharacterIds: selectedCharacterIds, selectedPlotLabel }),
       });
       const j = await res.json();
-      setPipelineMsg(j.message ?? JSON.stringify(j));
       if (j.jobId) {
         setSelectedJobId(j.jobId);
-        const jobStatus = j.ok === false ? "failed" : "queued";
-        setJobState({ id: j.jobId, status: jobStatus, output: { currentStep: jobStatus, steps: [] }, ...(j.ok === false ? { error: { message: j.message } } : {}) });
+        setJobState({ id: j.jobId, status: j.ok === false ? "failed" : "queued", output: { currentStep: "queued", steps: [] }, ...(j.ok === false ? { error: { message: j.message } } : {}) });
+        if (!j.ok) setPipelineMsg(j.message ?? "Erreur de lancement.");
       } else if (!res.ok || j.ok === false) {
+        setPipelineMsg(j.message ?? "Erreur de lancement.");
         setJobState(null);
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Erreur réseau";
-      setPipelineMsg(msg);
+      setPipelineMsg(e instanceof Error ? e.message : "Erreur réseau");
     } finally {
       setStartingPipeline(false);
     }
   }
 
-  async function runNow() {
-    if (!selectedJobId) return;
-    setRunningNow(true);
+  async function createAndGenerate() {
+    setCreatingDraft(true);
+    setPipelineMsg(null);
     try {
-      const res = await fetch(`/api/jobs/${selectedJobId}/run-now`, { method: "POST" });
+      const res = await fetch(`/api/projects/${id}/chapters`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: chapterTitle || `Chapitre ${chapters.length + 1}`,
+          userIntent: buildFocusedIntent(),
+          focusCharacterIds: selectedCharacterIds,
+          selectedPlotLabel,
+        }),
+      });
       const j = await res.json();
-      setPipelineMsg(j.ok ? "Exécution immédiate lancée (sans Inngest)." : (j.error ?? j.message ?? "Échec run-now"));
+      if (!j.chapter) {
+        setPipelineMsg(j.message ?? "Impossible de créer le brouillon.");
+        return;
+      }
+      setSelectedChapter(j.chapter.id);
+      loadChapters();
+
+      setStartingPipeline(true);
+      const pRes = await fetch(`/api/projects/${id}/pipeline`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chapterId: j.chapter.id, focusCharacterIds: selectedCharacterIds, selectedPlotLabel }),
+      });
+      const pJ = await pRes.json();
+      if (pJ.jobId) {
+        setSelectedJobId(pJ.jobId);
+        setJobState({ id: pJ.jobId, status: "queued", output: { currentStep: "queued", steps: [] } });
+      } else {
+        setPipelineMsg(pJ.message ?? "Erreur de lancement.");
+      }
+    } catch (e) {
+      setPipelineMsg(e instanceof Error ? e.message : "Erreur réseau");
     } finally {
-      setRunningNow(false);
+      setCreatingDraft(false);
+      setStartingPipeline(false);
     }
   }
 
+  const isGenerating = Boolean(jobState && ["queued", "running"].includes(jobState.status));
+  const isDone = Boolean(jobState && ["completed", "partial_success"].includes(jobState.status));
+  const isFailed = Boolean(jobState && jobState.status === "failed");
+
   return (
-    <div className="space-y-8">
-      <div className="rounded-[2rem] border border-border/60 bg-black/20 px-6 py-6">
+    <div className="mx-auto max-w-3xl space-y-6">
+      <div>
         <Link href={`/projects/${id}`} className="text-sm text-muted-foreground hover:text-foreground">
-          ← Projet
+          ← Mon projet
         </Link>
-        <h1 className="mt-3 text-3xl font-semibold">Labo de génération</h1>
-        <p className="text-muted-foreground mt-2 max-w-2xl text-sm">
-          Ici, on vise une sortie lisible comme un vrai manga : environ <strong>10 pages</strong> (4–6 cases/page), double passe de cohérence (canon + narration), et panels réellement générés.
+        <h1 className="mt-3 text-3xl font-semibold tracking-tight">Créer un chapitre</h1>
+        <p className="text-muted-foreground mt-1 text-sm">
+          Décris ce que tu veux dans ton chapitre, choisis tes personnages, et lance la génération.
         </p>
-        {diag ? (
-          <div className="mt-4 space-y-2">
-            <div className="flex flex-wrap gap-2 text-xs">
-              <span className="rounded-full border border-border/60 px-3 py-1">AUTH {diag.authDisabled ? "OFFLINE/DEMO" : "LIVE"}</span>
-              <span className={`rounded-full border px-3 py-1 ${diag.hasFalKey ? "border-border/60" : "border-red-500/50 text-red-400"}`}>FAL {diag.hasFalKey ? "OK" : "MANQUANT"}</span>
-              <span className={`rounded-full border px-3 py-1 ${diag.hasOpenAI ? "border-border/60" : "border-amber-500/50 text-amber-400"}`}>OPENAI {diag.hasOpenAI ? "OK" : "MANQUANT"}</span>
-              <span className="rounded-full border border-border/60 px-3 py-1">INNGEST {diag.hasInngestEventKey ? "OK" : "OPTIONNEL"}</span>
-            </div>
-            {!diag.hasOpenAI && (
-              <div className="rounded-xl border border-amber-500/30 bg-amber-950/20 p-3 text-xs text-amber-300">
-                ⚠️ <strong>OPENAI_API_KEY absente</strong> — le RAG (mémoire sémantique), les passes de cohérence et les dialogues sont dégradés ou désactivés. Les chapitres seront génériques.
-              </div>
-            )}
-            {!diag.hasFalKey && (
-              <div className="rounded-xl border border-red-500/30 bg-red-950/20 p-3 text-xs text-red-300">
-                🔴 <strong>FAL_KEY absente</strong> — aucune image ne sera générée. Le pipeline tournera en mode mock.
-              </div>
-            )}
-          </div>
-        ) : null}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-        <div className="space-y-6">
-          <Card className="border-border/60 bg-card/50">
-            <CardHeader>
-              <CardTitle className="text-lg">0) Choisir le casting du chapitre</CardTitle>
-              <CardDescription>
-                Sélectionne les personnages à mettre au centre de la génération, puis ouvre leurs fiches pour régler physique, voix et personnalité.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex flex-wrap gap-2">
-                <Button asChild variant="outline" size="sm" className="gap-2">
-                  <Link href={`/projects/${id}/characters`}>
-                    <Users className="h-4 w-4" />
-                    Gérer les personnages
-                  </Link>
-                </Button>
-                <Button asChild variant="outline" size="sm" className="gap-2">
-                  <Link href={`/projects/${id}/characters/new`}>
-                    <Users className="h-4 w-4" />
-                    Nouveau héros / méchant
-                  </Link>
-                </Button>
-                <Button asChild variant="outline" size="sm" className="gap-2">
-                  <Link href={`/projects/${id}/style`}>
-                    <Palette className="h-4 w-4" />
-                    Style manga
-                  </Link>
-                </Button>
-              </div>
-              {characters.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {characters.map((character) => (
-                    <Button
-                      key={character.id}
-                      type="button"
-                      size="sm"
-                      variant={selectedCharacterIds.includes(character.id) ? "default" : "outline"}
-                      onClick={() => toggleCharacter(character.id)}
-                    >
-                      {character.name}
-                      {character.roleType ? ` · ${character.roleType}` : ""}
-                    </Button>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Aucun personnage encore créé. Commence par le héros et l&apos;antagoniste avant de générer un chapitre.
-                </p>
-              )}
-              {selectedCharacterIds.length > 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  Focus actif :{" "}
-                  {characters
-                    .filter((character) => selectedCharacterIds.includes(character.id))
-                    .map((character) => character.name)
-                    .join(", ")}
-                </p>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/60 bg-card/50">
-            <CardHeader>
-              <CardTitle className="text-lg">1) Créer le brouillon</CardTitle>
-              <CardDescription>Un titre + une intention + un focus casting. Le moteur partira de là.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>Titre</Label>
-                <Input
-                  value={chapterTitle}
-                  onChange={(e) => setChapterTitle(e.target.value)}
-                  placeholder={`Ex. : Chapitre ${chapters.length + 1} — Le prix du mensonge`}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Intention (ce que tu veux qu&apos;il se passe)</Label>
-                <Textarea
-                  rows={5}
-                  value={userIntent}
-                  onChange={(e) => setUserIntent(e.target.value)}
-                  placeholder="Ex. : Confrontation dans un sanctuaire, révélation d&apos;un secret, et cliffhanger final."
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Cadence du chapitre</Label>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    { label: "safe", title: "Progression logique" },
-                    { label: "bold", title: "Accélération émotionnelle" },
-                    { label: "shock", title: "Rupture dramatique" },
-                  ].map((option) => (
-                    <Button
-                      key={option.label}
-                      type="button"
-                      size="sm"
-                      variant={selectedPlotLabel === option.label ? "default" : "outline"}
-                      onClick={() => setSelectedPlotLabel(option.label as "safe" | "bold" | "shock")}
-                    >
-                      {option.title}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="secondary" onClick={createChapter} disabled={creatingDraft}>
-                  {creatingDraft ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Créer le brouillon
-                </Button>
-                <Button type="button" variant="outline" onClick={runChapterEstimate}>
-                  Estimer (optionnel)
-                </Button>
-              </div>
-              {chapterEstimate ? (
-                <div className="rounded-lg border border-border/60 bg-background/30 p-4 text-sm">
-                  <p className="font-medium">Estimation : {chapterEstimate.estimatedTokens} tokens</p>
-                  <p className="mt-1 text-muted-foreground">{chapterEstimate.creativeDirection.whyNow}</p>
-                  {chapterEstimate.plotOptions?.length ? (
-                    <div className="mt-4 grid gap-2 md:grid-cols-3">
-                      {chapterEstimate.plotOptions.map((option) => (
-                        <button
-                          key={option.id}
-                          type="button"
-                          onClick={() => setSelectedPlotLabel(option.label as "safe" | "bold" | "shock")}
-                          className={`rounded-lg border p-3 text-left transition ${
-                            selectedPlotLabel === option.label
-                              ? "border-violet-400 bg-violet-500/10"
-                              : "border-border/60 bg-background/40 hover:border-border"
-                          }`}
-                        >
-                          <p className="text-xs uppercase tracking-wide text-muted-foreground">{option.label}</p>
-                          <p className="mt-1 font-medium">{option.title}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">{option.summary}</p>
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                  <div className="mt-4 grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
-                    <div className="rounded-lg border border-border/60 bg-background/40 p-3">
-                      <p className="font-medium text-foreground">Casting repris</p>
-                      <p>{chapterEstimate.contextPreview.characters.map((character) => character.name).join(", ") || "aucun"}</p>
-                    </div>
-                    <div className="rounded-lg border border-border/60 bg-background/40 p-3">
-                      <p className="font-medium text-foreground">Arcs détectés</p>
-                      <p>{chapterEstimate.contextPreview.arcs.map((arc) => arc.name).join(", ") || "aucun"}</p>
-                    </div>
-                    <div className="rounded-lg border border-border/60 bg-background/40 p-3">
-                      <p className="font-medium text-foreground">RAG utile</p>
-                      <p>{chapterEstimate.contextPreview.retrievedDocs[0]?.title ?? "Pas de doc proche pour l’instant"}</p>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/60 bg-card/50">
-            <CardHeader>
-              <CardTitle className="text-lg">2) Générer</CardTitle>
-              <CardDescription>Le pipeline va créer les scènes, le storyboard et les images.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {hasCharacters === false && (
-                <div className="rounded-xl border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-300">
-                  ⚠️ Aucun personnage créé sur ce projet. Les images générées seront génériques.{" "}
-                  <Link href={`/projects/${id}/characters/new`} className="underline hover:text-amber-200">
-                    Créer un personnage →
-                  </Link>
-                </div>
-              )}
-              {projectIntensityLayer && (
-                <div className="flex items-center gap-2 rounded-lg border border-border/40 bg-background/40 px-3 py-2 text-xs text-muted-foreground">
-                  <span className="font-medium text-foreground">Intensité projet :</span>
-                  <span className="rounded-full bg-primary/15 px-2 py-0.5 font-mono text-primary">{projectIntensityLayer}</span>
-                  <span className="opacity-60">— c&apos;est cette valeur qui est utilisée par le pipeline</span>
-                </div>
-              )}
-              {chapters.length > 0 ? (
-                <select
-                  className="flex h-10 w-full rounded-lg border border-border bg-background/80 px-3 text-sm"
-                  value={selectedChapter}
-                  onChange={(e) => setSelectedChapter(e.target.value)}
+      {/* Personnages */}
+      <Card className="border-border/60 bg-card/50">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Users className="h-4 w-4" />
+            Personnages
+          </CardTitle>
+          <CardDescription>Sélectionne ceux qui apparaissent dans ce chapitre.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {characters.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {characters.map((c) => (
+                <Button
+                  key={c.id}
+                  type="button"
+                  size="sm"
+                  variant={selectedCharacterIds.includes(c.id) ? "default" : "outline"}
+                  onClick={() => toggleCharacter(c.id)}
                 >
-                  {chapters
-                    .slice()
-                    .sort((a, b) => (b.chapterNumber ?? 0) - (a.chapterNumber ?? 0))
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        #{c.chapterNumber} {c.title}
-                      </option>
-                    ))}
-                </select>
-              ) : (
-                <p className="text-muted-foreground text-sm">Crée un brouillon pour lancer la génération.</p>
-              )}
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" onClick={runPipeline} disabled={!selectedChapter || startingPipeline}>
-                  {startingPipeline ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Générer ce chapitre
+                  {c.name}
                 </Button>
-                <Button type="button" variant="secondary" onClick={runNow} disabled={!selectedJobId || runningNow}>
-                  {runningNow ? "Exécution…" : "Exécuter maintenant (sans Inngest)"}
-                </Button>
-                <Button asChild variant="outline">
-                  <Link href={`/projects/${id}/chapters`}>Aller lire →</Link>
-                </Button>
-              </div>
-              {pipelineMsg ? <p className="text-sm text-muted-foreground">{pipelineMsg}</p> : null}
-            </CardContent>
-          </Card>
-
-          <details className="rounded-lg border border-border/60 bg-card/30 p-4">
-            <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
-              Avancé (debug / estimations image)
-            </summary>
-            <div className="mt-4 space-y-4">
-              <Card className="border-border/60 bg-card/40">
-                <CardHeader>
-                  <CardTitle className="text-base">Estimation image</CardTitle>
-                  <CardDescription>Zone debug optionnelle. Le flux principal doit rester simple.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <select
-                    className="flex h-10 w-full rounded-lg border border-border bg-background/80 px-3 text-sm"
-                    value={mode}
-                    onChange={(e) => setMode(e.target.value as (typeof RENDERING_MODES)[number])}
-                  >
-                    {RENDERING_MODES.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    className="flex h-10 w-full rounded-lg border border-border bg-background/80 px-3 text-sm"
-                    value={intensity}
-                    onChange={(e) => setIntensity(e.target.value as (typeof intensities)[number])}
-                  >
-                    {intensities.map((i) => (
-                      <option key={i} value={i}>
-                        {i}
-                      </option>
-                    ))}
-                  </select>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={hasCanon} onChange={(e) => setHasCanon(e.target.checked)} />
-                    Références canon
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={photorealCover} onChange={(e) => setPhotorealCover(e.target.checked)} />
-                    Cover photoreal
-                  </label>
-                  <Button type="button" variant="secondary" onClick={runEstimate}>
-                    Estimer
-                  </Button>
-                  {imageEstimate ? (
-                    <pre className="max-h-48 overflow-auto rounded-lg border border-border bg-background/50 p-3 text-xs">
-                      {JSON.stringify(imageEstimate, null, 2)}
-                    </pre>
-                  ) : null}
-                </CardContent>
-              </Card>
+              ))}
             </div>
-          </details>
-        </div>
+          ) : (
+            <div className="text-sm text-muted-foreground">
+              Aucun personnage encore créé.{" "}
+              <Link href={`/projects/${id}/characters/new`} className="text-primary underline">
+                Crée ton premier personnage
+              </Link>
+            </div>
+          )}
+          <div className="flex gap-2">
+            <Button asChild variant="ghost" size="sm">
+              <Link href={`/projects/${id}/characters/new`}>+ Nouveau personnage</Link>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
-        <div className="space-y-6">
-          <Card className="border-border/60 bg-card/50">
-            <CardHeader>
-              <CardTitle className="text-lg">Suivi du job</CardTitle>
-              <CardDescription>Si Inngest n&apos;est pas synchronisé, lance directement sans Inngest.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {jobState ? (
-                <div className="space-y-3">
-                  <p className="text-sm font-medium">Statut : {jobState.status}</p>
-                  {typeof progressValue === "number" ? (
-                    <div className="space-y-2">
-                      <Progress value={progressValue} />
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>{progressValue}%</span>
-                        <span>
-                          {progressValue >= 100 && jobState.status === "completed"
-                            ? "Terminé — recharge automatique"
-                            : "En cours…"}
-                        </span>
-                      </div>
-                    </div>
-                  ) : null}
-                  {["queued", "running"].includes(jobState.status) ? (
-                    <div className="rounded-lg border border-amber-500/20 bg-amber-950/20 p-3">
-                      <p className="text-xs text-amber-300">
-                        Si tu as mis `INNGEST_EVENT_KEY` mais que l&apos;app Inngest n&apos;est pas synchronisée, le job peut rester bloqué.
-                      </p>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        className="mt-2"
-                        onClick={runNow}
-                        disabled={runningNow}
-                      >
-                        {runningNow ? "Exécution…" : "Exécuter maintenant (sans Inngest)"}
-                      </Button>
-                    </div>
-                  ) : null}
-                  {jobState.output?.steps?.length ? (
-                    <div className="space-y-2 rounded-lg border border-border/60 p-3">
-                      {jobState.output.steps.map((step) => (
-                        <div key={step.key} className="flex items-center justify-between text-sm">
-                          <span>{step.label}</span>
-                          <span className="text-muted-foreground">{step.status}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                  {jobState.error?.message ? <p className="text-sm text-red-400">{jobState.error.message}</p> : null}
+      {/* Intention du chapitre */}
+      <Card className="border-border/60 bg-card/50">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Raconte ton chapitre</CardTitle>
+          <CardDescription>Décris ce qui se passe, les lieux, les événements, les rebondissements. Plus tu es précis, meilleur sera le résultat.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Titre du chapitre (optionnel)</Label>
+            <Input
+              value={chapterTitle}
+              onChange={(e) => setChapterTitle(e.target.value)}
+              placeholder={`Ex. : Chapitre ${chapters.length + 1} — Le prix du mensonge`}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Ce qui se passe dans ce chapitre</Label>
+            <Textarea
+              rows={6}
+              value={userIntent}
+              onChange={(e) => setUserIntent(e.target.value)}
+              placeholder="Ex. : Le héros arrive dans une taverne sombre à la recherche de son ancien mentor. Il découvre que celui-ci a été capturé par les gardes de la citadelle. Une confrontation éclate avec un groupe de mercenaires. Le chapitre se termine sur une révélation : le mentor connaissait le secret de la famille du héros."
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Rythme</Label>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { value: "safe" as const, label: "Progressif", desc: "Montée en douceur" },
+                { value: "bold" as const, label: "Intense", desc: "Accélération émotionnelle" },
+                { value: "shock" as const, label: "Explosif", desc: "Rebondissements forts" },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setSelectedPlotLabel(opt.value)}
+                  className={`rounded-xl border px-4 py-2 text-left transition ${
+                    selectedPlotLabel === opt.value
+                      ? "border-primary bg-primary/10 text-foreground"
+                      : "border-border/60 bg-card/30 text-muted-foreground hover:border-border"
+                  }`}
+                >
+                  <p className="text-sm font-medium">{opt.label}</p>
+                  <p className="text-xs opacity-70">{opt.desc}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Bouton principal + suivi */}
+      <div className="space-y-4">
+        {!isGenerating && !isDone && (
+          <Button
+            type="button"
+            size="lg"
+            className="w-full text-base"
+            onClick={chapters.length > 0 && selectedChapter ? runPipeline : createAndGenerate}
+            disabled={creatingDraft || startingPipeline || !userIntent.trim()}
+          >
+            {creatingDraft || startingPipeline ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <BookOpen className="mr-2 h-5 w-5" />}
+            {chapters.length > 0 && selectedChapter ? "Générer ce chapitre" : "Créer et générer le chapitre"}
+          </Button>
+        )}
+
+        {chapters.length > 1 && !isGenerating && (
+          <select
+            className="flex h-10 w-full rounded-lg border border-border bg-background/80 px-3 text-sm"
+            value={selectedChapter}
+            onChange={(e) => setSelectedChapter(e.target.value)}
+          >
+            {chapters.slice().sort((a, b) => b.chapterNumber - a.chapterNumber).map((c) => (
+              <option key={c.id} value={c.id}>
+                Chapitre {c.chapterNumber}{c.title ? ` — ${c.title}` : ""}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {/* Progression */}
+        {isGenerating && (
+          <Card className="border-primary/30 bg-primary/5">
+            <CardContent className="space-y-4 pt-6">
+              <div className="flex items-center gap-3">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                <p className="text-sm font-medium">Génération en cours…</p>
+              </div>
+              {typeof progressValue === "number" && (
+                <div className="space-y-2">
+                  <Progress value={progressValue} />
+                  <p className="text-xs text-muted-foreground text-right">{progressValue}%</p>
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">Lance une génération pour voir le suivi ici.</p>
               )}
+              {jobState?.output?.steps?.length ? (
+                <div className="space-y-1.5">
+                  {jobState.output.steps.map((step) => (
+                    <div key={step.key} className="flex items-center justify-between text-sm">
+                      <span>{STEP_LABELS[step.key] ?? step.label}</span>
+                      <span className={step.status === "completed" ? "text-emerald-400" : step.status === "running" ? "text-primary" : "text-muted-foreground"}>
+                        {step.status === "completed" ? "Fait" : step.status === "running" ? "En cours…" : "En attente"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
+        )}
 
-          <Card className="border-border/60 bg-card/40">
-            <CardHeader>
-              <CardTitle className="text-base">Conseil rapide</CardTitle>
-              <CardDescription>Si tu n&apos;as aucune image</CardDescription>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground space-y-2">
-              <p>- Vérifie que Render a bien `FAL_KEY` (exactement ce nom).</p>
-              <p>- Si tu utilises Inngest, vérifie que ton app est synchronisée sur `/api/inngest`.</p>
-              <p>- Sinon, clique sur <strong>Exécuter maintenant (sans Inngest)</strong>.</p>
+        {isDone && (
+          <Card className="border-emerald-500/30 bg-emerald-950/20">
+            <CardContent className="pt-6 text-center space-y-3">
+              <p className="text-sm font-medium text-emerald-300">Chapitre prêt ! Redirection vers le lecteur…</p>
+              <Button asChild>
+                <Link href={`/projects/${id}/chapters/${selectedChapter}/read`}>Lire le chapitre</Link>
+              </Button>
             </CardContent>
           </Card>
-        </div>
+        )}
+
+        {isFailed && (
+          <Card className="border-red-500/30 bg-red-950/20">
+            <CardContent className="pt-6 space-y-3">
+              <p className="text-sm text-red-300">La génération a rencontré un problème.</p>
+              {jobState?.error?.message && <p className="text-xs text-red-400">{jobState.error.message}</p>}
+              <Button type="button" variant="outline" size="sm" onClick={runPipeline}>
+                Réessayer
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {pipelineMsg && !isGenerating && !isDone && (
+          <p className="text-sm text-muted-foreground">{pipelineMsg}</p>
+        )}
       </div>
-
-      <Separator className="bg-border" />
-      <p className="text-muted-foreground text-sm">
-        Génération image unitaire avec débit tokens :{" "}
-        <Link href={`/projects/${id}/studio`} className="text-accent hover:underline">
-          Studio image
-        </Link>
-      </p>
     </div>
   );
 }

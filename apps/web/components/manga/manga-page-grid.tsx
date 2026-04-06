@@ -203,18 +203,33 @@ type Props = {
   page: UniversalMangaPage | DemoMangaPage;
 };
 
-function pickPanelImageFit(layout: UniversalMangaPage["layout"], area: string): "cover" | "contain" {
-  // Les cases en bandeau horizontal rognent facilement les persos en portrait :
-  // on privilégie "contain" pour préserver le sujet principal.
-  const horizontalSlots: Record<UniversalMangaPage["layout"], string[]> = {
+type FitResult = { fit: "cover" | "contain"; position: string };
+
+function pickPanelImageFit(layout: UniversalMangaPage["layout"], area: string): FitResult {
+  const wideSlots: Record<UniversalMangaPage["layout"], string[]> = {
     A: ["c"],
     B: ["c"],
     C: ["a"],
     D: ["a", "d"],
-    E: ["d", "e"],
+    E: [],
     F: [],
   };
-  return horizontalSlots[layout]?.includes(area) ? "contain" : "cover";
+  const tallSlots: Record<UniversalMangaPage["layout"], string[]> = {
+    A: ["d"],
+    B: [],
+    C: [],
+    D: [],
+    E: ["a"],
+    F: [],
+  };
+
+  if (wideSlots[layout]?.includes(area)) {
+    return { fit: "contain", position: "center" };
+  }
+  if (tallSlots[layout]?.includes(area)) {
+    return { fit: "cover", position: "top" };
+  }
+  return { fit: "cover", position: "top" };
 }
 
 function isDemoPage(page: UniversalMangaPage | DemoMangaPage): page is DemoMangaPage {
@@ -234,7 +249,7 @@ export function MangaPageGrid({ page }: Props) {
   const layoutStyle = LAYOUT_STYLES[universal.layout] ?? LAYOUT_STYLES.A;
   const renderedPanels = universal.panels.map((panel, i) => {
     const area = AREA_NAMES[i] ?? "a";
-    const fit = pickPanelImageFit(universal.layout, area);
+    const { fit, position } = pickPanelImageFit(universal.layout, area);
     return (
       <MangaPanel
         key={panel.id ?? `panel-${i}`}
@@ -252,6 +267,7 @@ export function MangaPageGrid({ page }: Props) {
         caption={panel.caption}
         textScale={panel.textScale}
         imageFit={fit}
+        objectPosition={position}
         panelIndex={i}
         className="min-h-0"
         style={{ gridArea: area }}

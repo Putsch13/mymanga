@@ -16,7 +16,7 @@ import { CharacterWardrobeConfig } from "@/components/characters/character-wardr
 import { CharacterSpeechConfig } from "@/components/characters/character-speech-config";
 import { CharacterCanonLocks } from "@/components/characters/character-canon-locks";
 import { CharacterPreviewCard } from "@/components/characters/character-preview-card";
-import { Loader2, Sparkles, Wand2 } from "lucide-react";
+import { Loader2, Wand2 } from "lucide-react";
 import { safeFetch } from "@/lib/safe-fetch";
 
 type CharacterPayload = {
@@ -61,8 +61,6 @@ export default function CharacterDetailPage() {
   const [projectCharacters, setProjectCharacters] = useState<ProjectCharacter[]>([]);
   const [saving, setSaving] = useState(false);
   const [generatingVisual, setGeneratingVisual] = useState(false);
-  const [trainingLora, setTrainingLora] = useState(false);
-  const [loraStatus, setLoraStatus] = useState<"none" | "training" | "ready" | "error">("none");
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ text: string; type: "ok" | "error" } | null>(null);
   const [relationTargetId, setRelationTargetId] = useState("");
@@ -178,26 +176,6 @@ export default function CharacterDetailPage() {
     setMessage({ text: "Visuel généré.", type: "ok" });
   }
 
-  async function trainLora() {
-    if (!character) return;
-    if (character.visualRefs.length < 3) {
-      setMessage({ text: "Il faut au moins 3 visuels générés pour entraîner un LoRA. Génère d'abord plusieurs visuels.", type: "error" });
-      return;
-    }
-    setTrainingLora(true);
-    setLoraStatus("training");
-    setMessage({ text: "Entraînement LoRA lancé (~5-10 min). Tu peux continuer à utiliser l'app.", type: "ok" });
-    const result = await safeFetch<{ ok: boolean; triggerWord?: string }>(`/api/characters/${characterId}/train-lora`, { method: "POST" });
-    setTrainingLora(false);
-    if (!result.ok) {
-      setLoraStatus("error");
-      setMessage({ text: result.error, type: "error" });
-      return;
-    }
-    setLoraStatus("ready");
-    setMessage({ text: `LoRA entraîné ! Mot déclencheur : "${result.data.triggerWord ?? ""}". Les prochains chapitres utiliseront ce modèle.`, type: "ok" });
-  }
-
   async function createRelationship() {
     if (!relationTargetId || !character) return;
     const res = await fetch(`/api/projects/${projectId}/relationships`, {
@@ -259,9 +237,6 @@ export default function CharacterDetailPage() {
     return Math.round((checks.filter(Boolean).length / checks.length) * 100);
   })();
 
-  // Estimation coût génération visuel : 1 image 512×768 ≈ 0.025 USD (FAL flux/dev)
-  const VISUAL_COST_USD = 0.025;
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -283,34 +258,12 @@ export default function CharacterDetailPage() {
               {generatingVisual ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
               Générer visuel
             </Button>
-            <Button
-              variant="outline"
-              onClick={trainLora}
-              disabled={trainingLora || loraStatus === "training"}
-              title={character.visualRefs.length < 3 ? "Génère au moins 3 visuels d'abord" : "Entraîner un modèle LoRA pour ce personnage"}
-            >
-              {trainingLora ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="mr-2 h-4 w-4" />
-              )}
-              {loraStatus === "ready" ? "LoRA actif" : loraStatus === "training" ? "Entraînement…" : "Entraîner LoRA"}
-            </Button>
             <Button onClick={save} disabled={saving}>
               {saving ? "Sauvegarde…" : "Sauvegarder"}
             </Button>
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <span>Visuel ≈ <span className="font-medium text-foreground">{VISUAL_COST_USD.toFixed(3)} USD</span></span>
-            {loraStatus === "ready" && (
-              <span className="rounded-full bg-emerald-900/30 px-2 py-0.5 text-emerald-400">LoRA entraîné</span>
-            )}
-            {loraStatus === "training" && (
-              <span className="rounded-full bg-amber-900/30 px-2 py-0.5 text-amber-400">LoRA en cours…</span>
-            )}
-            {character.visualRefs.length < 3 && (
-              <span className="text-amber-400">{3 - character.visualRefs.length} visuel(s) manquant(s) pour LoRA</span>
-            )}
+            <span>Génère plusieurs visuels pour améliorer la cohérence du personnage dans les chapitres.</span>
           </div>
         </div>
       </div>

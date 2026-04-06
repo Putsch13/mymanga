@@ -165,6 +165,14 @@ RÈGLES DE RYTHME MANGA :
 - Varier les emotionalDelta : alterner montées (+1/+2) et descentes (-1/-2) pour créer un vrai rythme.
 - Chaque turn doit être UNIQUE et faire progresser l'intrigue de manière irréversible.
 
+RÈGLES DE CONTINUITÉ STRICTE :
+- Si previousCliffhanger est fourni, le PREMIER beat DOIT répondre directement à ce cliffhanger.
+- Le summary global DOIT commencer par "Après que..." ou "Suite à..." en référençant le chapitre précédent.
+- Chaque beat DOIT nommer explicitement les personnages du cast par leur nom (PAS de "le protagoniste", "le héros", etc.).
+- seriesSynopsis résume TOUTE l'histoire : ne pas la contredire, la continuer logiquement.
+- Si un personnage a un statut "blessé", "disparu" ou "mort", cela DOIT se refléter dans les beats.
+- Les nouveaux personnages non listés dans le cast doivent être signalés dans le beat (ex: "Un inconnu", "Le tavernier").
+
 RÈGLES ABSOLUES DE CONTINUITÉ :
 1. Respecter scrupuleusement le canon : personnages, lieux, statuts, relations et événements passés.
 2. Ne jamais ressusciter un personnage mort ni ignorer un statut "blessé" ou "disparu".

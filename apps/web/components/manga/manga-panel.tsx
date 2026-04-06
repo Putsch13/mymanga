@@ -130,9 +130,9 @@ type Props = {
   caption?: string;
   textScale?: "normal" | "compact" | "micro";
   imageFit?: "cover" | "contain";
+  objectPosition?: string;
   className?: string;
   style?: React.CSSProperties;
-  /** Numéro du panel pour l'accessibilité */
   panelIndex?: number;
 };
 
@@ -151,6 +151,7 @@ export function MangaPanel({
   caption,
   textScale = "normal",
   imageFit = "cover",
+  objectPosition = "top",
   className,
   style,
   panelIndex,
@@ -185,12 +186,18 @@ export function MangaPanel({
     >
       {/* Image réelle générée par FAL */}
       {imageUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={imageUrl}
-          alt={caption ?? `Panel ${(panelIndex ?? 0) + 1}`}
-          className={`absolute inset-0 h-full w-full ${imageFit === "contain" ? "object-contain object-center" : "object-cover object-center"}`}
-        />
+        <>
+          {imageFit === "contain" && (
+            <div className="absolute inset-0 bg-gradient-to-b from-stone-900 via-stone-950 to-stone-900" />
+          )}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={imageUrl}
+            alt={caption ?? `Panel ${(panelIndex ?? 0) + 1}`}
+            className={`absolute inset-0 h-full w-full ${imageFit === "contain" ? "object-contain" : "object-cover"}`}
+            style={{ objectPosition }}
+          />
+        </>
       ) : (
         overlay
       )}

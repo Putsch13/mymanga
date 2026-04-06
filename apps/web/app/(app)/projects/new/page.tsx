@@ -148,7 +148,7 @@ export default function NewProjectPage() {
           <CardTitle className="text-xl">Nouveau manga</CardTitle>
           <CardDescription>
             Étape {step}/3 —{" "}
-            {step === 1 ? "Concept & genre" : step === 2 ? "Style & ton" : "Réglages avancés (optionnel)"}
+            {step === 1 ? "Concept & genre" : step === 2 ? "Style & ton" : "Réglages fins (optionnel)"}
           </CardDescription>
           <div className="flex gap-2 pt-1">
             {[1, 2, 3].map((n) => (
@@ -314,7 +314,7 @@ export default function NewProjectPage() {
               <div className="space-y-5">
                 <div className="flex items-center justify-between">
                   <p className="text-sm text-muted-foreground">
-                    Ces curseurs affinent le pipeline IA. Les valeurs par défaut sont déjà calibrées.
+                    Ces curseurs ajustent le ton de ton manga. Les valeurs par défaut conviennent dans la plupart des cas.
                   </p>
                   <button
                     type="button"
@@ -338,7 +338,7 @@ export default function NewProjectPage() {
                 <SliderField label="Noirceur" value={darknessLevel} onChange={setDarknessLevel} />
                 <SliderField label="Mystère" value={mysteryLevel} onChange={setMysteryLevel} />
                 <SliderField label="Densité dialogues" value={dialogueDensity} onChange={setDialogueDensity} />
-                <SliderField label="Rigueur canon (strictness)" value={canonStrictness} onChange={setCanonStrictness} />
+                <SliderField label="Fidélité à l'histoire" value={canonStrictness} onChange={setCanonStrictness} />
               </div>
             )}
 

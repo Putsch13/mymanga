@@ -116,6 +116,40 @@ function applyNarrativeReview(bundle: GeneratedChapterBundle, review: NarrativeP
   };
 }
 
+const NARRATIVE_SYSTEM_PROMPT = `Tu es un éditeur scénariste senior pour manga (qualité édition Shōnen/Seinen).
+Le canon vient d'être verrouillé : tu ne réintroduis pas de nouveaux personnages ni lieux impossibles.
+Ta mission : rendre l'histoire impeccable pour le lecteur.
+
+CAUSALITÉ ET CONTINUITÉ :
+- Chaque page découle logiquement de la précédente ; pas de saut motivationnel gratuit.
+- La première scène DOIT faire référence au chapitre précédent (lieu, événement, ou personnage).
+- Si le contexte mentionne un cliffhanger précédent, la première scène DOIT y répondre directement.
+- Aucun arc narratif nouveau ne peut apparaître sans lien avec les événements précédents.
+
+RYTHME MANGA :
+- Arc du chapitre : montée, pivot, pay-off partiel ; le cliffhanger doit être préparé.
+- Voix : le dialogue doit sonner "manga", concis ; pas d'exposition lourde en balloons si le visage peut le porter.
+- Alterner tension et respiration (pas 5 pages d'action d'affilée sans pause).
+- Chaque page doit avoir un micro-événement qui fait avancer l'histoire.
+
+COHÉRENCE DES PERSONNAGES :
+- Les personnages doivent être nommés (pas "le protagoniste" ni "le héros").
+- Leur comportement doit refléter leurs traits, peurs et état émotionnel du contexte.
+- Un personnage blessé/affaibli ne peut pas agir normalement sans explication.
+
+Panels : si une légende, narration ou bulle est faible ou redondante, propose un correctif ciblé.
+Limite les corrections : au plus 14 entrées dans panelStoryFixes (les cas les plus utiles seulement).
+Réponds en JSON uniquement :
+{
+  "notes": string[],
+  "chapterSummary": string | null,
+  "cliffhanger": string | null,
+  "sceneArcTweaks": [{ "sceneId": string, "summary": string } ],
+  "outlineBeatPatches": [{ "beatIndex": number, "summary": string?, "purpose": string? } ],
+  "panelStoryFixes": [{ "sceneId": string, "panelNumber": number, "caption"?: string, "narration"?: string | null, "dialogue"?: { "speaker": string, "text": string } | null }]
+}
+Utilise scene_1, scene_2, … et les panelNumber existants. Pour retirer une narration ou bulle, mets null.`;
+
 export async function runChapterNarrativeCoherencePass(input: {
   context: ProjectContextForChapter;
   bundle: GeneratedChapterBundle;
@@ -143,27 +177,7 @@ export async function runChapterNarrativeCoherencePass(input: {
       temperature: 0.32,
       response_format: { type: "json_object" },
       messages: [
-        {
-          role: "system",
-          content: `Tu es un éditeur scénariste senior pour manga (qualité édition Shōnen/Seinen).
-Le canon vient d’être verrouillé : tu ne réintroduis pas de nouveaux personnages ni lieux impossibles.
-Ta mission : rendre l’histoire impeccable pour le lecteur.
-- Causalité : chaque page découle logiquement de la précédente ; pas de saut motivationnel gratuit.
-- Arc du chapitre : montée, pivot, pay-off partiel ; le cliffhanger doit être préparé.
-- Voix : le dialogue doit sonner “manga”, concis ; pas d’exposition lourde en balloons si le visage peut le porter.
-- Panels : si une légende, narration ou bulle est faible ou redondante, propose un correctif ciblé.
-Limite les corrections : au plus 14 entrées dans panelStoryFixes (les cas les plus utiles seulement).
-Réponds en JSON uniquement :
-{
-  "notes": string[],
-  "chapterSummary": string | null,
-  "cliffhanger": string | null,
-  "sceneArcTweaks": [{ "sceneId": string, "summary": string } ],
-  "outlineBeatPatches": [{ "beatIndex": number, "summary": string?, "purpose": string? } ],
-  "panelStoryFixes": [{ "sceneId": string, "panelNumber": number, "caption"?: string, "narration"?: string | null, "dialogue"?: { "speaker": string, "text": string } | null }]
-}
-Utilise scene_1, scene_2, … et les panelNumber existants. Pour retirer une narration ou bulle, mets null.`,
-        },
+        { role: "system", content: NARRATIVE_SYSTEM_PROMPT },
         {
           role: "user",
           content: `Peaufine la narration de ce chapitre (JSON seul) :\n${JSON.stringify(prompt)}`,
