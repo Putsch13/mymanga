@@ -66,9 +66,17 @@ export async function POST(_req: Request, ctx: Ctx) {
     .slice(0, 2);
 
   // Reconstruire les refs : savedReferenceIds du panel original, puis ref canon perso
-  const referenceImageUrls = savedReferenceIds.filter((url) => typeof url === "string" && url.startsWith("http"));
-  if (referenceImageUrls.length === 0 && typeof metadata.canonRefUsed === "string") {
-    referenceImageUrls.push(metadata.canonRefUsed);
+  // Vérifier l'accessibilité de chaque URL avant de la passer à FAL (évite 422 "Failed to download")
+  const rawRefUrls = savedReferenceIds.filter((url) => typeof url === "string" && url.startsWith("http"));
+  if (rawRefUrls.length === 0 && typeof metadata.canonRefUsed === "string") {
+    rawRefUrls.push(metadata.canonRefUsed as string);
+  }
+  const referenceImageUrls: string[] = [];
+  for (const url of rawRefUrls) {
+    const ok = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(4000) })
+      .then((r) => r.ok)
+      .catch(() => false);
+    if (ok) referenceImageUrls.push(url);
   }
 
   const hasCanonRef = referenceImageUrls.length > 0 || panelLoras.length > 0;

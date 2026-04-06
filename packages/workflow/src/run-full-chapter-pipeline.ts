@@ -984,7 +984,18 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       // Priorité : LoRA > ref canon perso > txt2img
       // (pas de keyframe image : la cohérence décor passe par composeEnvironment dans le prompt)
       const refs: string[] = [];
-      if (canonRef) refs.push(canonRef);
+      if (canonRef) {
+        // Vérifier que l'URL de référence est encore accessible avant de la passer à FAL
+        // Une URL expirée (FAL CDN temporaire) cause une erreur 422 "Failed to download the file"
+        const isAccessible = await fetch(canonRef, { method: "HEAD", signal: AbortSignal.timeout(4000) })
+          .then((r) => r.ok)
+          .catch(() => false);
+        if (isAccessible) {
+          refs.push(canonRef);
+        } else {
+          console.warn(`[pipeline] canonRef URL inaccessible (expirée ?), ignorée pour ce panel: ${canonRef.slice(0, 80)}`);
+        }
+      }
 
       const hasCanonRef = refs.length > 0 || panelLoras.length > 0;
 
