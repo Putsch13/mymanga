@@ -256,6 +256,7 @@ export async function buildProjectContext(
       storyBible: true,
       stylePacks: { orderBy: { createdAt: "desc" }, take: 1 },
       characters: { orderBy: { createdAt: "asc" } },
+      locations: { orderBy: { name: "asc" }, take: 50 },
       relationships: true,
       arcs: { orderBy: [{ startChapterNumber: "asc" }, { name: "asc" }] },
       chapters: { orderBy: { chapterNumber: "desc" }, take: 10 },
@@ -327,6 +328,15 @@ export async function buildProjectContext(
           lockedCanon: project.storyBible.lockedCanon,
         }
       : null,
+    locations: (project.locations ?? []).map((location) => {
+      const raw = location.metadata && typeof location.metadata === "object" ? (location.metadata as Record<string, unknown>) : {};
+      return {
+        name: location.name,
+        type: location.type,
+        description: location.description,
+        aliases: Array.isArray(raw.aliases) ? raw.aliases.filter((item): item is string => typeof item === "string") : [],
+      };
+    }),
     characters: orderedCharacters.map((c) => {
       const raw = c as Record<string, unknown>;
       return {

@@ -51,6 +51,8 @@ export type ChapterOutlineContext = {
     traits?: string[];
     appearance?: string | null;
   }>;
+  intentEntities?: string[];
+  knownLocations?: Array<{ name: string; type?: string | null; description?: string | null; aliases?: string[] }>;
   relationships?: Array<{ source: string; target: string; type: string }>;
   arcs?: Array<{ name: string; summary: string | null; status: string }>;
   allRecentChapters?: Array<{ chapterNumber: number; title: string | null; summary: string | null; cliffhanger: string | null }>;
@@ -207,6 +209,8 @@ RÈGLES DE CONTINUITÉ STRICTE :
 - seriesSynopsis résume TOUTE l'histoire : ne pas la contredire, la continuer logiquement.
 - Si un personnage a un statut "blessé", "disparu" ou "mort", cela DOIT se refléter dans les beats.
 - Si l'utilisateur nomme explicitement un nouveau personnage dans son intention (ex: "Suko"), tu peux utiliser ce nom comme nouveau PNJ récurrent, même s'il n'est pas encore dans le cast.
+- Si knownLocations contient un lieu compatible avec l'intention, utilise ce lieu en priorité.
+- Si l'intention se déroule dans un seul lieu principal (ex: banque, café, taverne), garde ce lieu sur la majorité des beats.
 
 RÈGLES ABSOLUES DE CONTINUITÉ :
 1. Respecter scrupuleusement le canon : personnages, lieux, statuts, relations et événements passés.
@@ -216,6 +220,7 @@ RÈGLES ABSOLUES DE CONTINUITÉ :
 5. Le cliffhanger doit être PRÉPARÉ dans les beats précédents, pas surgir de nulle part.
 6. Respecter l'intention utilisateur tout en restant cohérent avec l'arc en cours.
 7. Si canonStrictness > 80, ne rien modifier qui contredise la bible ou les événements permanents.
+8. Les entités explicitement nommées dans intentEntities doivent apparaître dans l'histoire si elles sont pertinentes.
 
 RÈGLES DE COHÉRENCE INTER-CHAPITRES :
 8. Lire attentivement allRecentChapters : chaque chapitre DOIT continuer là où le précédent s'est arrêté.
@@ -235,6 +240,8 @@ RÈGLES DE COHÉRENCE INTER-CHAPITRES :
     visualStyle: ctx.visualStyle,
     styleGuide: ctx.styleGuide,
     cast: ctx.cast,
+    intentEntities: ctx.intentEntities ?? [],
+    knownLocations: (ctx.knownLocations ?? []).slice(0, 12),
     relationships: ctx.relationships?.slice(0, 8),
     arcs: ctx.arcs?.slice(0, 4),
     allRecentChapters: ctx.allRecentChapters?.slice(0, 3),

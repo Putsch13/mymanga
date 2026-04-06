@@ -43,6 +43,12 @@ export type ProjectContextForChapter = {
     glossary?: unknown;
     lockedCanon?: unknown;
   } | null;
+  locations?: Array<{
+    name: string;
+    type?: string | null;
+    description?: string | null;
+    aliases?: string[];
+  }>;
   characters: Array<{
     id: string;
     name: string;
@@ -224,6 +230,33 @@ function mergeCharactersFromBeat(
   const fromBeat = [...new Set((beatCharacters ?? []).map((name) => name.trim()).filter(Boolean))];
   if (fromBeat.length > 0) return fromBeat;
   return extractCharactersFromText(context, beatSummary, fallback);
+}
+
+function extractIntentEntityHints(userIntent: string, knownNames: string[]): string[] {
+  const stopwords = new Set([
+    "avec", "dans", "pour", "mais", "puis", "alors", "sur", "sous", "chez", "elle", "lui", "leur",
+    "arrive", "arrivent", "rencontre", "rencontrent", "voit", "voient", "parle", "parlent", "demande",
+    "demander", "hacker", "hacke", "banque", "cafe", "café", "ville", "monde", "cyberpunk", "entre",
+  ]);
+  const known = new Set(knownNames.map((n) => n.toLowerCase()));
+  const candidates = new Set<string>();
+  const regex = /\b(?:rencontre|voit|avec|parle à|parle a|rejoint|suit|affronte|croise)\s+([a-zA-ZÀ-ÿ][a-zA-ZÀ-ÿ'_-]{2,20})/gi;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(userIntent)) !== null) {
+    const candidate = match[1]?.trim();
+    if (!candidate) continue;
+    const lower = candidate.toLowerCase();
+    if (known.has(lower) || stopwords.has(lower)) continue;
+    candidates.add(candidate);
+  }
+  return [...candidates];
+}
+
+function shouldKeepSingleLocation(userIntent: string, beats: Array<{ location: string }>) {
+  const transitionHints = /(plus tard|ensuite|puis|après|change de lieu|quitte|rejoint|traverse|retourne à|retourne au|retourne en)/i;
+  if (transitionHints.test(userIntent)) return false;
+  const distinct = [...new Set(beats.map((b) => b.location.trim().toLowerCase()).filter(Boolean))];
+  return distinct.length <= 2;
 }
 
 function stretchToCount<T>(items: T[], count: number, fallbackFactory: (index: number) => T): T[] {
@@ -680,6 +713,10 @@ export async function generateChapterBundle(input: {
 }): Promise<GeneratedChapterBundle> {
   const cast = takeNames(input.context, 6);
   const mainCast = cast.length > 0 ? cast : ["Le protagoniste", "L'antagoniste"];
+  const intentEntityHints = extractIntentEntityHints(
+    input.userIntent,
+    input.context.characters.map((c) => c.name),
+  );
   const locations = inferLocations(input.context, input.userIntent);
   const [locA, locB, locC, locD] = locations;
   const locAt = (i: number) => locations[i % Math.max(locations.length, 1)] ?? locA;
@@ -717,6 +754,8 @@ export async function generateChapterBundle(input: {
       traits: character.traits,
       appearance: character.appearance,
     })),
+    intentEntities: intentEntityHints,
+    knownLocations: (input.context.locations ?? []).slice(0, 12),
     relationships: (input.context.relationships ?? []).slice(0, 8).map((r) => ({
       source: input.context.characters.find((c) => c.id === r.sourceCharacterId)?.name ?? r.sourceCharacterId,
       target: input.context.characters.find((c) => c.id === r.targetCharacterId)?.name ?? r.targetCharacterId,
@@ -779,6 +818,21 @@ export async function generateChapterBundle(input: {
     turn: beat.turn ?? beat.summary.slice(0, 80),
     emotionalDelta: beat.emotionalDelta ?? (index % 2 === 0 ? 1 : -1),
   }));
+
+  if (shouldKeepSingleLocation(input.userIntent, rawOutlineBeats)) {
+    const dominantLocation = rawOutlineBeats[0]?.location || locA;
+    for (const beat of rawOutlineBeats) {
+      beat.location = dominantLocation;
+    }
+  }
+
+  if (intentEntityHints.length > 0) {
+    for (let index = 0; index < Math.min(2, rawOutlineBeats.length); index++) {
+      const beat = rawOutlineBeats[index];
+      if (!beat) continue;
+      beat.characters = [...new Set([...beat.characters, ...intentEntityHints])];
+    }
+  }
 
   const TARGET_PAGES = 10;
   const dominantLocation = rawOutlineBeats[0]?.location || locA;
