@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
+import { safeFetch } from "@/lib/safe-fetch";
 
 const STEP_LABELS: Record<string, string> = {
   build_context: "Phase 1 — Analyse de l'univers et des personnages…",
@@ -60,25 +61,33 @@ export default function ChapterGeneratorPage() {
   } | null>(null);
 
   const loadChapters = useCallback(() => {
-    fetch(`/api/projects/${id}/chapters`)
-      .then((r) => r.json())
-      .then((j) => {
-        setChapters(j.chapters ?? []);
-        if (j.chapters?.[0]) setSelectedChapter(j.chapters[0].id);
+    safeFetch<{ chapters: Array<{ id: string; title: string | null; chapterNumber: number }> }>(`/api/projects/${id}/chapters`)
+      .then((res) => {
+        if (!res.ok) {
+          setPipelineMsg(res.error);
+          return;
+        }
+        setChapters(res.data.chapters ?? []);
+        if (res.data.chapters?.[0]) setSelectedChapter(res.data.chapters[0].id);
       });
   }, [id]);
 
   const loadCharacters = useCallback(() => {
-    fetch(`/api/projects/${id}/characters`)
-      .then((r) => r.json())
-      .then((j) => {
-        const list = (j.characters ?? []).map((c: { id: string; name: string; roleType: string | null }) => ({
-          id: c.id, name: c.name, roleType: c.roleType,
+    safeFetch<{ characters: Array<{ id: string; name: string; roleType: string | null }> }>(`/api/projects/${id}/characters`)
+      .then((res) => {
+        if (!res.ok) {
+          setPipelineMsg(res.error);
+          return;
+        }
+        const list = (res.data.characters ?? []).map((c) => ({
+          id: c.id,
+          name: c.name,
+          roleType: c.roleType,
         }));
         setCharacters(list);
         setSelectedCharacterIds((current) => {
-          if (current.length > 0) return current.filter((v) => list.some((c: { id: string }) => c.id === v));
-          return list.slice(0, 3).map((c: { id: string }) => c.id);
+          if (current.length > 0) return current.filter((v) => list.some((c) => c.id === v));
+          return list.slice(0, 3).map((c) => c.id);
         });
       });
   }, [id]);
