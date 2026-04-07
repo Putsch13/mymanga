@@ -1,4 +1,5 @@
 import { generateChapterOutline } from "./chapter-outline";
+import { parseIntentEntities } from "./services/entity-brain";
 import { writeDialogueForScene } from "./services/dialogue-writer";
 import { planPanelText, type PanelTextPlan } from "./services/panel-text-planner";
 
@@ -51,6 +52,14 @@ export type ProjectContextForChapter = {
     visualBrief?: string | null;
     canonLocked?: boolean;
   }>;
+  intentEntities?: Array<{
+    name: string;
+    entityKind: string;
+    dialogueMode: string;
+    recurrencePolicy: string;
+    roleHint?: string | null;
+    speciesLabel?: string | null;
+  }>;
   characters: Array<{
     id: string;
     name: string;
@@ -73,6 +82,10 @@ export type ProjectContextForChapter = {
     wardrobeProfile?: Record<string, unknown>;
     visualProfile?: Record<string, unknown>;
     continuityProfile?: Record<string, unknown>;
+    entityKind?: string | null;
+    speciesLabel?: string | null;
+    dialogueMode?: string | null;
+    recurrencePolicy?: string | null;
   }>;
   relationships: Array<{
     sourceCharacterId: string;
@@ -232,26 +245,6 @@ function mergeCharactersFromBeat(
   const fromBeat = [...new Set((beatCharacters ?? []).map((name) => name.trim()).filter(Boolean))];
   if (fromBeat.length > 0) return fromBeat;
   return extractCharactersFromText(context, beatSummary, fallback);
-}
-
-function extractIntentEntityHints(userIntent: string, knownNames: string[]): string[] {
-  const stopwords = new Set([
-    "avec", "dans", "pour", "mais", "puis", "alors", "sur", "sous", "chez", "elle", "lui", "leur",
-    "arrive", "arrivent", "rencontre", "rencontrent", "voit", "voient", "parle", "parlent", "demande",
-    "demander", "hacker", "hacke", "banque", "cafe", "café", "ville", "monde", "cyberpunk", "entre",
-  ]);
-  const known = new Set(knownNames.map((n) => n.toLowerCase()));
-  const candidates = new Set<string>();
-  const regex = /\b(?:rencontre|voit|avec|parle à|parle a|rejoint|suit|affronte|croise)\s+([a-zA-ZÀ-ÿ][a-zA-ZÀ-ÿ'_-]{2,20})/gi;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(userIntent)) !== null) {
-    const candidate = match[1]?.trim();
-    if (!candidate) continue;
-    const lower = candidate.toLowerCase();
-    if (known.has(lower) || stopwords.has(lower)) continue;
-    candidates.add(candidate);
-  }
-  return [...candidates];
 }
 
 function shouldKeepSingleLocation(userIntent: string, beats: Array<{ location: string }>) {
@@ -739,7 +732,7 @@ export async function generateChapterBundle(input: {
 }): Promise<GeneratedChapterBundle> {
   const cast = takeNames(input.context, 6);
   const mainCast = cast.length > 0 ? cast : ["Le protagoniste", "L'antagoniste"];
-  const intentEntityHints = extractIntentEntityHints(
+  const intentEntityHints = parseIntentEntities(
     input.userIntent,
     input.context.characters.map((c) => c.name),
   );
@@ -856,7 +849,7 @@ export async function generateChapterBundle(input: {
     for (let index = 0; index < Math.min(2, rawOutlineBeats.length); index++) {
       const beat = rawOutlineBeats[index];
       if (!beat) continue;
-      beat.characters = [...new Set([...beat.characters, ...intentEntityHints])];
+      beat.characters = [...new Set([...beat.characters, ...intentEntityHints.map((entity) => entity.name)])];
     }
   }
 
@@ -936,6 +929,9 @@ export async function generateChapterBundle(input: {
           const c = input.context.characters.find((ch) => ch.name === name);
           return {
             name,
+            entityKind: c?.entityKind ?? undefined,
+            dialogueMode: c?.dialogueMode ?? undefined,
+            speciesLabel: c?.speciesLabel ?? undefined,
             roleType: c?.roleType ?? undefined,
             objective: c?.objective ?? undefined,
             fear: c?.fear ?? undefined,

@@ -12,6 +12,9 @@ export interface DialogueWriterInput {
   chapterGoal?: string;
   characters: Array<{
     name: string;
+    entityKind?: string | null;
+    dialogueMode?: string | null;
+    speciesLabel?: string | null;
     roleType?: string | null;
     objective?: string | null;
     fear?: string | null;
@@ -57,7 +60,7 @@ export async function writeDialogueForScene(
   const characterList = input.characters
     .map((c) => {
       const voice = c.speechProfile ? JSON.stringify(c.speechProfile).slice(0, 350) : "voix non précisée";
-      return `- ${c.name} | rôle: ${c.roleType ?? "inconnu"} | état: ${c.emotionalState ?? "neutre"} | objectif: ${c.objective ?? "non précisé"} | peur: ${c.fear ?? "non précisée"} | traits: ${(c.traits ?? []).join(", ") || "aucun"} | défauts: ${(c.flaws ?? []).join(", ") || "aucun"} | bio: ${(c.biography ?? "n/a").slice(0, 200)} | voix: ${voice}`;
+      return `- ${c.name} | type: ${c.entityKind ?? "human"} | dialogue: ${c.dialogueMode ?? "spoken"} | espèce: ${c.speciesLabel ?? "n/a"} | rôle: ${c.roleType ?? "inconnu"} | état: ${c.emotionalState ?? "neutre"} | objectif: ${c.objective ?? "non précisé"} | peur: ${c.fear ?? "non précisée"} | traits: ${(c.traits ?? []).join(", ") || "aucun"} | défauts: ${(c.flaws ?? []).join(", ") || "aucun"} | bio: ${(c.biography ?? "n/a").slice(0, 200)} | voix: ${voice}`;
     })
     .join("\n");
   const continuityContext = (input.continuityContext ?? []).filter(Boolean).slice(0, 6).join("\n- ");
@@ -99,6 +102,8 @@ RÈGLES IMPÉRATIVES:
 - Maximum 2-3 bulles par panel, phrases concises mais expressives (max 15 mots par bulle), UNE intention par bulle.
 - Punchlines marquantes, beaucoup de silences, sous-texte plutôt que sur-texte.
 - SFX en MAJUSCULES (BANG, CRACK, WHOOSH...).
+- Si un personnage a dialogueMode = mute ou sfx_only, il ne parle pas : utilise narration, SFX ou réactions visuelles à la place.
+- Si un personnage est un animal / monstre / créature, son mode d'expression doit respecter son type (grognement, sifflement, télépathie, silence, etc.).
 
 GESTION DES PNJ / PERSONNAGES NON-NOMMÉS:
 - Si un personnage visible n'est PAS dans la liste "PERSONNAGES" (c'est un PNJ), donne-lui un speaker générique descriptif : "Aubergiste", "Garde", "Passant", "Vieillard", etc.

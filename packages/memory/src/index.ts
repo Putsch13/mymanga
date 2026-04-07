@@ -394,6 +394,22 @@ export async function buildProjectContext(
           raw.continuityProfile && typeof raw.continuityProfile === "object"
             ? (raw.continuityProfile as Record<string, unknown>)
             : {},
+        entityKind:
+          raw.continuityProfile && typeof raw.continuityProfile === "object" && typeof (raw.continuityProfile as Record<string, unknown>).entityKind === "string"
+            ? ((raw.continuityProfile as Record<string, unknown>).entityKind as string)
+            : null,
+        speciesLabel:
+          raw.continuityProfile && typeof raw.continuityProfile === "object" && typeof (raw.continuityProfile as Record<string, unknown>).speciesLabel === "string"
+            ? ((raw.continuityProfile as Record<string, unknown>).speciesLabel as string)
+            : null,
+        dialogueMode:
+          raw.continuityProfile && typeof raw.continuityProfile === "object" && typeof (raw.continuityProfile as Record<string, unknown>).dialogueMode === "string"
+            ? ((raw.continuityProfile as Record<string, unknown>).dialogueMode as string)
+            : null,
+        recurrencePolicy:
+          raw.continuityProfile && typeof raw.continuityProfile === "object" && typeof (raw.continuityProfile as Record<string, unknown>).recurrencePolicy === "string"
+            ? ((raw.continuityProfile as Record<string, unknown>).recurrencePolicy as string)
+            : null,
       };
     }),
     relationships: project.relationships,

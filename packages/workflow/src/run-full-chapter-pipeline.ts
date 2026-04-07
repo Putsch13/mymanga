@@ -8,6 +8,9 @@ import {
   buildTriggerWord,
   trainCharacterLora,
   detectVisualDrift,
+  parseIntentEntities,
+  inferEntityProfile,
+  resolveAdultEngine,
   type StoryboardPanel,
   type RoutingContext,
   type ProjectContextForChapter,
@@ -150,10 +153,12 @@ function buildRoutingContext(
   intensityLayer: string,
   panel: StoryboardPanel,
   hasCanonRef: boolean,
+  adultEngine?: "realistic" | "fantasy",
 ): RoutingContext {
   return {
     mode: "PANEL_DRAFT",
     contentIntensityLayer: intensityLayer,
+    adultEngine,
     isNewCharacter: false,
     hasCanonReferences: hasCanonRef,
     characterCountInScene: panel.characters.length,
@@ -194,6 +199,10 @@ type LoadedCharacterForPipeline = {
   wardrobeDetails: string | null;
   visualProfile: Record<string, unknown>;
   visualRefUrls: string[];
+  entityKind?: string | null;
+  speciesLabel?: string | null;
+  dialogueMode?: string | null;
+  recurrencePolicy?: string | null;
 };
 
 async function queueAutoLoraTrainingIfEligible(input: {
@@ -481,6 +490,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         const bodyState = raw.bodyState && typeof raw.bodyState === "object" ? raw.bodyState as Record<string, unknown> : {};
         const wardrobeProfile = raw.wardrobeProfile && typeof raw.wardrobeProfile === "object" ? raw.wardrobeProfile as Record<string, unknown> : {};
         const visualProfile = raw.visualProfile && typeof raw.visualProfile === "object" ? raw.visualProfile as Record<string, unknown> : {};
+        const continuityProfile = raw.continuityProfile && typeof raw.continuityProfile === "object" ? raw.continuityProfile as Record<string, unknown> : {};
 
         // Construire une description corporelle compacte depuis bodyState
         const bodyParts: string[] = [];
@@ -516,6 +526,10 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           wardrobeDetails,
           visualProfile,
           visualRefUrls: c.visualRefs.map((v) => v.imageUrl).filter(Boolean),
+          entityKind: typeof continuityProfile.entityKind === "string" ? continuityProfile.entityKind : null,
+          speciesLabel: typeof continuityProfile.speciesLabel === "string" ? continuityProfile.speciesLabel : null,
+          dialogueMode: typeof continuityProfile.dialogueMode === "string" ? continuityProfile.dialogueMode : null,
+          recurrencePolicy: typeof continuityProfile.recurrencePolicy === "string" ? continuityProfile.recurrencePolicy : null,
         };
       });
     }),
@@ -584,7 +598,21 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     // buildProjectContext retourne un objet structurellement compatible avec ProjectContextForChapter.
     // Le cast est nécessaire car les types Prisma (Json, Decimal…) diffèrent des types pipeline.
     // À terme : exporter ProjectContextForChapter depuis packages/memory et aligner les deux.
-    const context = contextRaw as ProjectContextForChapter;
+    const intentEntities = parseIntentEntities(
+      enrichedIntent,
+      (contextRaw.characters ?? []).map((c) => c.name),
+    );
+    const intentEntityByName = new Map(intentEntities.map((entity) => [entity.name.toLowerCase(), entity]));
+    const context = {
+      ...contextRaw,
+      intentEntities,
+    } as ProjectContextForChapter;
+    const adultEngine = resolveAdultEngine({
+      primaryGenre: context.project.primaryGenre,
+      subGenres: context.project.subGenres,
+      visualStyle: context.project.visualStyle,
+      userIntent: enrichedIntent,
+    });
 
     // Charger les lieux nommés du projet (pour le scene-environment-engine)
     const knownLocations = await prisma.location.findMany({
@@ -713,16 +741,39 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           const slug = pnjName.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-").slice(0, 40) + `-${Date.now()}`;
           const scenesWithPnj = revisedBundle.script.scenes.filter((s) => (s.characters ?? []).includes(pnjName));
           const contextHint = scenesWithPnj[0]?.summary?.slice(0, 200) ?? "";
+          const entityProfile = inferEntityProfile({
+            name: pnjName,
+            contextText: contextHint,
+            hint: intentEntityByName.get(pnjName.toLowerCase()) ?? null,
+          });
 
           const newChar = await prisma.character.create({
             data: {
               projectId,
               name: pnjName,
               slug,
-              roleType: "pnj",
+              roleType:
+                entityProfile.entityKind === "animal"
+                  ? "animal"
+                  : entityProfile.entityKind === "monster"
+                    ? "monster"
+                    : entityProfile.entityKind === "creature"
+                      ? "creature"
+                      : entityProfile.entityKind === "spirit"
+                        ? "spirit"
+                        : entityProfile.entityKind === "construct"
+                          ? "construct"
+                          : "pnj",
               status: "alive",
               autoGenerated: true,
               appearance: contextHint ? `Personnage apparaissant dans : ${contextHint}` : null,
+              continuityProfile: {
+                entityKind: entityProfile.entityKind,
+                speciesLabel: entityProfile.speciesLabel,
+                dialogueMode: entityProfile.dialogueMode,
+                recurrencePolicy: entityProfile.recurrencePolicy,
+                roleHint: entityProfile.roleHint,
+              },
             },
           });
 
@@ -741,6 +792,10 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             wardrobeDetails: null as string | null,
             visualProfile: {} as Record<string, unknown>,
             visualRefUrls: [] as string[],
+            entityKind: entityProfile.entityKind,
+            speciesLabel: entityProfile.speciesLabel ?? null,
+            dialogueMode: entityProfile.dialogueMode,
+            recurrencePolicy: entityProfile.recurrencePolicy,
           } as (typeof rawCharacters)[number]);
           knownCharNames.add(pnjName.toLowerCase());
         } catch (e) {
@@ -838,6 +893,8 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                     .filter((c) => panel.characters.includes(c.name))
                     .map((c) => ({
                       name: c.name,
+                      entityKind: c.entityKind,
+                      speciesLabel: c.speciesLabel,
                       gender: c.gender,
                       appearance: c.appearance,
                       hairColor: c.hairColor,
@@ -1000,7 +1057,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       const hasCanonRef = refs.length > 0 || panelLoras.length > 0;
 
       try {
-        const routingCtx = buildRoutingContext(intensityLayer, item.panel, hasCanonRef);
+        const routingCtx = buildRoutingContext(intensityLayer, item.panel, hasCanonRef, adultEngine);
         const result = await runRoutedImageGeneration(routingCtx, {
           mode: "PANEL_DRAFT",
           positivePrompt: item.panel.prompt,

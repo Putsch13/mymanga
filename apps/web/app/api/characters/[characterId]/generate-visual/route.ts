@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runRoutedImageGeneration, composeCharacterVisualPrompt } from "@manga-ai-studio/ai";
+import { runRoutedImageGeneration, composeCharacterVisualPrompt, resolveAdultEngine } from "@manga-ai-studio/ai";
 import {
   estimateImageTokensFromRules,
   refundReservation,
@@ -117,10 +117,18 @@ export async function POST(_req: Request, ctx: Ctx) {
       contentIntensityLayer: intensityLayer,
     });
 
+    const adultEngine = resolveAdultEngine({
+      primaryGenre: character.project.primaryGenre,
+      subGenres: Array.isArray(character.project.subGenres) ? character.project.subGenres as string[] : [],
+      visualStyle: character.project.visualStyle,
+      userIntent: fullAppearance ?? character.name,
+    });
+
     const output = await runRoutedImageGeneration(
       {
         mode: "PANEL_DRAFT",
         contentIntensityLayer: intensityLayer,
+        adultEngine,
         isNewCharacter: true,
         hasCanonReferences: character.visualRefs.length > 0,
         characterCountInScene: 1,

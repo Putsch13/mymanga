@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { RENDERING_MODES, type RenderingMode } from "@manga-ai-studio/core";
-import { decideImageRoute, runRoutedImageGeneration } from "@manga-ai-studio/ai";
+import { decideImageRoute, runRoutedImageGeneration, resolveAdultEngine } from "@manga-ai-studio/ai";
 import { estimateImageTokensFromRules, refundReservation, reserveTokens, settleReservedTokens } from "@manga-ai-studio/billing";
 import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
@@ -61,6 +61,9 @@ export async function POST(req: Request) {
     console.warn(`[adult-bypass] test@gmail.com bypassed mature gate on /api/ai/generate${body.projectId ? ` project=${body.projectId}` : ""}`);
   }
 
+  let projectForGeneration:
+    | { primaryGenre: string | null; subGenres: unknown; visualStyle: string | null }
+    | null = null;
   if (body.projectId) {
     const project = await prisma.project.findFirst({
       where: { id: body.projectId, userId: user.id },
@@ -75,11 +78,23 @@ export async function POST(req: Request) {
     if (canAccessMatureContent(project.user, project.user.preferences) && project.user.email?.toLowerCase() === "test@gmail.com") {
       console.warn(`[adult-bypass] test@gmail.com bypassed mature gate on /api/ai/generate project=${body.projectId}`);
     }
+    projectForGeneration = {
+      primaryGenre: project.primaryGenre,
+      subGenres: project.subGenres,
+      visualStyle: project.visualStyle,
+    };
   }
+  const adultEngine = resolveAdultEngine({
+    primaryGenre: projectForGeneration?.primaryGenre ?? null,
+    subGenres: Array.isArray(projectForGeneration?.subGenres) ? projectForGeneration?.subGenres as string[] : [],
+    visualStyle: projectForGeneration?.visualStyle ?? null,
+    userIntent: body.prompt,
+  });
 
   const ctx = {
     mode,
     contentIntensityLayer: body.contentIntensityLayer,
+    adultEngine,
     isNewCharacter: body.isNewCharacter ?? false,
     hasCanonReferences: body.hasCanonReferences ?? false,
     characterCountInScene: 1,

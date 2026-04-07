@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { Prisma } from "@manga-ai-studio/db";
 import { prisma } from "@manga-ai-studio/db";
-import { runRoutedImageGeneration } from "@manga-ai-studio/ai";
+import { runRoutedImageGeneration, resolveAdultEngine } from "@manga-ai-studio/ai";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
 import { notFound, unauthorized, validationError } from "@/lib/api-response";
@@ -31,6 +31,12 @@ export async function POST(_req: Request, ctx: Ctx) {
   const project = img.scene.chapter.project;
   const projectId = project.id;
   const intensityLayer = (project.intensityLayer as string | null) ?? "TEEN";
+  const adultEngine = resolveAdultEngine({
+    primaryGenre: project.primaryGenre,
+    subGenres: Array.isArray(project.subGenres) ? project.subGenres as string[] : [],
+    visualStyle: project.visualStyle,
+    userIntent: img.prompt ?? undefined,
+  });
   const projectForGate = await prisma.project.findFirst({
     where: { id: projectId, userId: user.id },
     include: { user: { include: { preferences: true } } },
@@ -106,6 +112,7 @@ export async function POST(_req: Request, ctx: Ctx) {
       {
         mode: "PANEL_DRAFT",
         contentIntensityLayer: intensityLayer,
+        adultEngine,
         isNewCharacter: false,
         hasCanonReferences: hasCanonRef,
         characterCountInScene: characters.length > 0 ? characters.length : 1,

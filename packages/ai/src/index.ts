@@ -24,3 +24,5 @@ export * from "./services/prompt-translator";
 export * from "./services/cover-generator";
 export * from "./services/tts-service";
 export * from "./services/visual-drift-detector";
+export * from "./services/entity-brain";
+export * from "./services/adult-engine";

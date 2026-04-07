@@ -55,6 +55,7 @@ export interface ImageGenerationProvider {
 export interface RoutingContext {
   mode: RenderingMode;
   contentIntensityLayer: string;
+  adultEngine?: "realistic" | "fantasy";
   isNewCharacter: boolean;
   hasCanonReferences: boolean;
   characterCountInScene: number;

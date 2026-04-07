@@ -51,7 +51,14 @@ export type ChapterOutlineContext = {
     traits?: string[];
     appearance?: string | null;
   }>;
-  intentEntities?: string[];
+  intentEntities?: Array<{
+    name: string;
+    entityKind?: string | null;
+    dialogueMode?: string | null;
+    recurrencePolicy?: string | null;
+    roleHint?: string | null;
+    speciesLabel?: string | null;
+  }>;
   knownLocations?: Array<{ name: string; type?: string | null; description?: string | null; aliases?: string[] }>;
   relationships?: Array<{ source: string; target: string; type: string }>;
   arcs?: Array<{ name: string; summary: string | null; status: string }>;
@@ -240,7 +247,7 @@ RÈGLES DE COHÉRENCE INTER-CHAPITRES :
     visualStyle: ctx.visualStyle,
     styleGuide: ctx.styleGuide,
     cast: ctx.cast,
-    intentEntities: ctx.intentEntities ?? [],
+    intentEntities: (ctx.intentEntities ?? []).slice(0, 8),
     knownLocations: (ctx.knownLocations ?? []).slice(0, 12),
     relationships: ctx.relationships?.slice(0, 8),
     arcs: ctx.arcs?.slice(0, 4),

@@ -81,6 +81,35 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
     };
   }
 
+  if (ctx.contentIntensityLayer === "ADULT_EXPLICIT") {
+    if (ctx.adultEngine === "realistic") {
+      const provider = pickBestAvailable(["runware", "fal", "stability", "bfl"]);
+      const gate = assertProviderAllowed(provider, layer);
+      if ("blocked" in gate) return { blocked: true, reason: gate.reason, textOnlyFallback: true };
+      return {
+        provider,
+        model:
+          provider === "runware"
+            ? DEFAULT_RUNWARE_MODEL
+            : provider === "fal"
+              ? DEFAULT_FLUX_MODEL
+              : provider === "stability"
+                ? DEFAULT_STABILITY_MODEL
+                : "flux-dev",
+        workflow: provider === "fal" ? pickFluxWorkflow(ctx) : "txt2img",
+        reason: "Adult realistic engine",
+      };
+    }
+    const gate = assertProviderAllowed("fal", layer);
+    if ("blocked" in gate) return { blocked: true, reason: gate.reason, textOnlyFallback: true };
+    return {
+      provider: "fal",
+      model: DEFAULT_FLUX_MODEL,
+      workflow: pickFluxWorkflow(ctx),
+      reason: "Adult fantasy engine",
+    };
+  }
+
   if (ctx.isNewCharacter && (ctx.mode === "CHARACTER_SHEET" || ctx.mode === "CHARACTER_EXPRESSION_SET")) {
     if (ctx.contentIntensityLayer === "MATURE_VISUAL" || ctx.contentIntensityLayer === "MATURE_DRAMA") {
       const gate = assertProviderAllowed("runware", layer);

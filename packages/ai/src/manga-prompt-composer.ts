@@ -2,6 +2,8 @@ import type { PanelMood } from "./chapter-pipeline";
 
 export interface CharacterRef {
   name: string;
+  entityKind?: string | null;
+  speciesLabel?: string | null;
   gender?: string | null;
   appearance?: string | null;
   hairColor?: string | null;
@@ -82,6 +84,15 @@ const BASE_NEGATIVE =
 
 function describeCharacter(c: CharacterRef): string {
   const parts: string[] = [`[${c.name}]`];
+
+  const entityKind = c.entityKind?.trim().toLowerCase();
+  if (entityKind && entityKind !== "human" && entityKind !== "named_npc") {
+    parts.push(entityKind);
+    if (c.speciesLabel) parts.push(c.speciesLabel);
+    if (c.appearance) parts.push(c.appearance);
+    if (c.bodyDetails) parts.push(c.bodyDetails);
+    return parts.join(", ");
+  }
 
   const normalizedGender = c.gender?.trim().toLowerCase();
   if (normalizedGender === "male") parts.push("male, adult man");
