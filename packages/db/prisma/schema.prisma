@@ -223,6 +223,10 @@ model Project {
   jobs            Job[]
   loraModels      LoraModel[]
   loraAttachments LoraAttachment[] @relation("ProjectLoras")
+  chapterCanonStates ChapterCanonState[]
+  sceneStates     SceneState[]
+  canonTimelineEvents CanonTimelineEvent[]
+  canonChangeRequests CanonChangeRequest[]
 }
 
 model ProjectSettings {
@@ -302,13 +306,43 @@ model Character {
   eyeColor        String?
   outfitDefault   String?
   bodyProfile     Json      @default("{}")
-  // Profils structurés avancés (LOT 2)
+  // Profils structurés avancés (LOT 2 + continuity engine)
   visualProfile       Json  @default("{}")
   bodyState           Json  @default("{}")
   wardrobeProfile     Json  @default("{}")
   speechProfile       Json  @default("{}")
   continuityProfile   Json  @default("{}")
   adultContentProfile Json  @default("{}")
+
+  // DialogueVoiceProfile : profil de voix persistante pour cohérence dialogue
+  voiceRegister         String?  // very_formal, formal, neutral, casual, rough
+  voiceSentenceLength   String?  // very_short, short, medium, long
+  voiceVocabularyStyle  String?  // ex: "poétique", "technique", "argot", etc.
+  voiceEmotionalLeak    Float?   // 0.0 à 1.0 : niveau d'expressivité émotionnelle
+  voiceSarcasmLevel     Float?   // 0.0 à 1.0
+  voiceAggressionLevel  Float?   // 0.0 à 1.0
+  voiceSilenceFrequency Float?   // 0.0 à 1.0 : tendance au silence
+  voiceFavoriteExpressions   Json @default("[]")  // Array<string> : expressions favorites
+  voiceForbiddenExpressions  Json @default("[]")  // Array<string> : expressions interdites
+  voiceForbiddenPatterns     Json @default("[]")  // Array<string> : patterns de discours interdits
+  voiceThreatenStyle    String?  // "direct", "subtil", "froid", etc.
+  voiceLieStyle         String?  // "omission", "misdirection", "bold", etc.
+  voiceSeductionStyle   String?  // "charming", "aggressive", "shy", etc.
+  voiceInnerMonologueStyle String? // style des pensées intérieures
+  voiceExamplesCanonical Json @default("[]")  // Array<{context, line, emotion}> : exemples canoniques de dialogues
+  voiceSpeechRules      Json @default("[]")  // Array<string> : règles textuelles strictes
+
+  // StableIdentity : traits visuels et psycho verrouillés (non modifiables sans CanonChangeRequest)
+  stableVisualDNA       Json @default("{}")  // hairColor, eyeColor, faceShape, silhouette, scars, tattoos, fixedAccessories, forbiddenVisualDrift
+  stableSpeechDNA       Json @default("{}")  // register, sentenceLength, vocabularyStyle, favoriteExpressions, forbiddenExpressions
+  stablePsycheDNA       Json @default("{}")  // coreDesire, coreFear, internalLie, moralLine, fatalFlaw
+
+  // ChangePolicy : quels changements sont autorisés sans validation
+  canChangeHair         Boolean @default(false)
+  canChangeOutfitFreely Boolean @default(true)
+  canChangeVisibleScars Boolean @default(false)
+  canChangeSpeechRegister Boolean @default(false)
+  requiresCanonApprovalFor Json @default("[]")  // Array<string> : types de changements nécessitant un CanonChangeRequest
   status          String    @default("alive")
   emotionalState  String?
   canonLocked     Boolean   @default(false)
@@ -321,6 +355,7 @@ model Character {
   relationshipsTo   CharacterRelationship[] @relation("RelTo")
   ownedItems      Item[]
   loraAttachments LoraAttachment[] @relation("CharacterLoras")
+  canonChangeRequests CanonChangeRequest[]
 
   @@unique([projectId, slug])
 }
@@ -476,6 +511,10 @@ model Chapter {
   continuityEvents ContinuityEvent[]
   memorySnapshots MemorySnapshot[]
   jobs           Job[]
+  canonState     ChapterCanonState?
+  canonTimelineEvents CanonTimelineEvent[]
+  canonChangeRequests CanonChangeRequest[]
+  sceneStates    SceneState[]
 
   @@unique([projectId, chapterNumber])
 }
@@ -494,6 +533,7 @@ model ChapterScene {
   metadata   Json     @default("{}")
 
   images     SceneImage[]
+  sceneState SceneState?
 }
 
 model SceneImage {
@@ -662,4 +702,160 @@ model AdminFlag {
   reason     String?
   status     String   @default("open")
   createdAt  DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTINUITY & CANON STATE SYSTEM
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Snapshot canonique complet à la fin d'un chapitre (worldState, characterStates, threads, events)
+model ChapterCanonState {
+  id            String   @id @default(cuid())
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  chapterId     String   @unique
+  chapter       Chapter  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  chapterNumber Int
+
+  /// État du monde (date, lieux actifs, menaces, mystères, flags globaux)
+  worldState    Json     @default("{}")
+
+  /// État de chaque personnage (apparence verrouillée, état courant, blessures, tenue, relations)
+  characterStates Json   @default("[]")
+
+  /// Fils narratifs ouverts (label, description, priorité, introducedAtChapter)
+  openThreads   Json     @default("[]")
+
+  /// Fils narratifs résolus (id, resolution, resolvedAtChapter)
+  resolvedThreads Json   @default("[]")
+
+  /// Événements canoniques survenus dans ce chapitre (type, subjectId, description, irreversible)
+  canonEvents   Json     @default("[]")
+
+  /// Résumé narratif du chapitre pour continuité
+  narrativeSummary String?
+
+  /// Avertissements de cohérence détectés lors de la génération
+  continuityWarnings Json @default("[]")
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([projectId, chapterNumber])
+}
+
+/// État local d'une scène : lieu, personnages présents, tenues, blessures, contraintes visuelles
+model SceneState {
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  chapterId       String
+  chapter         Chapter  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  sceneId         String   @unique
+  scene           ChapterScene @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  sceneNumber     Int
+
+  /// Lieu de la scène (canonical location name)
+  location        String
+
+  /// Moment de la journée
+  timeOfDay       String?
+
+  /// Mood / ambiance (oppressant, calme, tension, etc.)
+  mood            String?
+
+  /// Objectif dramatique de la scène
+  dramaticGoal    String?
+
+  /// Axe de conflit principal
+  conflictAxis    String?
+
+  /// IDs des personnages présents dans cette scène
+  presentCharacterIds Json @default("[]")
+
+  /// Overrides par personnage : tenue, blessures visibles, état émotionnel, props, poseRestrictions
+  characterOverrides Json @default("[]")
+
+  /// Ancres de continuité (contraintes textuelles strictes pour cette scène)
+  continuityAnchors Json @default("[]")
+
+  /// IDs des images de référence à utiliser pour cette scène
+  imageReferenceIds Json @default("[]")
+
+  /// Contraintes textuelles pour les prompts (ex: "Le pendentif fissuré doit être visible")
+  textConstraints Json @default("[]")
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([chapterId, sceneNumber])
+}
+
+/// Timeline canonique requêtable : tous les événements majeurs du projet
+model CanonTimelineEvent {
+  id                 String   @id @default(cuid())
+  projectId          String
+  project            Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  chapterId          String?
+  chapter            Chapter? @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  sceneId            String?
+  chapterNumber      Int
+  
+  /// Type d'événement (appearance_change, injury, death, relationship_shift, reveal, power_unlock, location_change, costume_change, etc.)
+  eventType          String
+
+  /// ID du personnage concerné (si applicable)
+  subjectCharacterId String?
+
+  /// Titre court de l'événement
+  title              String
+
+  /// Description détaillée
+  description        String
+
+  /// Importance (minor, major, critical)
+  importance         String   @default("minor")
+
+  /// Si true, cet événement ne peut être retconned
+  irreversible       Boolean  @default(false)
+
+  /// Métadonnées additionnelles (format libre JSON)
+  metadata           Json     @default("{}")
+
+  createdAt          DateTime @default(now())
+
+  @@index([projectId, chapterNumber])
+  @@index([subjectCharacterId])
+}
+
+/// Demande de changement canonique (cheveux, cicatrice permanente, mort, révélation identité, etc.)
+model CanonChangeRequest {
+  id           String   @id @default(cuid())
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  characterId  String?
+  character    Character? @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  chapterId    String?
+  chapter      Chapter? @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+
+  /// Type de changement (hair_change, permanent_injury, signature_outfit_change, death, power_change, relationship_major_shift, identity_reveal)
+  type         String
+
+  /// Qui a demandé ce changement (user, system)
+  requestedBy  String
+
+  /// Justification / rationale
+  rationale    String
+
+  /// Statut (proposed, approved, rejected)
+  status       String   @default("proposed")
+
+  /// Métadonnées additionnelles
+  metadata     Json     @default("{}")
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([projectId, status])
+  @@index([characterId, status])
 }
