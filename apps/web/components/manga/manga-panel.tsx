@@ -169,16 +169,6 @@ export function MangaPanel({
       : textScale === "compact"
         ? "text-[10px] leading-tight text-stone-200 md:text-xs"
         : "text-[11px] leading-snug text-stone-200 md:text-sm";
-  const speakerClass =
-    textScale === "micro"
-      ? "mb-0.5 text-[8px] font-bold uppercase tracking-wide text-stone-500 md:text-[9px]"
-      : "mb-0.5 text-[9px] font-bold uppercase tracking-wider text-stone-500 md:text-[10px]";
-  const dialogueClass =
-    textScale === "micro"
-      ? "text-[10px] font-medium leading-tight text-stone-900 md:text-[11px]"
-      : textScale === "compact"
-        ? "text-[10px] font-medium leading-tight text-stone-900 md:text-xs"
-        : "text-[11px] font-medium leading-snug text-stone-900 md:text-sm";
 
   const allDialogues = dialogues ?? (dialogue && speaker ? [{ speaker, text: dialogue }] : dialogue ? [{ speaker: "", text: dialogue }] : []);
 
