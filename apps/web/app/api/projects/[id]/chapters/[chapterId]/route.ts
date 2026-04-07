@@ -99,12 +99,29 @@ export async function GET(_req: Request, ctx: Ctx) {
 
   if (!chapter) return notFound();
 
-  // Fix prod: si le bucket Supabase n'est pas public, les URLs "public" 400/403 => reader sans images.
-  // On renvoie donc des signed URLs quand possible.
+  // Fix prod: transformer toutes les URLs d'images.
+  // - URLs Supabase privées → signed URL si SUPABASE_SERVICE_ROLE_KEY disponible
+  // - URLs FAL (v3b.fal.media) → proxy relatif /api/images/proxy pour éviter l'expiration
+  function toProxied(url: string | null): string | null {
+    if (!url) return null;
+    try {
+      const parsed = new URL(url);
+      const isFal = ["v3b.fal.media", "fal.media", "cdn.fal.ai"].some(
+        (h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`)
+      );
+      if (isFal) {
+        const encoded = Buffer.from(url, "utf-8").toString("base64url");
+        return `/api/images/proxy?url=${encoded}`;
+      }
+    } catch { /* ignore */ }
+    return url;
+  }
+
   await Promise.all(
     chapter.scenes.flatMap((scene) =>
       scene.images.map(async (img) => {
-        img.imageUrl = await maybeSignSupabaseUrl(img.imageUrl);
+        const signed = await maybeSignSupabaseUrl(img.imageUrl);
+        img.imageUrl = toProxied(signed) ?? signed;
       }),
     ),
   );

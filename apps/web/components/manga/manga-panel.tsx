@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 // Types démo (legacy) + types pipeline (nouveaux)
 export type PanelMoodLegacy =
   | "night-rain"
@@ -177,6 +179,8 @@ export function MangaPanel({
   style,
   panelIndex,
 }: Props) {
+  const [imgError, setImgError] = useState(false);
+
   const bg = MOOD_BG[mood] ?? MOOD_BG["dramatic"];
   const overlay = MOOD_OVERLAY[mood];
   const isPending = !imageUrl && (status === "planned" || status === "pending");
@@ -223,7 +227,7 @@ export function MangaPanel({
     >
       {/* Zone illustration : pleine largeur, le texte n’est plus superposé ici */}
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        {imageUrl ? (
+        {imageUrl && !imgError ? (
           <>
             {effectiveCropMode === "contain" && (
               <div className="absolute inset-0 bg-gradient-to-b from-stone-900 via-stone-950 to-stone-900" />
@@ -234,8 +238,14 @@ export function MangaPanel({
               alt={caption ?? `Panel ${(panelIndex ?? 0) + 1}`}
               className={`h-full w-full ${effectiveCropMode === "contain" ? "object-contain" : "object-cover"}`}
               style={{ objectPosition: effectiveObjectPosition }}
+              onError={() => setImgError(true)}
             />
           </>
+        ) : imgError ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-stone-950 px-2 text-center">
+            <span className="text-[10px] text-stone-500">Image expirée</span>
+            <span className="text-[9px] text-stone-600">Relance la génération</span>
+          </div>
         ) : (
           <div className="absolute inset-0">{overlay}</div>
         )}

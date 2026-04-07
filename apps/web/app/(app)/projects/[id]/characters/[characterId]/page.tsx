@@ -18,6 +18,7 @@ import { CharacterCanonLocks } from "@/components/characters/character-canon-loc
 import { CharacterPreviewCard } from "@/components/characters/character-preview-card";
 import { Loader2, Wand2 } from "lucide-react";
 import { safeFetch } from "@/lib/safe-fetch";
+import { resolveImageUrl } from "@/lib/images/proxy-url";
 
 type CharacterPayload = {
   id: string;
@@ -711,7 +712,7 @@ export default function CharacterDetailPage() {
             eyeColor={character.eyeColor ?? (character.visualProfile.eyeColor as string) ?? null}
             outfitDefault={character.outfitDefault ?? (character.wardrobeProfile.defaultOutfit as string) ?? null}
             bodyState={character.bodyState}
-            imageUrl={primaryVisual?.imageUrl}
+            imageUrl={resolveImageUrl(primaryVisual?.imageUrl)}
             isGenerating={generatingVisual}
             onRegenerate={generateVisual}
           />
@@ -749,7 +750,7 @@ export default function CharacterDetailPage() {
                 character.visualRefs.slice(0, 4).map((ref) => (
                   <div key={ref.id} className="space-y-1">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={ref.imageUrl} alt="" className="h-32 w-full rounded-lg object-cover" />
+                    <img src={resolveImageUrl(ref.imageUrl) ?? ref.imageUrl} alt="" className="h-32 w-full rounded-lg object-cover" />
                     <p className="text-xs text-muted-foreground">{ref.type}{ref.isPrimary ? " · primaire" : ""}</p>
                   </div>
                 ))
