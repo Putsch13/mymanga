@@ -47,6 +47,30 @@ type CharacterPayload = {
   speechProfile: Record<string, unknown>;
   continuityProfile: Record<string, unknown>;
   adultContentProfile: Record<string, unknown>;
+  voiceRegister: string | null;
+  voiceSentenceLength: string | null;
+  voiceVocabularyStyle: string | null;
+  voiceEmotionalLeak: number | null;
+  voiceSarcasmLevel: number | null;
+  voiceAggressionLevel: number | null;
+  voiceSilenceFrequency: number | null;
+  voiceFavoriteExpressions: string[];
+  voiceForbiddenExpressions: string[];
+  voiceForbiddenPatterns: string[];
+  voiceThreatenStyle: string | null;
+  voiceLieStyle: string | null;
+  voiceSeductionStyle: string | null;
+  voiceInnerMonologueStyle: string | null;
+  voiceExamplesCanonical: Array<{ context: string; line: string; emotion?: string }>;
+  voiceSpeechRules: string[];
+  stableVisualDNA: Record<string, unknown>;
+  stableSpeechDNA: Record<string, unknown>;
+  stablePsycheDNA: Record<string, unknown>;
+  canChangeHair: boolean;
+  canChangeOutfitFreely: boolean;
+  canChangeVisibleScars: boolean;
+  canChangeSpeechRegister: boolean;
+  requiresCanonApprovalFor: string[];
   visualRefs: Array<{ id: string; imageUrl: string; type: string; isPrimary: boolean }>;
   relationshipsFrom: Array<{ id: string; targetCharacterId: string; relationType: string; intensity: number; note: string | null }>;
   relationshipsTo: Array<{ id: string; sourceCharacterId: string; relationType: string; intensity: number; note: string | null }>;
@@ -94,6 +118,15 @@ export default function CharacterDetailPage() {
         speechProfile: c.speechProfile ?? {},
         continuityProfile: c.continuityProfile ?? {},
         adultContentProfile: c.adultContentProfile ?? {},
+        voiceFavoriteExpressions: c.voiceFavoriteExpressions ?? [],
+        voiceForbiddenExpressions: c.voiceForbiddenExpressions ?? [],
+        voiceForbiddenPatterns: c.voiceForbiddenPatterns ?? [],
+        voiceExamplesCanonical: c.voiceExamplesCanonical ?? [],
+        voiceSpeechRules: c.voiceSpeechRules ?? [],
+        stableVisualDNA: c.stableVisualDNA ?? {},
+        stableSpeechDNA: c.stableSpeechDNA ?? {},
+        stablePsycheDNA: c.stablePsycheDNA ?? {},
+        requiresCanonApprovalFor: c.requiresCanonApprovalFor ?? [],
         gender: c.gender === "male" || c.gender === "female" ? c.gender : null,
       });
       if (projCharsResult.ok) {
@@ -137,6 +170,30 @@ export default function CharacterDetailPage() {
         speechProfile: character.speechProfile,
         continuityProfile: character.continuityProfile,
         adultContentProfile: character.adultContentProfile,
+        voiceRegister: character.voiceRegister,
+        voiceSentenceLength: character.voiceSentenceLength,
+        voiceVocabularyStyle: character.voiceVocabularyStyle,
+        voiceEmotionalLeak: character.voiceEmotionalLeak,
+        voiceSarcasmLevel: character.voiceSarcasmLevel,
+        voiceAggressionLevel: character.voiceAggressionLevel,
+        voiceSilenceFrequency: character.voiceSilenceFrequency,
+        voiceFavoriteExpressions: character.voiceFavoriteExpressions,
+        voiceForbiddenExpressions: character.voiceForbiddenExpressions,
+        voiceForbiddenPatterns: character.voiceForbiddenPatterns,
+        voiceThreatenStyle: character.voiceThreatenStyle,
+        voiceLieStyle: character.voiceLieStyle,
+        voiceSeductionStyle: character.voiceSeductionStyle,
+        voiceInnerMonologueStyle: character.voiceInnerMonologueStyle,
+        voiceExamplesCanonical: character.voiceExamplesCanonical,
+        voiceSpeechRules: character.voiceSpeechRules,
+        stableVisualDNA: character.stableVisualDNA,
+        stableSpeechDNA: character.stableSpeechDNA,
+        stablePsycheDNA: character.stablePsycheDNA,
+        canChangeHair: character.canChangeHair,
+        canChangeOutfitFreely: character.canChangeOutfitFreely,
+        canChangeVisibleScars: character.canChangeVisibleScars,
+        canChangeSpeechRegister: character.canChangeSpeechRegister,
+        requiresCanonApprovalFor: character.requiresCanonApprovalFor,
       }),
     });
     const json = await res.json();
@@ -429,24 +486,214 @@ export default function CharacterDetailPage() {
 
           <TabsContent value="speech">
             <Card className="border-border/60 bg-card/50">
-              <CardHeader><CardTitle>Personnalité & Voix</CardTitle></CardHeader>
-              <CardContent>
+              <CardHeader>
+                <CardTitle>Personnalité & Voix</CardTitle>
+                <CardDescription>Profil de voix persistante pour cohérence des dialogues</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
                 <CharacterSpeechConfig
                   value={character.speechProfile as Parameters<typeof CharacterSpeechConfig>[0]["value"]}
                   onChange={(v) => setCharacter({ ...character, speechProfile: v as Record<string, unknown> })}
                 />
+
+                {/* DialogueVoiceProfile */}
+                <div className="mt-4 space-y-3 rounded-lg border border-violet-500/30 bg-violet-950/10 p-3">
+                  <h4 className="text-sm font-semibold text-violet-300">Profil de voix (Continuity Engine)</h4>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Registre</Label>
+                      <select
+                        className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+                        value={character.voiceRegister ?? ""}
+                        onChange={(e) => setCharacter({ ...character, voiceRegister: e.target.value || null })}
+                      >
+                        <option value="">Aucun</option>
+                        <option value="very_formal">Très formel</option>
+                        <option value="formal">Formel</option>
+                        <option value="neutral">Neutre</option>
+                        <option value="casual">Casual</option>
+                        <option value="rough">Brut / Argot</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Longueur phrases</Label>
+                      <select
+                        className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+                        value={character.voiceSentenceLength ?? ""}
+                        onChange={(e) => setCharacter({ ...character, voiceSentenceLength: e.target.value || null })}
+                      >
+                        <option value="">Aucun</option>
+                        <option value="very_short">Très courtes</option>
+                        <option value="short">Courtes</option>
+                        <option value="medium">Moyennes</option>
+                        <option value="long">Longues</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Style de vocabulaire</Label>
+                    <Input
+                      placeholder="ex: poétique, technique, argot..."
+                      value={character.voiceVocabularyStyle ?? ""}
+                      onChange={(e) => setCharacter({ ...character, voiceVocabularyStyle: e.target.value || null })}
+                      className="text-xs"
+                    />
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Expressivité (0-1)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        placeholder="0.5"
+                        value={character.voiceEmotionalLeak ?? ""}
+                        onChange={(e) => setCharacter({ ...character, voiceEmotionalLeak: e.target.value ? parseFloat(e.target.value) : null })}
+                        className="text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Sarcasme (0-1)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        placeholder="0.3"
+                        value={character.voiceSarcasmLevel ?? ""}
+                        onChange={(e) => setCharacter({ ...character, voiceSarcasmLevel: e.target.value ? parseFloat(e.target.value) : null })}
+                        className="text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Silence (0-1)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        placeholder="0.2"
+                        value={character.voiceSilenceFrequency ?? ""}
+                        onChange={(e) => setCharacter({ ...character, voiceSilenceFrequency: e.target.value ? parseFloat(e.target.value) : null })}
+                        className="text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Expressions favorites (séparées par virgule)</Label>
+                    <Textarea
+                      placeholder="ex: Hmph, Tch, Bon sang..."
+                      value={character.voiceFavoriteExpressions.join(", ")}
+                      onChange={(e) => setCharacter({ ...character, voiceFavoriteExpressions: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                      className="text-xs"
+                      rows={2}
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-red-400">Expressions INTERDITES (séparées par virgule)</Label>
+                    <Textarea
+                      placeholder="ex: bien sûr, évidemment..."
+                      value={character.voiceForbiddenExpressions.join(", ")}
+                      onChange={(e) => setCharacter({ ...character, voiceForbiddenExpressions: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                      className="text-xs"
+                      rows={2}
+                    />
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Style de menace</Label>
+                      <Input
+                        placeholder="ex: direct, subtil, froid"
+                        value={character.voiceThreatenStyle ?? ""}
+                        onChange={(e) => setCharacter({ ...character, voiceThreatenStyle: e.target.value || null })}
+                        className="text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Style de mensonge</Label>
+                      <Input
+                        placeholder="ex: omission, bold"
+                        value={character.voiceLieStyle ?? ""}
+                        onChange={(e) => setCharacter({ ...character, voiceLieStyle: e.target.value || null })}
+                        className="text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
 
           <TabsContent value="canon">
             <Card className="border-border/60 bg-card/50">
-              <CardHeader><CardTitle>Verrous Canon</CardTitle></CardHeader>
-              <CardContent>
+              <CardHeader>
+                <CardTitle>Verrous Canon</CardTitle>
+                <CardDescription>Traits verrouillés et politique de changement</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
                 <CharacterCanonLocks
                   value={character.continuityProfile as Parameters<typeof CharacterCanonLocks>[0]["value"]}
                   onChange={(v) => setCharacter({ ...character, continuityProfile: v as Record<string, unknown> })}
                 />
+
+                {/* ChangePolicy */}
+                <div className="mt-4 space-y-3 rounded-lg border border-amber-500/30 bg-amber-950/10 p-3">
+                  <h4 className="text-sm font-semibold text-amber-300">Politique de changement</h4>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={character.canChangeHair}
+                        onChange={(e) => setCharacter({ ...character, canChangeHair: e.target.checked })}
+                        className="rounded"
+                      />
+                      <span>Peut changer de cheveux</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={character.canChangeOutfitFreely}
+                        onChange={(e) => setCharacter({ ...character, canChangeOutfitFreely: e.target.checked })}
+                        className="rounded"
+                      />
+                      <span>Peut changer de tenue librement</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={character.canChangeVisibleScars}
+                        onChange={(e) => setCharacter({ ...character, canChangeVisibleScars: e.target.checked })}
+                        className="rounded"
+                      />
+                      <span>Peut perdre des cicatrices</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={character.canChangeSpeechRegister}
+                        onChange={(e) => setCharacter({ ...character, canChangeSpeechRegister: e.target.checked })}
+                        className="rounded"
+                      />
+                      <span>Peut changer de registre de voix</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* StableVisualDNA preview */}
+                {Object.keys(character.stableVisualDNA).length > 0 && (
+                  <div className="mt-4 rounded-lg border border-stone-700 bg-stone-950/30 p-3">
+                    <h4 className="mb-2 text-xs font-semibold text-stone-300">DNA visuelle stable</h4>
+                    <pre className="text-[10px] text-stone-400">
+                      {JSON.stringify(character.stableVisualDNA, null, 2)}
+                    </pre>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

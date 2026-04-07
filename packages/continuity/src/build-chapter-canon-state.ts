@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@manga-ai-studio/db";
+import type { PrismaClient, Prisma } from "@manga-ai-studio/db";
 import type {
   ChapterCanonStateData,
   CharacterState,
@@ -169,22 +169,22 @@ export async function persistChapterCanonState(
       projectId: data.projectId,
       chapterId: data.chapterId,
       chapterNumber: data.chapterNumber,
-      worldState: data.canonStateData.worldState as unknown as Record<string, unknown>,
-      characterStates: data.canonStateData.characterStates as unknown as Array<unknown>,
-      openThreads: data.canonStateData.openThreads as unknown as Array<unknown>,
-      resolvedThreads: data.canonStateData.resolvedThreads as unknown as Array<unknown>,
-      canonEvents: data.canonStateData.canonEvents as unknown as Array<unknown>,
+      worldState: data.canonStateData.worldState as Prisma.InputJsonValue,
+      characterStates: data.canonStateData.characterStates as Prisma.InputJsonValue,
+      openThreads: data.canonStateData.openThreads as Prisma.InputJsonValue,
+      resolvedThreads: data.canonStateData.resolvedThreads as Prisma.InputJsonValue,
+      canonEvents: data.canonStateData.canonEvents as Prisma.InputJsonValue,
       narrativeSummary: data.canonStateData.narrativeSummary,
-      continuityWarnings: data.canonStateData.continuityWarnings as unknown as Array<unknown>,
+      continuityWarnings: data.canonStateData.continuityWarnings as Prisma.InputJsonValue,
     },
     update: {
-      worldState: data.canonStateData.worldState as unknown as Record<string, unknown>,
-      characterStates: data.canonStateData.characterStates as unknown as Array<unknown>,
-      openThreads: data.canonStateData.openThreads as unknown as Array<unknown>,
-      resolvedThreads: data.canonStateData.resolvedThreads as unknown as Array<unknown>,
-      canonEvents: data.canonStateData.canonEvents as unknown as Array<unknown>,
+      worldState: data.canonStateData.worldState as Prisma.InputJsonValue,
+      characterStates: data.canonStateData.characterStates as Prisma.InputJsonValue,
+      openThreads: data.canonStateData.openThreads as Prisma.InputJsonValue,
+      resolvedThreads: data.canonStateData.resolvedThreads as Prisma.InputJsonValue,
+      canonEvents: data.canonStateData.canonEvents as Prisma.InputJsonValue,
       narrativeSummary: data.canonStateData.narrativeSummary,
-      continuityWarnings: data.canonStateData.continuityWarnings as unknown as Array<unknown>,
+      continuityWarnings: data.canonStateData.continuityWarnings as Prisma.InputJsonValue,
     },
   });
 }

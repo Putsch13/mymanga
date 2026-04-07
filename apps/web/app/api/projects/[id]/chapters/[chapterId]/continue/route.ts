@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@manga-ai-studio/db";
 import { runChapterOutlineFromJob, sendChapterOutlineJobRequested } from "@manga-ai-studio/workflow";
+import { buildContinuationContext } from "@manga-ai-studio/continuity";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
 import { notFound, unauthorized, validationError } from "@/lib/api-response";
@@ -45,6 +46,15 @@ export async function POST(req: Request, ctx: Ctx) {
 
   const continuationNote = body.quickTag ? `[${body.quickTag}] ${body.userIntent}` : body.userIntent;
 
+  // ── Construire le contexte de continuation (Continuity Engine) ─────────────
+  const continuationContext = await buildContinuationContext(prisma, {
+    projectId,
+    fromChapterId: chapterId,
+  }).catch((err) => {
+    console.warn(`[continue] buildContinuationContext failed for chapter ${chapterId}:`, err instanceof Error ? err.message : err);
+    return null;
+  });
+
   const nextChapter = await prisma.chapter.create({
     data: {
       projectId,
@@ -68,6 +78,7 @@ export async function POST(req: Request, ctx: Ctx) {
         fromChapterId: chapterId,
         intent: body.userIntent,
         quickTag: body.quickTag ?? null,
+        continuationContext: continuationContext ?? undefined,
       },
     },
   });

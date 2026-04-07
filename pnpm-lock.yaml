@@ -23,6 +23,9 @@ importers:
       '@manga-ai-studio/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@manga-ai-studio/continuity':
+        specifier: workspace:*
+        version: link:../../packages/continuity
       '@manga-ai-studio/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -184,6 +187,19 @@ importers:
         specifier: ^5
         version: 5.9.3
 
+  packages/continuity:
+    dependencies:
+      '@manga-ai-studio/db':
+        specifier: workspace:*
+        version: link:../db
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
+    devDependencies:
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+
   packages/core:
     dependencies:
       zod:
@@ -206,6 +222,19 @@ importers:
       tsx:
         specifier: ^4.19.3
         version: 4.21.0
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+
+  packages/dialogue:
+    dependencies:
+      '@manga-ai-studio/db':
+        specifier: workspace:*
+        version: link:../db
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
+    devDependencies:
       typescript:
         specifier: ^5
         version: 5.9.3
@@ -240,12 +269,6 @@ importers:
         specifier: ^5
         version: 5.9.3
 
-  packages/prompts:
-    devDependencies:
-      typescript:
-        specifier: ^5
-        version: 5.9.3
-
   packages/ui:
     dependencies:
       clsx:
@@ -262,11 +285,27 @@ importers:
         specifier: ^5
         version: 5.9.3
 
+  packages/visual-consistency:
+    dependencies:
+      '@manga-ai-studio/db':
+        specifier: workspace:*
+        version: link:../db
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
+    devDependencies:
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+
   packages/workflow:
     dependencies:
       '@manga-ai-studio/ai':
         specifier: workspace:*
         version: link:../ai
+      '@manga-ai-studio/continuity':
+        specifier: workspace:*
+        version: link:../continuity
       '@manga-ai-studio/core':
         specifier: workspace:*
         version: link:../core
@@ -276,6 +315,9 @@ importers:
       '@manga-ai-studio/memory':
         specifier: workspace:*
         version: link:../memory
+      '@manga-ai-studio/visual-consistency':
+        specifier: workspace:*
+        version: link:../visual-consistency
       '@supabase/supabase-js':
         specifier: ^2.101.1
         version: 2.101.1

@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@manga-ai-studio/db";
+import type { PrismaClient, Prisma } from "@manga-ai-studio/db";
 import type { SceneStateData, CharacterOverride, CharacterState } from "./types";
 
 /**
@@ -129,11 +129,11 @@ export async function persistSceneState(
       mood: data.sceneStateData.mood,
       dramaticGoal: data.sceneStateData.dramaticGoal,
       conflictAxis: data.sceneStateData.conflictAxis,
-      presentCharacterIds: data.sceneStateData.presentCharacterIds as unknown as Array<unknown>,
-      characterOverrides: data.sceneStateData.characterOverrides as unknown as Array<unknown>,
-      continuityAnchors: data.sceneStateData.continuityAnchors as unknown as Array<unknown>,
-      imageReferenceIds: data.sceneStateData.imageReferenceIds as unknown as Array<unknown>,
-      textConstraints: data.sceneStateData.textConstraints as unknown as Array<unknown>,
+      presentCharacterIds: data.sceneStateData.presentCharacterIds as Prisma.InputJsonValue,
+      characterOverrides: data.sceneStateData.characterOverrides as Prisma.InputJsonValue,
+      continuityAnchors: data.sceneStateData.continuityAnchors as Prisma.InputJsonValue,
+      imageReferenceIds: data.sceneStateData.imageReferenceIds as Prisma.InputJsonValue,
+      textConstraints: data.sceneStateData.textConstraints as Prisma.InputJsonValue,
     },
     update: {
       location: data.sceneStateData.location,
@@ -141,11 +141,11 @@ export async function persistSceneState(
       mood: data.sceneStateData.mood,
       dramaticGoal: data.sceneStateData.dramaticGoal,
       conflictAxis: data.sceneStateData.conflictAxis,
-      presentCharacterIds: data.sceneStateData.presentCharacterIds as unknown as Array<unknown>,
-      characterOverrides: data.sceneStateData.characterOverrides as unknown as Array<unknown>,
-      continuityAnchors: data.sceneStateData.continuityAnchors as unknown as Array<unknown>,
-      imageReferenceIds: data.sceneStateData.imageReferenceIds as unknown as Array<unknown>,
-      textConstraints: data.sceneStateData.textConstraints as unknown as Array<unknown>,
+      presentCharacterIds: data.sceneStateData.presentCharacterIds as Prisma.InputJsonValue,
+      characterOverrides: data.sceneStateData.characterOverrides as Prisma.InputJsonValue,
+      continuityAnchors: data.sceneStateData.continuityAnchors as Prisma.InputJsonValue,
+      imageReferenceIds: data.sceneStateData.imageReferenceIds as Prisma.InputJsonValue,
+      textConstraints: data.sceneStateData.textConstraints as Prisma.InputJsonValue,
     },
   });
 }

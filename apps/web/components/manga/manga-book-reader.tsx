@@ -66,6 +66,38 @@ type ChapterPayload = {
   scenes: ChapterScene[];
 };
 
+type CanonStateData = {
+  hasCanonState: boolean;
+  worldState?: {
+    activeLocations: string[];
+    activeThreats: string[];
+    activeMysteries: string[];
+  };
+  openThreads?: Array<{
+    label: string;
+    description: string;
+    priority: string;
+    introducedAtChapter: number;
+  }>;
+  characterStates?: Array<{
+    characterName: string;
+    currentState: {
+      location?: string;
+      outfit?: string;
+      injuries?: string[];
+      emotion?: string;
+      objective?: string;
+    };
+  }>;
+  canonEvents?: Array<{
+    type: string;
+    subjectName?: string | null;
+    description: string;
+    irreversible: boolean;
+  }>;
+  continuityWarnings?: string[];
+};
+
 type ReaderResponse = {
   chapter: ChapterPayload;
   memorySnapshot?: {
@@ -177,6 +209,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   const [memorySummary, setMemorySummary] = useState<string | null>(null);
   const [imageStats, setImageStats] = useState<ReaderResponse["imageStats"]>(null);
   const [activeJob, setActiveJob] = useState<ReaderResponse["activeJob"]>(null);
+  const [canonState, setCanonState] = useState<CanonStateData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
   const [showTextOnly, setShowTextOnly] = useState(false);
@@ -206,6 +239,11 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
       setPageIndex(0);
       setShowEnd(false);
     }
+    // Charger le canon state
+    fetch(`/api/projects/${projectId}/chapters/${chapterId}/canon-state`)
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => setCanonState(data as CanonStateData))
+      .catch(() => setCanonState(null));
   }, [projectId, chapterId]);
 
   useEffect(() => {
@@ -715,6 +753,118 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
             {activeJob ? <p>Job actif : {activeJob.status}</p> : <p>Job actif : aucun</p>}
           </CardContent>
         </Card>
+
+        {/* Panneau État Canonique */}
+        {canonState?.hasCanonState ? (
+          <Card className="border-violet-500/30">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">État canonique</CardTitle>
+              <CardDescription className="text-xs">
+                État du monde et des personnages à la fin de ce chapitre
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {canonState.worldState && (
+                <div>
+                  <h4 className="mb-1 text-xs font-semibold text-violet-400">Monde</h4>
+                  {canonState.worldState.activeLocations.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Lieux actifs : {canonState.worldState.activeLocations.join(", ")}
+                    </p>
+                  )}
+                  {canonState.worldState.activeThreats.length > 0 && (
+                    <p className="text-xs text-orange-400/80">
+                      Menaces : {canonState.worldState.activeThreats.join(", ")}
+                    </p>
+                  )}
+                  {canonState.worldState.activeMysteries.length > 0 && (
+                    <p className="text-xs text-purple-400/80">
+                      Mystères : {canonState.worldState.activeMysteries.join(", ")}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {canonState.characterStates && canonState.characterStates.length > 0 && (
+                <div>
+                  <h4 className="mb-1 text-xs font-semibold text-violet-400">Personnages</h4>
+                  <div className="space-y-2">
+                    {canonState.characterStates.slice(0, 5).map((cs, idx) => (
+                      <div key={idx} className="rounded border border-stone-800 bg-stone-950/30 p-2">
+                        <p className="text-xs font-medium">{cs.characterName}</p>
+                        {cs.currentState.location && (
+                          <p className="text-[10px] text-muted-foreground">Lieu : {cs.currentState.location}</p>
+                        )}
+                        {cs.currentState.outfit && (
+                          <p className="text-[10px] text-muted-foreground">Tenue : {cs.currentState.outfit}</p>
+                        )}
+                        {cs.currentState.injuries && cs.currentState.injuries.length > 0 && (
+                          <p className="text-[10px] text-orange-400/80">
+                            Blessures : {cs.currentState.injuries.join(", ")}
+                          </p>
+                        )}
+                        {cs.currentState.emotion && (
+                          <p className="text-[10px] text-blue-400/80">État : {cs.currentState.emotion}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {canonState.continuityWarnings && canonState.continuityWarnings.length > 0 && (
+                <div>
+                  <h4 className="mb-1 text-xs font-semibold text-red-400">Alertes cohérence</h4>
+                  <ul className="list-inside list-disc space-y-1 text-[10px] text-red-300/80">
+                    {canonState.continuityWarnings.slice(0, 10).map((warning, idx) => (
+                      <li key={idx}>{warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {/* Panneau Fils Narratifs Ouverts */}
+        {canonState?.hasCanonState && canonState.openThreads && canonState.openThreads.length > 0 ? (
+          <Card className="border-amber-500/30">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">Fils narratifs ouverts</CardTitle>
+              <CardDescription className="text-xs">
+                Intrigues en cours qui doivent être résolues
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {canonState.openThreads.slice(0, 8).map((thread, idx) => (
+                <div
+                  key={idx}
+                  className="rounded border border-amber-800/50 bg-amber-950/20 p-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium">{thread.label}</p>
+                    <span
+                      className={cn(
+                        "text-[9px] font-bold uppercase",
+                        thread.priority === "high"
+                          ? "text-red-400"
+                          : thread.priority === "medium"
+                            ? "text-amber-400"
+                            : "text-muted-foreground",
+                      )}
+                    >
+                      {thread.priority}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">{thread.description}</p>
+                  <p className="mt-0.5 text-[9px] text-muted-foreground/60">
+                    Introduit au chapitre {thread.introducedAtChapter}
+                  </p>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        ) : null}
       </div>
       {toolbar}
       {!showEnd ? renderPage() : null}

@@ -22,6 +22,15 @@ import {
   persistChapterMemory,
   replaceRagDocument,
 } from "@manga-ai-studio/memory";
+import {
+  buildChapterCanonState,
+  persistChapterCanonState,
+  buildSceneState,
+  persistSceneState,
+  runContinuityDiff,
+  type CharacterState,
+} from "@manga-ai-studio/continuity";
+import { scoreVisualConsistency } from "@manga-ai-studio/visual-consistency";
 import { createClient } from "@supabase/supabase-js";
 
 type JobStep = {
@@ -660,6 +669,19 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       content: contextDocument,
       metadata: { chapterId, focusCharacterIds, selectedPlotLabel },
     });
+    // ── Charger le canon state précédent (pour continuité) ─────────────────
+    const previousCanonState = await prisma.chapterCanonState.findFirst({
+      where: {
+        projectId,
+        chapterNumber: { lt: chapterNumber },
+      },
+      orderBy: { chapterNumber: "desc" },
+    });
+
+    const previousCharacterStates = previousCanonState?.characterStates
+      ? (previousCanonState.characterStates as CharacterState[])
+      : [];
+
     await setJobProgress(jobId, { key: "build_context", label: "Contexte projet" }, "completed");
 
     // ── Étape 2 : Génération bundle (outline, script, storyboard) ──────────
@@ -995,6 +1017,47 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       { key: "persist_chapter", label: "Persistance chapitre" },
       "completed",
     );
+
+    // ── Construire et persister les scene states (continuity engine) ───────
+    console.log(`[pipeline] Building scene states for ${revisedBundle.script.scenes.length} scenes`);
+    for (let index = 0; index < revisedBundle.script.scenes.length; index++) {
+      const scene = revisedBundle.script.scenes[index];
+      if (!scene) continue;
+
+      const beat = revisedBundle.outline.beats[index];
+      const sceneDbRecord = await prisma.chapterScene.findFirst({
+        where: { chapterId, sceneNumber: index + 1 },
+      });
+
+      if (sceneDbRecord) {
+        const sceneStateData = await buildSceneState(prisma, {
+          projectId,
+          chapterId,
+          sceneId: sceneDbRecord.id,
+          sceneNumber: index + 1,
+          scene: {
+            title: scene.title,
+            summary: scene.summary,
+            location: scene.location,
+            characters: scene.characters,
+            beat: {
+              location: beat?.location,
+              characters: beat?.characters,
+              turn: (beat as { turn?: string })?.turn,
+            },
+          },
+          characterStatesFromCanon: previousCharacterStates,
+        });
+
+        await persistSceneState(prisma, {
+          projectId,
+          chapterId,
+          sceneId: sceneDbRecord.id,
+          sceneNumber: index + 1,
+          sceneStateData,
+        });
+      }
+    }
 
     // ── Étape 3b : Index refs canon et LoRA par personnage ────────────────
     // (les keyframes images ont été supprimées : elles polluaient la fidélité des persos)
@@ -1334,6 +1397,50 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       "completed",
     );
 
+    // ── Continuity Diff : analyse de cohérence avant publication ────────────
+    console.log(`[pipeline] Running continuity diff for chapter ${chapterNumber}`);
+    const continuityReport = await runContinuityDiff(prisma, {
+      projectId,
+      chapterId,
+      chapterNumber,
+      outline: revisedBundle.outline,
+      script: revisedBundle.script,
+      generatedImages: plannedImages.map((img) => ({
+        id: img.sceneImageId,
+        sceneId: String(img.sceneIndex),
+        metadata: img.baseMetadata,
+      })),
+    });
+
+    console.log(`[pipeline] Continuity score: ${continuityReport.score.toFixed(2)}`);
+    if (continuityReport.issues.length > 0) {
+      console.warn(`[pipeline] Continuity issues detected:`, continuityReport.issues);
+    }
+
+    // ── Construire et persister le nouveau canon state ───────────────────────
+    console.log(`[pipeline] Building chapter canon state`);
+    const canonStateData = await buildChapterCanonState(prisma, {
+      projectId,
+      chapterId,
+      chapterNumber,
+      outline: revisedBundle.outline,
+      script: revisedBundle.script,
+      summary: revisedBundle.memory.narrativeSummary,
+      cliffhanger: revisedBundle.outline.cliffhanger,
+    });
+
+    // Enrichir avec les warnings du continuity diff
+    canonStateData.continuityWarnings = continuityReport.issues.map((issue) => issue.message);
+
+    await persistChapterCanonState(prisma, {
+      projectId,
+      chapterId,
+      chapterNumber,
+      canonStateData,
+    });
+
+    console.log(`[pipeline] Canon state persisted with ${continuityReport.issues.length} warnings`);
+
     // ── Finalisation ───────────────────────────────────────────────────────
     const finalStatus =
       failedCount === plannedImages.length
@@ -1373,6 +1480,13 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           continuityNotes: continuity.notes,
           narrativeNotes: narrative.notes,
           imageStats: { total: plannedImages.length, generated: generatedCount, failed: failedCount },
+          continuityReport: {
+            score: continuityReport.score,
+            issuesCount: continuityReport.issues.length,
+            criticalIssues: continuityReport.issues.filter((i) => i.severity === "critical").length,
+            majorIssues: continuityReport.issues.filter((i) => i.severity === "major").length,
+            suggestedRepairs: continuityReport.suggestedRepairs,
+          },
         },
       },
     });
