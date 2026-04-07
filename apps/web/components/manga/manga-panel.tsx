@@ -182,94 +182,56 @@ export function MangaPanel({
 
   const allDialogues = dialogues ?? (dialogue && speaker ? [{ speaker, text: dialogue }] : dialogue ? [{ speaker: "", text: dialogue }] : []);
 
+  const hasTextStrip =
+    Boolean(narration) ||
+    allDialogues.length > 0 ||
+    Boolean(sfx && (dialogue || narration || allDialogues.length > 0));
+
+  const speakerStripClass =
+    textScale === "micro"
+      ? "text-[7px] font-bold uppercase tracking-wide text-stone-600"
+      : "text-[8px] font-bold uppercase tracking-wide text-stone-600";
+  const dialogueStripClass =
+    textScale === "micro"
+      ? "text-[9px] font-medium leading-tight text-stone-900"
+      : textScale === "compact"
+        ? "text-[9px] font-medium leading-tight text-stone-900"
+        : "text-[10px] font-medium leading-snug text-stone-900";
+
   return (
     <div
-      className={`relative flex flex-col overflow-hidden border-2 border-stone-900 ${className ?? ""}`}
+      className={`group/panel relative flex min-h-0 flex-col overflow-hidden border-2 border-stone-900 ${className ?? ""}`}
       style={{ background: imageUrl ? undefined : bg, ...style }}
       aria-label={caption ?? `Panel ${(panelIndex ?? 0) + 1}`}
     >
-      {/* Image réelle générée par FAL */}
-      {imageUrl ? (
-        <>
-          {imageFit === "contain" && (
-            <div className="absolute inset-0 bg-gradient-to-b from-stone-900 via-stone-950 to-stone-900" />
-          )}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={imageUrl}
-            alt={caption ?? `Panel ${(panelIndex ?? 0) + 1}`}
-            className={`absolute inset-0 h-full w-full ${imageFit === "contain" ? "object-contain" : "object-cover"}`}
-            style={{ objectPosition }}
-          />
-        </>
-      ) : (
-        overlay
-      )}
+      {/* Zone illustration : pleine largeur, le texte n’est plus superposé ici */}
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        {imageUrl ? (
+          <>
+            {imageFit === "contain" && (
+              <div className="absolute inset-0 bg-gradient-to-b from-stone-900 via-stone-950 to-stone-900" />
+            )}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imageUrl}
+              alt={caption ?? `Panel ${(panelIndex ?? 0) + 1}`}
+              className={`h-full w-full ${imageFit === "contain" ? "object-contain" : "object-cover"}`}
+              style={{ objectPosition }}
+            />
+          </>
+        ) : (
+          <div className="absolute inset-0">{overlay}</div>
+        )}
 
-      {/* Overlay gradient pour lisibilité du texte sur image */}
-      {imageUrl && (dialogue || narration || sfx) && (
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-      )}
-
-      {/* Badge status */}
-      {(status || provider || model) && (
-        <div className="absolute left-2 top-2 z-20 rounded-md border border-white/10 bg-black/60 px-2 py-1 text-[10px] text-stone-200">
-          <div className="flex items-center gap-1">
-            <span className="font-semibold">{status ?? "?"}</span>
-            {provider ? <span className="opacity-70">· {provider}</span> : null}
-            {model ? <span className="opacity-50">· {model}</span> : null}
-          </div>
-        </div>
-      )}
-
-      {/* Pending / failed overlays */}
-      {isPending ? (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/30">
-          <div className="rounded-lg border border-white/10 bg-black/70 px-3 py-2 text-xs text-stone-100">
-            Génération en cours…
-          </div>
-        </div>
-      ) : null}
-
-      {isFailed ? (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 p-3 text-center">
-          <div className="w-full max-w-[220px] rounded-lg border border-red-500/20 bg-black/70 px-3 py-2 text-xs text-stone-100">
-            <p className="font-semibold text-red-300">Échec de génération</p>
-            {error ? <p className="mt-1 text-stone-200/80 line-clamp-3">{error}</p> : null}
-            {sceneImageId ? (
-              <button
-                type="button"
-                className="mt-2 w-full rounded-md border border-white/10 bg-white/10 px-2 py-1 text-xs hover:bg-white/15"
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  try {
-                    const res = await fetch(`/api/scene-images/${sceneImageId}/retry`, { method: "POST" });
-                    const j = await res.json();
-                    if (!res.ok) throw new Error(j.message ?? j.error ?? "retry_failed");
-                    // refresh visuel
-                    window.location.reload();
-                  } catch {
-                    // ignore
-                  }
-                }}
-              >
-                Réessayer
-              </button>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="relative z-10 flex flex-1 flex-col justify-end p-2">
-        {/* SFX standalone */}
-        {sfx && !dialogue && !narration ? (
-          <div className="absolute inset-0 flex items-center justify-center">
+        {/* SFX seul : reste centré sur l’image */}
+        {imageUrl && sfx && !dialogue && !narration && allDialogues.length === 0 ? (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <span
-              className="select-none text-3xl font-black italic tracking-wider text-white/90 drop-shadow-lg md:text-4xl"
+              className="select-none text-2xl font-black italic tracking-wider text-white/90 drop-shadow-lg sm:text-3xl"
               style={{
                 textShadow:
                   "2px 2px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000",
-                transform: "rotate(-8deg) scale(1.1)",
+                transform: "rotate(-8deg) scale(1.05)",
               }}
             >
               {sfx}
@@ -277,45 +239,84 @@ export function MangaPanel({
           </div>
         ) : null}
 
-        {/* Narration box */}
-        {narration ? (
-          <div className="mb-1 rounded border border-white/20 bg-black/70 px-2 py-1">
-            <p className={narrationClass}>{narration}</p>
+        {/* Métadonnées techniques : discrètes, ne mangent plus le haut de l’image */}
+        {(status || provider || model) && (
+          <div className="pointer-events-none absolute right-1 top-1 z-20 max-w-[min(100%,11rem)] truncate rounded border border-white/10 bg-black/55 px-1 py-0.5 text-[8px] leading-tight text-stone-300 opacity-70 transition-opacity group-hover/panel:opacity-100">
+            <span className="font-medium">{status ?? "?"}</span>
+            {provider ? <span className="opacity-80"> · {provider}</span> : null}
+          </div>
+        )}
+
+        {isPending ? (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/30">
+            <div className="rounded-lg border border-white/10 bg-black/70 px-3 py-2 text-xs text-stone-100">
+              Génération en cours…
+            </div>
           </div>
         ) : null}
 
-        {/* Dialogue bubbles */}
-        {allDialogues.length > 0 ? (
-          <div className="space-y-1">
-            {allDialogues.slice(0, 3).map((d, idx) => (
-              <div key={idx} className="relative">
-                <div className="rounded-xl border-2 border-stone-900 bg-white px-2 py-1.5 shadow-md">
-                  {d.speaker ? (
-                    <p className={speakerClass}>{d.speaker}</p>
-                  ) : null}
-                  <p className={dialogueClass}>{d.text}</p>
-                </div>
-                {idx === allDialogues.length - 1 && (
-                  <div
-                    className="absolute -bottom-1.5 left-4 h-3 w-3 rotate-45 border-b-2 border-r-2 border-stone-900 bg-white"
-                    aria-hidden
-                  />
-                )}
-              </div>
-            ))}
+        {isFailed ? (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 p-3 text-center">
+            <div className="w-full max-w-[220px] rounded-lg border border-red-500/20 bg-black/70 px-3 py-2 text-xs text-stone-100">
+              <p className="font-semibold text-red-300">Échec de génération</p>
+              {error ? <p className="mt-1 text-stone-200/80 line-clamp-3">{error}</p> : null}
+              {sceneImageId ? (
+                <button
+                  type="button"
+                  className="mt-2 w-full rounded-md border border-white/10 bg-white/10 px-2 py-1 text-xs hover:bg-white/15"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    try {
+                      const res = await fetch(`/api/scene-images/${sceneImageId}/retry`, { method: "POST" });
+                      const j = await res.json();
+                      if (!res.ok) throw new Error(j.message ?? j.error ?? "retry_failed");
+                      window.location.reload();
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                >
+                  Réessayer
+                </button>
+              ) : null}
+            </div>
           </div>
-        ) : null}
-
-        {/* SFX avec dialogue/narration */}
-        {sfx && (dialogue || narration) ? (
-          <span
-            className="mt-1 block select-none text-center text-lg font-black italic text-white/80 md:text-xl"
-            style={{ textShadow: "1px 1px 0 #000, -1px -1px 0 #000" }}
-          >
-            {sfx}
-          </span>
         ) : null}
       </div>
+
+      {/* Bande texte sous l’image : narration + bulles + SFX associés (scroll si trop long) */}
+      {hasTextStrip ? (
+        <div className="z-10 max-h-[min(46%,9rem)] shrink-0 overflow-y-auto border-t border-stone-800 bg-stone-950/98 px-1.5 py-1">
+          {narration ? (
+            <div className="mb-1 rounded border border-white/15 bg-black/40 px-1.5 py-0.5">
+              <p className={`${narrationClass} line-clamp-3`}>{narration}</p>
+            </div>
+          ) : null}
+
+          {allDialogues.length > 0 ? (
+            <div className="flex flex-col gap-1">
+              {allDialogues.slice(0, 3).map((d, idx) => (
+                <div
+                  key={idx}
+                  className="rounded-lg border border-stone-800 bg-white/95 px-1.5 py-1 shadow-sm"
+                >
+                  {d.speaker ? <p className={speakerStripClass}>{d.speaker}</p> : null}
+                  <p className={`${dialogueStripClass} line-clamp-3`}>{d.text}</p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {sfx && (dialogue || narration || allDialogues.length > 0) ? (
+            <span
+              className="mt-0.5 block select-none text-center text-sm font-black italic text-amber-200/90"
+              style={{ textShadow: "1px 1px 0 #000" }}
+            >
+              {sfx}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -240,8 +240,9 @@ function pickPanelImageFit(layout: UniversalMangaPage["layout"], area: string): 
     F: [],
   };
 
+  // Cases larges : object-cover évite l’image « miniature » au milieu (bandes noires)
   if (wideSlots[layout]?.includes(area)) {
-    return { fit: "contain", position: "center" };
+    return { fit: "cover", position: "center top" };
   }
   if (tallSlots[layout]?.includes(area)) {
     return { fit: "cover", position: "top" };

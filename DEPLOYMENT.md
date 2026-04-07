@@ -35,6 +35,16 @@ Guide CTO pour **Render**, **Supabase**, **Stripe**, **Inngest** et providers **
 - **Option A** : PostgreSQL hébergé par Supabase → copie la **connection string** (mode pooling pour serverless) dans `DATABASE_URL` sur Render.  
 - **Option B** : Postgres Render / Neon → même chose, une seule URL pour Prisma.
 
+#### Prisma + Supabase : erreur P1001 en local (`Can't reach database server` sur `db.<ref>.supabase.co:5432`)
+
+Ce n’est **pas** une erreur de mot de passe (ce serait P1000). Souvent le réseau local (FAI, entreprise, VPN) **n’ouvre pas** ou **n’atteint pas** le port 5432 vers l’hôte direct Supabase.
+
+**À faire :** dans le dashboard Supabase → **Settings → Database**, pour **`DIRECT_URL`** (migrations / `prisma db push`), utilise la chaîne **Session pooler** : même hôte que le pooler (`aws-0-…pooler.supabase.com`), port **5432**, utilisateur **`postgres.<project-ref>`**, pas l’hôte `db.<ref>.supabase.co`. Garde `DATABASE_URL` en **Transaction** (port **6543** + `pgbouncer=true`) pour l’app.
+
+Vérifie aussi que le projet Supabase n’est **pas en pause** (plan gratuit).
+
+**Variables déjà exportées dans le terminal :** `DIRECT_URL` / `DATABASE_URL` dans ton shell (`.zshrc`, profil IDE, etc.) **remplacent** le fichier `.env`. Si `printenv DIRECT_URL` affiche encore `db.<ref>.supabase.co`, fais `unset DIRECT_URL` (ou mets à jour l’export) puis relance `pnpm db:push`.
+
 Sur Render après déploiement :
 
 ```bash
