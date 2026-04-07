@@ -80,14 +80,22 @@ export async function GET(_req: Request, ctx: Ctx) {
     return url;
   }
 
+  let proxiedCount = 0;
+  let signedCount = 0;
   await Promise.all(
     chapter.scenes.flatMap((scene) =>
       scene.images.map(async (img) => {
+        const original = img.imageUrl;
         const signed = await signSupabaseUrlIfNeeded(img.imageUrl);
-        img.imageUrl = toProxied(signed) ?? signed;
+        if (signed !== original) signedCount++;
+        const proxied = toProxied(signed);
+        if (proxied !== signed) proxiedCount++;
+        img.imageUrl = proxied ?? signed;
       }),
     ),
   );
+  const totalImages = chapter.scenes.flatMap((s) => s.images).length;
+  console.log(`[chapter-route] images=${totalImages} signed=${signedCount} proxied=${proxiedCount}`);
 
   // Statistiques images pour le reader
   const allImages = chapter.scenes.flatMap((s) => s.images);

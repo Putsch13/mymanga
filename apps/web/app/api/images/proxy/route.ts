@@ -55,6 +55,7 @@ export async function GET(req: Request) {
     });
 
     if (!upstream.ok) {
+      console.warn(`[proxy] upstream ${upstream.status} for ${targetUrl.slice(0, 80)}`);
       return new NextResponse(`Upstream error: ${upstream.status}`, { status: upstream.status });
     }
 

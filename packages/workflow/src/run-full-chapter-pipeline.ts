@@ -125,7 +125,6 @@ async function persistImageIfNeeded(opts: {
   chapterId: string;
   sceneImageId: string;
 }) {
-  const bucket = process.env.STORAGE_BUCKET ?? "mymanga-images";
   const client = getStorageClient();
 
   const canPersistHttp =
@@ -134,14 +133,13 @@ async function persistImageIfNeeded(opts: {
   if (!mustPersist) return { ok: true as const, url: opts.imageUrl, persisted: false as const };
 
   if (!client) {
-    // Mode dégradé: on n'empêche pas le chapitre d'avoir des images, mais elles peuvent expirer.
+    console.warn(`[pipeline:persist] WARN no Supabase client (NEXT_PUBLIC_SUPABASE_URL=${!!process.env.NEXT_PUBLIC_SUPABASE_URL} SERVICE_ROLE=${!!process.env.SUPABASE_SERVICE_ROLE_KEY}) – storing temporary FAL URL for ${opts.sceneImageId}`);
     return {
       ok: true as const,
       url: opts.imageUrl,
       persisted: false as const,
       temporary: true as const,
-      warning:
-        "Stockage non configuré (NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY). Image temporaire: elle peut expirer.",
+      warning: "Stockage non configuré. Image temporaire: elle peut expirer.",
     };
   }
 
@@ -149,12 +147,10 @@ async function persistImageIfNeeded(opts: {
   let contentType = "image/jpeg";
 
   if (isDataUrl(opts.imageUrl)) {
-    // data:image/png;base64,....
     const commaIdx = opts.imageUrl.indexOf(",");
     if (commaIdx <= 0) return { ok: false as const, error: "data URL invalide" };
     const header = opts.imageUrl.slice(0, commaIdx);
     const b64 = opts.imageUrl.slice(commaIdx + 1);
-    // header exemple: data:image/png;base64
     const ct = header.split(";")[0]?.slice("data:".length);
     if (ct?.startsWith("image/")) contentType = ct;
     bytes = Uint8Array.from(Buffer.from(b64, "base64"));
@@ -168,24 +164,44 @@ async function persistImageIfNeeded(opts: {
   }
 
   const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
-  const path = `projects/${opts.projectId}/chapters/${opts.chapterId}/panels/${opts.sceneImageId}.${ext}`;
+  const filePath = `projects/${opts.projectId}/chapters/${opts.chapterId}/panels/${opts.sceneImageId}.${ext}`;
 
-  const up = await client.storage.from(bucket).upload(path, bytes, {
-    contentType,
-    upsert: true,
-    cacheControl: "31536000",
-  });
-  if (up.error) {
-    console.error(`[pipeline:persist] Upload failed: ${up.error.message} bucket=${bucket} path=${path}`);
-    // Mode dégradé: retourner l'URL temporaire FAL plutôt que bloquer le chapitre
-    return { ok: true as const, url: opts.imageUrl, persisted: false as const, temporary: true as const, warning: `upload_failed:${up.error.message}` };
+  // Essayer plusieurs buckets dans l'ordre de préférence
+  const bucketsToTry = [
+    process.env.STORAGE_BUCKET,
+    "MyManga",
+    "mymanga-images",
+    "manga-images",
+  ].filter(Boolean) as string[];
+
+  // Dédupliquer
+  const uniqueBuckets = [...new Set(bucketsToTry)];
+
+  for (const bucket of uniqueBuckets) {
+    // Tenter de créer le bucket s'il n'existe pas (ignore l'erreur si déjà existant)
+    try {
+      await client.storage.createBucket(bucket, { public: false });
+    } catch { /* bucket existe déjà, c'est ok */ }
+
+    const up = await client.storage.from(bucket).upload(filePath, bytes, {
+      contentType,
+      upsert: true,
+      cacheControl: "31536000",
+    });
+
+    if (up.error) {
+      console.warn(`[pipeline:persist] bucket=${bucket} failed: ${up.error.message}`);
+      continue;
+    }
+
+    const publicUrl = client.storage.from(bucket).getPublicUrl(filePath).data.publicUrl;
+    console.log(`[pipeline:persist] OK bucket=${bucket} → ${publicUrl.slice(0, 80)}`);
+    return { ok: true as const, url: publicUrl, persisted: true as const };
   }
 
-  // Stocker l'URL publique en DB (stable, pas de token).
-  // Le chapter route génère des signed URLs à la lecture si le bucket est privé.
-  const publicUrl = client.storage.from(bucket).getPublicUrl(path).data.publicUrl;
-  console.log(`[pipeline:persist] OK → ${publicUrl.slice(0, 80)}`);
-  return { ok: true as const, url: publicUrl, persisted: true as const };
+  // Tous les buckets ont échoué → mode dégradé avec URL temporaire FAL
+  console.error(`[pipeline:persist] All buckets failed for ${opts.sceneImageId} – using temporary FAL URL`);
+  return { ok: true as const, url: opts.imageUrl, persisted: false as const, temporary: true as const, warning: "all_buckets_failed" };
 }
 
 async function setJobProgress(jobId: string, step: JobStep, status: "running" | "completed" | "failed") {
@@ -503,6 +519,9 @@ function enforceBundleIntegrity(bundle: PipelineBundle): { bundle: PipelineBundl
 }
 
 export async function runFullChapterPipelineFromJob(jobId: string) {
+  // Diagnostic de configuration au démarrage du pipeline
+  console.log(`[pipeline:config] SUPABASE_URL=${!!process.env.NEXT_PUBLIC_SUPABASE_URL} SERVICE_ROLE=${!!process.env.SUPABASE_SERVICE_ROLE_KEY} ANON_KEY=${!!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY} BUCKET=${process.env.STORAGE_BUCKET ?? "(default:MyManga)"}`);
+
   const job = await prisma.job.findUnique({
     where: { id: jobId },
   });
