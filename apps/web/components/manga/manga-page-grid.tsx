@@ -240,9 +240,8 @@ type FitResult = { fit: "cover" | "contain"; position: string };
  * NE PLUS forcer cover arbitrairement basé uniquement sur la position dans la grille.
  */
 function pickPanelImageFit(
-  panel: UniversalPanel,
-  _layout: UniversalMangaPage["layout"], // Kept for future layout-specific logic
-  _area: string // Kept for future grid-position-specific logic
+  panel: UniversalPanel
+  // layout and area params removed (no longer needed with renderMeta/layoutMeta approach)
 ): FitResult {
   // 1. Si renderMeta.cropMode est explicite, l'utiliser (priorité absolue)
   if (panel.renderMeta?.cropMode) {
@@ -288,7 +287,7 @@ export function MangaPageGrid({ page }: Props) {
   const layoutStyle = LAYOUT_STYLES[universal.layout] ?? LAYOUT_STYLES.A;
   const renderedPanels = universal.panels.map((panel, i) => {
     const area = AREA_NAMES[i] ?? "a";
-    const { fit, position } = pickPanelImageFit(panel, universal.layout, area);
+    const { fit, position } = pickPanelImageFit(panel);
     return (
       <MangaPanel
         key={panel.id ?? `panel-${i}`}

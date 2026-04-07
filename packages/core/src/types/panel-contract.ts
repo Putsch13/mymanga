@@ -69,7 +69,7 @@ export interface BeatAdvancement {
   /** Quelle décision ou conséquence ? */
   consequence?: string;
   /** Pourquoi ce beat existe ? */
-  narrative Justification: string;
+  narrativeJustification: string;
   /** Score de pertinence (0-1, reject si < 0.6) */
   relevanceScore: number;
 }

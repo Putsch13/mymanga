@@ -624,11 +624,11 @@ function buildPanelsForScene(
     const leadBubble = textPlan?.bubbles?.[0];
     const normalizedChars = [...new Set((charSubsetRaw ?? []).filter(Boolean))];
     const allBubbles = (textPlan?.bubbles ?? [])
-      .filter((b) => b.text?.trim())
+      .filter((b: { text?: string }) => b.text?.trim())
       .slice(0, 3)
-      .map((b) => ({
+      .map((b: { speaker?: string; text?: string }) => ({
         speaker: b.speaker ?? normalizedChars[0] ?? scene.characters[0] ?? "Narrateur",
-        text: b.text,
+        text: b.text as string, // Safe: filtered above for truthy text
       }));
     for (const bubble of allBubbles) {
       const bubbleSpeaker = bubble.speaker?.trim();
@@ -958,9 +958,9 @@ export async function generateChapterBundle(input: {
     return {
       ...scene,
       dialogue: plan.flatMap((panel, panelIndex) =>
-        (panel.bubbles ?? []).map((bubble) => ({
+        (panel.bubbles ?? []).map((bubble: { speaker?: string; text?: string; emotion?: string; bubbleType?: string }) => ({
           speaker: bubble.speaker ?? scene.characters[0] ?? mainCast[0],
-          text: bubble.text,
+          text: bubble.text as string, // Safe: bubbles are always generated with text
           subtext: bubble.emotion ?? scene.purpose,
           emotion: bubble.emotion ?? ((beats[index]?.tension ?? 5) >= 7 ? "tension" : "calme"),
           intensity: Math.min(10, 3 + index + panelIndex),

@@ -8,6 +8,7 @@ import {
   buildTriggerWord,
   trainCharacterLora,
   detectVisualDrift,
+  validateGeneratedPanel,
   parseIntentEntities,
   inferEntityProfile,
   resolveAdultEngine,
@@ -1148,6 +1149,54 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               appearance: c?.appearance ?? null,
             };
           });
+          // ── Validation stricte avec CharacterFingerprint (Bloc 2) ──────────────
+          const charactersWithFingerprints = panelCharacterNames
+            .map((name) => {
+              const c = rawCharacters.find((rc) => rc.name === name);
+              if (!c) return null;
+              
+              const fingerprintRaw = (c as { characterFingerprint?: unknown }).characterFingerprint;
+              const fingerprint = fingerprintRaw && typeof fingerprintRaw === "object"
+                ? fingerprintRaw as Record<string, unknown>
+                : null;
+
+              // Si pas de fingerprint, skip validation stricte
+              if (!fingerprint || Object.keys(fingerprint).length === 0) return null;
+
+              return {
+                characterId: c.id,
+                characterName: c.name,
+                fingerprint: fingerprint as never,
+              };
+            })
+            .filter((c): c is NonNullable<typeof c> => c !== null);
+
+          let shouldRerollStrict = false;
+          let validationScore = 1.0;
+
+          if (charactersWithFingerprints.length > 0) {
+            const validation = await validateGeneratedPanel({
+              panelId: item.sceneImageId,
+              imageUrl: result.result.imageUrl,
+              requiredCharacters: charactersWithFingerprints,
+              metadata: {
+                prompt: item.panel.prompt,
+                negativePrompt: item.panel.negativePrompt,
+                model: result.result.model,
+              },
+            });
+
+            validationScore = validation.score;
+            shouldRerollStrict = validation.requiredReroll;
+
+            if (shouldRerollStrict) {
+              console.warn(
+                `[pipeline] validation failed score=${validation.score.toFixed(2)} panel=${item.sceneImageId} critical_issues=${validation.issues.filter((i) => i.severity === "critical").length}`
+              );
+            }
+          }
+
+          // Fallback sur ancien drift detector si pas de fingerprint
           const drift = detectVisualDrift({
             prompt: item.panel.prompt,
             characters: panelCharDetails,
@@ -1159,8 +1208,13 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           let finalResult = result;
           let rerollCount = 0;
 
-          if (!drift.pass && MAX_REROLL > 0) {
-            console.warn(`[pipeline] drift detected score=${drift.score} panel=${item.sceneImageId} issues=${drift.issues.slice(0, 2).join("; ")}`);
+          const shouldReroll = shouldRerollStrict || !drift.pass;
+
+          if (shouldReroll && MAX_REROLL > 0) {
+            const reason = shouldRerollStrict
+              ? `validation score=${validationScore.toFixed(2)}`
+              : `drift score=${drift.score}`;
+            console.warn(`[pipeline] reroll required: ${reason} panel=${item.sceneImageId}`);
 
             for (let attempt = 0; attempt < MAX_REROLL; attempt++) {
               const boostNeg = drift.issues

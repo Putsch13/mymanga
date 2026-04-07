@@ -141,6 +141,12 @@ type Props = {
     safeArea?: { top: number; right: number; bottom: number; left: number };
     reservedTextZones?: Array<"top-left" | "top-right" | "bottom-left" | "bottom-right" | "center">;
   };
+  /** Métadonnées de layout du panel (slotType, aspectRatio, layoutTemplate) */
+  layoutMeta?: {
+    slotType?: "wide" | "tall" | "square" | "closeup" | "dialogue";
+    targetAspectRatio?: string;
+    layoutTemplate?: string;
+  };
   /** Mode de rendu: reader (défaut), debug (bande texte séparée), print (texte superposé léger) */
   renderMode?: "reader" | "debug" | "print"; // TODO: Implémenter renderMode variants
   className?: string;
@@ -166,7 +172,7 @@ export function MangaPanel({
   imageFit = "contain",
   objectPosition = "center",
   renderMeta,
-  renderMode: _renderMode = "reader", // Prefixed with _ to avoid unused var warning (TODO: implement variants)
+  // renderMode: unused currently (TODO: implement variants for debug/print modes)
   className,
   style,
   panelIndex,

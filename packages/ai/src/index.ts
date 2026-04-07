@@ -26,3 +26,6 @@ export * from "./services/tts-service";
 export * from "./services/visual-drift-detector";
 export * from "./services/entity-brain";
 export * from "./services/adult-engine";
+export * from "./character-fingerprint-extractor";
+export * from "./panel-validator";
+export * from "./beat-advancement-checker";

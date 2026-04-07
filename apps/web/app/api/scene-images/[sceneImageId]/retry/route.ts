@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import type { Prisma } from "@manga-ai-studio/db";
 import { prisma } from "@manga-ai-studio/db";
-import { runRoutedImageGeneration, resolveAdultEngine } from "@manga-ai-studio/ai";
+import {
+  runRoutedImageGeneration,
+  resolveAdultEngine,
+  validateGeneratedPanel,
+} from "@manga-ai-studio/ai";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
 import { notFound, unauthorized, validationError } from "@/lib/api-response";
@@ -73,7 +77,7 @@ export async function POST(_req: Request, ctx: Ctx) {
   }
   const projectChars = await prisma.character.findMany({
     where: { projectId },
-    select: { id: true, name: true },
+    select: { id: true, name: true, characterFingerprint: true },
   });
   const panelLoras = characters
     .map((name) => {
@@ -161,6 +165,50 @@ export async function POST(_req: Request, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: persisted.error }, { status: 502 });
     }
 
+    // ── Validation post-génération avec CharacterFingerprint (Bloc 2) ─────────
+    const charactersWithFingerprints = characters
+      .map((charName) => {
+        const char = projectChars.find((pc) => pc.name === charName);
+        if (!char) return null;
+
+        const fingerprintRaw = char.characterFingerprint;
+        if (!fingerprintRaw || typeof fingerprintRaw !== "object" || Object.keys(fingerprintRaw).length === 0) {
+          return null;
+        }
+
+        return {
+          characterId: char.id,
+          characterName: char.name,
+          fingerprint: fingerprintRaw as never,
+        };
+      })
+      .filter((c): c is NonNullable<typeof c> => c !== null);
+
+    let validationScore = 1.0;
+
+    if (charactersWithFingerprints.length > 0) {
+      const validation = await validateGeneratedPanel({
+        panelId: img.id,
+        imageUrl: persisted.url,
+        requiredCharacters: charactersWithFingerprints,
+        metadata: {
+          prompt: img.prompt,
+          negativePrompt: img.negativePrompt ?? undefined,
+          model: out.result.model,
+        },
+      });
+
+      validationScore = validation.score;
+
+      if (validation.requiredReroll) {
+        console.warn(
+          `[retry] Validation failed for panel ${img.id}: score=${validation.score.toFixed(2)}, issues=${validation.issues.length}. Manual review required.`
+        );
+        // Pour retry, on ne reroll pas automatiquement une 2e fois (avoid infinite loops)
+        // On log juste le warning
+      }
+    }
+
     await prisma.sceneImage.update({
       where: { id: img.id },
       data: {
@@ -175,6 +223,7 @@ export async function POST(_req: Request, ctx: Ctx) {
           persisted: persisted.persisted,
           retryUsedLoras: panelLoras.length,
           retryUsedRefs: referenceImageUrls.length,
+          validationScore: charactersWithFingerprints.length > 0 ? validationScore : undefined,
         } as unknown) as Prisma.InputJsonValue,
       },
     });

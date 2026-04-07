@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { runRoutedImageGeneration, composeCharacterVisualPrompt, resolveAdultEngine } from "@manga-ai-studio/ai";
+import {
+  runRoutedImageGeneration,
+  composeCharacterVisualPrompt,
+  resolveAdultEngine,
+  extractCharacterFingerprintFromRefs,
+} from "@manga-ai-studio/ai";
 import {
   estimateImageTokensFromRules,
   refundReservation,
@@ -199,6 +204,43 @@ export async function POST(_req: Request, ctx: Ctx) {
     });
 
     await settleReservedTokens(prisma, user.id, reservation.reservationId, estimatedTokens);
+
+    // ── Extraire et persister CharacterFingerprint (Bloc 2) ──────────────────
+    try {
+      const allVisualRefs = await prisma.characterVisualRef.findMany({
+        where: { characterId: character.id },
+        select: { imageUrl: true, type: true, isPrimary: true },
+        orderBy: { isPrimary: "desc" },
+      });
+
+      const fingerprint = await extractCharacterFingerprintFromRefs({
+        characterId: character.id,
+        characterName: character.name,
+        gender: character.gender === "male" ? "male" : character.gender === "female" ? "female" : "other",
+        visualRefs: allVisualRefs.map((ref) => ({
+          url: ref.imageUrl,
+          type: ref.type,
+          isPrimary: ref.isPrimary,
+        })),
+        visualProfile: raw.visualProfile && typeof raw.visualProfile === "object" ? raw.visualProfile as Record<string, unknown> : {},
+        bodyState: bodyState,
+        wardrobeProfile: wardrobeProfile,
+        appearance: character.appearance,
+        hairColor: character.hairColor,
+        eyeColor: character.eyeColor,
+      });
+
+      await prisma.character.update({
+        where: { id: character.id },
+        data: { characterFingerprint: fingerprint as never },
+      });
+
+      console.log(`[generate-visual] CharacterFingerprint extracted and persisted for ${character.name}`);
+    } catch (fpError) {
+      console.error(`[generate-visual] Failed to extract fingerprint:`, fpError instanceof Error ? fpError.message : fpError);
+      // Non-blocking: fingerprint extraction failure ne doit pas fail la génération
+    }
+
     return NextResponse.json({ ok: true, visualRef });
   } catch (error) {
     await refundReservation(
