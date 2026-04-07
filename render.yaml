@@ -6,7 +6,8 @@ services:
     region: frankfurt
     plan: starter
     rootDir: .
-    buildCommand: npm install -g pnpm@10.33.0 && pnpm install --frozen-lockfile && pnpm --filter @manga-ai-studio/db exec prisma generate && pnpm --filter @manga-ai-studio/web build
+    # IMPORTANT: Next build peut exécuter du code serveur (prerender). On doit donc pousser le schéma AVANT `next build`.
+    buildCommand: npm install -g pnpm@10.33.0 && pnpm install --frozen-lockfile && pnpm --filter @manga-ai-studio/db exec prisma db push && pnpm --filter @manga-ai-studio/db exec prisma generate && pnpm --filter @manga-ai-studio/web build
     # IMPORTANT: en l'absence de migrations Prisma (pas de dossier prisma/migrations),
     # on doit pousser le schéma au démarrage sinon la prod répond 500 (champs/tables manquants).
     startCommand: pnpm --filter @manga-ai-studio/db exec prisma db push && pnpm --filter @manga-ai-studio/web start
@@ -23,6 +24,8 @@ services:
       - key: NEXT_PUBLIC_SUPABASE_URL
         sync: false
       - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: STRIPE_SECRET_KEY
         sync: false

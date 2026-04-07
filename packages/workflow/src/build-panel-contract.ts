@@ -44,12 +44,9 @@ export async function buildPanelContract(input: PanelContractInput): Promise<Pan
   const mustShow = extractMustShow(panel);
   const mustNotShow: string[] = []; // À enrichir avec contraintes de continuité
 
-  // Déterminer dialogueCount
-  const dialogueCount = Array.isArray(panel.dialogue)
-    ? panel.dialogue.length
-    : panel.dialogue
-      ? 1
-      : 0;
+  // Déterminer dialogueCount (supporte dialogue + dialogues)
+  const dialogueCount =
+    (panel.dialogues?.length ?? 0) + (panel.dialogue ? 1 : 0);
 
   // Plan de texte
   const textBoxPlan: PanelContract["textBoxPlan"] = {
@@ -86,7 +83,7 @@ export async function buildPanelContract(input: PanelContractInput): Promise<Pan
 }
 
 function deducePurpose(panel: StoryboardPanel): PanelContract["purpose"] {
-  const desc = (panel.visualDescription ?? panel.action ?? "").toLowerCase();
+  const desc = `${panel.caption ?? ""} ${panel.camera ?? ""} ${panel.prompt ?? ""}`.toLowerCase();
   
   if (desc.includes("wide") || desc.includes("establish") || desc.includes("location")) {
     return "establishing";
@@ -94,7 +91,7 @@ function deducePurpose(panel: StoryboardPanel): PanelContract["purpose"] {
   if (desc.includes("react") || desc.includes("expression") || desc.includes("face")) {
     return "reaction";
   }
-  if (panel.dialogue) {
+  if (panel.dialogue || (panel.dialogues?.length ?? 0) > 0) {
     return "dialogue";
   }
   if (desc.includes("action") || desc.includes("fight") || desc.includes("move")) {
@@ -108,7 +105,7 @@ function deducePurpose(panel: StoryboardPanel): PanelContract["purpose"] {
 }
 
 function deduceShotType(panel: StoryboardPanel): PanelContract["shotType"] {
-  const desc = (panel.visualDescription ?? panel.action ?? "").toLowerCase();
+  const desc = `${panel.camera ?? ""} ${panel.caption ?? ""}`.toLowerCase();
   
   if (desc.includes("wide shot") || desc.includes("establishing")) return "wide";
   if (desc.includes("close-up") || desc.includes("closeup") || desc.includes("close up")) return "closeup";
@@ -119,7 +116,7 @@ function deduceShotType(panel: StoryboardPanel): PanelContract["shotType"] {
 }
 
 function deduceCameraAngle(panel: StoryboardPanel): PanelContract["cameraAngle"] {
-  const desc = (panel.visualDescription ?? panel.action ?? "").toLowerCase();
+  const desc = `${panel.camera ?? ""}`.toLowerCase();
   
   if (desc.includes("low angle") || desc.includes("from below")) return "low_angle";
   if (desc.includes("high angle") || desc.includes("from above")) return "high_angle";
@@ -129,7 +126,7 @@ function deduceCameraAngle(panel: StoryboardPanel): PanelContract["cameraAngle"]
 }
 
 function extractMustShow(panel: StoryboardPanel): string[] {
-  const desc = (panel.visualDescription ?? panel.action ?? "");
+  const desc = panel.prompt ?? "";
   const mustShow: string[] = [];
   
   // Patterns simples pour extraire éléments importants
@@ -173,8 +170,6 @@ function determineAspectRatio(shotType: PanelContract["shotType"]): string {
     case "closeup":
     case "extreme_closeup":
       return "3:4";
-    case "tall":
-      return "2:3";
     default:
       return "4:5";
   }

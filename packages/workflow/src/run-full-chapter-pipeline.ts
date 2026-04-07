@@ -65,6 +65,46 @@ function getStorageClient() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
+function isHttpImageUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+function isAlreadyStableStorageUrl(url: string) {
+  const supabaseBase = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (supabaseBase && url.startsWith(supabaseBase)) return true;
+  return false;
+}
+
+function parseSupabasePublicObjectUrl(url: string): { bucket: string; path: string } | null {
+  try {
+    const parsed = new URL(url);
+    const marker = "/storage/v1/object/public/";
+    const idx = parsed.pathname.indexOf(marker);
+    if (idx < 0) return null;
+    const rest = parsed.pathname.slice(idx + marker.length); // bucket/path...
+    const [bucket, ...pathParts] = rest.split("/");
+    if (!bucket || pathParts.length === 0) return null;
+    return { bucket, path: decodeURIComponent(pathParts.join("/")) };
+  } catch {
+    return null;
+  }
+}
+
+async function signIfSupabaseStorageUrl(originalUrl: string): Promise<string> {
+  const ref = parseSupabasePublicObjectUrl(originalUrl);
+  if (!ref) return originalUrl;
+  const client = getStorageClient();
+  if (!client) return originalUrl;
+  const signed = await client.storage.from(ref.bucket).createSignedUrl(ref.path, 60 * 30); // 30 minutes
+  if (signed.error || !signed.data?.signedUrl) return originalUrl;
+  return signed.data.signedUrl;
+}
+
 function isDataUrl(url: string) {
   return url.startsWith("data:image/");
 }
@@ -87,14 +127,20 @@ async function persistImageIfNeeded(opts: {
   const bucket = process.env.STORAGE_BUCKET ?? "mymanga-images";
   const client = getStorageClient();
 
-  const mustPersist = isDataUrl(opts.imageUrl) || looksLikeBflDelivery(opts.imageUrl);
+  const canPersistHttp =
+    isHttpImageUrl(opts.imageUrl) && !looksLikeBflDelivery(opts.imageUrl) && !isAlreadyStableStorageUrl(opts.imageUrl);
+  const mustPersist = isDataUrl(opts.imageUrl) || looksLikeBflDelivery(opts.imageUrl) || canPersistHttp;
   if (!mustPersist) return { ok: true as const, url: opts.imageUrl, persisted: false as const };
 
   if (!client) {
+    // Mode dégradé: on n'empêche pas le chapitre d'avoir des images, mais elles peuvent expirer.
     return {
-      ok: false as const,
-      error:
-        "Image non persistable (data URL / BFL delivery) sans SUPABASE_SERVICE_ROLE_KEY + STORAGE_BUCKET. Configure le stockage.",
+      ok: true as const,
+      url: opts.imageUrl,
+      persisted: false as const,
+      temporary: true as const,
+      warning:
+        "Stockage non configuré (NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY). Image temporaire: elle peut expirer.",
     };
   }
 
@@ -1106,13 +1152,14 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       // (pas de keyframe image : la cohérence décor passe par composeEnvironment dans le prompt)
       const refs: string[] = [];
       if (canonRef) {
+        const signedCanonRef = await signIfSupabaseStorageUrl(canonRef);
         // Vérifier que l'URL de référence est encore accessible avant de la passer à FAL
         // Une URL expirée (FAL CDN temporaire) cause une erreur 422 "Failed to download the file"
-        const isAccessible = await fetch(canonRef, { method: "HEAD", signal: AbortSignal.timeout(4000) })
+        const isAccessible = await fetch(signedCanonRef, { method: "HEAD", signal: AbortSignal.timeout(4000) })
           .then((r) => r.ok)
           .catch(() => false);
         if (isAccessible) {
-          refs.push(canonRef);
+          refs.push(signedCanonRef);
         } else {
           console.warn(`[pipeline] canonRef URL inaccessible (expirée ?), ignorée pour ce panel: ${canonRef.slice(0, 80)}`);
         }
@@ -1290,6 +1337,9 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 ...item.baseMetadata,
                 generationLog: finalLog,
                 persisted: persisted.persisted,
+                temporary: "temporary" in persisted ? (persisted.temporary as boolean) : undefined,
+                storageWarning: "warning" in persisted ? (persisted.warning as string) : undefined,
+                sourceUrl: finalResult.ok ? finalResult.result.imageUrl : result.result.imageUrl,
                 canonRefUsed: canonRef ?? null,
                 driftScore: drift.score,
                 driftPass: drift.pass,
