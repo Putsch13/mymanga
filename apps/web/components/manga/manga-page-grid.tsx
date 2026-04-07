@@ -241,8 +241,8 @@ type FitResult = { fit: "cover" | "contain"; position: string };
  */
 function pickPanelImageFit(
   panel: UniversalPanel,
-  layout: UniversalMangaPage["layout"],
-  area: string
+  _layout: UniversalMangaPage["layout"], // Kept for future layout-specific logic
+  _area: string // Kept for future grid-position-specific logic
 ): FitResult {
   // 1. Si renderMeta.cropMode est explicite, l'utiliser (priorité absolue)
   if (panel.renderMeta?.cropMode) {

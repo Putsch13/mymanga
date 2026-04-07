@@ -142,7 +142,7 @@ type Props = {
     reservedTextZones?: Array<"top-left" | "top-right" | "bottom-left" | "bottom-right" | "center">;
   };
   /** Mode de rendu: reader (défaut), debug (bande texte séparée), print (texte superposé léger) */
-  renderMode?: "reader" | "debug" | "print";
+  renderMode?: "reader" | "debug" | "print"; // TODO: Implémenter renderMode variants
   className?: string;
   style?: React.CSSProperties;
   panelIndex?: number;
@@ -166,7 +166,7 @@ export function MangaPanel({
   imageFit = "contain",
   objectPosition = "center",
   renderMeta,
-  renderMode = "reader",
+  renderMode: _renderMode = "reader", // Prefixed with _ to avoid unused var warning (TODO: implement variants)
   className,
   style,
   panelIndex,
