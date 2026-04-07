@@ -235,40 +235,32 @@ type Props = {
 
 type FitResult = { fit: "cover" | "contain"; position: string };
 
-/**
- * Choisir le fit/position d'un panel en fonction de son slotType et renderMeta.
- * NE PLUS forcer cover arbitrairement basé uniquement sur la position dans la grille.
- */
-function pickPanelImageFit(
-  panel: UniversalPanel,
-  layout: UniversalMangaPage["layout"],
-  area: string
-): FitResult {
-  // 1. Si renderMeta.cropMode est explicite, l'utiliser (priorité absolue)
-  if (panel.renderMeta?.cropMode) {
-    const position = panel.renderMeta.focalPoint
-      ? `${panel.renderMeta.focalPoint.x * 100}% ${panel.renderMeta.focalPoint.y * 100}%`
-      : "center";
-    return { fit: panel.renderMeta.cropMode, position };
-  }
+function pickPanelImageFit(layout: UniversalMangaPage["layout"], area: string): FitResult {
+  const wideSlots: Record<UniversalMangaPage["layout"], string[]> = {
+    A: ["c"],
+    B: ["c"],
+    C: ["a"],
+    D: ["a", "d"],
+    E: [],
+    F: [],
+  };
+  const tallSlots: Record<UniversalMangaPage["layout"], string[]> = {
+    A: ["d"],
+    B: [],
+    C: [],
+    D: [],
+    E: ["a"],
+    F: [],
+  };
 
-  // 2. Si layoutMeta.slotType suggère un crop spécifique
-  const slotType = panel.layoutMeta?.slotType;
-  if (slotType === "wide") {
-    // Wide peut bénéficier de cover si l'image est paysage
+  // Cases larges : object-cover évite l’image « miniature » au milieu (bandes noires)
+  if (wideSlots[layout]?.includes(area)) {
     return { fit: "cover", position: "center top" };
   }
-  if (slotType === "tall") {
+  if (tallSlots[layout]?.includes(area)) {
     return { fit: "cover", position: "top" };
   }
-  if (slotType === "closeup" || slotType === "dialogue") {
-    // Closeup/dialogue: prefer contain pour ne pas couper les visages
-    return { fit: "contain", position: "center" };
-  }
-
-  // 3. Fallback: CONTAIN par défaut pour préserver l'image complète
-  //    (changement majeur: on ne force plus cover arbitrairement)
-  return { fit: "contain", position: "center" };
+  return { fit: "cover", position: "top" };
 }
 
 function isDemoPage(page: UniversalMangaPage | DemoMangaPage): page is DemoMangaPage {

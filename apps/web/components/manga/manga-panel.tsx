@@ -130,8 +130,19 @@ type Props = {
   sfx?: string;
   caption?: string;
   textScale?: "normal" | "compact" | "micro";
+  /** @deprecated Utiliser renderMeta.cropMode à la place */
   imageFit?: "cover" | "contain";
+  /** @deprecated Utiliser renderMeta.focalPoint à la place */
   objectPosition?: string;
+  /** Métadonnées de rendu strict pour éviter le crop arbitraire */
+  renderMeta?: {
+    cropMode?: "contain" | "cover";
+    focalPoint?: { x: number; y: number };
+    safeArea?: { top: number; right: number; bottom: number; left: number };
+    reservedTextZones?: Array<"top-left" | "top-right" | "bottom-left" | "bottom-right" | "center">;
+  };
+  /** Mode de rendu: reader (défaut), debug (bande texte séparée), print (texte superposé léger) */
+  renderMode?: "reader" | "debug" | "print";
   className?: string;
   style?: React.CSSProperties;
   panelIndex?: number;
@@ -152,8 +163,10 @@ export function MangaPanel({
   sfx,
   caption,
   textScale = "normal",
-  imageFit = "cover",
-  objectPosition = "top",
+  imageFit = "contain",
+  objectPosition = "center",
+  renderMeta,
+  renderMode = "reader",
   className,
   style,
   panelIndex,
@@ -162,6 +175,14 @@ export function MangaPanel({
   const overlay = MOOD_OVERLAY[mood];
   const isPending = !imageUrl && (status === "planned" || status === "pending");
   const isFailed = !imageUrl && (status === "failed" || status === "blocked");
+
+  // Déterminer le mode de crop effectif (renderMeta prioritaire)
+  const effectiveCropMode = renderMeta?.cropMode ?? imageFit;
+  
+  // Déterminer la position de l'objet basée sur focalPoint ou objectPosition
+  const effectiveObjectPosition = renderMeta?.focalPoint
+    ? `${renderMeta.focalPoint.x * 100}% ${renderMeta.focalPoint.y * 100}%`
+    : objectPosition;
 
   const narrationClass =
     textScale === "micro"
@@ -198,15 +219,15 @@ export function MangaPanel({
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {imageUrl ? (
           <>
-            {imageFit === "contain" && (
+            {effectiveCropMode === "contain" && (
               <div className="absolute inset-0 bg-gradient-to-b from-stone-900 via-stone-950 to-stone-900" />
             )}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={imageUrl}
               alt={caption ?? `Panel ${(panelIndex ?? 0) + 1}`}
-              className={`h-full w-full ${imageFit === "contain" ? "object-contain" : "object-cover"}`}
-              style={{ objectPosition }}
+              className={`h-full w-full ${effectiveCropMode === "contain" ? "object-contain" : "object-cover"}`}
+              style={{ objectPosition: effectiveObjectPosition }}
             />
           </>
         ) : (
