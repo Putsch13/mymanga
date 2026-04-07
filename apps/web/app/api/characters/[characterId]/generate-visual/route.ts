@@ -17,6 +17,7 @@ import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } fro
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { persistGeneratedImageIfNeeded } from "@/lib/images/persist-generated-image";
+import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
 import { notFound, paymentRequired, unauthorized } from "@/lib/api-response";
 import { getOwnedCharacter } from "@/lib/ownership";
 
@@ -241,7 +242,11 @@ export async function POST(_req: Request, ctx: Ctx) {
       // Non-blocking: fingerprint extraction failure ne doit pas fail la génération
     }
 
-    return NextResponse.json({ ok: true, visualRef });
+    // Signer l'URL Supabase pour que le client puisse afficher l'image immédiatement
+    const signedImageUrl = await signSupabaseUrlIfNeeded(visualRef.imageUrl);
+    const visualRefForClient = { ...visualRef, imageUrl: signedImageUrl ?? visualRef.imageUrl };
+
+    return NextResponse.json({ ok: true, visualRef: visualRefForClient });
   } catch (error) {
     await refundReservation(
       prisma,

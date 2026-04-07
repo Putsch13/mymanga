@@ -5,6 +5,7 @@ import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
 import { getOwnedCharacter } from "@/lib/ownership";
+import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
 
 type Ctx = { params: Promise<{ characterId: string }> };
 
@@ -57,6 +58,14 @@ export async function GET(_req: Request, ctx: Ctx) {
   const { characterId } = await ctx.params;
   const character = await getOwnedCharacter(user.id, characterId);
   if (!character) return notFound();
+
+  // Signer les URLs Supabase des refs visuelles (bucket privé → 403 sinon)
+  await Promise.all(
+    (character.visualRefs ?? []).map(async (ref) => {
+      ref.imageUrl = (await signSupabaseUrlIfNeeded(ref.imageUrl)) ?? ref.imageUrl;
+    }),
+  );
+
   return NextResponse.json({ character });
 }
 

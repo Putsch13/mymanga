@@ -176,10 +176,15 @@ async function persistImageIfNeeded(opts: {
     cacheControl: "31536000",
   });
   if (up.error) {
-    return { ok: false as const, error: `upload failed: ${up.error.message}` };
+    console.error(`[pipeline:persist] Upload failed: ${up.error.message} bucket=${bucket} path=${path}`);
+    // Mode dégradé: retourner l'URL temporaire FAL plutôt que bloquer le chapitre
+    return { ok: true as const, url: opts.imageUrl, persisted: false as const, temporary: true as const, warning: `upload_failed:${up.error.message}` };
   }
 
+  // Stocker l'URL publique en DB (stable, pas de token).
+  // Le chapter route génère des signed URLs à la lecture si le bucket est privé.
   const publicUrl = client.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+  console.log(`[pipeline:persist] OK → ${publicUrl.slice(0, 80)}`);
   return { ok: true as const, url: publicUrl, persisted: true as const };
 }
 

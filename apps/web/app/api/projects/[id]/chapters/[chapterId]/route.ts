@@ -2,47 +2,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import type { Prisma } from "@manga-ai-studio/db";
 import { prisma } from "@manga-ai-studio/db";
-import { createClient } from "@supabase/supabase-js";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
+import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
-
-function getStorageClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, { auth: { persistSession: false } });
-}
-
-function parseSupabasePublicObjectUrl(url: string): { bucket: string; path: string } | null {
-  try {
-    const parsed = new URL(url);
-    const marker = "/storage/v1/object/public/";
-    const idx = parsed.pathname.indexOf(marker);
-    if (idx < 0) return null;
-    const rest = parsed.pathname.slice(idx + marker.length); // bucket/path...
-    const [bucket, ...pathParts] = rest.split("/");
-    if (!bucket || pathParts.length === 0) return null;
-    return { bucket, path: decodeURIComponent(pathParts.join("/")) };
-  } catch {
-    return null;
-  }
-}
-
-async function maybeSignSupabaseUrl(originalUrl: string | null): Promise<string | null> {
-  if (!originalUrl) return null;
-  const ref = parseSupabasePublicObjectUrl(originalUrl);
-  if (!ref) return originalUrl;
-
-  const client = getStorageClient();
-  if (!client) return originalUrl;
-
-  // Si le bucket est privé (ou policies), un signed URL garantit l'affichage des images dans le reader.
-  const signed = await client.storage.from(ref.bucket).createSignedUrl(ref.path, 60 * 60);
-  if (signed.error || !signed.data?.signedUrl) return originalUrl;
-  return signed.data.signedUrl;
-}
 
 const patchSchema = z.object({
   title: z.string().optional().nullable(),
@@ -119,7 +83,7 @@ export async function GET(_req: Request, ctx: Ctx) {
   await Promise.all(
     chapter.scenes.flatMap((scene) =>
       scene.images.map(async (img) => {
-        const signed = await maybeSignSupabaseUrl(img.imageUrl);
+        const signed = await signSupabaseUrlIfNeeded(img.imageUrl);
         img.imageUrl = toProxied(signed) ?? signed;
       }),
     ),
