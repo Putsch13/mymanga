@@ -6,14 +6,14 @@
  * Usage: /api/images/proxy?url=<base64url>
  */
 import { NextResponse } from "next/server";
-import { getAppUser } from "@/lib/auth/get-app-user";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const user = await getAppUser();
-  if (!user) return new NextResponse("Unauthorized", { status: 401 });
+  // Pas d'auth requise : la liste blanche de domaines est la seule protection nécessaire.
+  // Les cookies ne sont pas envoyés de façon fiable pour les requêtes <img src> (Safari, SameSite).
+  // La sécurité repose sur la liste allowedHosts ci-dessous.
 
   const { searchParams } = new URL(req.url);
   const encodedUrl = searchParams.get("url");
@@ -21,7 +21,8 @@ export async function GET(req: Request) {
 
   let targetUrl: string;
   try {
-    targetUrl = Buffer.from(encodedUrl, "base64url").toString("utf-8");
+    // encodeURIComponent côté client → decodeURIComponent côté serveur (universel)
+    targetUrl = decodeURIComponent(encodedUrl);
   } catch {
     return new NextResponse("Invalid url encoding", { status: 400 });
   }

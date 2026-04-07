@@ -1,6 +1,7 @@
 /**
  * Utilitaires pour le proxy d'image côté client.
  * Transforme une URL externe (FAL, Supabase, etc.) en URL proxifiée via /api/images/proxy.
+ * Compatible browser ET Node.js (pas de Buffer.from base64url).
  */
 
 const FAL_HOSTS = ["v3b.fal.media", "fal.media", "cdn.fal.ai"];
@@ -31,9 +32,8 @@ function isSupabaseUrl(url: string): boolean {
 export function toProxiedUrl(url: string | null | undefined): string | null {
   if (!url) return null;
   if (!isFalUrl(url) && !isSupabaseUrl(url)) return url;
-
-  const encoded = Buffer.from(url, "utf-8").toString("base64url");
-  return `/api/images/proxy?url=${encoded}`;
+  // encodeURIComponent est universel (browser + Node), contrairement à Buffer base64url
+  return `/api/images/proxy?url=${encodeURIComponent(url)}`;
 }
 
 /**

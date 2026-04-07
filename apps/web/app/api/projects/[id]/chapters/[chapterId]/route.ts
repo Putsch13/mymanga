@@ -110,8 +110,7 @@ export async function GET(_req: Request, ctx: Ctx) {
         (h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`)
       );
       if (isFal) {
-        const encoded = Buffer.from(url, "utf-8").toString("base64url");
-        return `/api/images/proxy?url=${encoded}`;
+        return `/api/images/proxy?url=${encodeURIComponent(url)}`;
       }
     } catch { /* ignore */ }
     return url;
