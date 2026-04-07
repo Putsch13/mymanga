@@ -343,6 +343,10 @@ model Character {
   canChangeVisibleScars Boolean @default(false)
   canChangeSpeechRegister Boolean @default(false)
   requiresCanonApprovalFor Json @default("[]")  // Array<string> : types de changements nécessitant un CanonChangeRequest
+  
+  // CharacterFingerprint : identité visuelle/comportementale stricte (Bloc 2)
+  characterFingerprint  Json @default("{}")  // CharacterFingerprint complet
+  
   status          String    @default("alive")
   emotionalState  String?
   canonLocked     Boolean   @default(false)
