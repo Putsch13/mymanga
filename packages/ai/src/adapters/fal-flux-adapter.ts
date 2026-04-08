@@ -55,7 +55,11 @@ async function callFal(
       const text = await res.text();
       if (!res.ok) {
         lastError = new Error(`fal.run error ${res.status}: ${text.slice(0, 500)}`);
-        if (res.status >= 500 && attempt < retries) continue;
+        if (res.status >= 500 && attempt < retries) {
+          // Délai exponentiel entre retries (1s, 2s, 4s...)
+          await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
+          continue;
+        }
         throw lastError;
       }
       try {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 // Types démo (legacy) + types pipeline (nouveaux)
 export type PanelMoodLegacy =
@@ -180,6 +180,13 @@ export function MangaPanel({
   panelIndex,
 }: Props) {
   const [imgError, setImgError] = useState(false);
+  const [imgLoaded, setImgLoaded] = useState(false);
+
+  // Réinitialiser l'état quand l'URL change (ex: refresh après génération)
+  useEffect(() => {
+    setImgError(false);
+    setImgLoaded(false);
+  }, [imageUrl]);
 
   const bg = MOOD_BG[mood] ?? MOOD_BG["dramatic"];
   const overlay = MOOD_OVERLAY[mood];
@@ -232,12 +239,17 @@ export function MangaPanel({
             {effectiveCropMode === "contain" && (
               <div className="absolute inset-0 bg-gradient-to-b from-stone-900 via-stone-950 to-stone-900" />
             )}
+            {/* Placeholder pendant le chargement */}
+            {!imgLoaded && (
+              <div className="absolute inset-0 animate-pulse bg-stone-800/60" />
+            )}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={imageUrl}
               alt={caption ?? `Panel ${(panelIndex ?? 0) + 1}`}
               className={`h-full w-full ${effectiveCropMode === "contain" ? "object-contain" : "object-cover"}`}
               style={{ objectPosition: effectiveObjectPosition }}
+              onLoad={() => setImgLoaded(true)}
               onError={() => setImgError(true)}
             />
           </>
