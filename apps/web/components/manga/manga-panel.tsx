@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
 // Types démo (legacy) + types pipeline (nouveaux)
 export type PanelMoodLegacy =
   | "night-rain"
@@ -171,23 +169,14 @@ export function MangaPanel({
   sfx,
   caption,
   textScale = "normal",
-  imageFit = "contain",
-  objectPosition = "center",
+  imageFit = "cover",
+  objectPosition = "top",
   renderMeta,
   // renderMode: unused currently (TODO: implement variants for debug/print modes)
   className,
   style,
   panelIndex,
 }: Props) {
-  const [imgError, setImgError] = useState(false);
-  const [imgLoaded, setImgLoaded] = useState(false);
-
-  // Réinitialiser l'état quand l'URL change (ex: refresh après génération)
-  useEffect(() => {
-    setImgError(false);
-    setImgLoaded(false);
-  }, [imageUrl]);
-
   const bg = MOOD_BG[mood] ?? MOOD_BG["dramatic"];
   const overlay = MOOD_OVERLAY[mood];
   const isPending = !imageUrl && (status === "planned" || status === "pending");
@@ -234,14 +223,10 @@ export function MangaPanel({
     >
       {/* Zone illustration : pleine largeur, le texte n’est plus superposé ici */}
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        {imageUrl && !imgError ? (
+        {imageUrl ? (
           <>
             {effectiveCropMode === "contain" && (
               <div className="absolute inset-0 bg-gradient-to-b from-stone-900 via-stone-950 to-stone-900" />
-            )}
-            {/* Placeholder pendant le chargement */}
-            {!imgLoaded && (
-              <div className="absolute inset-0 animate-pulse bg-stone-800/60" />
             )}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -249,15 +234,8 @@ export function MangaPanel({
               alt={caption ?? `Panel ${(panelIndex ?? 0) + 1}`}
               className={`h-full w-full ${effectiveCropMode === "contain" ? "object-contain" : "object-cover"}`}
               style={{ objectPosition: effectiveObjectPosition }}
-              onLoad={() => setImgLoaded(true)}
-              onError={() => setImgError(true)}
             />
           </>
-        ) : imgError ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-stone-950 px-2 text-center">
-            <span className="text-[10px] text-stone-500">Image expirée</span>
-            <span className="text-[9px] text-stone-600">Relance la génération</span>
-          </div>
         ) : (
           <div className="absolute inset-0">{overlay}</div>
         )}

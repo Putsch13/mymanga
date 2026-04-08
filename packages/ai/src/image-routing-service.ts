@@ -2,10 +2,7 @@ import { moderationOutcomeForImage } from "@manga-ai-studio/moderation";
 import type { ContentIntensityLayer } from "@manga-ai-studio/moderation";
 import type { ImageRoutingDecision, ImageWorkflow, RoutingContext } from "./types";
 
-// flux/dev : stable, rapide, bon rapport qualité/prix pour les panels
-// flux-pro/v1.1 : premium pour covers et character sheets (avec fallback auto si 502)
-const DEFAULT_FLUX_MODEL = "fal-ai/flux/dev";
-const PREMIUM_FLUX_MODEL = "flux-pro/v1.1";
+const DEFAULT_FLUX_MODEL = "flux-pro/v1.1";
 const DEFAULT_STABILITY_MODEL = "stable-image-ultra";
 const DEFAULT_RUNWARE_MODEL = "runware-custom-stack";
 
@@ -69,7 +66,7 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
       provider: "fal",
       model: DEFAULT_FLUX_MODEL,
       workflow: "inpaint",
-      reason: "Édition locale case / inpaint prioritaire (flux/dev stable)",
+      reason: "Édition locale case / inpaint prioritaire",
     };
   }
 
@@ -130,7 +127,7 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
       provider: "fal",
       model: DEFAULT_FLUX_MODEL,
       workflow: "lora_stack",
-      reason: "Nouveau personnage manga : FLUX/dev (stable) + LoRA stack",
+      reason: "Nouveau personnage manga : FLUX + LoRA stack",
     };
   }
 
@@ -194,9 +191,9 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
     if ("blocked" in gate) return { blocked: true, reason: gate.reason, textOnlyFallback: true };
     return {
       provider: "fal",
-      model: PREMIUM_FLUX_MODEL,
+      model: DEFAULT_FLUX_MODEL,
       workflow: pickFluxWorkflow(ctx),
-      reason: "Cover stylisée premium : FLUX Pro (avec fallback flux/dev si 502)",
+      reason: "Cover stylisée premium : FLUX",
     };
   }
 
@@ -214,6 +211,6 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
             ? DEFAULT_STABILITY_MODEL
             : "flux-dev",
     workflow: provider === "fal" ? pickFluxWorkflow(ctx) : "txt2img",
-    reason: provider === "fal" ? "Défaut : FLUX/dev (stable)" : "Défaut : fallback provider (clé FAL manquante)",
+    reason: provider === "fal" ? "Défaut : FLUX stylisé" : "Défaut : fallback provider (clé FAL manquante)",
   };
 }

@@ -265,9 +265,8 @@ function pickPanelImageFit(
     return { fit: "contain", position: "center" };
   }
 
-  // 3. Fallback: CONTAIN par défaut pour préserver l'image complète
-  //    (changement majeur: on ne force plus cover arbitrairement)
-  return { fit: "contain", position: "center" };
+  // 3. Fallback: COVER par défaut pour remplir le panel (comportement original)
+  return { fit: "cover", position: "center top" };
 }
 
 function isDemoPage(page: UniversalMangaPage | DemoMangaPage): page is DemoMangaPage {

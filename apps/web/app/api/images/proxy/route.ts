@@ -70,8 +70,9 @@ export async function GET(req: Request) {
       status: 200,
       headers: {
         "Content-Type": contentType,
-        // Cache 1h côté navigateur (signed URLs expirent en 1h de toute façon)
-        "Cache-Control": "public, max-age=3600, s-maxage=3600",
+        // no-store : les signed URLs changent à chaque requête, ne pas mettre en cache
+        // pour éviter que Safari serve une ancienne URL expirée
+        "Cache-Control": "no-store",
         "Content-Length": String(bytes.byteLength),
       },
     });
