@@ -2,12 +2,25 @@ import type { GenerateImageInput, GenerateImageResult, ImageGenerationProvider }
 import { createMockImageProvider } from "./mock-image-provider";
 import { optimizePromptForFal } from "../services/prompt-translator";
 
-// flux/dev : qualité premium, $0.025/MP — idéal pour panels manga
+// Endpoints FAL disponibles
 const FAL_FLUX_DEV = "https://fal.run/fal-ai/flux/dev";
-// flux/dev avec IP-Adapter pour la cohérence visuelle des personnages
 const FAL_FLUX_DEV_REDUX = "https://fal.run/fal-ai/flux/dev/redux";
-// flux-lora : flux/dev + injection de LoRA personnalisé (personnage entraîné)
 const FAL_FLUX_LORA = "https://fal.run/fal-ai/flux-lora";
+const FAL_FLUX_PRO = "https://fal.run/fal-ai/flux-pro/v1.1";
+const FAL_FLUX_PRO_REDUX = "https://fal.run/fal-ai/flux-pro/v1.1-redux";
+
+/**
+ * Résout l'endpoint FAL à utiliser selon le modèle décidé par le routeur.
+ * Le routeur peut décider "flux-pro/v1.1" (premium) ou "fal-ai/flux/dev" (standard).
+ */
+function resolveBaseEndpoint(model: string | undefined): string {
+  if (!model) return FAL_FLUX_DEV;
+  const m = model.toLowerCase();
+  if (m.includes("flux-pro") || m.includes("flux_pro") || m === "flux-pro/v1.1") return FAL_FLUX_PRO;
+  if (m.includes("flux/dev") || m.includes("flux_dev") || m === "fal-ai/flux/dev") return FAL_FLUX_DEV;
+  // Fallback sécurisé sur flux/dev (stable, pas de 502)
+  return FAL_FLUX_DEV;
+}
 
 type FalImageResponse = {
   images?: Array<{ url: string; content_type?: string }>;
@@ -112,7 +125,13 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
       const useLora = activeLoras.length > 0;
       const useRedux = !useLora && Boolean(referenceUrl);
       const useLoraWithRef = useLora && Boolean(referenceUrl);
-      const endpoint = useLora ? FAL_FLUX_LORA : useRedux ? FAL_FLUX_DEV_REDUX : FAL_FLUX_DEV;
+
+      // Utiliser le modèle décidé par le routeur pour choisir le bon endpoint de base
+      const routerModel = input.providerParams?.model as string | undefined;
+      const isPro = routerModel?.includes("flux-pro") || routerModel?.includes("flux_pro");
+      const baseEndpoint = resolveBaseEndpoint(routerModel);
+      const reduxEndpoint = isPro ? FAL_FLUX_PRO_REDUX : FAL_FLUX_DEV_REDUX;
+      const endpoint = useLora ? FAL_FLUX_LORA : useRedux ? reduxEndpoint : baseEndpoint;
 
       let body: Record<string, unknown>;
 
@@ -164,16 +183,44 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
         body.seed = input.providerParams.seed;
       }
 
-      const data = await callFal(apiKey, body, endpoint);
+      let data: FalImageResponse;
+      let actualEndpoint = endpoint;
+
+      try {
+        data = await callFal(apiKey, body, endpoint);
+      } catch (primaryErr) {
+        // Si flux-pro/v1.1 échoue (502/503), fallback automatique sur flux/dev
+        const isServerError = primaryErr instanceof Error && (
+          primaryErr.message.includes("502") ||
+          primaryErr.message.includes("503") ||
+          primaryErr.message.includes("504")
+        );
+        if (isPro && isServerError && !useLora) {
+          console.warn(`[fal] flux-pro/v1.1 ${primaryErr instanceof Error ? primaryErr.message.slice(0, 60) : "error"} → fallback flux/dev`);
+          const fallbackEndpoint = useRedux ? FAL_FLUX_DEV_REDUX : FAL_FLUX_DEV;
+          actualEndpoint = fallbackEndpoint;
+          data = await callFal(apiKey, body, fallbackEndpoint);
+        } else {
+          throw primaryErr;
+        }
+      }
+
       const imageUrl = extractUrl(data);
       if (!imageUrl) {
         throw new Error("fal.run: pas d'URL image dans la réponse");
       }
 
+      const usedPro = actualEndpoint === FAL_FLUX_PRO || actualEndpoint === FAL_FLUX_PRO_REDUX;
+      const resolvedModel = useLora
+        ? "fal-ai/flux-lora"
+        : useRedux
+          ? (usedPro ? "fal-ai/flux-pro/v1.1-redux" : "fal-ai/flux/dev/redux")
+          : (usedPro ? "fal-ai/flux-pro/v1.1" : "fal-ai/flux/dev");
+
       return {
         imageUrl,
         provider: "fal",
-        model: useLora ? "fal-ai/flux-lora" : useRedux ? "fal-ai/flux/dev/redux" : "fal-ai/flux/dev",
+        model: resolvedModel,
         raw: data,
       };
     },

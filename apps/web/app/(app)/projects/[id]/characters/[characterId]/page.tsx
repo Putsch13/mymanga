@@ -87,6 +87,7 @@ export default function CharacterDetailPage() {
   const [projectCharacters, setProjectCharacters] = useState<ProjectCharacter[]>([]);
   const [saving, setSaving] = useState(false);
   const [generatingVisual, setGeneratingVisual] = useState(false);
+  const [autoGenerating, setAutoGenerating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ text: string; type: "ok" | "error" } | null>(null);
   const [relationTargetId, setRelationTargetId] = useState("");
@@ -203,8 +204,33 @@ export default function CharacterDetailPage() {
       setMessage({ text: json.message ?? "Erreur de sauvegarde", type: "error" });
       return;
     }
+    const savedCharacter = { ...character, ...json.character };
     setCharacter((prev) => prev ? { ...prev, ...json.character } : prev);
-    setMessage({ text: "Fiche sauvegardée.", type: "ok" });
+
+    // Auto-génération du visuel si le personnage n'a pas encore de visuel primaire
+    // ou si les traits visuels clés ont été modifiés (appearance, hairColor, eyeColor, outfitDefault)
+    const hasPrimaryVisual = (savedCharacter.visualRefs ?? []).some((r: { isPrimary: boolean }) => r.isPrimary);
+    const hasAnyVisual = (savedCharacter.visualRefs ?? []).length > 0;
+    const hasVisualInfo = savedCharacter.appearance || savedCharacter.hairColor || savedCharacter.eyeColor || savedCharacter.name;
+
+    if (!hasAnyVisual && hasVisualInfo) {
+      setMessage({ text: "Fiche sauvegardée. Génération du visuel en cours…", type: "ok" });
+      setAutoGenerating(true);
+      const result = await safeFetch<{ visualRef: CharacterPayload["visualRefs"][0] }>(`/api/characters/${characterId}/generate-visual`, { method: "POST" });
+      setAutoGenerating(false);
+      if (result.ok) {
+        setCharacter((current) =>
+          current ? { ...current, visualRefs: [result.data.visualRef, ...(current.visualRefs ?? [])] } : current
+        );
+        setMessage({ text: "Fiche sauvegardée et visuel généré.", type: "ok" });
+      } else {
+        setMessage({ text: "Fiche sauvegardée. Génération du visuel échouée (relance manuellement).", type: "ok" });
+      }
+    } else if (hasPrimaryVisual) {
+      setMessage({ text: "Fiche sauvegardée.", type: "ok" });
+    } else {
+      setMessage({ text: "Fiche sauvegardée.", type: "ok" });
+    }
   }
 
   async function generateVisual() {
@@ -236,7 +262,7 @@ export default function CharacterDetailPage() {
       return;
     }
     setCharacter((current) =>
-      current ? { ...current, visualRefs: [result.data.visualRef, ...current.visualRefs] } : current
+      current ? { ...current, visualRefs: [result.data.visualRef, ...(current.visualRefs ?? [])] } : current
     );
     setMessage({ text: "Visuel généré.", type: "ok" });
   }
@@ -319,16 +345,22 @@ export default function CharacterDetailPage() {
         </div>
         <div className="flex flex-col items-end gap-2">
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={generateVisual} disabled={generatingVisual}>
+            <Button variant="outline" onClick={generateVisual} disabled={generatingVisual || autoGenerating}>
               {generatingVisual ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
               Générer visuel
             </Button>
-            <Button onClick={save} disabled={saving}>
-              {saving ? "Sauvegarde…" : "Sauvegarder"}
+            <Button onClick={save} disabled={saving || autoGenerating}>
+              {saving ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Sauvegarde…</>
+              ) : autoGenerating ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Génération visuel…</>
+              ) : (
+                "Sauvegarder"
+              )}
             </Button>
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <span>Génère plusieurs visuels pour améliorer la cohérence du personnage dans les chapitres.</span>
+            <span>Le visuel est généré automatiquement à la première sauvegarde. Génère-en plusieurs pour améliorer la cohérence.</span>
           </div>
         </div>
       </div>

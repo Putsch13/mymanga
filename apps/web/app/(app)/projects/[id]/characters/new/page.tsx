@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { Loader2 } from "lucide-react";
 import { safeFetch } from "@/lib/safe-fetch";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,6 +49,7 @@ export default function NewCharacterPage() {
   const [adultContentProfile] = useState<Record<string, unknown>>({});
 
   const [loading, setLoading] = useState(false);
+  const [generatingVisual, setGeneratingVisual] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isAdult = adultVerified && Number(age) >= 18;
@@ -90,10 +92,24 @@ export default function NewCharacterPage() {
 
     setLoading(false);
     if (result.ok) {
+      const characterId = result.data.character.id;
+
+      // Générer automatiquement le visuel si des infos visuelles sont disponibles
+      const hasVisualInfo = name || appearance || (visualProfile.hairColor as string) || (visualProfile.eyeColor as string);
+      if (hasVisualInfo) {
+        setGeneratingVisual(true);
+        // Génération en arrière-plan — on n'attend pas pour rediriger
+        safeFetch(`/api/characters/${characterId}/generate-visual`, { method: "POST" })
+          .catch(() => { /* silencieux — le visuel peut être généré plus tard */ });
+        // Petit délai pour que la génération démarre avant la redirection
+        await new Promise((r) => setTimeout(r, 800));
+        setGeneratingVisual(false);
+      }
+
       if (isOnboarding) {
         router.push(`/projects/${id}/generate`);
       } else {
-        router.push(`/projects/${id}/characters/${result.data.character.id}`);
+        router.push(`/projects/${id}/characters/${characterId}`);
       }
     } else {
       setError(result.error);
@@ -319,8 +335,14 @@ export default function NewCharacterPage() {
 
           {error && <p className="text-sm text-red-400">{error}</p>}
 
-          <Button type="submit" disabled={loading || !name || !gender} className="w-full">
-            {loading ? "Création…" : "Créer le personnage"}
+          <Button type="submit" disabled={loading || generatingVisual || !name || !gender} className="w-full">
+            {loading ? (
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Création…</>
+            ) : generatingVisual ? (
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Génération du visuel…</>
+            ) : (
+              "Créer le personnage"
+            )}
           </Button>
         </div>
 
