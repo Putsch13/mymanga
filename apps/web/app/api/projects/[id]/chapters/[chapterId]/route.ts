@@ -63,17 +63,23 @@ export async function GET(_req: Request, ctx: Ctx) {
 
   if (!chapter) return notFound();
 
-  // Fix prod: transformer toutes les URLs d'images.
-  // - URLs Supabase privées → signed URL si SUPABASE_SERVICE_ROLE_KEY disponible
-  // - URLs FAL (v3b.fal.media) → proxy relatif /api/images/proxy pour éviter l'expiration
-  function toProxied(url: string | null): string | null {
+  // Toutes les URLs externes passent par le proxy /api/images/proxy (même domaine).
+  // Cela évite les problèmes CORS/ITP/Safari avec Supabase et les URLs FAL expirées.
+  // Les URLs Supabase sont d'abord signées (accès bucket privé), puis proxifiées.
+  function toProxied(url: string | null | undefined): string | null {
     if (!url) return null;
+    // Déjà proxifiée
+    if (url.startsWith("/api/images/proxy")) return url;
     try {
       const parsed = new URL(url);
-      const isFal = ["v3b.fal.media", "fal.media", "cdn.fal.ai"].some(
+      const externalHosts = [
+        "v3b.fal.media", "fal.media", "cdn.fal.ai",
+        "supabase.co",
+      ];
+      const isExternal = externalHosts.some(
         (h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`)
       );
-      if (isFal) {
+      if (isExternal) {
         return `/api/images/proxy?url=${encodeURIComponent(url)}`;
       }
     } catch { /* ignore */ }
@@ -86,11 +92,13 @@ export async function GET(_req: Request, ctx: Ctx) {
     chapter.scenes.flatMap((scene) =>
       scene.images.map(async (img) => {
         const original = img.imageUrl;
+        // Signer d'abord (pour les buckets Supabase privés)
         const signed = await signSupabaseUrlIfNeeded(img.imageUrl);
         if (signed !== original) signedCount++;
-        const proxied = toProxied(signed);
-        if (proxied !== signed) proxiedCount++;
-        img.imageUrl = proxied ?? signed;
+        // Puis proxifier (même domaine, évite CORS/ITP)
+        const proxied = toProxied(signed ?? original);
+        if (proxied && proxied !== (signed ?? original)) proxiedCount++;
+        img.imageUrl = proxied ?? signed ?? original;
       }),
     ),
   );

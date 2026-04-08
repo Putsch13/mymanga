@@ -59,10 +59,24 @@ export async function GET(_req: Request, ctx: Ctx) {
   const character = await getOwnedCharacter(user.id, characterId);
   if (!character) return notFound();
 
-  // Signer les URLs Supabase des refs visuelles (bucket privé → 403 sinon)
+  // Signer les URLs Supabase (bucket privé) puis proxifier (même domaine, évite CORS/ITP Safari)
+  function toProxied(url: string | null | undefined): string | null {
+    if (!url) return null;
+    if (url.startsWith("/api/images/proxy")) return url;
+    try {
+      const parsed = new URL(url);
+      const isExternal = ["supabase.co", "v3b.fal.media", "fal.media", "cdn.fal.ai"].some(
+        (h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`)
+      );
+      if (isExternal) return `/api/images/proxy?url=${encodeURIComponent(url)}`;
+    } catch { /* ignore */ }
+    return url;
+  }
+
   await Promise.all(
     (character.visualRefs ?? []).map(async (ref) => {
-      ref.imageUrl = (await signSupabaseUrlIfNeeded(ref.imageUrl)) ?? ref.imageUrl;
+      const signed = (await signSupabaseUrlIfNeeded(ref.imageUrl)) ?? ref.imageUrl;
+      ref.imageUrl = toProxied(signed) ?? signed;
     }),
   );
 

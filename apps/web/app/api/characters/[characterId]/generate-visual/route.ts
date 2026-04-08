@@ -242,9 +242,21 @@ export async function POST(_req: Request, ctx: Ctx) {
       // Non-blocking: fingerprint extraction failure ne doit pas fail la génération
     }
 
-    // Signer l'URL Supabase pour que le client puisse afficher l'image immédiatement
+    // Signer puis proxifier l'URL pour affichage immédiat (évite CORS/ITP Safari)
     const signedImageUrl = await signSupabaseUrlIfNeeded(visualRef.imageUrl);
-    const visualRefForClient = { ...visualRef, imageUrl: signedImageUrl ?? visualRef.imageUrl };
+    const urlForClient = signedImageUrl ?? visualRef.imageUrl;
+    const proxiedUrl = urlForClient && !urlForClient.startsWith("/api/images/proxy")
+      ? (() => {
+          try {
+            const parsed = new URL(urlForClient);
+            const isExternal = ["supabase.co", "v3b.fal.media", "fal.media", "cdn.fal.ai"].some(
+              (h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`)
+            );
+            return isExternal ? `/api/images/proxy?url=${encodeURIComponent(urlForClient)}` : urlForClient;
+          } catch { return urlForClient; }
+        })()
+      : urlForClient;
+    const visualRefForClient = { ...visualRef, imageUrl: proxiedUrl };
 
     return NextResponse.json({ ok: true, visualRef: visualRefForClient });
   } catch (error) {

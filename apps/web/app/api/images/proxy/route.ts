@@ -48,31 +48,36 @@ export async function GET(req: Request) {
     return new NextResponse("Domain not allowed", { status: 403 });
   }
 
+  const host = parsedUrl.hostname;
+  console.log(`[proxy] fetching ${host} path=${parsedUrl.pathname.slice(0, 60)}`);
+
   try {
     const upstream = await fetch(targetUrl, {
       headers: { "User-Agent": "MangaAIStudio/1.0" },
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(30000),
     });
 
     if (!upstream.ok) {
-      console.warn(`[proxy] upstream ${upstream.status} for ${targetUrl.slice(0, 80)}`);
+      console.warn(`[proxy] upstream ${upstream.status} for ${host}${parsedUrl.pathname.slice(0, 60)}`);
       return new NextResponse(`Upstream error: ${upstream.status}`, { status: upstream.status });
     }
 
     const contentType = upstream.headers.get("content-type") ?? "image/jpeg";
     const bytes = await upstream.arrayBuffer();
+    console.log(`[proxy] OK ${host} bytes=${bytes.byteLength}`);
 
     return new NextResponse(bytes, {
       status: 200,
       headers: {
         "Content-Type": contentType,
-        // Cache 24h côté navigateur, 1h côté CDN
-        "Cache-Control": "public, max-age=86400, s-maxage=3600",
+        // Cache 1h côté navigateur (signed URLs expirent en 1h de toute façon)
+        "Cache-Control": "public, max-age=3600, s-maxage=3600",
         "Content-Length": String(bytes.byteLength),
       },
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "proxy_error";
+    console.error(`[proxy] error ${host}: ${msg}`);
     return new NextResponse(msg, { status: 502 });
   }
 }
