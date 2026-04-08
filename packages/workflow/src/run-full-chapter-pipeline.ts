@@ -1402,7 +1402,13 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       }
     }
 
-    // Round-robin : séquentiel intra-scène, parallèle inter-scènes
+    // Round-robin : séquentiel intra-scène, parallèle inter-scènes.
+    // IMPORTANT: FAL limite à 10 requêtes concurrentes; on reste bien en dessous
+    // pour éviter les 429 + cascades de timeouts/aborts.
+    const maxParallelImageGenerations = Math.max(
+      1,
+      Number.parseInt(process.env.IMAGE_GEN_MAX_PARALLEL ?? "4", 10) || 4,
+    );
     const imagesByScene = new Map<number, PlannedImage[]>();
     for (const img of plannedImages) {
       const arr = imagesByScene.get(img.sceneIndex) ?? [];
@@ -1422,10 +1428,13 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       }
       if (roundBatch.length === 0) continue;
 
-      const results = await Promise.all(roundBatch.map(processOneImage));
-      for (const r of results) {
-        if (r === "ok") generatedCount++;
-        else failedCount++;
+      for (let start = 0; start < roundBatch.length; start += maxParallelImageGenerations) {
+        const chunk = roundBatch.slice(start, start + maxParallelImageGenerations);
+        const results = await Promise.all(chunk.map(processOneImage));
+        for (const r of results) {
+          if (r === "ok") generatedCount++;
+          else failedCount++;
+        }
       }
       await setJobProgress(
         jobId,

@@ -27,7 +27,7 @@ async function callFal(
   let lastError: Error = new Error("fal.run: échec inconnu");
   for (let attempt = 0; attempt <= retries; attempt++) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60_000);
+    const timeout = setTimeout(() => controller.abort(), 120_000);
     try {
       const res = await fetch(endpoint, {
         method: "POST",
@@ -42,9 +42,13 @@ async function callFal(
       const text = await res.text();
       if (!res.ok) {
         lastError = new Error(`fal.run error ${res.status}: ${text.slice(0, 500)}`);
-        if (res.status >= 500 && attempt < retries) {
-          // Délai exponentiel entre retries pour les erreurs 5xx transitoires
-          await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
+        if ((res.status === 429 || res.status >= 500) && attempt < retries) {
+          // 429 = trop de concurrence côté FAL.
+          // On temporise franchement avant de relancer pour laisser la file se vider.
+          const delayMs = res.status === 429
+            ? 10_000 * (attempt + 1)
+            : 1_500 * Math.pow(2, attempt);
+          await new Promise((r) => setTimeout(r, delayMs));
           continue;
         }
         throw lastError;
@@ -57,8 +61,11 @@ async function callFal(
     } catch (e) {
       clearTimeout(timeout);
       if (e instanceof Error && e.name === "AbortError") {
-        lastError = new Error("fal.run: timeout 60s");
-        if (attempt < retries) continue;
+        lastError = new Error("fal.run: timeout 120s");
+        if (attempt < retries) {
+          await new Promise((r) => setTimeout(r, 5_000 * (attempt + 1)));
+          continue;
+        }
       }
       throw e;
     }
