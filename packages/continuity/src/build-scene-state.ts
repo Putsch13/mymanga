@@ -1,6 +1,23 @@
 import type { PrismaClient, Prisma } from "@manga-ai-studio/db";
 import type { SceneStateData, CharacterOverride, CharacterState } from "./types";
 
+function inferTimeOfDay(text: string): string | null {
+  const lower = text.toLowerCase();
+  if (/(nuit|soir|minuit|crépuscule|crepuscule)/.test(lower)) return "night";
+  if (/(matin|aube)/.test(lower)) return "morning";
+  if (/(après-midi|apres-midi|midi)/.test(lower)) return "day";
+  return null;
+}
+
+function inferMood(text: string): string | null {
+  const lower = text.toLowerCase();
+  if (/(stress|panique|angoisse|menace|urgence)/.test(lower)) return "tense";
+  if (/(imaginaire|rêve|reve|fantaisie|créature|creature|merveilleux)/.test(lower)) return "dreamlike";
+  if (/(confie|aveu|émotion|emotion|tristesse|peur)/.test(lower)) return "emotional";
+  if (/(combat|attaque|fuite|poursuite)/.test(lower)) return "action";
+  return null;
+}
+
 /**
  * Construit le SceneState à partir de l'outline et du script.
  * Fixe l'état local d'une scène pour empêcher les dérives intra-chapitre.
@@ -29,47 +46,70 @@ export async function buildSceneState(
   },
 ): Promise<SceneStateData> {
   const location = input.scene.location ?? input.scene.beat?.location ?? "unknown location";
-  const timeOfDay = null; // À enrichir si disponible dans l'outline
-  const mood = null; // À enrichir si disponible (ex: from beat pageRole)
+  const sceneText = [input.scene.title, input.scene.summary, input.scene.beat?.turn, input.scene.location]
+    .filter(Boolean)
+    .join(" ");
+  const timeOfDay = inferTimeOfDay(sceneText);
+  const mood = inferMood(sceneText);
   const dramaticGoal = input.scene.beat?.turn ?? input.scene.summary ?? null;
-  const conflictAxis = null; // À enrichir si disponible
+  const conflictAxis = input.scene.summary ?? null;
 
-  // PresentCharacterIds : fusionner les personnages du beat et de la scène
-  const presentCharacterIds = Array.from(
+  // PresentCharacterIds : résoudre les noms de la scène en IDs réels pour verrouiller la continuité.
+  const presentCharacterNames = Array.from(
     new Set([...(input.scene.beat?.characters ?? []), ...(input.scene.characters ?? [])]),
   );
+  const sceneCharacters = presentCharacterNames.length > 0
+    ? await prisma.character.findMany({
+        where: { projectId: input.projectId, name: { in: presentCharacterNames } },
+        select: {
+          id: true,
+          name: true,
+          outfitDefault: true,
+          emotionalState: true,
+          hairColor: true,
+          eyeColor: true,
+          continuityProfile: true,
+        },
+      })
+    : [];
+  const charactersByName = new Map(sceneCharacters.map((character) => [character.name.toLowerCase(), character]));
+  const presentCharacterIds = presentCharacterNames
+    .map((name) => charactersByName.get(name.toLowerCase())?.id)
+    .filter((id): id is string => Boolean(id));
 
   // CharacterOverrides : hériter du canon state si disponible
   const characterOverrides: CharacterOverride[] = [];
 
-  if (input.characterStatesFromCanon) {
-    for (const charId of presentCharacterIds) {
-      const canonState = input.characterStatesFromCanon.find((cs) => cs.characterId === charId);
-      if (canonState) {
-        characterOverrides.push({
-          characterId: charId,
-          outfit: canonState.currentState.outfit ?? null,
-          visibleInjuries: canonState.currentState.injuries ?? [],
-          emotionalState: canonState.currentState.emotion ?? null,
-          props: canonState.currentState.possessions ?? [],
-          poseRestrictions: [],
-        });
-      } else {
-        // Personnage sans canon state : rechercher dans le projet
-        const character = await prisma.character.findFirst({
-          where: { projectId: input.projectId, id: charId },
-        });
-        if (character) {
-          characterOverrides.push({
-            characterId: charId,
-            outfit: character.outfitDefault ?? null,
-            visibleInjuries: [],
-            emotionalState: character.emotionalState ?? null,
-            props: [],
-            poseRestrictions: [],
-          });
-        }
-      }
+  for (const character of sceneCharacters) {
+    const canonState = input.characterStatesFromCanon?.find((cs) => cs.characterId === character.id);
+    const continuityProfile =
+      character.continuityProfile && typeof character.continuityProfile === "object"
+        ? character.continuityProfile as Record<string, unknown>
+        : {};
+    characterOverrides.push({
+      characterId: character.id,
+      outfit: canonState?.currentState.outfit ?? character.outfitDefault ?? null,
+      visibleInjuries: canonState?.currentState.injuries ?? [],
+      emotionalState: canonState?.currentState.emotion ?? character.emotionalState ?? null,
+      props: canonState?.currentState.possessions ?? [],
+      poseRestrictions: Array.isArray(continuityProfile.poseRestrictions)
+        ? continuityProfile.poseRestrictions.filter((item): item is string => typeof item === "string")
+        : [],
+    });
+  }
+
+  for (const name of presentCharacterNames) {
+    const knownCharacter = charactersByName.get(name.toLowerCase());
+    if (!knownCharacter) {
+      const syntheticId = `unresolved:${name}`;
+      characterOverrides.push({
+        characterId: syntheticId,
+        outfit: null,
+        visibleInjuries: [],
+        emotionalState: null,
+        props: [],
+        poseRestrictions: [],
+      });
     }
   }
 
@@ -83,12 +123,17 @@ export async function buildSceneState(
       continuityAnchors.push(`${override.characterId} porte : ${override.outfit}`);
     }
   });
+  if (location) continuityAnchors.push(`Lieu verrouillé pour la scène : ${location}`);
+  if (dramaticGoal) continuityAnchors.push(`Objectif dramatique : ${dramaticGoal}`);
 
   // ImageReferenceIds : sera enrichi par le pipeline image
   const imageReferenceIds: string[] = [];
 
-  // TextConstraints : sera enrichi par le pipeline
-  const textConstraints: string[] = [];
+  const textConstraints: string[] = [
+    `La scène se déroule à ${location}.`,
+    presentCharacterNames.length > 0 ? `Présences obligatoires : ${presentCharacterNames.join(", ")}.` : "",
+    dramaticGoal ? `La scène doit faire avancer : ${dramaticGoal}.` : "",
+  ].filter(Boolean);
 
   return {
     location,

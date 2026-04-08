@@ -147,8 +147,8 @@ type Props = {
     targetAspectRatio?: string;
     layoutTemplate?: string;
   };
-  /** Mode de rendu: reader (défaut), debug (bande texte séparée), print (texte superposé léger) */
-  renderMode?: "reader" | "debug" | "print"; // TODO: Implémenter renderMode variants
+  /** Mode de rendu: reader (défaut), webtoon, debug, print */
+  renderMode?: "reader" | "webtoon" | "debug" | "print";
   className?: string;
   style?: React.CSSProperties;
   panelIndex?: number;
@@ -172,7 +172,8 @@ export function MangaPanel({
   imageFit = "cover",
   objectPosition = "top",
   renderMeta,
-  // renderMode: unused currently (TODO: implement variants for debug/print modes)
+  layoutMeta,
+  renderMode = "reader",
   className,
   style,
   panelIndex,
@@ -189,6 +190,8 @@ export function MangaPanel({
   const effectiveObjectPosition = renderMeta?.focalPoint
     ? `${renderMeta.focalPoint.x * 100}% ${renderMeta.focalPoint.y * 100}%`
     : objectPosition;
+  const isWebtoon = renderMode === "webtoon";
+  const targetAspectRatio = layoutMeta?.targetAspectRatio?.replace(":", " / ") ?? "4 / 5";
 
   const narrationClass =
     textScale === "micro"
@@ -217,12 +220,15 @@ export function MangaPanel({
 
   return (
     <div
-      className={`group/panel relative flex min-h-0 flex-col overflow-hidden border-2 border-stone-900 ${className ?? ""}`}
+      className={`group/panel relative flex min-h-0 flex-col overflow-hidden border-2 border-stone-900 ${isWebtoon ? "rounded-[28px] border-stone-800/80 bg-stone-950 shadow-[0_24px_60px_rgba(0,0,0,0.35)]" : ""} ${className ?? ""}`}
       style={{ background: imageUrl ? undefined : bg, ...style }}
       aria-label={caption ?? `Panel ${(panelIndex ?? 0) + 1}`}
     >
       {/* Zone illustration : pleine largeur, le texte n’est plus superposé ici */}
-      <div className="relative min-h-0 flex-1 overflow-hidden">
+      <div
+        className={`relative overflow-hidden ${isWebtoon ? "" : "min-h-0 flex-1"}`}
+        style={isWebtoon ? { aspectRatio: targetAspectRatio, minHeight: "18rem" } : undefined}
+      >
         {imageUrl ? (
           <>
             {effectiveCropMode === "contain" && (
@@ -232,7 +238,7 @@ export function MangaPanel({
             <img
               src={imageUrl}
               alt={caption ?? `Panel ${(panelIndex ?? 0) + 1}`}
-              className={`h-full w-full ${effectiveCropMode === "contain" ? "object-contain" : "object-cover"}`}
+              className={`h-full w-full ${effectiveCropMode === "contain" ? "object-contain" : "object-cover"} ${isWebtoon ? "bg-stone-950" : ""}`}
               style={{ objectPosition: effectiveObjectPosition }}
             />
           </>
@@ -303,22 +309,22 @@ export function MangaPanel({
 
       {/* Bande texte sous l’image : narration + bulles + SFX associés (scroll si trop long) */}
       {hasTextStrip ? (
-        <div className="z-10 max-h-[min(46%,9rem)] shrink-0 overflow-y-auto border-t border-stone-800 bg-stone-950/98 px-1.5 py-1">
+        <div className={`z-10 shrink-0 overflow-y-auto border-t border-stone-800 bg-stone-950/98 ${isWebtoon ? "max-h-none px-4 py-3" : "max-h-[min(46%,9rem)] px-1.5 py-1"}`}>
           {narration ? (
-            <div className="mb-1 rounded border border-white/15 bg-black/40 px-1.5 py-0.5">
+            <div className={`mb-1 rounded border border-white/15 bg-black/40 ${isWebtoon ? "px-3 py-2" : "px-1.5 py-0.5"}`}>
               <p className={`${narrationClass} line-clamp-3`}>{narration}</p>
             </div>
           ) : null}
 
           {allDialogues.length > 0 ? (
             <div className="flex flex-col gap-1">
-              {allDialogues.slice(0, 3).map((d, idx) => (
+              {allDialogues.slice(0, isWebtoon ? 5 : 3).map((d, idx) => (
                 <div
                   key={idx}
-                  className="rounded-lg border border-stone-800 bg-white/95 px-1.5 py-1 shadow-sm"
+                  className={`rounded-lg border border-stone-800 bg-white/95 shadow-sm ${isWebtoon ? "px-3 py-2" : "px-1.5 py-1"}`}
                 >
                   {d.speaker ? <p className={speakerStripClass}>{d.speaker}</p> : null}
-                  <p className={`${dialogueStripClass} line-clamp-3`}>{d.text}</p>
+                  <p className={`${dialogueStripClass} ${isWebtoon ? "" : "line-clamp-3"}`}>{d.text}</p>
                 </div>
               ))}
             </div>

@@ -25,7 +25,8 @@ import {
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { MangaPageGrid, pipelineScenesToPages, type UniversalMangaPage } from "./manga-page-grid";
+import { MangaPanel } from "./manga-panel";
+import { MangaPageGrid, flattenPagesToPanels, pipelineScenesToPages, type UniversalMangaPage } from "./manga-page-grid";
 
 type SceneImage = {
   id: string;
@@ -45,6 +46,17 @@ type SceneImage = {
     textScale?: "normal" | "compact" | "micro";
     error?: string;
     blockedReason?: string;
+    renderMeta?: {
+      cropMode?: "contain" | "cover";
+      focalPoint?: { x: number; y: number };
+      safeArea?: { top: number; right: number; bottom: number; left: number };
+      reservedTextZones?: Array<"top-left" | "top-right" | "bottom-left" | "bottom-right" | "center">;
+    };
+    layoutMeta?: {
+      slotType?: "wide" | "tall" | "square" | "closeup" | "dialogue";
+      targetAspectRatio?: string;
+      layoutTemplate?: string;
+    };
   };
 };
 
@@ -216,6 +228,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   const [showEnd, setShowEnd] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [spreadMode, setSpreadMode] = useState(true);
+  const [readerMode, setReaderMode] = useState<"manga" | "webtoon">("webtoon");
   const [mangaRtl, setMangaRtl] = useState(true);
   const [turn, setTurn] = useState<null | { dir: "next" | "prev"; at: number }>(null);
   const [intent, setIntent] = useState("");
@@ -262,6 +275,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
 
   // Responsive: double page uniquement sur écrans larges
   useEffect(() => {
+    if (readerMode !== "manga") return;
     const update = () => {
       const wide = window.innerWidth >= 1024;
       if (!wide) setSpreadMode(false);
@@ -269,7 +283,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
-  }, []);
+  }, [readerMode]);
 
   const pages = useMemo(() => {
     if (!chapter) return [];
@@ -277,6 +291,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   }, [chapter]);
 
   const totalPages = pages.length;
+  const webtoonPanels = useMemo(() => flattenPagesToPanels(pages), [pages]);
 
   const goNext = useCallback(() => {
     setTurn({ dir: "next", at: Date.now() });
@@ -299,6 +314,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   }, [showEnd, spreadMode]);
 
   useEffect(() => {
+    if (readerMode === "webtoon") return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "ArrowRight" || e.key === " ") {
         e.preventDefault();
@@ -314,7 +330,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [goNext, goPrev, fullscreen, mangaRtl]);
+  }, [goNext, goPrev, fullscreen, mangaRtl, readerMode]);
 
   async function submitContinue(quickTag?: string) {
     const text = intent.trim();
@@ -564,23 +580,71 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
     );
   };
 
+  const renderWebtoon = () => (
+    <div className="mx-auto w-full max-w-[820px]">
+      <div className="space-y-8">
+        {pages.map((page, pageIdx) => (
+          <section key={page.id ?? `page-${pageIdx}`} className="space-y-3">
+            <div className="sticky top-3 z-20 mx-auto flex w-fit items-center gap-2 rounded-full border border-white/10 bg-black/60 px-3 py-1 text-xs text-stone-200 backdrop-blur">
+              <BookOpen className="h-3.5 w-3.5 text-accent" />
+              <span>Page {pageIdx + 1}</span>
+            </div>
+            <div className="space-y-6">
+              {page.panels.map((panel, panelIdx) => (
+                <MangaPanel
+                  key={panel.id ?? `${pageIdx}-${panelIdx}`}
+                  mood={panel.mood}
+                  imageUrl={panel.imageUrl}
+                  status={panel.status}
+                  provider={panel.provider}
+                  model={panel.model}
+                  error={panel.error}
+                  sceneImageId={panel.id}
+                  dialogue={panel.dialogue}
+                  dialogues={panel.dialogues}
+                  speaker={panel.speaker}
+                  narration={panel.narration}
+                  sfx={panel.sfx}
+                  caption={panel.caption}
+                  textScale={panel.textScale}
+                  renderMeta={panel.renderMeta}
+                  layoutMeta={panel.layoutMeta}
+                  renderMode="webtoon"
+                  panelIndex={panelIdx}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+
   const toolbar = (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/60 px-4 py-2.5 backdrop-blur">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <BookOpen className="h-4 w-4 text-accent" />
         <span>
-          {spreadMode ? `Pages ${pageIndex + 1}-${Math.min(totalPages, pageIndex + 2)}` : `Page ${pageIndex + 1}`} / {totalPages}
+          {readerMode === "webtoon"
+            ? `${webtoonPanels.length} cases · ${totalPages} pages`
+            : spreadMode
+              ? `Pages ${pageIndex + 1}-${Math.min(totalPages, pageIndex + 2)}`
+              : `Page ${pageIndex + 1}`} / {totalPages}
           {showEnd ? " · fin" : ""}
         </span>
         <span className="hidden rounded-full border border-border/60 px-2 py-0.5 text-[11px] lg:inline-flex">
-          {mangaRtl ? "Lecture droite → gauche" : "Lecture gauche → droite"}
+          {readerMode === "webtoon" ? "Lecture webtoon verticale" : mangaRtl ? "Lecture droite → gauche" : "Lecture gauche → droite"}
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" variant={readerMode === "webtoon" ? "default" : "outline"} size="sm" onClick={() => setReaderMode((v) => v === "webtoon" ? "manga" : "webtoon")}>
+          {readerMode === "webtoon" ? "Webtoon" : "Manga"}
+        </Button>
         <Button type="button" variant={mangaRtl ? "default" : "outline"} size="sm" onClick={() => setMangaRtl((v) => !v)} className="gap-1">
           <Repeat2 className="h-4 w-4" />
           {mangaRtl ? "Manga RTL" : "LTR"}
         </Button>
+        {readerMode === "manga" ? (
         <Button
           type="button"
           variant={spreadMode ? "default" : "outline"}
@@ -600,6 +664,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
           <Columns2 className="h-4 w-4" />
           {spreadMode ? "Double" : "Simple"}
         </Button>
+        ) : null}
         <Button
           type="button"
           variant={showTextOnly ? "default" : "outline"}
@@ -631,6 +696,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
         >
           {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
         </Button>
+        {readerMode === "manga" ? (
         <Button
           type="button"
           variant="secondary"
@@ -640,9 +706,12 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
         >
           <ChevronLeft className="h-4 w-4" />
         </Button>
+        ) : null}
+        {readerMode === "manga" ? (
         <Button type="button" size="sm" onClick={mangaRtl ? goPrev : goNext} disabled={showEnd}>
           <ChevronRight className="h-4 w-4" />
         </Button>
+        ) : null}
       </div>
     </div>
   );
@@ -716,7 +785,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col gap-3 bg-[#0a0a0f] p-3">
         {toolbar}
-        {!showEnd ? renderPage() : null}
+        {!showEnd ? (readerMode === "webtoon" ? renderWebtoon() : renderPage()) : null}
         {endCard}
       </div>
     );
@@ -727,12 +796,12 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
       <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
         <Card className="border-border/60 bg-card/40">
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Lecture manga V4</CardTitle>
-            <CardDescription>Ordre de lecture attendu pour un vrai manga ouvert.</CardDescription>
+            <CardTitle className="text-lg">Lecture V5</CardTitle>
+            <CardDescription>Mode manga paginé ou webtoon vertical.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <p>1. Page droite vers page gauche.</p>
-            <p>2. À l&apos;intérieur d&apos;une page : haut vers bas.</p>
+            <p>1. Mode webtoon vertical par défaut pour une lecture fluide.</p>
+            <p>2. Mode manga paginé toujours disponible.</p>
             <p>3. En fin de chapitre : proposition de suite et continuité mémoire.</p>
           </CardContent>
         </Card>
@@ -867,7 +936,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
         ) : null}
       </div>
       {toolbar}
-      {!showEnd ? renderPage() : null}
+      {!showEnd ? (readerMode === "webtoon" ? renderWebtoon() : renderPage()) : null}
       {endCard}
     </div>
   );

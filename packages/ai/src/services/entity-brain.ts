@@ -67,6 +67,8 @@ export function parseIntentEntities(userIntent: string, knownNames: string[]): I
 
   for (const keyword of NON_HUMAN_KEYWORDS) {
     if (!lowered.includes(keyword.keyword)) continue;
+    const nearbyConfidant =
+      /confie|confidence|parle|discute|question|répond|repond|guide|accompagne|imaginaire|inventé|invente/.test(lowered);
     const syntheticName =
       keyword.entityKind === "animal"
         ? keyword.keyword
@@ -79,8 +81,10 @@ export function parseIntentEntities(userIntent: string, knownNames: string[]): I
         name: syntheticName,
         entityKind: keyword.entityKind,
         dialogueMode: keyword.dialogueMode,
-        recurrencePolicy: "recurring",
-        roleHint: `entité détectée via le mot-clé "${keyword.keyword}"`,
+        recurrencePolicy: nearbyConfidant ? "story_locked" : "recurring",
+        roleHint: nearbyConfidant
+          ? `entité confidente / importante détectée via le mot-clé "${keyword.keyword}"`
+          : `entité détectée via le mot-clé "${keyword.keyword}"`,
         speciesLabel: keyword.speciesLabel ?? null,
       });
     }

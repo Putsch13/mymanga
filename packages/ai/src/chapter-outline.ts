@@ -229,6 +229,14 @@ RÈGLES ABSOLUES DE CONTINUITÉ :
 7. Si canonStrictness > 80, ne rien modifier qui contredise la bible ou les événements permanents.
 8. Les entités explicitement nommées dans intentEntities doivent apparaître dans l'histoire si elles sont pertinentes.
 
+TRADUCTION STRICTE DE L'INTENTION UTILISATEUR :
+- L'intention utilisateur n'est pas un thème vague : c'est une CONTRAINTE DE MISE EN SCÈNE.
+- Décomposer l'intention en chaîne causale explicite : déclencheur -> réaction -> décision -> conséquence -> nouvelle situation.
+- Si l'intention décrit un mécanisme psychologique ou imaginaire (stress, fuite mentale, monde imaginaire, créature confidente, etc.), montrer visiblement ces étapes dans plusieurs beats.
+- Si l'intention mentionne une entité, une créature, un PNJ ou un confident, cette présence doit être utile à l'intrigue, au dialogue et au visuel — pas juste décorative.
+- Les dialogues doivent servir l'intention : confession, question, conflit, soulagement, révélation ou promesse.
+- Le chapitre doit pouvoir être résumé comme une exécution fidèle de l'intention utilisateur, pas comme une intrigue générique du même genre.
+
 RÈGLES DE COHÉRENCE INTER-CHAPITRES :
 8. Lire attentivement allRecentChapters : chaque chapitre DOIT continuer là où le précédent s'est arrêté.
 9. Le résumé (summary) doit EXPLICITEMENT référencer le contexte précédent ("Après que X...", "Suite à...").

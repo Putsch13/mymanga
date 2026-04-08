@@ -2,6 +2,7 @@ import { generateChapterOutline } from "./chapter-outline";
 import { parseIntentEntities } from "./services/entity-brain";
 import { writeDialogueForScene } from "./services/dialogue-writer";
 import { planPanelText, type PanelTextPlan } from "./services/panel-text-planner";
+import { analyzeBeatsForRepetition } from "./beat-advancement-checker";
 
 export type ProjectContextForChapter = {
   project: {
@@ -331,6 +332,35 @@ function inferLocations(context: ProjectContextForChapter, userIntent?: string |
     "forêt de cendres",
     "falaise au-dessus du vide",
   ];
+}
+
+function reinforceIntentEntityCoverage(
+  beats: Array<{ characters: string[]; summary: string; turn: string; pageRole: string }>,
+  intentEntityHints: Array<{ name: string; recurrencePolicy?: string | null; roleHint?: string | null }>,
+) {
+  if (intentEntityHints.length === 0 || beats.length === 0) return;
+  for (const entity of intentEntityHints) {
+    const targetIndexes = entity.recurrencePolicy === "story_locked" || entity.recurrencePolicy === "recurring"
+      ? [...new Set([0, Math.floor(beats.length / 2), Math.max(0, beats.length - 2)])]
+      : [0];
+    for (const index of targetIndexes) {
+      const beat = beats[index];
+      if (!beat) continue;
+      if (!beat.characters.includes(entity.name)) {
+        beat.characters = [...beat.characters, entity.name];
+      }
+      if (!beat.summary.toLowerCase().includes(entity.name.toLowerCase())) {
+        beat.summary = `${beat.summary} ${entity.name} joue un rôle concret dans cette étape.`;
+      }
+      if (
+        entity.roleHint &&
+        !beat.turn.toLowerCase().includes(entity.name.toLowerCase()) &&
+        (beat.pageRole === "revelation" || beat.pageRole === "cliffhanger" || index === 0)
+      ) {
+        beat.turn = `${beat.turn} ${entity.name} intervient (${entity.roleHint}).`;
+      }
+    }
+  }
 }
 
 function resolveCanonicalLocation(
@@ -866,6 +896,40 @@ export async function generateChapterBundle(input: {
     turn: `Progression inattendue vers ${input.context.project.title}.`,
     emotionalDelta: index % 2 === 0 ? 1 : -1,
   }));
+
+  reinforceIntentEntityCoverage(beats, intentEntityHints);
+
+  const beatAdvancement = await analyzeBeatsForRepetition(
+    beats.map((beat) => ({
+      id: beat.id,
+      summary: beat.summary,
+      location: beat.location,
+      characters: beat.characters,
+      tension: beat.tension,
+      purpose: beat.purpose,
+    })),
+    {
+      currentThreads: [input.userIntent, previous?.cliffhanger ?? "", previous?.summary ?? ""].filter(Boolean),
+      characterGoals: Object.fromEntries(
+        input.context.characters
+          .filter((character) => character.objective)
+          .map((character) => [character.name, character.objective ?? ""])
+      ),
+    },
+  );
+  beatAdvancement.results.forEach((result, index) => {
+    if (!result.shouldReject) return;
+    const beat = beats[index];
+    if (!beat) return;
+    const fallbackLocation = locAt(index + 1);
+    if (index > 0 && beats[index - 1]?.location === beat.location && fallbackLocation !== beat.location) {
+      beat.location = fallbackLocation;
+    }
+    beat.summary = `${beat.summary} Nouvelle conséquence concrète : ${result.advancement.whatChanges}.`;
+    beat.turn = `${beat.turn} Le lecteur comprend : ${result.advancement.readerLearns}.`;
+    beat.purpose = `${beat.purpose} / progression`;
+    beat.tension = Math.min(9, beat.tension + 1);
+  });
 
   const dynamicPlotOptions = buildDynamicPlotOptions({
     userIntent: input.userIntent,

@@ -162,6 +162,8 @@ export interface PipelinePanel {
     textScale?: "normal" | "compact" | "micro";
     error?: string;
     blockedReason?: string;
+    renderMeta?: UniversalPanel["renderMeta"];
+    layoutMeta?: UniversalPanel["layoutMeta"];
   };
 }
 
@@ -206,6 +208,8 @@ export function pipelineScenesToPages(
         sfx: img.metadata?.sfx,
         caption: img.metadata?.caption,
         textScale: img.metadata?.textScale,
+        renderMeta: img.metadata?.renderMeta,
+        layoutMeta: img.metadata?.layoutMeta,
       }));
 
     // Garde : si aucun panel, créer un placeholder pour éviter une page visuellement vide
@@ -225,6 +229,18 @@ export function pipelineScenesToPages(
     const layout = normalizeLayout(rawLayout, panels.length);
     return { id: scene.id, layout, panels };
   });
+}
+
+export function flattenPagesToPanels(
+  pages: UniversalMangaPage[],
+): Array<UniversalPanel & { pageId?: string; pageNumber: number }> {
+  return pages.flatMap((page, pageIndex) =>
+    page.panels.map((panel) => ({
+      ...panel,
+      pageId: page.id,
+      pageNumber: pageIndex + 1,
+    })),
+  );
 }
 
 // ── Composant principal ───────────────────────────────────────────────────

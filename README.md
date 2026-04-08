@@ -302,10 +302,71 @@ Pour **1 chapitre** (~10 pages, 4-6 panels/page) :
 - LoRA auto-training (non bloquant, en arriere-plan)
 - Drift detection + auto-reroll
 - Anchors visuels (style frame + keyframes scene)
-- PNJ auto-generes
+- PNJ auto-generes avec recurrence narrative de base
 - RAG pgvector (si OPENAI_API_KEY + pgvector actif)
-- Lecteur manga double page RTL
+- Lecteur manga + mode webtoon vertical
 - Stripe + wallet
+
+### Etat actuel des briques "coherence avancee"
+
+Les gros travaux pousses le `2026-04-07` sont **toujours dans le code**. Pendant les debugs suivants, on a surtout touche a la robustesse de generation FAL, au proxy d'images et au reader, **sans retirer les briques coeur de coherence**.
+
+#### Actif et branche en prod
+
+- **CharacterFingerprint**
+  - type + schema Prisma presents
+  - extraction auto apres `generate-visual`
+  - persistance sur `Character.characterFingerprint`
+  - reinjection dans les prompts image du pipeline
+- **Validation post-generation**
+  - `validateGeneratedPanel` + `scoreCharacterConsistency`
+  - utilise dans le pipeline principal
+  - utilise aussi dans la route retry d'image
+- **SceneState**
+  - construit dans le pipeline
+  - persiste en base via `persistSceneState`
+  - resolution des personnages en IDs + anchors de scene plus fiables
+- **PanelContract**
+  - construit avant la generation d'image
+  - persiste dans les metadata des panels
+  - alimente `renderMeta` / `layoutMeta` pour le reader
+- **BeatAdvancement**
+  - analyse de repetitivite branchee dans la construction des beats
+  - correction automatique simple des beats trop stagnants
+- **Verrouillage personnage**
+  - prompts personnage enrichis avec contraintes canoniques
+  - prompts panel renforces avec fingerprint + drift rules + continuity prompts
+- **Reader / proxy images**
+  - support des URLs proxifiees
+  - support `renderMeta` / `layoutMeta` conserve
+  - mode webtoon vertical disponible
+  - retry/statuts/debug conserves dans le reader
+
+#### Present dans le code mais encore partiel / non totalement branche
+
+- **SceneExtrasRegistry**
+  - module present
+  - persistance reelle DB pas encore faite
+  - une partie reste en `TODO` / fallback memoire
+- **PNJ / extras persistants**
+  - les PNJ auto-crees sont mieux injectes dans l'histoire et le prompt
+  - la couche "extras de decor persistants par lieu/scene" reste a terminer proprement en DB
+- **Fingerprint visuel**
+  - l'extraction actuelle reste heuristique
+  - une vraie analyse Vision renforcerait encore la precision
+
+#### Important
+
+- Les derniers debugs ont surtout corrige :
+  - la surcharge FAL (`429 concurrent_requests_limit`)
+  - les timeouts / aborts
+  - l'affichage des images dans le reader
+- Ils **n'ont pas supprime** :
+  - `CharacterFingerprint`
+  - la validation stricte post-generation
+  - `SceneState`
+  - les types/exports coeur ajoutes lors du gros chantier
+- Plusieurs briques "bloc 2/3" sont maintenant branchees dans le flux principal, mais les PNJ/extras persistants et l'extraction visuelle profonde restent les deux chantiers principaux a finir.
 
 ### Ameliorations futures
 
@@ -313,7 +374,10 @@ Pour **1 chapitre** (~10 pages, 4-6 panels/page) :
 - **RAG** : durcir pgvector, migrations propres, monitoring queries
 - **Vision API** : scoring visuel par vision (CLIP) au lieu de heuristique texte
 - **Multi-agents** : orchestration LLM plus poussee pour la generation de scenario
+- **SceneExtrasRegistry persistant** : vrai stockage DB pour la reutilisation fiable des PNJ/extras
+- **Vision fingerprint** : extraction robuste depuis images de reference pour verrouiller encore mieux les personnages
+- **Webtoon polish** : raffinements UI/UX du scroll vertical, espacements et rythme mobile
 
 ---
 
-*README Manga AI Studio — pipeline V5 avec anchors visuels, rythme manga, PNJ auto, UX simplifiee.*
+*README Manga AI Studio — pipeline V5 avec validation personnage, scene state, panel contracts, PNJ narratifs et reader manga/webtoon robuste.*

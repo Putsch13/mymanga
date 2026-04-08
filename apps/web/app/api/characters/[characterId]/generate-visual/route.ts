@@ -4,6 +4,7 @@ import {
   composeCharacterVisualPrompt,
   resolveAdultEngine,
   extractCharacterFingerprintFromRefs,
+  buildCharacterPromptBundle,
 } from "@manga-ai-studio/ai";
 import {
   estimateImageTokensFromRules,
@@ -122,6 +123,32 @@ export async function POST(_req: Request, ctx: Ctx) {
       sensualityLevel: projectSettings?.sensualityLevel ?? 0,
       contentIntensityLayer: intensityLayer,
     });
+    const promptBundle = buildCharacterPromptBundle({
+      name: character.name,
+      roleType: character.roleType,
+      biography: character.biography,
+      objective: character.objective,
+      fear: character.fear,
+      appearance: fullAppearance,
+      hairColor: typeof raw.hairColor === "string" ? raw.hairColor : null,
+      eyeColor: typeof raw.eyeColor === "string" ? raw.eyeColor : null,
+      outfitDefault: fullOutfit,
+      visualProfile: raw.visualProfile && typeof raw.visualProfile === "object" ? raw.visualProfile as Record<string, unknown> : {},
+      bodyState,
+      wardrobeProfile,
+      speechProfile: raw.speechProfile && typeof raw.speechProfile === "object" ? raw.speechProfile as Record<string, unknown> : {},
+      continuityProfile: raw.continuityProfile && typeof raw.continuityProfile === "object" ? raw.continuityProfile as Record<string, unknown> : {},
+      traits: Array.isArray(character.traits) ? (character.traits as string[]) : [],
+      flaws: Array.isArray(character.flaws) ? (character.flaws as string[]) : [],
+    });
+    const lockedPositive = [
+      composed.positive,
+      promptBundle.visualPrompt,
+      promptBundle.continuityPrompt,
+      promptBundle.canonConstraintLine,
+      "STRICT: preserve exact character identity, face, hair, body markers, outfit and all permanent traits.",
+    ].filter(Boolean).join(", ");
+    const lockedNegative = [composed.negative, ...promptBundle.forbiddenDriftRules].filter(Boolean).join(", ");
 
     const adultEngine = resolveAdultEngine({
       primaryGenre: character.project.primaryGenre,
@@ -147,8 +174,8 @@ export async function POST(_req: Request, ctx: Ctx) {
       },
       {
         mode: "PANEL_DRAFT",
-        positivePrompt: composed.positive,
-        negativePrompt: composed.negative,
+        positivePrompt: lockedPositive,
+        negativePrompt: lockedNegative,
         width: 768,
         height: 1024,
         providerParams: {
@@ -191,12 +218,12 @@ export async function POST(_req: Request, ctx: Ctx) {
         characterId: character.id,
         type: "generated_primary",
         imageUrl: persisted.url,
-        promptSnapshot: composed.positive,
+        promptSnapshot: lockedPositive,
         isPrimary: character.visualRefs.length === 0,
         metadata: {
           provider: output.result.provider,
           model: output.result.model,
-          negativePrompt: composed.negative,
+          negativePrompt: lockedNegative,
           persisted: persisted.persisted,
           temporary: isTemporary,
           storageWarning: isTemporary ? "Image temporaire — configure Supabase Storage pour la rendre permanente." : undefined,
