@@ -164,9 +164,16 @@ function extractMustShow(
     "mirror", "bridge", "market stall", "crowd", "rain", "fog", "blood", "vines", "lantern",
     "laboratory glass", "surveillance camera", "banner", "gate", "window", "staircase",
   ];
-  return uniq(
-    needles.filter((needle) => desc.toLowerCase().includes(needle.toLowerCase())),
-  );
+  const inferred = [
+    /(lycée|lycee|école|ecole|school|campus)/i.test(desc) ? "school architecture" : "",
+    /(cour du lycée|school courtyard|cour|playground)/i.test(desc) ? "open school courtyard" : "",
+    /(élèves|eleves|students|student crowd|friends surrounding|amis autour)/i.test(desc) ? "visible students around the main action" : "",
+    /(humili|ridicul|moque|raillerie)/i.test(desc) ? "public humiliation context" : "",
+  ];
+  return uniq([
+    ...needles.filter((needle) => desc.toLowerCase().includes(needle.toLowerCase())),
+    ...inferred,
+  ]);
 }
 
 function determineReservedZones(
@@ -250,6 +257,8 @@ function buildLocationSignals(location: string, text: string) {
     /(lab|laboratoire|console|glass|biohazard)/.test(lower) ? "scientific props and signage" : "",
     /(arena|arène|ring|crowd|stands)/.test(lower) ? "arena stands and spectators" : "",
     /(forest|forêt|trees|clairière)/.test(lower) ? "forest canopy and ground texture" : "",
+    /(lycée|lycee|école|ecole|school|campus)/.test(lower) ? "school buildings, windows and campus circulation" : "",
+    /(cour du lycée|school courtyard|cour|playground)/.test(lower) ? "school courtyard ground markings and gathering space" : "",
   ];
   return uniq(signals);
 }
@@ -276,6 +285,8 @@ function buildEnvironmentSecondary(
     /(lab|laboratoire|glass|console)/.test(lower) ? "scientific equipment" : "",
     /(arena|arène|ring)/.test(lower) ? "spectator tiers" : "",
     /(forest|forêt|wood)/.test(lower) ? "dense vegetation" : "",
+    /(lycée|lycee|école|ecole|school|campus)/.test(lower) ? "campus facade, windows and corridors" : "",
+    /(cour du lycée|school courtyard|cour|playground)/.test(lower) ? "yard depth with students and benches" : "",
     shotType === "wide" ? "depth layers" : "ambient background cues",
   ];
   return uniq(elements).slice(0, 5);
@@ -296,6 +307,9 @@ function buildBackgroundExtras(input: {
     /(garden|jardin|romance|flowers)/.test(lower) ? "falling petals" : "",
     /(forest|forêt|creature|monster|imaginaire)/.test(lower) ? "creature silhouettes in depth" : "",
     /(lab|laboratoire)/.test(lower) ? "blinking control lights" : "",
+    /(lycée|lycee|école|ecole|school|campus)/.test(lower) ? "students in depth and campus traffic" : "",
+    /(cour du lycée|school courtyard|cour|playground)/.test(lower) ? "yard architecture and student groups" : "",
+    /(humili|ridicul|moque|raillerie)/.test(lower) ? "witnessing crowd reacting to the scene" : "",
   ];
   return uniq(extras).slice(0, input.shotType === "wide" ? 5 : 3);
 }
@@ -309,12 +323,16 @@ function buildMustNotShow(
   if (shotType === "wide") rules.push("cropped environment", "isolated floating character");
   if (/(jardin|garden|flowers)/i.test(`${location} ${text}`)) rules.push("generic outdoor background");
   if (/(lab|laboratoire)/i.test(`${location} ${text}`)) rules.push("generic room without equipment");
+  if (/(lycée|lycee|école|ecole|school|campus)/i.test(`${location} ${text}`)) rules.push("empty school background", "courtyard without students or campus architecture");
   return rules;
 }
 
 function extractInteractionBeat(text: string, purpose: PanelContract["purpose"]) {
   if (/(touch|grab|hold|push|ouvre|attrape|s'appuie|se confie|regarde)/i.test(text)) {
     return "environment and character interaction must remain readable";
+  }
+  if (/(humili|ridicul|moque|entouré de ses amis|crowd|students)/i.test(text)) {
+    return "social pressure and surrounding crowd must remain visible around the protagonists";
   }
   if (purpose === "dialogue") return "spatial relation between speakers must remain clear";
   if (purpose === "action") return "movement must react to terrain and obstacles";

@@ -23,8 +23,28 @@ describe("composeMangaPanelPrompt with scene blueprint", () => {
       characters: [{ name: "Héros", gender: "male", appearance: "silhouette fatiguée" }],
     });
 
-    expect(result.positive).toContain("scene blueprint narrative");
-    expect(result.positive).toContain("strict constraints");
+    expect(result.positive).toContain("BLUEPRINT_NARRATIVE");
+    expect(result.positive).toContain("STRICT_CONSTRAINTS");
     expect(result.negative).toContain("empty background");
+  });
+
+  it("force les signaux scolaires pour une cour de lycée validée", () => {
+    const result = composeMangaPanelPrompt({
+      location: "cour du lycée",
+      action: "Miro est humilié devant Kutsi et ses amis, les élèves observent la scène",
+      camera: "wide establishing shot",
+      mood: "tension",
+      contentIntensityLayer: "TEEN",
+      sceneContext: "Humiliation publique dans la cour du lycée",
+      environmentHint: "school courtyard, students visible, campus architecture readable",
+      stylePack: {
+        visualStyle: "lignes fines shonen",
+        backgroundDensity: "high",
+      },
+    });
+
+    expect(result.positive).toContain("MANDATORY_ENVIRONMENT");
+    expect(result.positive).toContain("students visible in background");
+    expect(result.negative).toContain("empty school courtyard");
   });
 });

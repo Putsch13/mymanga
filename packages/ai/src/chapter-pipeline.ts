@@ -4,7 +4,8 @@ import { parseIntentEntities } from "./services/entity-brain";
 import { writeDialogueForScene } from "./services/dialogue-writer";
 import { planPanelText, type PanelTextPlan } from "./services/panel-text-planner";
 import { analyzeBeatsForRepetition } from "./beat-advancement-checker";
-import type { SceneContinuityPayload, StructuredBeatPayload } from "@manga-ai-studio/core";
+import type { ApprovedChapterOutline, SceneContinuityPayload, StructuredBeatPayload } from "@manga-ai-studio/core";
+import type { ChapterOutlineGenerationResult } from "./chapter-outline";
 
 export type ProjectContextForChapter = {
   project: {
@@ -209,6 +210,8 @@ export type GeneratedChapterBundle = {
       location: string;
       purpose: string;
       pageRole?: string;
+      turn?: string;
+      emotionalDelta?: number;
       structuredBeat?: StructuredBeatPayload;
     }>;
     cliffhanger: string;
@@ -503,15 +506,15 @@ type PageRoleKey = "establishing" | "escalation" | "confrontation" | "revelation
 
 const PAGE_ROLE_TEMPLATES: Record<PageRoleKey, (ctx: { mainA: string; mainB: string; location: string; summary: string; purpose: string; turn: string }) => string[]> = {
   establishing: (c) => [
-    `Plan large : ${c.location} s'étend devant ${c.mainA}. Ambiance posée.`,
-    `${c.mainA} observe un détail du décor qui révèle l'atmosphère.`,
+    `Plan large narratif : ${c.summary} Décor lisible de ${c.location}.`,
+    `${c.mainA} capte un détail concret du lieu qui soutient : ${c.summary}`,
     `${c.mainA} entre dans le lieu, posture et expression lisibles.`,
     `Un élément de l'environnement annonce la suite : ${c.turn}`,
     `Narration visuelle : le regard de ${c.mainA} se pose sur un indice.`,
     `Transition douce vers l'action : ${c.mainA} s'approche de ${c.mainB}.`,
   ],
   escalation: (c) => [
-    `${c.mainA} et ${c.mainB} dans une situation qui se tend.`,
+    `${c.summary} La tension devient concrète entre ${c.mainA} et ${c.mainB}.`,
     `Un échange de regards chargé de tension autour de ${c.purpose}.`,
     `${c.mainA} réalise quelque chose : ${c.turn}`,
     `La pression monte : un détail concret aggrave la situation.`,
@@ -519,7 +522,7 @@ const PAGE_ROLE_TEMPLATES: Record<PageRoleKey, (ctx: { mainA: string; mainB: str
     `Point de non-retour : ${c.mainA} doit agir maintenant.`,
   ],
   confrontation: (c) => [
-    `Face à face : ${c.mainA} vs ${c.mainB}. Tension maximale.`,
+    `${c.summary} Face à face clair : ${c.mainA} contre ${c.mainB}.`,
     `Champ/contre-champ : expressions opposées, enjeux lisibles.`,
     `Action : ${c.mainA} fait un geste décisif. ${c.turn}`,
     `Impact : la conséquence est immédiate et visuelle.`,
@@ -543,7 +546,7 @@ const PAGE_ROLE_TEMPLATES: Record<PageRoleKey, (ctx: { mainA: string; mainB: str
     `Transition : le regard se porte vers l'horizon ou la prochaine étape.`,
   ],
   cliffhanger: (c) => [
-    `Accélération : plusieurs cases rapides, rythme pressé.`,
+    `${c.summary} L'accélération devient irréversible.`,
     `${c.mainA} fait face à une dernière décision — ${c.purpose}.`,
     `Montée : chaque case rapproche du point de rupture.`,
     `${c.turn} — le retournement frappe.`,
@@ -831,6 +834,7 @@ export async function generateChapterBundle(input: {
   userIntent: string;
   selectedPlotLabel?: "safe" | "bold" | "shock";
   context: ProjectContextForChapter;
+  approvedOutline?: ApprovedChapterOutline | null;
 }): Promise<GeneratedChapterBundle> {
   const cast = takeNames(input.context, 6);
   const mainCast = cast.length > 0 ? cast : ["Le protagoniste", "L'antagoniste"];
@@ -844,73 +848,100 @@ export async function generateChapterBundle(input: {
   const tone = input.context.project.tone ?? "dramatique";
   const genre = (input.context.project.primaryGenre ?? "fantasy").toLowerCase();
   const visualStyle = inferVisualStyle(input.context);
-  const chapterGoal = `Faire avancer l'intrigue autour de : ${input.userIntent}`;
+  const chapterGoal = input.approvedOutline?.summary ?? `Faire avancer l'intrigue autour de : ${input.userIntent}`;
   const selectedLabel = input.selectedPlotLabel ?? "bold";
 
   const previous = input.context.recentChapters[0];
-  const outlineResult = await generateChapterOutline({
-    projectTitle: input.context.project.title,
-    pitch: input.context.project.pitch,
-    description: input.context.project.description ?? null,
-    primaryGenre: input.context.project.primaryGenre,
-    subGenres: input.context.project.subGenres ?? [],
-    tone: input.context.project.tone ?? null,
-    visualStyle,
-    styleGuide: input.context.stylePack
-      ? [
-          input.context.stylePack.renderFamily,
-          input.context.stylePack.lineWeight,
-          input.context.stylePack.shadingMode,
-          input.context.stylePack.contrastProfile,
-        ]
-          .filter(Boolean)
-          .join(", ")
-      : null,
-    cast: input.context.characters.slice(0, 8).map((character) => ({
-      name: character.name,
-      roleType: character.roleType,
-      objective: character.objective,
-      status: character.status,
-      fear: character.fear,
-      traits: character.traits,
-      appearance: character.appearance,
-    })),
-    intentEntities: intentEntityHints,
-    knownLocations: (input.context.locations ?? []).slice(0, 12),
-    relationships: (input.context.relationships ?? []).slice(0, 8).map((r) => ({
-      source: input.context.characters.find((c) => c.id === r.sourceCharacterId)?.name ?? r.sourceCharacterId,
-      target: input.context.characters.find((c) => c.id === r.targetCharacterId)?.name ?? r.targetCharacterId,
-      type: r.relationType,
-    })),
-    arcs: (input.context.arcs ?? []).slice(0, 4),
-    allRecentChapters: input.context.recentChapters.slice(0, 3),
-    bibleSummary: input.context.storyBible?.summary ?? null,
-    themes: input.context.storyBible?.themes ?? [],
-    continuitySnippets: input.context.recentMemory
-      .map((memory) => memory.narrativeSummary)
-      .filter((item): item is string => Boolean(item))
-      .slice(0, 3),
-    recentContinuityEvents: (input.context.recentContinuityEvents ?? [])
-      .filter((e) => e.importance >= 40)
-      .slice(0, 10),
-    retrievedContext: input.context.retrievedDocs.map((doc) => doc.content).slice(0, 4),
-    settings: {
-      dialogueDensity: input.context.settings?.dialogueDensity ?? null,
-      darknessLevel: input.context.settings?.darknessLevel ?? null,
-      mysteryLevel: input.context.settings?.mysteryLevel ?? null,
-      violenceLevel: input.context.settings?.violenceLevel ?? null,
-      romanceLevel: input.context.settings?.romanceLevel ?? null,
-      sensualityLevel: input.context.settings?.sensualityLevel ?? null,
-      canonStrictness: input.context.settings?.canonStrictness ?? null,
-    },
-    chapterNumber: input.chapterNumber,
-    chapterTitle: input.chapterTitle ?? null,
-    userIntent: input.userIntent,
-    quickTag: input.selectedPlotLabel ?? null,
-    previousSummary: previous?.summary ?? null,
-    previousCliffhanger: previous?.cliffhanger ?? null,
-    seriesSynopsis: input.context.seriesSynopsis ?? null,
-  });
+  const outlineResult: ChapterOutlineGenerationResult = input.approvedOutline
+    ? {
+        outline: {
+          title: input.chapterTitle ?? `Chapitre ${input.chapterNumber}`,
+          summary: input.approvedOutline.summary,
+          cliffhanger: input.approvedOutline.cliffhanger,
+          beats: input.approvedOutline.beats.map((beat) => ({
+            summary: beat.summary,
+            emotionalTone: beat.pageRole,
+            pageRole: beat.pageRole as import("./chapter-outline").PageRole,
+            turn: beat.turn,
+            emotionalDelta: beat.emotionalDelta,
+            location: beat.location,
+            characters: beat.characters,
+            structuredBeat: (beat.structuredBeat ?? {
+              source: "heuristic_fallback",
+              confidence: 0.45,
+              arcPromises: [],
+              worldConsequences: [],
+              setupPayoffHooks: [],
+            }) as StructuredBeatPayload,
+          })),
+        },
+        usedOpenAI: false,
+        model: "user-approved-outline",
+        degradedStatus: "FULLY_OPERATIONAL",
+      }
+    : await generateChapterOutline({
+        projectTitle: input.context.project.title,
+        pitch: input.context.project.pitch,
+        description: input.context.project.description ?? null,
+        primaryGenre: input.context.project.primaryGenre,
+        subGenres: input.context.project.subGenres ?? [],
+        tone: input.context.project.tone ?? null,
+        visualStyle,
+        styleGuide: input.context.stylePack
+          ? [
+              input.context.stylePack.renderFamily,
+              input.context.stylePack.lineWeight,
+              input.context.stylePack.shadingMode,
+              input.context.stylePack.contrastProfile,
+            ]
+              .filter(Boolean)
+              .join(", ")
+          : null,
+        cast: input.context.characters.slice(0, 8).map((character) => ({
+          name: character.name,
+          roleType: character.roleType,
+          objective: character.objective,
+          status: character.status,
+          fear: character.fear,
+          traits: character.traits,
+          appearance: character.appearance,
+        })),
+        intentEntities: intentEntityHints,
+        knownLocations: (input.context.locations ?? []).slice(0, 12),
+        relationships: (input.context.relationships ?? []).slice(0, 8).map((r) => ({
+          source: input.context.characters.find((c) => c.id === r.sourceCharacterId)?.name ?? r.sourceCharacterId,
+          target: input.context.characters.find((c) => c.id === r.targetCharacterId)?.name ?? r.targetCharacterId,
+          type: r.relationType,
+        })),
+        arcs: (input.context.arcs ?? []).slice(0, 4),
+        allRecentChapters: input.context.recentChapters.slice(0, 3),
+        bibleSummary: input.context.storyBible?.summary ?? null,
+        themes: input.context.storyBible?.themes ?? [],
+        continuitySnippets: input.context.recentMemory
+          .map((memory) => memory.narrativeSummary)
+          .filter((item): item is string => Boolean(item))
+          .slice(0, 3),
+        recentContinuityEvents: (input.context.recentContinuityEvents ?? [])
+          .filter((e) => e.importance >= 40)
+          .slice(0, 10),
+        retrievedContext: input.context.retrievedDocs.map((doc) => doc.content).slice(0, 4),
+        settings: {
+          dialogueDensity: input.context.settings?.dialogueDensity ?? null,
+          darknessLevel: input.context.settings?.darknessLevel ?? null,
+          mysteryLevel: input.context.settings?.mysteryLevel ?? null,
+          violenceLevel: input.context.settings?.violenceLevel ?? null,
+          romanceLevel: input.context.settings?.romanceLevel ?? null,
+          sensualityLevel: input.context.settings?.sensualityLevel ?? null,
+          canonStrictness: input.context.settings?.canonStrictness ?? null,
+        },
+        chapterNumber: input.chapterNumber,
+        chapterTitle: input.chapterTitle ?? null,
+        userIntent: input.userIntent,
+        quickTag: input.selectedPlotLabel ?? null,
+        previousSummary: previous?.summary ?? null,
+        previousCliffhanger: previous?.cliffhanger ?? null,
+        seriesSynopsis: input.context.seriesSynopsis ?? null,
+      });
   if (outlineResult.degradedStatus !== "FULLY_OPERATIONAL") {
     console.warn(
       `[chapter-pipeline] outline degraded chapter=${input.chapterNumber} status=${outlineResult.degradedStatus} reason=${outlineResult.fallbackReason ?? "n/a"}`,
@@ -946,14 +977,14 @@ export async function generateChapterBundle(input: {
     structuredBeat: beat.structuredBeat,
   }));
 
-  if (shouldKeepSingleLocation(input.userIntent, rawOutlineBeats)) {
+  if (!input.approvedOutline && shouldKeepSingleLocation(input.userIntent, rawOutlineBeats)) {
     const dominantLocation = rawOutlineBeats[0]?.location || locA;
     for (const beat of rawOutlineBeats) {
       beat.location = dominantLocation;
     }
   }
 
-  if (intentEntityHints.length > 0) {
+  if (!input.approvedOutline && intentEntityHints.length > 0) {
     for (let index = 0; index < Math.min(2, rawOutlineBeats.length); index++) {
       const beat = rawOutlineBeats[index];
       if (!beat) continue;
@@ -961,54 +992,60 @@ export async function generateChapterBundle(input: {
     }
   }
 
-  const TARGET_PAGES = 10;
+  const TARGET_PAGES = input.approvedOutline ? input.approvedOutline.beats.length : 10;
   const dominantLocation = rawOutlineBeats[0]?.location || locA;
-  const beats = stretchToCount(rawOutlineBeats, TARGET_PAGES, (index) => ({
-    id: `beat_${index + 1}`,
-    summary: `${chapterGoal}. Cette étape approfondit ${input.userIntent.slice(0, 120)} avec une progression plus ${selectedLabel}.`,
-    tension: Math.min(9, 3 + index),
-    characters: mainCast.slice(0, Math.min(index % 3 === 0 ? 4 : 3, mainCast.length)),
-    location: dominantLocation,
-    purpose: `variation_${index + 1}`,
-    pageRole: PAGE_ROLE_SEQUENCE[index % PAGE_ROLE_SEQUENCE.length] ?? "escalation",
-    turn: `Progression inattendue vers ${input.context.project.title}.`,
-    emotionalDelta: index % 2 === 0 ? 1 : -1,
-    structuredBeat: rawOutlineBeats[Math.max(0, rawOutlineBeats.length - 1)]?.structuredBeat,
-  }));
+  const beats = input.approvedOutline
+    ? rawOutlineBeats.slice(0, TARGET_PAGES)
+    : stretchToCount(rawOutlineBeats, TARGET_PAGES, (index) => ({
+        id: `beat_${index + 1}`,
+        summary: `${chapterGoal}. Cette étape approfondit ${input.userIntent.slice(0, 120)} avec une progression plus ${selectedLabel}.`,
+        tension: Math.min(9, 3 + index),
+        characters: mainCast.slice(0, Math.min(index % 3 === 0 ? 4 : 3, mainCast.length)),
+        location: dominantLocation,
+        purpose: `variation_${index + 1}`,
+        pageRole: PAGE_ROLE_SEQUENCE[index % PAGE_ROLE_SEQUENCE.length] ?? "escalation",
+        turn: `Progression inattendue vers ${input.context.project.title}.`,
+        emotionalDelta: index % 2 === 0 ? 1 : -1,
+        structuredBeat: rawOutlineBeats[Math.max(0, rawOutlineBeats.length - 1)]?.structuredBeat,
+      }));
 
-  reinforceIntentEntityCoverage(beats, intentEntityHints);
+  if (!input.approvedOutline) {
+    reinforceIntentEntityCoverage(beats, intentEntityHints);
+  }
 
-  const beatAdvancement = await analyzeBeatsForRepetition(
-    beats.map((beat) => ({
-      id: beat.id,
-      summary: beat.summary,
-      location: beat.location,
-      characters: beat.characters,
-      tension: beat.tension,
-      purpose: beat.purpose,
-    })),
-    {
-      currentThreads: [input.userIntent, previous?.cliffhanger ?? "", previous?.summary ?? ""].filter(Boolean),
-      characterGoals: Object.fromEntries(
-        input.context.characters
-          .filter((character) => character.objective)
-          .map((character) => [character.name, character.objective ?? ""])
-      ),
-    },
-  );
-  beatAdvancement.results.forEach((result, index) => {
-    if (!result.shouldReject) return;
-    const beat = beats[index];
-    if (!beat) return;
-    const fallbackLocation = locAt(index + 1);
-    if (index > 0 && beats[index - 1]?.location === beat.location && fallbackLocation !== beat.location) {
-      beat.location = fallbackLocation;
-    }
-    beat.summary = `${beat.summary} Nouvelle conséquence concrète : ${result.advancement.whatChanges}.`;
-    beat.turn = `${beat.turn} Le lecteur comprend : ${result.advancement.readerLearns}.`;
-    beat.purpose = `${beat.purpose} / progression`;
-    beat.tension = Math.min(9, beat.tension + 1);
-  });
+  if (!input.approvedOutline) {
+    const beatAdvancement = await analyzeBeatsForRepetition(
+      beats.map((beat) => ({
+        id: beat.id,
+        summary: beat.summary,
+        location: beat.location,
+        characters: beat.characters,
+        tension: beat.tension,
+        purpose: beat.purpose,
+      })),
+      {
+        currentThreads: [input.userIntent, previous?.cliffhanger ?? "", previous?.summary ?? ""].filter(Boolean),
+        characterGoals: Object.fromEntries(
+          input.context.characters
+            .filter((character) => character.objective)
+            .map((character) => [character.name, character.objective ?? ""])
+        ),
+      },
+    );
+    beatAdvancement.results.forEach((result, index) => {
+      if (!result.shouldReject) return;
+      const beat = beats[index];
+      if (!beat) return;
+      const fallbackLocation = locAt(index + 1);
+      if (index > 0 && beats[index - 1]?.location === beat.location && fallbackLocation !== beat.location) {
+        beat.location = fallbackLocation;
+      }
+      beat.summary = `${beat.summary} Nouvelle conséquence concrète : ${result.advancement.whatChanges}.`;
+      beat.turn = `${beat.turn} Le lecteur comprend : ${result.advancement.readerLearns}.`;
+      beat.purpose = `${beat.purpose} / progression`;
+      beat.tension = Math.min(9, beat.tension + 1);
+    });
+  }
 
   const dynamicPlotOptions = buildDynamicPlotOptions({
     userIntent: input.userIntent,
@@ -1226,8 +1263,8 @@ export async function generateChapterBundle(input: {
       degradedModes: bundleStatus.degradedModes,
       outline: {
         degradedStatus: outlineResult.degradedStatus,
-        usedFallback: !outlineResult.usedOpenAI,
-        fallbackReason: outlineResult.fallbackReason,
+        usedFallback: input.approvedOutline ? false : !outlineResult.usedOpenAI,
+        fallbackReason: input.approvedOutline ? undefined : outlineResult.fallbackReason,
         model: outlineResult.model,
       },
       dialogue: {

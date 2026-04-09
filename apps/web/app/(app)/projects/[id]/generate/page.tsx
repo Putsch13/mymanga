@@ -1,9 +1,10 @@
 "use client";
 
+import type { ApprovedChapterOutline } from "@manga-ai-studio/core";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Users, BookOpen } from "lucide-react";
+import { Check, Loader2, Pencil, Users, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -28,6 +29,17 @@ type CreativityControls = {
   visualExoticism: number;
   npcVariety: number;
   environmentRichness: number;
+};
+
+type OutlinePreviewBeat = {
+  id: string;
+  summary: string;
+  characters: string[];
+  location: string;
+  pageRole: string;
+  turn: string;
+  emotionalDelta: number;
+  structuredBeat?: ApprovedChapterOutline["beats"][number]["structuredBeat"];
 };
 
 function SliderField({
@@ -100,6 +112,10 @@ export default function ChapterGeneratorPage() {
   const [userIntent, setUserIntent] = useState("");
   const [chapterTitle, setChapterTitle] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [editingBeatId, setEditingBeatId] = useState<string | null>(null);
+  const [draftBeatValue, setDraftBeatValue] = useState("");
+  const [beatSummaries, setBeatSummaries] = useState<Record<string, string>>({});
+  const [planApproved, setPlanApproved] = useState(false);
   const [previewData, setPreviewData] = useState<{
     estimatedTokens: number;
     plotOptions: Array<{ id: string; title: string; label: string; summary: string }>;
@@ -111,7 +127,8 @@ export default function ChapterGeneratorPage() {
     outlinePreview?: {
       summary: string;
       cliffhanger: string;
-      beats: Array<{ summary: string; characters: string[]; location: string }>;
+      approvalVersion: string;
+      beats: OutlinePreviewBeat[];
     };
     creativityControls?: CreativityControls | null;
   } | null>(null);
@@ -264,6 +281,11 @@ export default function ChapterGeneratorPage() {
       const j = await res.json();
       if (res.ok && j.plotOptions) {
         setPreviewData(j);
+        const beats = Array.isArray(j.outlinePreview?.beats) ? (j.outlinePreview.beats as OutlinePreviewBeat[]) : [];
+        setBeatSummaries(Object.fromEntries(beats.map((beat) => [beat.id, beat.summary])));
+        setEditingBeatId(null);
+        setDraftBeatValue("");
+        setPlanApproved(false);
       } else {
         setPipelineMsg(j.message ?? "Impossible de prévisualiser le chapitre.");
       }
@@ -274,11 +296,70 @@ export default function ChapterGeneratorPage() {
     }
   }
 
+  function startBeatEdit(beat: OutlinePreviewBeat) {
+    setEditingBeatId(beat.id);
+    setDraftBeatValue(beatSummaries[beat.id] ?? beat.summary);
+  }
+
+  function applyBeatEdit(beatId: string) {
+    setBeatSummaries((current) => ({ ...current, [beatId]: draftBeatValue.trim() || current[beatId] || draftBeatValue }));
+    setEditingBeatId(null);
+    setDraftBeatValue("");
+    setPlanApproved(false);
+  }
+
+  function cancelBeatEdit() {
+    setEditingBeatId(null);
+    setDraftBeatValue("");
+  }
+
+  function buildApprovedOutlinePayload(): ApprovedChapterOutline | null {
+    if (!previewData?.outlinePreview) return null;
+    return {
+      summary: previewData.outlinePreview.summary,
+      cliffhanger: previewData.outlinePreview.cliffhanger,
+      beats: previewData.outlinePreview.beats.map((beat) => ({
+        id: beat.id,
+        summary: beatSummaries[beat.id] ?? beat.summary,
+        characters: beat.characters,
+        location: beat.location,
+        pageRole: beat.pageRole,
+        turn: beat.turn,
+        emotionalDelta: beat.emotionalDelta,
+        structuredBeat: beat.structuredBeat ?? null,
+      })),
+      approvedAt: new Date().toISOString(),
+      approvalVersion: previewData.outlinePreview.approvalVersion,
+      source: "user_approved",
+    };
+  }
+
+  async function saveApprovedOutline(chapterId: string) {
+    const approvedOutline = buildApprovedOutlinePayload();
+    if (!approvedOutline) {
+      throw new Error("Aucun plan validable disponible.");
+    }
+    const res = await fetch(`/api/projects/${id}/chapters/${chapterId}/approved-outline`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approvedOutline }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message ?? data.error ?? "Impossible d'enregistrer le plan validé.");
+    }
+  }
+
   async function runPipeline() {
     if (!selectedChapter) return;
+    if (!planApproved) {
+      setPipelineMsg("Valide d'abord le plan détaillé en 5 blocs.");
+      return;
+    }
     setStartingPipeline(true);
     setPipelineMsg(null);
     try {
+      await saveApprovedOutline(selectedChapter);
       const res = await fetch(`/api/projects/${id}/pipeline`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -316,9 +397,14 @@ export default function ChapterGeneratorPage() {
   }
 
   async function createAndGenerate() {
+    if (!planApproved) {
+      setPipelineMsg("Valide d'abord le plan détaillé en 5 blocs.");
+      return;
+    }
     setCreatingDraft(true);
     setPipelineMsg(null);
     try {
+      const approvedOutline = buildApprovedOutlinePayload();
       const res = await fetch(`/api/projects/${id}/chapters`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -328,6 +414,7 @@ export default function ChapterGeneratorPage() {
           focusCharacterIds: selectedCharacterIds,
           selectedPlotLabel,
           creativityControls,
+          approvedOutline,
         }),
       });
       const j = await res.json();
@@ -559,8 +646,33 @@ export default function ChapterGeneratorPage() {
                   <p className="text-sm font-medium">Déroulé du chapitre</p>
                   {previewData.outlinePreview.beats.map((beat, index) => (
                     <div key={`${beat.summary}-${index}`} className="rounded-lg border border-border/40 bg-card/30 p-3 text-sm">
-                      <p className="font-medium">Page {index + 1}</p>
-                      <p className="mt-1 text-muted-foreground">{beat.summary}</p>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-medium">Bloc {index + 1}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {beat.pageRole} · delta {beat.emotionalDelta >= 0 ? `+${beat.emotionalDelta}` : beat.emotionalDelta}
+                          </p>
+                        </div>
+                        <Button type="button" variant="outline" size="sm" onClick={() => startBeatEdit(beat)}>
+                          <Pencil className="mr-1 h-3.5 w-3.5" />
+                          Modifier
+                        </Button>
+                      </div>
+                      {editingBeatId === beat.id ? (
+                        <div className="mt-3 space-y-2">
+                          <Textarea rows={4} value={draftBeatValue} onChange={(e) => setDraftBeatValue(e.target.value)} />
+                          <div className="flex gap-2">
+                            <Button type="button" size="sm" onClick={() => applyBeatEdit(beat.id)}>
+                              Appliquer
+                            </Button>
+                            <Button type="button" variant="outline" size="sm" onClick={cancelBeatEdit}>
+                              Annuler
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="mt-1 text-muted-foreground">{beatSummaries[beat.id] ?? beat.summary}</p>
+                      )}
                       <p className="mt-2 text-xs text-muted-foreground">
                         {beat.characters.length > 0 ? `Personnages : ${beat.characters.join(", ")}` : "Personnages : à préciser"}{beat.location ? ` · Lieu : ${beat.location}` : ""}
                       </p>
@@ -602,18 +714,42 @@ export default function ChapterGeneratorPage() {
                 </div>
               )}
             </div>
+            <div className={`rounded-lg border px-3 py-2 text-sm ${planApproved ? "border-emerald-500/30 bg-emerald-950/20 text-emerald-200" : "border-amber-500/30 bg-amber-950/20 text-amber-200"}`}>
+              {planApproved
+                ? "Plan validé. Le pipeline utilisera exactement ces 5 blocs comme source de vérité."
+                : "Étape obligatoire : valide le plan détaillé avant de lancer la génération."}
+            </div>
             <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={planApproved ? "outline" : "default"}
+                size="lg"
+                className="text-base"
+                onClick={() => setPlanApproved(true)}
+                disabled={previewData.outlinePreview?.beats.some((beat) => !(beatSummaries[beat.id] ?? beat.summary).trim())}
+              >
+                <Check className="mr-2 h-5 w-5" />
+                Valider le plan
+              </Button>
               <Button
                 type="button"
                 size="lg"
                 className="flex-1 text-base"
                 onClick={chapters.length > 0 && selectedChapter ? runPipeline : createAndGenerate}
-                disabled={creatingDraft || startingPipeline}
+                disabled={creatingDraft || startingPipeline || !planApproved}
               >
                 {creatingDraft || startingPipeline ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <BookOpen className="mr-2 h-5 w-5" />}
-                Valider et générer
+                Lancer la génération
               </Button>
-              <Button type="button" variant="outline" onClick={() => setPreviewData(null)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setPreviewData(null);
+                  setPlanApproved(false);
+                  setEditingBeatId(null);
+                }}
+              >
                 Modifier
               </Button>
             </div>

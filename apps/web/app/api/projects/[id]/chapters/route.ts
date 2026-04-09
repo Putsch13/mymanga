@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { approvedOutlineSchema, type ApprovedChapterOutline } from "@manga-ai-studio/core";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
@@ -20,7 +21,31 @@ const createSchema = z.object({
     npcVariety: z.number().int().min(0).max(100).optional(),
     environmentRichness: z.number().int().min(0).max(100).optional(),
   }).optional(),
+  approvedOutline: approvedOutlineSchema.optional(),
 });
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function buildChapterOutlinePayload(input: {
+  existing?: unknown;
+  draftSetup: {
+    focusCharacterIds: string[];
+    selectedPlotLabel: "safe" | "bold" | "shock" | null;
+    creativityControls: Record<string, unknown> | null;
+    sourceUserIntent: string | null;
+  };
+  approvedOutline?: ApprovedChapterOutline;
+}) {
+  return ({
+    ...asRecord(input.existing),
+    draftSetup: input.draftSetup,
+    ...(input.approvedOutline ? { approvedOutline: input.approvedOutline } : {}),
+  } as unknown) as Prisma.InputJsonValue;
+}
 
 export async function GET(_req: Request, ctx: Ctx) {
   const user = await getAppUser();
@@ -55,14 +80,15 @@ export async function POST(req: Request, ctx: Ctx) {
       userIntent: body.userIntent,
       status: "draft",
       tokenEstimate: body.tokenEstimate,
-      outline: ({
+      outline: buildChapterOutlinePayload({
         draftSetup: {
           focusCharacterIds: body.focusCharacterIds ?? [],
           selectedPlotLabel: body.selectedPlotLabel ?? null,
-          creativityControls: body.creativityControls ?? null,
+          creativityControls: (body.creativityControls ?? null) as Record<string, unknown> | null,
           sourceUserIntent: body.userIntent ?? null,
         },
-      } as unknown) as Prisma.InputJsonValue,
+        approvedOutline: body.approvedOutline,
+      }),
     },
   });
   await trackServerEvent("chapter_created", { userId: user.id, projectId, chapterId: chapter.id });

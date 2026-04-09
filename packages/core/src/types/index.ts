@@ -5,3 +5,4 @@ export * from "./panel-contract";
 export * from "./manga-dialogue";
 export * from "./continuity-deltas";
 export * from "./outline-structures";
+export * from "./approved-outline";

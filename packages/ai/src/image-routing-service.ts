@@ -2,7 +2,7 @@ import { moderationOutcomeForImage } from "@manga-ai-studio/moderation";
 import type { ContentIntensityLayer } from "@manga-ai-studio/moderation";
 import type { ImageRoutingDecision, ImageWorkflow, RoutingContext } from "./types";
 
-const DEFAULT_FLUX_MODEL = "flux-pro/v1.1";
+const DEFAULT_FLUX_MODEL = "fal-ai/flux/dev";
 const DEFAULT_STABILITY_MODEL = "stable-image-ultra";
 const DEFAULT_RUNWARE_MODEL = "runware-custom-stack";
 

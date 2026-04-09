@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { parseApprovedOutline } from "@manga-ai-studio/core";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { prisma } from "@manga-ai-studio/db";
 import { runFullChapterPipelineFromJob, sendChapterGenerateRequested } from "@manga-ai-studio/workflow";
@@ -67,12 +68,16 @@ export async function POST(req: Request, ctx: Ctx) {
     where: { id: body.chapterId, projectId },
   });
   if (!chapter) return badRequest("Chapitre introuvable");
-
-  const draftSetup = draftSetupSchema.safeParse(
+  const chapterOutlineRecord =
     chapter.outline && typeof chapter.outline === "object" && !Array.isArray(chapter.outline)
-      ? (chapter.outline as Record<string, unknown>).draftSetup
-      : undefined,
-  );
+      ? (chapter.outline as Record<string, unknown>)
+      : {};
+  const approvedOutline = parseApprovedOutline(chapterOutlineRecord.approvedOutline);
+  if (!approvedOutline) {
+    return validationError("Valide d'abord le plan détaillé du chapitre avant de lancer la génération.");
+  }
+
+  const draftSetup = draftSetupSchema.safeParse(chapterOutlineRecord.draftSetup);
   const focusCharacterIds =
     body.focusCharacterIds && body.focusCharacterIds.length > 0
       ? body.focusCharacterIds
@@ -99,6 +104,7 @@ export async function POST(req: Request, ctx: Ctx) {
         focusCharacterIds,
         selectedPlotLabel,
         creativityControls,
+        approvedOutlineVersion: approvedOutline.approvalVersion,
       },
       output: {
         currentStep: "queued",

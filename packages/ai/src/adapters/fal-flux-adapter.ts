@@ -14,6 +14,18 @@ type FalImageResponse = {
   image?: { url: string };
 };
 
+function normalizeRequestedFalModel(
+  requested: string | null | undefined,
+  flags: { useLora: boolean; useRedux: boolean },
+) {
+  if (flags.useLora) return { model: "fal-ai/flux-lora", endpoint: FAL_FLUX_LORA };
+  if (flags.useRedux) return { model: "fal-ai/flux/dev/redux", endpoint: FAL_FLUX_DEV_REDUX };
+  if (requested === "flux-pro/v1.1") {
+    return { model: "fal-ai/flux/dev", endpoint: FAL_FLUX_DEV };
+  }
+  return { model: "fal-ai/flux/dev", endpoint: FAL_FLUX_DEV };
+}
+
 function extractUrl(data: FalImageResponse): string | undefined {
   return data.images?.[0]?.url ?? data.image?.url;
 }
@@ -123,7 +135,11 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
       const useLora = activeLoras.length > 0;
       const useRedux = !useLora && Boolean(referenceUrl);
       const useLoraWithRef = useLora && Boolean(referenceUrl);
-      const endpoint = useLora ? FAL_FLUX_LORA : useRedux ? FAL_FLUX_DEV_REDUX : FAL_FLUX_DEV;
+      const falTarget = normalizeRequestedFalModel(
+        typeof input.providerParams?.model === "string" ? input.providerParams.model : null,
+        { useLora, useRedux },
+      );
+      const endpoint = falTarget.endpoint;
 
       let body: Record<string, unknown>;
 
@@ -184,7 +200,7 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
       return {
         imageUrl,
         provider: "fal",
-        model: useLora ? "fal-ai/flux-lora" : useRedux ? "fal-ai/flux/dev/redux" : "fal-ai/flux/dev",
+        model: falTarget.model,
         raw: data,
       };
     },

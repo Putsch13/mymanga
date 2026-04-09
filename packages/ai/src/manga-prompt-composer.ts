@@ -23,6 +23,12 @@ export interface StylePackRef {
   name?: string | null;
   description?: string | null;
   visualStyle?: string | null;
+  anatomyBias?: string | null;
+  backgroundDensity?: string | null;
+  cameraLanguage?: string | null;
+  negativeConstraints?: string[] | null;
+  styleRefImageUrl?: string | null;
+  approvedLoraIds?: string[] | null;
 }
 
 export interface PanelPromptInput {
@@ -124,8 +130,37 @@ function resolveVisualStyle(stylePack?: StylePackRef | null): string {
   if (stylePack.visualStyle) parts.push(stylePack.visualStyle);
   else if (stylePack.description) parts.push(stylePack.description);
   else if (stylePack.name) parts.push(`${stylePack.name} style`);
+  if (stylePack.anatomyBias) parts.push(`anatomy bias ${stylePack.anatomyBias}`);
+  if (stylePack.backgroundDensity) parts.push(`background density ${stylePack.backgroundDensity}`);
+  if (stylePack.cameraLanguage) parts.push(`camera language ${stylePack.cameraLanguage}`);
   parts.push("manga panel");
   return parts.join(", ");
+}
+
+function sanitizeSectionText(value: string) {
+  return value.replace(/\s+/g, " ").replace(/,+/g, ",").trim();
+}
+
+function section(label: string, value: string | null | undefined) {
+  if (!value?.trim()) return "";
+  return `${label}: ${sanitizeSectionText(value)}`;
+}
+
+function buildEnvironmentLock(input: PanelPromptInput) {
+  const pieces: string[] = [];
+  const lower = `${input.location} ${input.action} ${input.environmentHint ?? ""} ${input.sceneContext ?? ""}`.toLowerCase();
+  if (/(lycée|lycee|école|ecole|school|campus)/.test(lower)) {
+    pieces.push("school courtyard or campus architecture must stay readable");
+    pieces.push("students visible in background or around the conflict");
+    pieces.push("no generic outdoor backdrop");
+  }
+  if (/(humili|ridicul|moque|crowd|students|foule)/.test(lower)) {
+    pieces.push("social crowd reaction must be visible around the protagonists");
+  }
+  if (/(wide|establishing)/.test((input.camera ?? "").toLowerCase())) {
+    pieces.push("full environment visible with clear foreground, midground and background");
+  }
+  return pieces.join(" | ");
 }
 
 /**
@@ -152,51 +187,56 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
       : "";
 
   const positiveParts: string[] = [
-    visualStyle,
-    cameraDesc,
-    `location: ${input.location}`,
+    section("STYLE", visualStyle),
+    section("CAMERA", cameraDesc),
+    section("SUBJECT", `location ${input.location}`),
   ];
 
-  if (charDescs) positiveParts.push(`characters: ${charDescs}`);
-  positiveParts.push(input.action);
-  positiveParts.push(moodDesc);
+  if (charDescs) positiveParts.push(section("CAST", charDescs));
+  positiveParts.push(section("ACTION", input.action));
+  positiveParts.push(section("MOOD", moodDesc));
 
-  // Contexte narratif : donne à l'IA le "pourquoi" de l'image
   if (input.sceneContext) {
-    positiveParts.push(`narrative context: ${input.sceneContext.slice(0, 200)}`);
+    positiveParts.push(section("NARRATIVE", input.sceneContext.slice(0, 260)));
   }
 
-  // Environnement vivant : foule, heure du jour, météo, ambiance
   if (input.environmentHint) {
-    positiveParts.push(input.environmentHint);
+    positiveParts.push(section("ENVIRONMENT", input.environmentHint.slice(0, 320)));
   }
+  const environmentLock = buildEnvironmentLock(input);
+  if (environmentLock) positiveParts.push(section("MANDATORY_ENVIRONMENT", environmentLock));
   if (input.sceneBlueprint) {
     positiveParts.push(
-      `scene blueprint narrative: ${input.sceneBlueprint.narrativeContext.progressionBeat}`,
-      `scene blueprint composition: ${input.sceneBlueprint.composition.framingRules.join(", ")}`,
-      `scene blueprint environment: foreground ${input.sceneBlueprint.environment.foregroundElements.join(", ")}; midground ${input.sceneBlueprint.environment.midgroundElements.join(", ")}; background ${input.sceneBlueprint.environment.backgroundElements.join(", ")}`,
-      `strict constraints: ${input.sceneBlueprint.constraints.hard.join(" | ")}`,
+      section("BLUEPRINT_NARRATIVE", input.sceneBlueprint.narrativeContext.progressionBeat),
+      section("BLUEPRINT_COMPOSITION", input.sceneBlueprint.composition.framingRules.join(" | ")),
+      section(
+        "BLUEPRINT_SPACE",
+        `foreground ${input.sceneBlueprint.environment.foregroundElements.join(" | ")} ; midground ${input.sceneBlueprint.environment.midgroundElements.join(" | ")} ; background ${input.sceneBlueprint.environment.backgroundElements.join(" | ")}`,
+      ),
+      section("STRICT_CONSTRAINTS", input.sceneBlueprint.constraints.hard.join(" | ")),
     );
     if (input.sceneBlueprint.constraints.soft.length > 0) {
-      positiveParts.push(`soft constraints: ${input.sceneBlueprint.constraints.soft.slice(0, 5).join(" | ")}`);
+      positiveParts.push(section("SOFT_CONSTRAINTS", input.sceneBlueprint.constraints.soft.slice(0, 5).join(" | ")));
     }
   }
 
-  if (intensityNote && layer !== "GENERAL_SAFE") positiveParts.push(intensityNote);
-  positiveParts.push(
-    "high detail, consistent character design, professional manga art, ink lines, same character appearance as previous panels",
-  );
+  if (intensityNote && layer !== "GENERAL_SAFE") positiveParts.push(section("CONTENT", intensityNote));
+  positiveParts.push(section(
+    "QUALITY",
+    "high detail, consistent character design, professional manga art, ink lines, readable environment, clear spatial relation, same character appearance as previous panels",
+  ));
   if (input.characters && input.characters.length > 0) {
-    positiveParts.push(
-      "STRICT: preserve exact hair length/color, eye color, outfit, body modifications, scars, facial features; no drift",
-    );
+    positiveParts.push(section(
+      "CONTINUITY",
+      "preserve exact hair length and color, eye color, outfit, body modifications, scars, facial features, no character drift",
+    ));
   }
 
   if (input.dialogueHint) {
-    positiveParts.push(`emotional subtext: ${input.dialogueHint.slice(0, 150)}`);
+    positiveParts.push(section("SUBTEXT", input.dialogueHint.slice(0, 150)));
   }
 
-  const positive = positiveParts.filter(Boolean).join(", ");
+  const positive = positiveParts.filter(Boolean).join(" ; ");
 
   // Negative prompt enrichi selon le layer + verrous de dérive visuelle
   let negative = BASE_NEGATIVE;
@@ -217,6 +257,12 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
       .filter(Boolean)
       .join(", ");
     if (driftGuards) negative += `, ${driftGuards}`;
+  }
+  if (/(lycée|lycee|école|ecole|school|campus)/i.test(`${input.location} ${input.action} ${input.environmentHint ?? ""}`)) {
+    negative += ", generic campus background, empty school courtyard, missing students, blank outdoor backdrop";
+  }
+  if (input.stylePack?.negativeConstraints?.length) {
+    negative += `, ${input.stylePack.negativeConstraints.join(", ")}`;
   }
   // Verrous de genre : empêcher le modèle de changer le sexe des personnages
   if (input.characters && input.characters.length > 0) {

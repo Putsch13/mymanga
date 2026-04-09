@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { generateChapterBundle } from "@manga-ai-studio/ai";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
+import { buildApprovedOutlineVersion } from "@manga-ai-studio/core";
 import { prisma } from "@manga-ai-studio/db";
 import { buildProjectContext } from "@manga-ai-studio/memory";
 import { getAppUser } from "@/lib/auth/get-app-user";
@@ -47,6 +48,22 @@ export async function POST(req: Request, ctx: Ctx) {
     selectedPlotLabel: body.selectedPlotLabel,
     context,
   });
+  const previewBeats = bundle.outline.beats.slice(0, 5).map((beat) => ({
+    id: beat.id,
+    summary: beat.summary,
+    characters: beat.characters,
+    location: beat.location,
+    pageRole: beat.pageRole ?? "escalation",
+    turn: beat.turn ?? beat.purpose,
+    emotionalDelta: beat.emotionalDelta ?? 0,
+    structuredBeat: beat.structuredBeat ?? null,
+  }));
+  const previewVersion = buildApprovedOutlineVersion({
+    summary: bundle.outline.chapter_goal,
+    cliffhanger: bundle.outline.cliffhanger,
+    beats: previewBeats,
+    source: "estimate_preview",
+  });
 
   return NextResponse.json({
     estimatedTokens,
@@ -62,11 +79,8 @@ export async function POST(req: Request, ctx: Ctx) {
     outlinePreview: {
       summary: bundle.outline.chapter_goal,
       cliffhanger: bundle.outline.cliffhanger,
-      beats: bundle.outline.beats.slice(0, 5).map((beat) => ({
-        summary: beat.summary,
-        characters: beat.characters,
-        location: beat.location,
-      })),
+      approvalVersion: previewVersion,
+      beats: previewBeats,
     },
   });
 }

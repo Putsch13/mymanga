@@ -18,6 +18,7 @@ import {
   type RoutingContext,
   type ProjectContextForChapter,
 } from "@manga-ai-studio/ai";
+import { parseApprovedOutline } from "@manga-ai-studio/core";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import {
   buildProjectContext,
@@ -379,6 +380,13 @@ function inferRequiredSceneExtras(scene: {
   }
   if (/(arène|arena|foule|crowd|festival)/.test(text)) {
     extras.push({ archetype: "crowd", anchorSlot: "backdrop-crowd" });
+  }
+  if (/(lycée|lycee|école|ecole|school|campus|cour de récré|cour du lycée|classe)/.test(text)) {
+    extras.push({ archetype: "crowd", anchorSlot: "student-yard" });
+    extras.push({ archetype: "passerby", anchorSlot: "corridor-depth" });
+  }
+  if (/(moque|ridicul|humili|entouré de ses amis|autour de ses amis|raillerie)/.test(text)) {
+    extras.push({ archetype: "crowd", anchorSlot: "mocking-ring" });
   }
   if (extras.length === 0 && scene.characters.length <= 2) {
     extras.push({ archetype: "passerby", anchorSlot: "ambient-depth" });
@@ -971,6 +979,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       userIntent: enrichedIntent || chapter.userIntent || `Continuer ${context.project.title}`,
       selectedPlotLabel,
       context,
+      approvedOutline: parseApprovedOutline(asRecord(chapter.outline).approvedOutline),
     });
     await setJobProgress(
       jobId,
@@ -1155,6 +1164,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     );
 
     const chapterOutline: Prisma.InputJsonValue = {
+      ...asRecord(chapter.outline),
       ...revisedBundle.outline,
       operationalStatus: revisedBundle.generationDiagnostics.operationalStatus,
       degradedModes: revisedBundle.generationDiagnostics.degradedModes,
@@ -1465,6 +1475,12 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                         name: stylePack.renderFamily,
                         description: `${stylePack.lineWeight} lines, ${stylePack.shadingMode} shading, ${stylePack.contrastProfile} contrast`,
                         visualStyle: project?.visualStyle ?? null,
+                        anatomyBias: stylePack.anatomyBias,
+                        backgroundDensity: stylePack.backgroundDensity,
+                        cameraLanguage: stylePack.cameraLanguage,
+                        negativeConstraints: Array.isArray(stylePack.negativeConstraints)
+                          ? (stylePack.negativeConstraints as string[])
+                          : [],
                       }
                     : { visualStyle: project?.visualStyle ?? null },
                   sceneBlueprint,

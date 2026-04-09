@@ -34,4 +34,34 @@ describe("buildPanelContract", () => {
     expect(contract.persistentSceneAnchors?.length).toBeGreaterThan(0);
     expect(contract.mustShowLocationSignals?.length).toBeGreaterThan(0);
   });
+
+  it("verrouille les signaux de cour de lycée et la présence d'élèves", async () => {
+    const contract = await buildPanelContract({
+      panelId: "scene-school:1",
+      pageNumber: 1,
+      panelNumber: 1,
+      panel: {
+        panelNumber: 1,
+        sceneId: "scene-school",
+        beatId: "beat-school",
+        caption: "Wide establishing shot sur la cour du lycée où Miro est humilié devant les élèves.",
+        prompt: "school courtyard, students surrounding Miro, public humiliation, campus architecture readable",
+        negativePrompt: "plain backdrop",
+        camera: "wide establishing shot",
+        characters: ["Miro", "Kutsi"],
+        mood: "tension",
+      },
+      sceneContext: {
+        location: "cour du lycée",
+        atmosphere: "humiliation publique",
+        presentCharacters: ["Miro", "Kutsi"],
+      },
+      visualAnchorIds: [],
+    });
+
+    expect(contract.mustShow).toContain("visible students around the main action");
+    expect(contract.mustShowLocationSignals).toContain("school courtyard ground markings and gathering space");
+    expect(contract.backgroundExtras.join(" ")).toContain("students");
+    expect(contract.mustNotShow).toContain("empty school background");
+  });
 });

@@ -65,6 +65,7 @@ describe("decideImageRoute", () => {
       goreStylizedMature: false,
     });
     expect("workflow" in r && r.workflow).toBe("multi_ref");
+    expect("model" in r && r.model).toBe("fal-ai/flux/dev");
   });
 
   it("priorise fal sur une scène complexe à décor fort", () => {
