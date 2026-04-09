@@ -94,6 +94,7 @@ export default async function AdminPage() {
               const outline = asRecord(entry.outline);
               const quality = asRecord(outline.qualityReport);
               const degradedModes = Array.isArray(outline.degradedModes) ? outline.degradedModes.length : 0;
+              const weakPanels = Array.isArray(quality.weakPanels) ? quality.weakPanels.length : 0;
               const score =
                 typeof quality.averageReleaseScore === "number"
                   ? `${Math.round(quality.averageReleaseScore * 100)}/100`
@@ -107,6 +108,10 @@ export default async function AdminPage() {
                   <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
                     <span>Release score {score}</span>
                     <span>Fallbacks {degradedModes}</span>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                    <span>{quality.premiumReleaseAccepted === true ? "Premium OK" : "À surveiller"}</span>
+                    <span>Panels faibles {weakPanels}</span>
                   </div>
                 </div>
               );

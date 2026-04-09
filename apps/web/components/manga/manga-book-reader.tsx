@@ -131,6 +131,12 @@ type ReaderResponse = {
       npcVariety?: number;
       environmentRichness?: number;
     } | null;
+    qualityReport?: {
+      averageReleaseScore?: number;
+      releaseThreshold?: number;
+      premiumReleaseAccepted?: boolean;
+      weakPanels?: Array<{ panelIndex: number; releaseScore: number; issues: number }>;
+    } | null;
     panelDebug?: Array<{
       sceneId: string;
       panelId: string;
@@ -143,6 +149,9 @@ type ReaderResponse = {
       backgroundPresenceScore: number | null;
       interactionScore: number | null;
       styleConsistencyScore: number | null;
+      visionScore: number | null;
+      visionEnabled: boolean;
+      visionFindings: string[];
       rerollCount: number;
       issues: Array<{ message?: string; severity?: string; type?: string }>;
     }>;
@@ -626,15 +635,15 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   };
 
   const renderWebtoon = () => (
-    <div className="mx-auto w-full max-w-[820px]">
-      <div className="space-y-8">
+    <div className="mx-auto w-full max-w-[860px]">
+      <div className="space-y-12 md:space-y-16">
         {pages.map((page, pageIdx) => (
-          <section key={page.id ?? `page-${pageIdx}`} className="space-y-3">
+          <section key={page.id ?? `page-${pageIdx}`} className="space-y-4 rounded-[32px] border border-white/5 bg-white/[0.02] px-2 py-4 sm:px-4">
             <div className="sticky top-3 z-20 mx-auto flex w-fit items-center gap-2 rounded-full border border-white/10 bg-black/60 px-3 py-1 text-xs text-stone-200 backdrop-blur">
               <BookOpen className="h-3.5 w-3.5 text-accent" />
               <span>Page {pageIdx + 1}</span>
             </div>
-            <div className="space-y-6">
+            <div className="space-y-8 md:space-y-10">
               {page.panels.map((panel, panelIdx) => (
                 <MangaPanel
                   key={panel.id ?? `${pageIdx}-${panelIdx}`}
@@ -879,6 +888,13 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                 {" · "}Env {generationDiagnostics.creativityControls.environmentRichness ?? "?"}
               </p>
             ) : null}
+            {generationDiagnostics?.qualityReport ? (
+              <div className="rounded-lg border border-cyan-500/20 bg-cyan-950/10 px-3 py-2 text-xs text-cyan-100">
+                Release chapitre {(Number(generationDiagnostics.qualityReport.averageReleaseScore ?? 0) * 100).toFixed(0)}/100
+                {" · "}Seuil {(Number(generationDiagnostics.qualityReport.releaseThreshold ?? 0) * 100).toFixed(0)}/100
+                {" · "}{generationDiagnostics.qualityReport.premiumReleaseAccepted ? "Premium OK" : "Release dégradée"}
+              </div>
+            ) : null}
             {generationDiagnostics?.panelDebug && generationDiagnostics.panelDebug.length > 0 ? (
               <div className="space-y-2 rounded-lg border border-stone-800 bg-stone-950/40 p-3">
                 <p className="text-xs font-semibold text-stone-200">Debug rendu</p>
@@ -888,11 +904,16 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                       Panel {panel.panelNumber} · {panel.status ?? "?"} · {panel.provider ?? "?"}
                     </p>
                     <p className="text-muted-foreground">
-                      Release {(panel.releaseScore ?? 0).toFixed(2)} · Fond {(panel.backgroundPresenceScore ?? 0).toFixed(2)} · Interaction {(panel.interactionScore ?? 0).toFixed(2)} · Style {(panel.styleConsistencyScore ?? 0).toFixed(2)} · Rerolls {panel.rerollCount}
+                      Release {(panel.releaseScore ?? 0).toFixed(2)} · Fond {(panel.backgroundPresenceScore ?? 0).toFixed(2)} · Interaction {(panel.interactionScore ?? 0).toFixed(2)} · Style {(panel.styleConsistencyScore ?? 0).toFixed(2)} · Vision {panel.visionEnabled ? (panel.visionScore ?? 0).toFixed(2) : "off"} · Rerolls {panel.rerollCount}
                     </p>
                     {panel.issues.length > 0 ? (
                       <p className="mt-1 text-[10px] text-amber-300/80">
                         {panel.issues.slice(0, 2).map((issue) => issue.message ?? issue.type ?? "issue").join(" | ")}
+                      </p>
+                    ) : null}
+                    {panel.visionEnabled && panel.visionFindings.length > 0 ? (
+                      <p className="mt-1 text-[10px] text-cyan-300/80">
+                        Vision: {panel.visionFindings.slice(0, 2).join(" | ")}
                       </p>
                     ) : null}
                     {panel.prompt ? (

@@ -74,6 +74,13 @@ export interface PanelValidationResult {
     shotComplianceScore: number;
     styleConsistencyScore: number;
     releaseScore: number;
+    visionScore?: number | null;
+  };
+  visionAnalysis?: {
+    enabled: boolean;
+    model?: string | null;
+    confidence?: number | null;
+    findings: string[];
   };
   propertyChecks?: Array<{
     property: string;

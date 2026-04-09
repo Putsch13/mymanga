@@ -1822,6 +1822,13 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                   shotComplianceScore: number;
                   styleConsistencyScore: number;
                   releaseScore: number;
+                  visionScore?: number | null;
+                };
+                visionAnalysis?: {
+                  enabled: boolean;
+                  model?: string | null;
+                  confidence?: number | null;
+                  findings: string[];
                 };
                 issues: Array<{ message: string; severity: string; type: string }>;
                 propertyChecks?: Array<{ property: string; ok: boolean; message: string }>;
@@ -1867,8 +1874,10 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                   shotComplianceScore: validation.qualityScores.shotComplianceScore,
                   styleConsistencyScore: validation.qualityScores.styleConsistencyScore,
                   releaseScore: validation.qualityScores.releaseScore,
+                  visionScore: validation.qualityScores.visionScore ?? null,
                 }
               : undefined,
+            visionAnalysis: validation.visionAnalysis,
             issues: validation.issues,
             propertyChecks: validation.propertyChecks,
           };

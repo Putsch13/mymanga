@@ -220,14 +220,14 @@ export function MangaPanel({
 
   return (
     <div
-      className={`group/panel relative flex min-h-0 flex-col overflow-hidden border-2 border-stone-900 ${isWebtoon ? "rounded-[28px] border-stone-800/80 bg-stone-950 shadow-[0_24px_60px_rgba(0,0,0,0.35)]" : ""} ${className ?? ""}`}
+      className={`group/panel relative flex min-h-0 flex-col overflow-hidden border-2 border-stone-900 ${isWebtoon ? "rounded-[30px] border-stone-800/80 bg-stone-950 shadow-[0_24px_60px_rgba(0,0,0,0.35)] ring-1 ring-white/5" : ""} ${className ?? ""}`}
       style={{ background: imageUrl ? undefined : bg, ...style }}
       aria-label={caption ?? `Panel ${(panelIndex ?? 0) + 1}`}
     >
       {/* Zone illustration : pleine largeur, le texte n’est plus superposé ici */}
       <div
         className={`relative overflow-hidden ${isWebtoon ? "" : "min-h-0 flex-1"}`}
-        style={isWebtoon ? { aspectRatio: targetAspectRatio, minHeight: "18rem" } : undefined}
+        style={isWebtoon ? { aspectRatio: targetAspectRatio, minHeight: "20rem" } : undefined}
       >
         {imageUrl ? (
           <>
@@ -309,7 +309,7 @@ export function MangaPanel({
 
       {/* Bande texte sous l’image : narration + bulles + SFX associés (scroll si trop long) */}
       {hasTextStrip ? (
-        <div className={`z-10 shrink-0 overflow-y-auto border-t border-stone-800 bg-stone-950/98 ${isWebtoon ? "max-h-none px-4 py-3" : "max-h-[min(46%,9rem)] px-1.5 py-1"}`}>
+        <div className={`z-10 shrink-0 overflow-y-auto border-t border-stone-800 bg-stone-950/98 ${isWebtoon ? "max-h-none px-4 py-4 sm:px-5" : "max-h-[min(46%,9rem)] px-1.5 py-1"}`}>
           {narration ? (
             <div className={`mb-1 rounded border border-white/15 bg-black/40 ${isWebtoon ? "px-3 py-2" : "px-1.5 py-0.5"}`}>
               <p className={`${narrationClass} line-clamp-3`}>{narration}</p>

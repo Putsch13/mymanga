@@ -181,7 +181,8 @@ export function generateLocationSelection(input: SceneBlueprintInput, seed: numb
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score);
   const desired = input.controls.environmentRichness >= 65 ? 2 : 1;
-  return rng.pickMany(ranked.slice(0, Math.max(desired + 2, ranked.length)), desired).map(({ entry }) => ({
+  const candidatePool = ranked.slice(0, Math.min(ranked.length, desired + 2));
+  return rng.pickMany(candidatePool, desired).map(({ entry }) => ({
     id: `${entry.id}-${seed}`,
     label: entry.label,
     kind: "location",

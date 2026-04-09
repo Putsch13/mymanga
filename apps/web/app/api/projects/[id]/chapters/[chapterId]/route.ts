@@ -167,6 +167,10 @@ export async function GET(_req: Request, ctx: Ctx) {
         validationDetails.qualityScores && typeof validationDetails.qualityScores === "object"
           ? (validationDetails.qualityScores as Record<string, unknown>)
           : {};
+      const visionAnalysis =
+        validationDetails.visionAnalysis && typeof validationDetails.visionAnalysis === "object"
+          ? (validationDetails.visionAnalysis as Record<string, unknown>)
+          : {};
       return {
         sceneId: scene.id,
         panelId: image.id,
@@ -185,6 +189,13 @@ export async function GET(_req: Request, ctx: Ctx) {
           typeof qualityScores.interactionScore === "number" ? qualityScores.interactionScore : null,
         styleConsistencyScore:
           typeof qualityScores.styleConsistencyScore === "number" ? qualityScores.styleConsistencyScore : null,
+        visionScore:
+          typeof qualityScores.visionScore === "number" ? qualityScores.visionScore : null,
+        visionEnabled: visionAnalysis.enabled === true,
+        visionFindings:
+          Array.isArray(visionAnalysis.findings)
+            ? visionAnalysis.findings
+            : [],
         rerollCount: typeof meta.rerollCount === "number" ? meta.rerollCount : 0,
         issues:
           Array.isArray(validationDetails.issues)
@@ -225,6 +236,12 @@ export async function GET(_req: Request, ctx: Ctx) {
         firstImageMeta && typeof firstImageMeta.effectiveCreativeControls === "object"
           ? firstImageMeta.effectiveCreativeControls
           : null,
+      qualityReport:
+        outlineRecord.qualityReport && typeof outlineRecord.qualityReport === "object"
+          ? outlineRecord.qualityReport
+          : scriptRecord.qualityReport && typeof scriptRecord.qualityReport === "object"
+            ? scriptRecord.qualityReport
+            : null,
       panelDebug,
     },
   });

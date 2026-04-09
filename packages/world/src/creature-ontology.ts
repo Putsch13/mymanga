@@ -167,7 +167,7 @@ export function generateCreatureSelection(input: SceneBlueprintInput, seed: numb
   const desired = input.controls.visualExoticism >= 70 ? 2 : input.cast.creatureNames.length > 0 ? 1 : 0;
   return desired === 0
     ? []
-    : rng.pickMany(ranked.slice(0, Math.max(desired + 1, ranked.length)), desired).map(({ entry }) => ({
+    : rng.pickMany(ranked.slice(0, Math.min(ranked.length, desired + 1)), desired).map(({ entry }) => ({
         id: `${entry.id}-${seed}`,
         label: entry.label,
         kind: "creature",

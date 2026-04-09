@@ -5,6 +5,7 @@
 
 import type { CharacterFingerprint, PanelValidationResult } from "@manga-ai-studio/core";
 import { runPropertyValidators, type SceneBlueprint } from "@manga-ai-studio/world";
+import { analyzePanelWithVision } from "./services/panel-vision-analyzer";
 
 export interface GeneratedPanelData {
   panelId: string;
@@ -36,6 +37,12 @@ export interface GeneratedPanelData {
       negativeConstraints?: string[];
     };
   };
+}
+
+function blendScores(heuristic: number, vision: number | null | undefined, confidence = 0.7) {
+  if (typeof vision !== "number") return heuristic;
+  const weight = clamp01(confidence);
+  return clamp01(heuristic * (1 - weight) + vision * weight);
 }
 
 function clamp01(value: number) {
@@ -242,7 +249,53 @@ export async function validateGeneratedPanel(
     }
   }
 
-  const { qualityScores, propertyChecks } = computeQualityScores(panel, score);
+  const { qualityScores: heuristicScores, propertyChecks } = computeQualityScores(panel, score);
+  const visionAnalysis = await analyzePanelWithVision({
+    imageUrl: panel.imageUrl,
+    heuristicReleaseScore: heuristicScores.releaseScore,
+    requiredCharacters: panel.requiredCharacters,
+    panelContract: panel.metadata?.panelContract,
+    stylePack: panel.metadata?.stylePack,
+    sceneBlueprint: panel.metadata?.sceneBlueprint,
+  });
+  const qualityScores = {
+    characterConsistencyScore: blendScores(
+      heuristicScores.characterConsistencyScore,
+      visionAnalysis?.characterConsistencyScore,
+      visionAnalysis?.confidence ?? 0.65,
+    ),
+    backgroundPresenceScore: blendScores(
+      heuristicScores.backgroundPresenceScore,
+      visionAnalysis?.backgroundPresenceScore,
+      visionAnalysis?.confidence ?? 0.75,
+    ),
+    environmentReadabilityScore: blendScores(
+      heuristicScores.environmentReadabilityScore,
+      visionAnalysis?.environmentReadabilityScore,
+      visionAnalysis?.confidence ?? 0.75,
+    ),
+    interactionScore: blendScores(
+      heuristicScores.interactionScore,
+      visionAnalysis?.interactionScore,
+      visionAnalysis?.confidence ?? 0.7,
+    ),
+    shotComplianceScore: blendScores(
+      heuristicScores.shotComplianceScore,
+      visionAnalysis?.shotComplianceScore,
+      visionAnalysis?.confidence ?? 0.7,
+    ),
+    styleConsistencyScore: blendScores(
+      heuristicScores.styleConsistencyScore,
+      visionAnalysis?.styleConsistencyScore,
+      visionAnalysis?.confidence ?? 0.65,
+    ),
+    releaseScore: blendScores(
+      heuristicScores.releaseScore,
+      visionAnalysis?.releaseScore,
+      visionAnalysis?.confidence ?? 0.75,
+    ),
+    visionScore: visionAnalysis?.releaseScore ?? null,
+  };
   if (qualityScores.backgroundPresenceScore < 0.62) {
     issues.push({
       severity: (panel.metadata?.panelContract?.shotType ?? panel.metadata?.sceneBlueprint?.composition.shotType) === "wide" ? "critical" : "major",
@@ -290,6 +343,31 @@ export async function validateGeneratedPanel(
       autoFixable: check.property !== "lore_guardrails",
     });
   }
+  for (const finding of visionAnalysis?.findings ?? []) {
+    const normalized = finding.toLowerCase();
+    if (/fond vide|decor vide|background empty|generic background/.test(normalized)) {
+      issues.push({
+        severity: "major",
+        type: "empty_background",
+        message: finding,
+        autoFixable: true,
+      });
+    } else if (/interaction faible|no interaction|disconnected/.test(normalized)) {
+      issues.push({
+        severity: "major",
+        type: "weak_interaction",
+        message: finding,
+        autoFixable: true,
+      });
+    } else if (/style|drift/.test(normalized)) {
+      issues.push({
+        severity: "major",
+        type: "style_drift",
+        message: finding,
+        autoFixable: true,
+      });
+    }
+  }
 
   // Borner le score entre 0 et 1
   score = clamp01(Math.min(score, qualityScores.releaseScore));
@@ -306,6 +384,12 @@ export async function validateGeneratedPanel(
     panelId: panel.panelId,
     score,
     qualityScores,
+    visionAnalysis: {
+      enabled: Boolean(visionAnalysis),
+      model: visionAnalysis?.model ?? null,
+      confidence: visionAnalysis?.confidence ?? null,
+      findings: visionAnalysis?.findings ?? [],
+    },
     propertyChecks,
     issues,
     requiredReroll,

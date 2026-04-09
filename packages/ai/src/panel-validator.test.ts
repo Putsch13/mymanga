@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { validateGeneratedPanel } from "./panel-validator";
 import type { SceneBlueprint } from "@manga-ai-studio/world";
 
@@ -76,6 +76,16 @@ const blueprint: SceneBlueprint = {
 };
 
 describe("panel validator premium scoring", () => {
+  beforeEach(() => {
+    process.env.ENABLE_PREMIUM_VISION_QA = "false";
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.ENABLE_PREMIUM_VISION_QA;
+  });
+
   it("flags weak environment on wide shots", async () => {
     const result = await validateGeneratedPanel({
       panelId: "panel-1",
@@ -127,5 +137,63 @@ describe("panel validator premium scoring", () => {
 
     expect(result.requiredReroll).toBe(false);
     expect(result.qualityScores?.releaseScore).toBeGreaterThan(0.72);
+  });
+
+  it("merges vision QA when available", async () => {
+    process.env.OPENAI_API_KEY = "test-key";
+    process.env.ENABLE_PREMIUM_VISION_QA = "true";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  characterConsistencyScore: 0.9,
+                  backgroundPresenceScore: 0.88,
+                  environmentReadabilityScore: 0.9,
+                  interactionScore: 0.81,
+                  shotComplianceScore: 0.92,
+                  styleConsistencyScore: 0.89,
+                  releaseScore: 0.9,
+                  confidence: 0.8,
+                  findings: ["decor riche et lisible", "interaction credible"],
+                }),
+              },
+            },
+          ],
+        }),
+      }),
+    );
+
+    const result = await validateGeneratedPanel({
+      panelId: "panel-vision",
+      imageUrl: "https://example.com/panel.png",
+      requiredCharacters: [],
+      metadata: {
+        prompt:
+          "wide shot, full environment visible, Luna in foreground, passant augmenté in midground, enseignes verticales and flaques lumineuses in background, character and environment both readable, spatial relation preserved, environment affects action, oblige à se coller aux murs, location signals: ruelle cyberpunk, enseignes verticales, flaques lumineuses, manga, manga_dynamic, high background density, medium line weight, ink_bw shading, dramatic contrast",
+        sceneBlueprint: blueprint,
+        panelContract: {
+          shotType: "wide",
+          backgroundExtras: ["enseignes verticales", "flaques lumineuses"],
+        },
+        stylePack: {
+          renderFamily: "manga",
+          lineWeight: "medium",
+          shadingMode: "ink_bw",
+          contrastProfile: "dramatic",
+          cameraLanguage: "manga_dynamic",
+          backgroundDensity: "high",
+        },
+      },
+    });
+
+    expect(result.visionAnalysis?.enabled).toBe(true);
+    expect(result.qualityScores?.visionScore).toBe(0.9);
+    expect(result.qualityScores?.releaseScore).toBeGreaterThan(0.8);
+    expect(result.visionAnalysis?.findings).toContain("decor riche et lisible");
   });
 });

@@ -20,6 +20,32 @@ function stableToken(value: string) {
   return Math.abs(hash).toString(36);
 }
 
+function normalizeLocationKey(value: string | undefined) {
+  return (value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function toSceneExtraList(value: unknown): SceneExtra[] {
+  return Array.isArray(value)
+    ? value
+        .filter((extra): extra is SceneExtra => Boolean(extra) && typeof extra === "object" && !Array.isArray(extra))
+        .map((extra) => extra as SceneExtra)
+    : [];
+}
+
+function dedupeExtras(extras: SceneExtra[]) {
+  const seen = new Map<string, SceneExtra>();
+  for (const extra of extras) {
+    const key = `${extra.archetype}:${extra.anchorSlot}`;
+    if (!seen.has(key)) seen.set(key, extra);
+  }
+  return [...seen.values()];
+}
+
 /**
  * Charge les extras existants pour une scène ou location.
  */
@@ -32,18 +58,48 @@ export async function loadSceneExtras(
   }
 ): Promise<SceneExtra[]> {
   console.log(`[scene-extras-registry] Loading extras for scene=${input.sceneId}, location=${input.locationId}`);
-  if (!input.sceneId) return [];
+  const currentScene = input.sceneId
+    ? await prisma.chapterScene.findUnique({
+        where: { id: input.sceneId },
+        select: { metadata: true },
+      })
+    : null;
+  const currentMetadata = asRecord(currentScene?.metadata);
+  const currentExtras = toSceneExtraList(currentMetadata.sceneExtras);
+  const locationKey = normalizeLocationKey(
+    input.locationId || (typeof currentMetadata.location === "string" ? currentMetadata.location : undefined),
+  );
 
-  const scene = await prisma.chapterScene.findUnique({
-    where: { id: input.sceneId },
-    select: { metadata: true },
+  if (!locationKey) {
+    return currentExtras;
+  }
+
+  const historicalScenes = await prisma.chapterScene.findMany({
+    where: {
+      chapter: {
+        projectId: input.projectId,
+      },
+      ...(input.sceneId ? { id: { not: input.sceneId } } : {}),
+    },
+    orderBy: { id: "desc" },
+    select: {
+      id: true,
+      metadata: true,
+    },
+    take: 80,
   });
-  const metadata = asRecord(scene?.metadata);
-  const extras = Array.isArray(metadata.sceneExtras) ? metadata.sceneExtras : [];
 
-  return extras
-    .filter((extra): extra is SceneExtra => Boolean(extra) && typeof extra === "object" && !Array.isArray(extra))
-    .map((extra) => extra as SceneExtra);
+  const historicalExtras = historicalScenes.flatMap((scene) => {
+    const metadata = asRecord(scene.metadata);
+    const sceneLocation = typeof metadata.location === "string" ? metadata.location : "";
+    if (normalizeLocationKey(sceneLocation) !== locationKey) return [];
+    return toSceneExtraList(metadata.sceneExtras).map((extra) => ({
+      ...extra,
+      sceneId: input.sceneId ?? extra.sceneId,
+    }));
+  });
+
+  return dedupeExtras([...currentExtras, ...historicalExtras]);
 }
 
 /**
@@ -178,10 +234,19 @@ export async function ensureSceneExtras(
     );
 
     if (reused) {
+      if (reused.sceneId !== input.sceneId) {
+        const rebound: SceneExtra = {
+          ...reused,
+          sceneId: input.sceneId,
+        };
+        await persistSceneExtra(prisma, rebound);
+        result.push(rebound);
+        continue;
+      }
       result.push(reused);
     } else {
       // Créer un nouvel extra
-      const stableId = `extra-${stableToken(`${input.sceneId}:${req.anchorSlot}:${req.archetype}`)}`;
+      const stableId = `extra-${stableToken(`${input.projectId}:${normalizeLocationKey(input.locationId)}:${req.anchorSlot}:${req.archetype}`)}`;
       const newExtra: SceneExtra = {
         id: stableId,
         sceneId: input.sceneId,

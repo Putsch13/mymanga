@@ -199,7 +199,8 @@ export function generateNpcSelection(
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score);
   const desired = input.controls.npcVariety >= 70 ? 3 : input.controls.npcVariety >= 40 ? 2 : 1;
-  return rng.pickMany(ranked.slice(0, Math.max(desired + 2, ranked.length)), desired).map(({ entry }) => ({
+  const candidatePool = ranked.slice(0, Math.min(ranked.length, desired + 2));
+  return rng.pickMany(candidatePool, desired).map(({ entry }) => ({
     id: `${entry.id}-${seed}`,
     label: entry.label,
     kind: "npc",

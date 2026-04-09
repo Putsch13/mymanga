@@ -1,7 +1,6 @@
 export * from "./types";
 export * from "./image-routing-service";
 export * from "./prompt-composer-v2";
-export * from "./consistency-scorer";
 export * from "./adapters/mock-image-provider";
 export * from "./adapters/fal-flux-adapter";
 export * from "./adapters/bfl-adapter";
@@ -21,6 +20,7 @@ export * from "./services/panel-text-planner";
 export * from "./services/chapter-continuity-pass";
 export * from "./services/chapter-narrative-coherence-pass";
 export * from "./services/scene-environment-engine";
+export * from "./services/panel-vision-analyzer";
 export * from "./services/lora-training-service";
 export * from "./services/prompt-translator";
 export * from "./services/cover-generator";

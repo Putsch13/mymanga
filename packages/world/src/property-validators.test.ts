@@ -4,6 +4,10 @@ import { buildSceneBlueprint } from "./scene-blueprint";
 import { runPropertyValidators, validateEnvironmentInteraction } from "./property-validators";
 
 describe("property validators", () => {
+  it("covers the six premium regression scenarios", () => {
+    expect(buildFixedRegressionSuite()).toHaveLength(6);
+  });
+
   it("validate premium scene properties on fixed cases", () => {
     for (const testCase of buildFixedRegressionSuite()) {
       const blueprint = buildSceneBlueprint(testCase.input);

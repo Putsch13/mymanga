@@ -11,6 +11,101 @@ export interface CharacterRefImage {
   isPrimary: boolean;
 }
 
+function asString(value: unknown, fallback: string) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : fallback;
+}
+
+function asStringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+}
+
+async function extractFingerprintWithVision(
+  input: {
+    characterName: string;
+    gender: "male" | "female" | "other";
+    visualRefs: CharacterRefImage[];
+  },
+): Promise<Partial<CharacterFingerprint> | null> {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey || process.env.ENABLE_CHARACTER_VISION_FINGERPRINT === "false") return null;
+  const model = process.env.OPENAI_VISION_MODEL?.trim() || "gpt-4o-mini";
+  const refs = input.visualRefs.filter((ref) => ref.isPrimary).slice(0, 3);
+  if (refs.length === 0) return null;
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.1,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content:
+              "Tu extrais une fiche visuelle de personnage manga. Réponds uniquement en JSON avec: face{faceShape,eyeShape,eyeColor,eyebrowStyle}, hair{color,style,length,texture,silhouette}, body{build,height,posture,silhouette}, permanentMarkers[], defaultOutfit[], forbiddenDrift[]. Reste compact et factuel.",
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: `Personnage: ${input.characterName}\nGenre canon: ${input.gender}\nAnalyse les références suivantes et extrais les traits stables uniquement.`,
+              },
+              ...refs.map((ref) => ({
+                type: "image_url" as const,
+                image_url: { url: ref.url },
+              })),
+            ],
+          },
+        ],
+      }),
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const raw = data.choices?.[0]?.message?.content;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const face = (parsed.face ?? {}) as Record<string, unknown>;
+    const hair = (parsed.hair ?? {}) as Record<string, unknown>;
+    const body = (parsed.body ?? {}) as Record<string, unknown>;
+    return {
+      face: {
+        faceShape: asString(face.faceShape, "oval"),
+        eyeShape: asString(face.eyeShape, "almond"),
+        eyeColor: asString(face.eyeColor, "brown"),
+        eyebrowStyle: asString(face.eyebrowStyle, "natural"),
+      },
+      hair: {
+        color: asString(hair.color, "black"),
+        style: asString(hair.style, "short"),
+        length: asString(hair.length, "medium"),
+        texture: asString(hair.texture, "straight"),
+        silhouette: asString(hair.silhouette, "standard"),
+      },
+      body: {
+        build: asString(body.build, "average"),
+        height: asString(body.height, "average"),
+        posture: asString(body.posture, "upright"),
+        silhouette: asString(body.silhouette, "standard"),
+      },
+      permanentMarkers: asStringArray(parsed.permanentMarkers),
+      defaultOutfit: asStringArray(parsed.defaultOutfit),
+      forbiddenDrift: asStringArray(parsed.forbiddenDrift),
+    };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Extrait un CharacterFingerprint structuré depuis les références visuelles.
  * 
@@ -34,12 +129,14 @@ export async function extractCharacterFingerprintFromRefs(input: {
   hairColor?: string | null;
   eyeColor?: string | null;
 }): Promise<CharacterFingerprint> {
-  // TODO: Appeler Vision AI pour vraie extraction depuis images
-  // Pour l'instant, construire depuis les données structurées existantes
-  
   const visualProfile = input.visualProfile ?? {};
   const bodyState = input.bodyState ?? {};
   const wardrobeProfile = input.wardrobeProfile ?? {};
+  const visionFingerprint = await extractFingerprintWithVision({
+    characterName: input.characterName,
+    gender: input.gender,
+    visualRefs: input.visualRefs,
+  });
 
   const fingerprint: CharacterFingerprint = {
     identity: {
@@ -49,35 +146,38 @@ export async function extractCharacterFingerprintFromRefs(input: {
       role: (visualProfile.role as string) ?? "protagonist",
     },
     face: {
-      faceShape: (visualProfile.faceShape as string) ?? "oval",
-      eyeShape: (visualProfile.eyeShape as string) ?? "almond",
-      eyeColor: input.eyeColor ?? (visualProfile.eyeColor as string) ?? "brown",
-      eyebrowStyle: (visualProfile.eyebrowStyle as string) ?? "natural",
+      faceShape: visionFingerprint?.face?.faceShape ?? (visualProfile.faceShape as string) ?? "oval",
+      eyeShape: visionFingerprint?.face?.eyeShape ?? (visualProfile.eyeShape as string) ?? "almond",
+      eyeColor: input.eyeColor ?? visionFingerprint?.face?.eyeColor ?? (visualProfile.eyeColor as string) ?? "brown",
+      eyebrowStyle: visionFingerprint?.face?.eyebrowStyle ?? (visualProfile.eyebrowStyle as string) ?? "natural",
       noseStyle: (visualProfile.noseStyle as string) ?? undefined,
       mouthStyle: (visualProfile.mouthStyle as string) ?? undefined,
     },
     hair: {
-      color: input.hairColor ?? (visualProfile.hairColor as string) ?? "black",
-      style: (visualProfile.hairStyle as string) ?? "short",
-      length: (visualProfile.hairLength as string) ?? "medium",
-      texture: (visualProfile.hairTexture as string) ?? "straight",
-      silhouette: (visualProfile.hairSilhouette as string) ?? "standard",
+      color: input.hairColor ?? visionFingerprint?.hair?.color ?? (visualProfile.hairColor as string) ?? "black",
+      style: visionFingerprint?.hair?.style ?? (visualProfile.hairStyle as string) ?? "short",
+      length: visionFingerprint?.hair?.length ?? (visualProfile.hairLength as string) ?? "medium",
+      texture: visionFingerprint?.hair?.texture ?? (visualProfile.hairTexture as string) ?? "straight",
+      silhouette: visionFingerprint?.hair?.silhouette ?? (visualProfile.hairSilhouette as string) ?? "standard",
     },
     body: {
-      build: (bodyState.build as string) ?? "average",
-      height: (bodyState.height as string) ?? "average",
-      posture: (bodyState.posture as string) ?? "upright",
-      silhouette: (bodyState.silhouette as string) ?? "standard",
+      build: visionFingerprint?.body?.build ?? (bodyState.build as string) ?? "average",
+      height: visionFingerprint?.body?.height ?? (bodyState.height as string) ?? "average",
+      posture: visionFingerprint?.body?.posture ?? (bodyState.posture as string) ?? "upright",
+      silhouette: visionFingerprint?.body?.silhouette ?? (bodyState.silhouette as string) ?? "standard",
     },
     permanentMarkers: [
+      ...(visionFingerprint?.permanentMarkers ?? []),
       ...(Array.isArray(bodyState.scars) ? (bodyState.scars as string[]) : []),
       ...(Array.isArray(bodyState.tattoos) ? (bodyState.tattoos as string[]) : []),
       ...(Array.isArray(visualProfile.distinctiveFeatures) ? (visualProfile.distinctiveFeatures as string[]) : []),
     ],
     defaultOutfit: [
+      ...(visionFingerprint?.defaultOutfit ?? []),
       ...(Array.isArray(wardrobeProfile.defaultOutfit) ? (wardrobeProfile.defaultOutfit as string[]) : []),
     ],
     forbiddenDrift: [
+      ...(visionFingerprint?.forbiddenDrift ?? []),
       // Auto-générer forbidden drifts basés sur les traits fixes
       input.hairColor ? `never change hair color from ${input.hairColor}` : "",
       input.eyeColor ? `never change eye color from ${input.eyeColor}` : "",
