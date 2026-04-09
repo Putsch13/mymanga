@@ -32,6 +32,18 @@ function hashPrompt(prompt: string): string {
   return Math.abs(h).toString(16).padStart(8, "0");
 }
 
+function isRetryableError(message: string) {
+  return /\b(429|500|502|503|504)\b/.test(message)
+    || /concurrent_requests_limit/i.test(message)
+    || /bad gateway/i.test(message)
+    || /internal server error/i.test(message)
+    || /timeout/i.test(message);
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export interface ImageGenerationLog {
   provider: string;
   model: string;
@@ -81,46 +93,62 @@ export async function runRoutedImageGeneration(
     : rawDecision;
 
   const provider = getProvider(decision.provider);
-  const startMs = Date.now();
+  const maxAttempts = decision.provider === "fal" ? 3 : 2;
+  let lastError: unknown;
+  let lastLog: ImageGenerationLog | null = null;
 
-  try {
-    const result = await provider.generateImage({
-      ...input,
-      providerParams: { ...input.providerParams, model: decision.model },
-    });
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const startMs = Date.now();
+    try {
+      const result = await provider.generateImage({
+        ...input,
+        providerParams: {
+          ...input.providerParams,
+          model: decision.model,
+          seed:
+            typeof input.providerParams?.seed === "number"
+              ? input.providerParams.seed + (attempt - 1)
+              : input.providerParams?.seed,
+        },
+      });
 
-    const responseTimeMs = Date.now() - startMs;
-    const log: ImageGenerationLog = {
-      provider: decision.provider,
-      model: decision.model ?? "unknown",
-      promptHash,
-      responseTimeMs,
-      success: true,
-      imageUrl: result.imageUrl,
-      moderationDecision: ctx.contentIntensityLayer ?? "GENERAL_SAFE",
-    };
+      const responseTimeMs = Date.now() - startMs;
+      const log: ImageGenerationLog = {
+        provider: decision.provider,
+        model: decision.model ?? "unknown",
+        promptHash,
+        responseTimeMs,
+        success: true,
+        imageUrl: result.imageUrl,
+        moderationDecision: ctx.contentIntensityLayer ?? "GENERAL_SAFE",
+      };
 
-    console.log(
-      `[image-gen] OK provider=${decision.provider} model=${decision.model} hash=${promptHash} ms=${responseTimeMs} url=${result.imageUrl?.slice(0, 60)}...`
-    );
+      console.log(
+        `[image-gen] OK provider=${decision.provider} model=${decision.model} hash=${promptHash} ms=${responseTimeMs} attempt=${attempt} url=${result.imageUrl?.slice(0, 60)}...`
+      );
 
-    return { ok: true, result, routing: decision, log };
-  } catch (err) {
-    const responseTimeMs = Date.now() - startMs;
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    const log: ImageGenerationLog = {
-      provider: decision.provider,
-      model: decision.model ?? "unknown",
-      promptHash,
-      responseTimeMs,
-      success: false,
-      error: errorMsg,
-    };
+      return { ok: true, result, routing: decision, log };
+    } catch (err) {
+      const responseTimeMs = Date.now() - startMs;
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      lastError = err;
+      lastLog = {
+        provider: decision.provider,
+        model: decision.model ?? "unknown",
+        promptHash,
+        responseTimeMs,
+        success: false,
+        error: errorMsg,
+      };
 
-    console.error(
-      `[image-gen] FAILED provider=${decision.provider} hash=${promptHash} ms=${responseTimeMs} error=${errorMsg}`
-    );
+      console.error(
+        `[image-gen] FAILED provider=${decision.provider} hash=${promptHash} ms=${responseTimeMs} attempt=${attempt} error=${errorMsg}`
+      );
 
-    throw err;
+      if (attempt >= maxAttempts || !isRetryableError(errorMsg)) break;
+      await sleep(decision.provider === "fal" ? 1200 * attempt : 800 * attempt);
+    }
   }
+
+  throw lastError instanceof Error ? lastError : new Error(lastLog?.error ?? "image_generation_failed");
 }

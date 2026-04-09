@@ -26,41 +26,52 @@ export interface PanelContractInput {
  */
 export async function buildPanelContract(input: PanelContractInput): Promise<PanelContract> {
   const panel = input.panel;
-  
-  // Déduire le purpose depuis le type de panel
+  const sceneText = [
+    input.sceneContext.location,
+    input.sceneContext.timeOfDay,
+    input.sceneContext.atmosphere,
+    panel.caption,
+    panel.camera,
+    panel.prompt,
+    panel.narration,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   const purpose = deducePurpose(panel);
-  
-  // Déduire le shotType depuis la description
   const shotType = deduceShotType(panel);
-  
-  // Déduire le cameraAngle
   const cameraAngle = deduceCameraAngle(panel);
-
-  // Extraire les personnages requis
   const requiredCharacters = panel.characters ?? [];
-  const focusCharacters = requiredCharacters.slice(0, 2); // Max 2 focus
+  const focusCharacters =
+    shotType === "wide" ? requiredCharacters.slice(0, 1) : requiredCharacters.slice(0, 2);
+  const mustShow = extractMustShow(panel, input.sceneContext);
+  const timeOfDay = inferTimeOfDay(sceneText);
+  const weather = inferWeather(sceneText);
+  const environmentPrimary = inferEnvironmentPrimary(input.sceneContext.location);
+  const environmentSecondary = buildEnvironmentSecondary(input.sceneContext.location, sceneText, shotType);
+  const persistentSceneAnchors = buildPersistentSceneAnchors(input.sceneContext.location, sceneText);
+  const mustShowLocationSignals = buildLocationSignals(input.sceneContext.location, sceneText);
+  const mustShowProps = mustShow.filter((item) => !mustShowLocationSignals.includes(item));
+  const backgroundExtras = buildBackgroundExtras({
+    shotType,
+    location: input.sceneContext.location,
+    atmosphere: input.sceneContext.atmosphere,
+    sceneText,
+  });
+  const mustNotShow = buildMustNotShow(shotType, input.sceneContext.location, sceneText);
 
-  // Extraire les éléments obligatoires depuis la description
-  const mustShow = extractMustShow(panel);
-  const mustNotShow: string[] = []; // À enrichir avec contraintes de continuité
-
-  // Déterminer dialogueCount (supporte dialogue + dialogues)
   const dialogueCount =
     (panel.dialogues?.length ?? 0) + (panel.dialogue ? 1 : 0);
-
-  // Plan de texte
   const textBoxPlan: PanelContract["textBoxPlan"] = {
     narration: Boolean(panel.narration),
     dialogueCount,
     sfx: panel.sfx ? [panel.sfx] : [],
     reservedZones: determineReservedZones(shotType, dialogueCount),
   };
-
-  // Hints de rendu
   const renderHints: PanelContract["renderHints"] = {
     targetAspectRatio: determineAspectRatio(shotType),
     cropMode: shotType === "closeup" || shotType === "extreme_closeup" ? "contain" : "cover",
-    focalPoint: shotType === "closeup" ? { x: 0.5, y: 0.4 } : undefined, // Légèrement vers le haut pour closeup
+    focalPoint: shotType === "closeup" ? { x: 0.5, y: 0.4 } : undefined,
   };
 
   return {
@@ -72,7 +83,25 @@ export async function buildPanelContract(input: PanelContractInput): Promise<Pan
     cameraAngle,
     focusCharacters,
     requiredCharacters,
-    backgroundExtras: [], // À enrichir avec SceneExtrasRegistry
+    backgroundExtras,
+    environmentPrimary,
+    environmentSecondary,
+    environmentState: inferEnvironmentState(sceneText),
+    weather,
+    timeOfDay,
+    foregroundSubjects: focusCharacters,
+    midgroundElements:
+      shotType === "wide"
+        ? [...requiredCharacters.slice(1, 3), ...environmentSecondary.slice(0, 2)]
+        : environmentSecondary.slice(0, 3),
+    backgroundElements: [...persistentSceneAnchors, ...backgroundExtras].slice(0, 6),
+    npcPresence: backgroundExtras.filter((item) => /(crowd|guard|merchant|client|passant|patron)/i.test(item)),
+    creaturePresence: backgroundExtras.filter((item) => /(creature|animal|drone|spirit|monster|bird|cat|dog)/i.test(item)),
+    interactionBeat: extractInteractionBeat(sceneText, purpose),
+    environmentStoryHooks: buildEnvironmentStoryHooks(sceneText, input.sceneContext.location),
+    persistentSceneAnchors,
+    mustShowProps,
+    mustShowLocationSignals,
     mustShow,
     mustNotShow,
     continuityFromPanelId: input.previousPanelId,
@@ -94,6 +123,9 @@ function deducePurpose(panel: StoryboardPanel): PanelContract["purpose"] {
   if (panel.dialogue || (panel.dialogues?.length ?? 0) > 0) {
     return "dialogue";
   }
+  if (desc.includes("aftermath") || desc.includes("retomb") || desc.includes("après le choc")) {
+    return "aftermath";
+  }
   if (desc.includes("action") || desc.includes("fight") || desc.includes("move")) {
     return "action";
   }
@@ -105,38 +137,36 @@ function deducePurpose(panel: StoryboardPanel): PanelContract["purpose"] {
 }
 
 function deduceShotType(panel: StoryboardPanel): PanelContract["shotType"] {
-  const desc = `${panel.camera ?? ""} ${panel.caption ?? ""}`.toLowerCase();
-  
-  if (desc.includes("wide shot") || desc.includes("establishing")) return "wide";
-  if (desc.includes("close-up") || desc.includes("closeup") || desc.includes("close up")) return "closeup";
-  if (desc.includes("extreme close") || desc.includes("extreme closeup")) return "extreme_closeup";
-  if (desc.includes("over shoulder") || desc.includes("over-shoulder")) return "over_shoulder";
-  
-  return "medium"; // Défaut
+  const desc = `${panel.camera ?? ""} ${panel.caption ?? ""} ${panel.prompt ?? ""}`.toLowerCase();
+  if (/(wide shot|establishing|panorama|full environment|vue d'ensemble)/.test(desc)) return "wide";
+  if (/(extreme close|extreme closeup|micro détail|sur les yeux)/.test(desc)) return "extreme_closeup";
+  if (/(close-up|closeup|close up|portrait|gros plan)/.test(desc)) return "closeup";
+  if (/(over shoulder|over-shoulder|par-dessus l'épaule|par dessus l'épaule)/.test(desc)) return "over_shoulder";
+  return "medium";
 }
 
 function deduceCameraAngle(panel: StoryboardPanel): PanelContract["cameraAngle"] {
-  const desc = `${panel.camera ?? ""}`.toLowerCase();
-  
-  if (desc.includes("low angle") || desc.includes("from below")) return "low_angle";
-  if (desc.includes("high angle") || desc.includes("from above")) return "high_angle";
-  if (desc.includes("dutch") || desc.includes("tilted")) return "dutch";
-  
-  return "eye_level"; // Défaut
+  const desc = `${panel.camera ?? ""} ${panel.caption ?? ""}`.toLowerCase();
+  if (/(low angle|from below|contre-plongée|contre plongee)/.test(desc)) return "low_angle";
+  if (/(high angle|from above|plongée|plongee|bird's eye)/.test(desc)) return "high_angle";
+  if (/(dutch|tilted|oblique)/.test(desc)) return "dutch";
+  return "eye_level";
 }
 
-function extractMustShow(panel: StoryboardPanel): string[] {
-  const desc = panel.prompt ?? "";
-  const mustShow: string[] = [];
-  
-  // Patterns simples pour extraire éléments importants
-  const propPatterns = /\b(sword|gun|pendant|artifact|weapon|book|letter|ring|crown)\b/gi;
-  const matches = desc.matchAll(propPatterns);
-  for (const match of matches) {
-    if (match[0]) mustShow.push(match[0]);
-  }
-  
-  return mustShow;
+function extractMustShow(
+  panel: StoryboardPanel,
+  sceneContext: PanelContractInput["sceneContext"],
+): string[] {
+  const desc = `${panel.prompt ?? ""} ${panel.caption ?? ""} ${sceneContext.location} ${sceneContext.atmosphere ?? ""}`;
+  const needles = [
+    "sword", "gun", "pendant", "artifact", "weapon", "book", "letter", "ring", "crown",
+    "terminal", "console", "neon", "ruins", "flowers", "altar", "throne", "mask", "key",
+    "mirror", "bridge", "market stall", "crowd", "rain", "fog", "blood", "vines", "lantern",
+    "laboratory glass", "surveillance camera", "banner", "gate", "window", "staircase",
+  ];
+  return uniq(
+    needles.filter((needle) => desc.toLowerCase().includes(needle.toLowerCase())),
+  );
 }
 
 function determineReservedZones(
@@ -173,4 +203,129 @@ function determineAspectRatio(shotType: PanelContract["shotType"]): string {
     default:
       return "4:5";
   }
+}
+
+function uniq(values: string[]) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function inferTimeOfDay(text: string) {
+  if (/(night|nuit|moon|lune|soir)/i.test(text)) return "night";
+  if (/(sunrise|aube|dawn|matin)/i.test(text)) return "dawn";
+  if (/(sunset|crépuscule|crepuscule|soirée|coucher du soleil)/i.test(text)) return "sunset";
+  return null;
+}
+
+function inferWeather(text: string) {
+  if (/(rain|pluie|averse|storm|orage)/i.test(text)) return "rain";
+  if (/(fog|brume|mist|brouillard)/i.test(text)) return "fog";
+  if (/(snow|neige|blizzard)/i.test(text)) return "snow";
+  if (/(wind|vent|gale)/i.test(text)) return "wind";
+  return null;
+}
+
+function inferEnvironmentPrimary(location: string) {
+  const lower = location.toLowerCase();
+  if (/(ruelle|street|city|ville|quartier)/.test(lower)) return "urban streetscape";
+  if (/(jardin|garden|parc)/.test(lower)) return "cultivated garden";
+  if (/(lab|laboratoire|atelier)/.test(lower)) return "technical interior";
+  if (/(arena|arène|ring)/.test(lower)) return "combat venue";
+  if (/(forest|forêt|bois)/.test(lower)) return "natural environment";
+  if (/(palace|palais|throne|trône)/.test(lower)) return "seat of power";
+  return "story environment";
+}
+
+function inferEnvironmentState(text: string) {
+  if (/(ruin|destroyed|détruit|effondré|burning|fumée|blood)/i.test(text)) return "damaged";
+  if (/(calm|paisible|romantic|romantique)/i.test(text)) return "serene";
+  if (/(crowd|foule|busy|agité)/i.test(text)) return "active";
+  return null;
+}
+
+function buildLocationSignals(location: string, text: string) {
+  const lower = `${location} ${text}`.toLowerCase();
+  const signals = [
+    /(ruelle|street|city|ville|quartier|neon)/.test(lower) ? "architectural street signals" : "",
+    /(jardin|garden|flowers|allée|greenhouse)/.test(lower) ? "botanical garden signals" : "",
+    /(lab|laboratoire|console|glass|biohazard)/.test(lower) ? "scientific props and signage" : "",
+    /(arena|arène|ring|crowd|stands)/.test(lower) ? "arena stands and spectators" : "",
+    /(forest|forêt|trees|clairière)/.test(lower) ? "forest canopy and ground texture" : "",
+  ];
+  return uniq(signals);
+}
+
+function buildPersistentSceneAnchors(location: string, text: string) {
+  return uniq([
+    location,
+    ...(inferTimeOfDay(text) ? [`time:${inferTimeOfDay(text)}`] : []),
+    ...(inferWeather(text) ? [`weather:${inferWeather(text)}`] : []),
+    ...buildLocationSignals(location, text).slice(0, 3),
+  ]);
+}
+
+function buildEnvironmentSecondary(
+  location: string,
+  text: string,
+  shotType: PanelContract["shotType"],
+) {
+  const lower = `${location} ${text}`.toLowerCase();
+  const elements = [
+    /(ruelle|street|city|ville)/.test(lower) ? "layered buildings" : "",
+    /(neon|cyber|enseigne)/.test(lower) ? "neon signage" : "",
+    /(jardin|garden|flowers|rose|blossom)/.test(lower) ? "flowers and foliage" : "",
+    /(lab|laboratoire|glass|console)/.test(lower) ? "scientific equipment" : "",
+    /(arena|arène|ring)/.test(lower) ? "spectator tiers" : "",
+    /(forest|forêt|wood)/.test(lower) ? "dense vegetation" : "",
+    shotType === "wide" ? "depth layers" : "ambient background cues",
+  ];
+  return uniq(elements).slice(0, 5);
+}
+
+function buildBackgroundExtras(input: {
+  shotType: PanelContract["shotType"];
+  location: string;
+  atmosphere?: string;
+  sceneText: string;
+}) {
+  const lower = `${input.location} ${input.atmosphere ?? ""} ${input.sceneText}`.toLowerCase();
+  const extras = [
+    input.shotType === "wide" ? "readable layered background" : "",
+    /(market|marché|arena|arène|taverne|bar)/.test(lower) ? "ambient crowd silhouettes" : "",
+    /(guard|garde|surveillance|prison)/.test(lower) ? "guard presence" : "",
+    /(drone|cyber|neon)/.test(lower) ? "hovering drones" : "",
+    /(garden|jardin|romance|flowers)/.test(lower) ? "falling petals" : "",
+    /(forest|forêt|creature|monster|imaginaire)/.test(lower) ? "creature silhouettes in depth" : "",
+    /(lab|laboratoire)/.test(lower) ? "blinking control lights" : "",
+  ];
+  return uniq(extras).slice(0, input.shotType === "wide" ? 5 : 3);
+}
+
+function buildMustNotShow(
+  shotType: PanelContract["shotType"],
+  location: string,
+  text: string,
+) {
+  const rules = ["empty background", "plain backdrop", "studio background"];
+  if (shotType === "wide") rules.push("cropped environment", "isolated floating character");
+  if (/(jardin|garden|flowers)/i.test(`${location} ${text}`)) rules.push("generic outdoor background");
+  if (/(lab|laboratoire)/i.test(`${location} ${text}`)) rules.push("generic room without equipment");
+  return rules;
+}
+
+function extractInteractionBeat(text: string, purpose: PanelContract["purpose"]) {
+  if (/(touch|grab|hold|push|ouvre|attrape|s'appuie|se confie|regarde)/i.test(text)) {
+    return "environment and character interaction must remain readable";
+  }
+  if (purpose === "dialogue") return "spatial relation between speakers must remain clear";
+  if (purpose === "action") return "movement must react to terrain and obstacles";
+  return null;
+}
+
+function buildEnvironmentStoryHooks(text: string, location: string) {
+  return uniq([
+    /(camera|surveillance|garde|drone)/i.test(text) ? "surveillance may affect next beat" : "",
+    /(ruin|détruit|effondré|danger)/i.test(text) ? "environment damage influences tension" : "",
+    /(imaginaire|creature|spirit|familiar)/i.test(text) ? "fantastical presence can return later" : "",
+    location,
+  ]).slice(0, 4);
 }

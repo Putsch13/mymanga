@@ -40,8 +40,9 @@ export async function GET(_req: Request, ctx: Ctx) {
                 panelNumber: true,
                 imageUrl: true,
                 status: true,
-              provider: true,
-              model: true,
+                provider: true,
+                model: true,
+                consistencyScore: true,
                 prompt: true,
                 metadata: true,
               },
@@ -114,11 +115,118 @@ export async function GET(_req: Request, ctx: Ctx) {
     pending: allImages.filter((i) => i.status === "planned" || i.status === "pending").length,
   };
 
+  const outlineRecord =
+    chapter.outline && typeof chapter.outline === "object" && !Array.isArray(chapter.outline)
+      ? (chapter.outline as Record<string, unknown>)
+      : {};
+  const scriptRecord =
+    chapter.script && typeof chapter.script === "object" && !Array.isArray(chapter.script)
+      ? (chapter.script as Record<string, unknown>)
+      : {};
+  const sceneFallbacks = chapter.scenes
+    .map((scene) => {
+      const meta =
+        scene.metadata && typeof scene.metadata === "object" && !Array.isArray(scene.metadata)
+          ? (scene.metadata as Record<string, unknown>)
+          : {};
+      const dialogueGeneration =
+        meta.dialogueGeneration && typeof meta.dialogueGeneration === "object"
+          ? (meta.dialogueGeneration as Record<string, unknown>)
+          : null;
+      return dialogueGeneration && dialogueGeneration.usedFallback === true
+        ? {
+            sceneId: scene.id,
+            title: scene.title,
+            reason:
+              typeof dialogueGeneration.fallbackReason === "string"
+                ? dialogueGeneration.fallbackReason
+                : "Dialogue fallback used",
+          }
+        : null;
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null);
+  const firstImageMeta = chapter.scenes
+    .flatMap((scene) => scene.images)
+    .map((image) =>
+      image.metadata && typeof image.metadata === "object" && !Array.isArray(image.metadata)
+        ? (image.metadata as Record<string, unknown>)
+        : null,
+    )
+    .find((meta): meta is Record<string, unknown> => meta !== null);
+  const panelDebug = chapter.scenes.flatMap((scene) =>
+    scene.images.slice(0, 4).map((image) => {
+      const meta =
+        image.metadata && typeof image.metadata === "object" && !Array.isArray(image.metadata)
+          ? (image.metadata as Record<string, unknown>)
+          : {};
+      const validationDetails =
+        meta.validationDetails && typeof meta.validationDetails === "object"
+          ? (meta.validationDetails as Record<string, unknown>)
+          : {};
+      const qualityScores =
+        validationDetails.qualityScores && typeof validationDetails.qualityScores === "object"
+          ? (validationDetails.qualityScores as Record<string, unknown>)
+          : {};
+      return {
+        sceneId: scene.id,
+        panelId: image.id,
+        panelNumber: image.panelNumber,
+        status: image.status,
+        provider: image.provider,
+        model: image.model,
+        prompt:
+          typeof image.prompt === "string"
+            ? image.prompt.slice(0, 700)
+            : null,
+        releaseScore: typeof qualityScores.releaseScore === "number" ? qualityScores.releaseScore : image.consistencyScore ?? null,
+        backgroundPresenceScore:
+          typeof qualityScores.backgroundPresenceScore === "number" ? qualityScores.backgroundPresenceScore : null,
+        interactionScore:
+          typeof qualityScores.interactionScore === "number" ? qualityScores.interactionScore : null,
+        styleConsistencyScore:
+          typeof qualityScores.styleConsistencyScore === "number" ? qualityScores.styleConsistencyScore : null,
+        rerollCount: typeof meta.rerollCount === "number" ? meta.rerollCount : 0,
+        issues:
+          Array.isArray(validationDetails.issues)
+            ? validationDetails.issues
+            : [],
+      };
+    }),
+  );
+
   return NextResponse.json({
     chapter,
     memorySnapshot,
     activeJob,
     imageStats,
+    generationDiagnostics: {
+      operationalStatus:
+        typeof outlineRecord.operationalStatus === "string"
+          ? outlineRecord.operationalStatus
+          : typeof scriptRecord.operationalStatus === "string"
+            ? scriptRecord.operationalStatus
+            : "FULLY_OPERATIONAL",
+      degradedModes:
+        Array.isArray(outlineRecord.degradedModes)
+          ? outlineRecord.degradedModes
+          : Array.isArray(scriptRecord.degradedModes)
+            ? scriptRecord.degradedModes
+            : [],
+      outline:
+        outlineRecord.generationDiagnostics && typeof outlineRecord.generationDiagnostics === "object"
+          ? outlineRecord.generationDiagnostics
+          : null,
+      dialogue:
+        scriptRecord.generationDiagnostics && typeof scriptRecord.generationDiagnostics === "object"
+          ? scriptRecord.generationDiagnostics
+          : null,
+      sceneFallbacks,
+      creativityControls:
+        firstImageMeta && typeof firstImageMeta.effectiveCreativeControls === "object"
+          ? firstImageMeta.effectiveCreativeControls
+          : null,
+      panelDebug,
+    },
   });
 }
 

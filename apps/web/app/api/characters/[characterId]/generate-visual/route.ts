@@ -5,6 +5,7 @@ import {
   resolveAdultEngine,
   extractCharacterFingerprintFromRefs,
   buildCharacterPromptBundle,
+  getPremiumImageSize,
 } from "@manga-ai-studio/ai";
 import {
   estimateImageTokensFromRules,
@@ -56,6 +57,7 @@ export async function POST(_req: Request, ctx: Ctx) {
 
   const intensityLayer = (character.project.intensityLayer as string | null) ?? "TEEN";
   const mode = "CHARACTER_SHEET" as const;
+  const characterSheetSize = getPremiumImageSize(mode);
 
   const estimatedTokens = await estimateImageTokensFromRules(mode as never, "fal");
   const reservation = await reserveTokens(prisma, user.id, estimatedTokens, {
@@ -176,8 +178,8 @@ export async function POST(_req: Request, ctx: Ctx) {
         mode: "PANEL_DRAFT",
         positivePrompt: lockedPositive,
         negativePrompt: lockedNegative,
-        width: 768,
-        height: 1024,
+        width: characterSheetSize.width,
+        height: characterSheetSize.height,
         providerParams: {
           contentIntensityLayer: intensityLayer,
           mode: "CHARACTER_SHEET",

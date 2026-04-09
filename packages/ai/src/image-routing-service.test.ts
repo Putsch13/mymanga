@@ -66,4 +66,27 @@ describe("decideImageRoute", () => {
     });
     expect("workflow" in r && r.workflow).toBe("multi_ref");
   });
+
+  it("priorise fal sur une scène complexe à décor fort", () => {
+    process.env.FAL_KEY = "test";
+    const r = decideImageRoute({
+      mode: "PANEL_DRAFT",
+      contentIntensityLayer: "GENERAL_SAFE",
+      isNewCharacter: false,
+      hasCanonReferences: false,
+      characterCountInScene: 3,
+      npcCount: 2,
+      creatureCount: 1,
+      shotType: "wide",
+      environmentPriority: "high",
+      styleReferenceRequired: true,
+      needsInpaint: false,
+      needsPoseVariation: false,
+      preferPhotorealCover: false,
+      explicitBlocked: false,
+      goreStylizedMature: false,
+    });
+    expect("provider" in r && r.provider).toBe("fal");
+    expect("reason" in r && r.reason).toContain("complexity=");
+  });
 });

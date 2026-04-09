@@ -3,39 +3,78 @@
  * Garantit que les mêmes extras réapparaissent dans la même scène.
  */
 
-import type { PrismaClient } from "@manga-ai-studio/db";
+import type { PrismaClient, Prisma } from "@manga-ai-studio/db";
 import type { SceneExtra, NpcType } from "@manga-ai-studio/core";
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function stableToken(value: string) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = (Math.imul(31, hash) + value.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
 
 /**
  * Charge les extras existants pour une scène ou location.
  */
 export async function loadSceneExtras(
-  prisma: PrismaClient,
+  prisma: PrismaClient | Prisma.TransactionClient,
   input: {
     sceneId?: string;
     locationId?: string;
     projectId: string;
   }
 ): Promise<SceneExtra[]> {
-  // TODO: Créer un modèle SceneExtra dans Prisma si nécessaire
-  // Pour l'instant, retourner un array vide (pas de persistance DB)
-  
   console.log(`[scene-extras-registry] Loading extras for scene=${input.sceneId}, location=${input.locationId}`);
-  
-  return [];
+  if (!input.sceneId) return [];
+
+  const scene = await prisma.chapterScene.findUnique({
+    where: { id: input.sceneId },
+    select: { metadata: true },
+  });
+  const metadata = asRecord(scene?.metadata);
+  const extras = Array.isArray(metadata.sceneExtras) ? metadata.sceneExtras : [];
+
+  return extras
+    .filter((extra): extra is SceneExtra => Boolean(extra) && typeof extra === "object" && !Array.isArray(extra))
+    .map((extra) => extra as SceneExtra);
 }
 
 /**
  * Persiste un extra dans le registry.
  */
 export async function persistSceneExtra(
-  prisma: PrismaClient,
+  prisma: PrismaClient | Prisma.TransactionClient,
   extra: SceneExtra
 ): Promise<void> {
-  // TODO: Créer un modèle SceneExtra dans Prisma
   console.log(`[scene-extras-registry] Persisting extra ${extra.id} (${extra.archetype})`);
-  
-  // Pour l'instant, pas de persistance réelle
+  const scene = await prisma.chapterScene.findUnique({
+    where: { id: extra.sceneId },
+    select: { metadata: true },
+  });
+  if (!scene) return;
+  const metadata = asRecord(scene.metadata);
+  const existingExtras = Array.isArray(metadata.sceneExtras) ? metadata.sceneExtras : [];
+  const nextExtras = [
+    ...existingExtras.filter((item) => asRecord(item).id !== extra.id),
+    extra,
+  ];
+
+  await prisma.chapterScene.update({
+    where: { id: extra.sceneId },
+    data: {
+      metadata: ({
+        ...metadata,
+        sceneExtras: nextExtras,
+      } as unknown) as Prisma.InputJsonValue,
+    },
+  });
 }
 
 /**
@@ -43,7 +82,7 @@ export async function persistSceneExtra(
  * Appelé quand un PNJ parle ou devient important narrativement.
  */
 export async function promoteExtraToNarrativeNpc(
-  prisma: PrismaClient,
+  prisma: PrismaClient | Prisma.TransactionClient,
   input: {
     projectId: string;
     extraId: string;
@@ -52,14 +91,14 @@ export async function promoteExtraToNarrativeNpc(
   }
 ): Promise<{ characterId: string; promoted: boolean }> {
   console.log(`[scene-extras-registry] Promoting extra ${input.extraId} to narrative NPC`);
-
-  // Générer un nom pour ce PNJ (ex: "Barman", "Client 1", etc.)
-  const npcName = generateNpcName(input.extra.archetype);
+  const npcName = generateNpcName(input.extra.archetype, input.extra.id);
+  const npcSlug = `${npcName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${stableToken(input.extra.id)}`;
 
   // Créer un Character léger
   const character = await prisma.character.create({
     data: {
       projectId: input.projectId,
+      slug: npcSlug,
       name: npcName,
       roleType: "secondary",
       gender: input.extra.visualSignature.genderPresentation === "masculine" ? "male" : input.extra.visualSignature.genderPresentation === "feminine" ? "female" : null,
@@ -90,7 +129,7 @@ export function classifyNpcType(extra: SceneExtra): NpcType {
 /**
  * Génère un nom pour un PNJ basé sur son archetype.
  */
-function generateNpcName(archetype: SceneExtra["archetype"]): string {
+function generateNpcName(archetype: SceneExtra["archetype"], seed: string = archetype): string {
   const names: Record<string, string> = {
     bartender: "Barman",
     client: "Client",
@@ -103,7 +142,7 @@ function generateNpcName(archetype: SceneExtra["archetype"]): string {
   };
   
   const base = names[archetype] ?? "PNJ";
-  const suffix = Math.floor(Math.random() * 999) + 1;
+  const suffix = parseInt(stableToken(seed).slice(0, 3), 36) % 999 + 1;
   
   return `${base} ${suffix}`;
 }
@@ -112,7 +151,7 @@ function generateNpcName(archetype: SceneExtra["archetype"]): string {
  * Trouve ou crée des extras pour remplir une scène.
  */
 export async function ensureSceneExtras(
-  prisma: PrismaClient,
+  prisma: PrismaClient | Prisma.TransactionClient,
   input: {
     sceneId: string;
     locationId: string;
@@ -142,8 +181,9 @@ export async function ensureSceneExtras(
       result.push(reused);
     } else {
       // Créer un nouvel extra
+      const stableId = `extra-${stableToken(`${input.sceneId}:${req.anchorSlot}:${req.archetype}`)}`;
       const newExtra: SceneExtra = {
-        id: `extra-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        id: stableId,
         sceneId: input.sceneId,
         archetype: req.archetype,
         visualSignature: generateVisualSignature(req.archetype),

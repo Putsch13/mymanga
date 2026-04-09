@@ -53,6 +53,12 @@ export async function buildChapterCanonState(
         activeLocations: [],
         activeThreats: [],
         activeMysteries: [],
+        factions: [],
+        zonesOfControl: {},
+        structuralProhibitions: [],
+        globalTone: project.tone ?? null,
+        techLevel: project.primaryGenre?.toLowerCase().includes("sci") ? "advanced" : null,
+        magicLevel: project.primaryGenre?.toLowerCase().includes("fantasy") ? "present" : null,
         globalFlags: {},
       };
 
@@ -86,6 +92,10 @@ export async function buildChapterCanonState(
 
     const characterState: CharacterState = {
       characterId: char.id,
+      identity: {
+        stableName: char.name,
+        roleType: char.roleType ?? null,
+      },
       appearanceLocked: {
         hairColor: stableVisualDNA?.hairColor ?? char.hairColor ?? null,
         eyeColor: stableVisualDNA?.eyeColor ?? char.eyeColor ?? null,
@@ -95,6 +105,17 @@ export async function buildChapterCanonState(
         fixedAccessories: stableVisualDNA?.fixedAccessories ?? [],
         forbiddenVisualDrift: stableVisualDNA?.forbiddenVisualDrift ?? [],
       },
+      psychologicalCanon: {
+        coreTraits: Array.isArray(char.traits) ? char.traits.filter((item): item is string => typeof item === "string") : [],
+        fears: char.fear ? [char.fear] : [],
+        motivations: char.objective ? [char.objective] : [],
+        speechRules: [],
+      },
+      physicalCanon: {
+        baselineOutfit: char.outfitDefault ?? null,
+        allowedOutfitVariations: [],
+        bodyMarkers: [],
+      },
       currentState: prevState?.currentState ?? {
         location: null,
         outfit: char.outfitDefault ?? null,
@@ -103,7 +124,10 @@ export async function buildChapterCanonState(
         emotion: char.emotionalState ?? null,
         objective: char.objective ?? null,
         possessions: [],
+        knowledge: [],
+        obligations: [],
       },
+      continuityObligations: prevState?.continuityObligations ?? [],
       relationshipStates: [],
     };
 
@@ -148,6 +172,7 @@ export async function buildChapterCanonState(
     canonEvents,
     narrativeSummary,
     continuityWarnings: [],
+    registryVersion: 1,
   };
 }
 

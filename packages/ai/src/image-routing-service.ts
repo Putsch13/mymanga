@@ -31,6 +31,18 @@ function pickFluxWorkflow(ctx: RoutingContext): ImageWorkflow {
   return "txt2img";
 }
 
+function computeSceneComplexity(ctx: RoutingContext) {
+  let score = 0;
+  score += Math.max(0, ctx.characterCountInScene - 1) * 2;
+  score += (ctx.npcCount ?? 0) > 0 ? 2 : 0;
+  score += (ctx.creatureCount ?? 0) > 0 ? 2 : 0;
+  score += ctx.environmentPriority === "high" ? 3 : ctx.environmentPriority === "medium" ? 1 : 0;
+  score += ctx.shotType === "wide" || ctx.shotType === "over_shoulder" ? 2 : 0;
+  score += ctx.styleReferenceRequired ? 2 : 0;
+  score += ctx.hasCanonReferences ? 1 : 0;
+  return score;
+}
+
 function assertProviderAllowed(
   provider: "fal" | "bfl" | "runware" | "stability",
   layer: ContentIntensityLayer,
@@ -50,6 +62,7 @@ export type RoutingResult =
  * Routage dynamique multi-backend (spec CTO).
  */
 export function decideImageRoute(ctx: RoutingContext): RoutingResult {
+  const sceneComplexity = computeSceneComplexity(ctx);
   if (ctx.explicitBlocked) {
     return { blocked: true, reason: "Demande explicite refusée", textOnlyFallback: true };
   }
@@ -146,7 +159,10 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
               ? DEFAULT_STABILITY_MODEL
               : "flux-dev",
       workflow: provider === "fal" ? "multi_ref" : "txt2img",
-      reason: provider === "fal" ? "Cohérence personnage existant : multi-ref" : "Fallback provider (multi-ref indisponible)",
+      reason:
+        provider === "fal"
+          ? `Cohérence personnage existant : multi-ref, complexity=${sceneComplexity}`
+          : `Fallback provider (multi-ref indisponible), complexity=${sceneComplexity}`,
     };
   }
 
@@ -198,19 +214,27 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
   }
 
   const provider = pickBestAvailable(["fal", "runware", "stability", "bfl"]);
-  const gate = assertProviderAllowed(provider, layer);
+  const preferFalForComplexScene =
+    ctx.mode !== "COVER_ART"
+    && sceneComplexity >= 5
+    && isProviderConfigured("fal");
+  const effectiveProvider = preferFalForComplexScene ? "fal" : provider;
+  const gate = assertProviderAllowed(effectiveProvider, layer);
   if ("blocked" in gate) return { blocked: true, reason: gate.reason, textOnlyFallback: true };
   return {
-    provider,
+    provider: effectiveProvider,
     model:
-      provider === "fal"
+      effectiveProvider === "fal"
         ? DEFAULT_FLUX_MODEL
-        : provider === "runware"
+        : effectiveProvider === "runware"
           ? DEFAULT_RUNWARE_MODEL
-          : provider === "stability"
+          : effectiveProvider === "stability"
             ? DEFAULT_STABILITY_MODEL
             : "flux-dev",
-    workflow: provider === "fal" ? pickFluxWorkflow(ctx) : "txt2img",
-    reason: provider === "fal" ? "Défaut : FLUX stylisé" : "Défaut : fallback provider (clé FAL manquante)",
+    workflow: effectiveProvider === "fal" ? pickFluxWorkflow(ctx) : "txt2img",
+    reason:
+      effectiveProvider === "fal"
+        ? `Défaut : FLUX stylisé, complexity=${sceneComplexity}`
+        : `Défaut : fallback provider (clé FAL manquante), complexity=${sceneComplexity}`,
   };
 }

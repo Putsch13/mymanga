@@ -19,6 +19,24 @@ export interface PanelContract {
   requiredCharacters: string[];
   /** Extras en arrière-plan */
   backgroundExtras: string[];
+  /** Description structurée de l'environnement principal */
+  environmentPrimary?: string;
+  /** Détails secondaires du décor */
+  environmentSecondary?: string[];
+  /** État du lieu / décor */
+  environmentState?: string | null;
+  weather?: string | null;
+  timeOfDay?: string | null;
+  foregroundSubjects?: string[];
+  midgroundElements?: string[];
+  backgroundElements?: string[];
+  npcPresence?: string[];
+  creaturePresence?: string[];
+  interactionBeat?: string | null;
+  environmentStoryHooks?: string[];
+  persistentSceneAnchors?: string[];
+  mustShowProps?: string[];
+  mustShowLocationSignals?: string[];
   /** Éléments qui DOIVENT être visibles */
   mustShow: string[];
   /** Éléments qui NE DOIVENT PAS être visibles */
@@ -48,9 +66,35 @@ export interface PanelContract {
 export interface PanelValidationResult {
   panelId: string;
   score: number;
+  qualityScores?: {
+    characterConsistencyScore: number;
+    backgroundPresenceScore: number;
+    environmentReadabilityScore: number;
+    interactionScore: number;
+    shotComplianceScore: number;
+    styleConsistencyScore: number;
+    releaseScore: number;
+  };
+  propertyChecks?: Array<{
+    property: string;
+    ok: boolean;
+    message: string;
+  }>;
   issues: Array<{
     severity: "critical" | "major" | "minor";
-    type: "missing_character" | "wrong_gender" | "wrong_hair" | "wrong_eyes" | "wrong_outfit" | "wrong_cadrage" | "missing_element" | "forbidden_element";
+    type:
+      | "missing_character"
+      | "wrong_gender"
+      | "wrong_hair"
+      | "wrong_eyes"
+      | "wrong_outfit"
+      | "wrong_cadrage"
+      | "missing_element"
+      | "forbidden_element"
+      | "empty_background"
+      | "weak_environment"
+      | "weak_interaction"
+      | "style_drift";
     message: string;
     autoFixable: boolean;
   }>;

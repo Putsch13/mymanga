@@ -14,6 +14,13 @@ const schema = z.object({
   userIntent: z.string().min(3),
   focusCharacterIds: z.array(z.string()).optional(),
   selectedPlotLabel: z.enum(["safe", "bold", "shock"]).optional(),
+  creativityControls: z.object({
+    noveltyLevel: z.number().int().min(0).max(100).optional(),
+    worldStrictness: z.number().int().min(0).max(100).optional(),
+    visualExoticism: z.number().int().min(0).max(100).optional(),
+    npcVariety: z.number().int().min(0).max(100).optional(),
+    environmentRichness: z.number().int().min(0).max(100).optional(),
+  }).optional(),
 });
 
 export async function POST(req: Request, ctx: Ctx) {
@@ -43,6 +50,7 @@ export async function POST(req: Request, ctx: Ctx) {
 
   return NextResponse.json({
     estimatedTokens,
+    creativityControls: body.creativityControls ?? null,
     contextPreview: {
       recentChapters: context.recentChapters,
       retrievedDocs: context.retrievedDocs,

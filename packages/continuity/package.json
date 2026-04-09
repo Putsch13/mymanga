@@ -7,10 +7,16 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@manga-ai-studio/core": "workspace:*",
     "@manga-ai-studio/db": "workspace:*",
+    "@manga-ai-studio/world": "workspace:*",
     "zod": "^3.24.2"
   },
   "devDependencies": {
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.0.9"
+  },
+  "scripts": {
+    "test": "vitest run"
   }
 }

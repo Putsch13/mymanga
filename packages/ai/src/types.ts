@@ -59,6 +59,11 @@ export interface RoutingContext {
   isNewCharacter: boolean;
   hasCanonReferences: boolean;
   characterCountInScene: number;
+  npcCount?: number;
+  creatureCount?: number;
+  shotType?: "wide" | "medium" | "closeup" | "extreme_closeup" | "over_shoulder";
+  environmentPriority?: "low" | "medium" | "high";
+  styleReferenceRequired?: boolean;
   needsInpaint: boolean;
   needsPoseVariation: boolean;
   preferPhotorealCover: boolean;

@@ -1,3 +1,8 @@
+import {
+  summarizeGenerationStatuses,
+  type GenerationOperationalStatus,
+} from "@manga-ai-studio/ai";
+
 type ImageProviderId = "fal" | "runware" | "stability" | "bfl";
 
 const PROVIDER_ORDER: ImageProviderId[] = ["fal", "runware", "stability", "bfl"];
@@ -29,6 +34,9 @@ function hasStoragePersistence(): boolean {
 export type GenerationStackStatus = {
   configuredProviders: ImageProviderId[];
   preferredImageProvider: ImageProviderId | null;
+  operationalStatus: GenerationOperationalStatus;
+  degradedModes: GenerationOperationalStatus[];
+  isDegraded: boolean;
   hasOpenAI: boolean;
   hasStoragePersistence: boolean;
   allowMockImageProvider: boolean;
@@ -65,9 +73,18 @@ export function getGenerationStackStatus(): GenerationStackStatus {
     warnings.push("ALLOW_MOCK_IMAGE_PROVIDER=true en production: comportement non recommande pour un test réel.");
   }
 
+  const operational = summarizeGenerationStatuses([
+    !process.env.OPENAI_API_KEY ? "DEGRADED_NO_OPENAI" : "FULLY_OPERATIONAL",
+    providers.length === 0 ? "DEGRADED_NO_IMAGE_PROVIDER" : "FULLY_OPERATIONAL",
+    providerNeedsStorage(preferred) && !storageReady ? "DEGRADED_STORAGE_MISSING" : "FULLY_OPERATIONAL",
+  ]);
+
   return {
     configuredProviders: providers,
     preferredImageProvider: preferred,
+    operationalStatus: operational.operationalStatus,
+    degradedModes: operational.degradedModes,
+    isDegraded: operational.isDegraded,
     hasOpenAI: Boolean(process.env.OPENAI_API_KEY),
     hasStoragePersistence: storageReady,
     allowMockImageProvider:

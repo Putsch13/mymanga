@@ -4,6 +4,7 @@
  */
 
 import type { CharacterFingerprint, PanelValidationResult } from "@manga-ai-studio/core";
+import { runPropertyValidators, type SceneBlueprint } from "@manga-ai-studio/world";
 
 export interface GeneratedPanelData {
   panelId: string;
@@ -17,6 +18,120 @@ export interface GeneratedPanelData {
     prompt?: string;
     negativePrompt?: string;
     model?: string;
+    sceneBlueprint?: SceneBlueprint;
+    panelContract?: {
+      shotType?: string;
+      purpose?: string;
+      mustShow?: string[];
+      backgroundExtras?: string[];
+    };
+    stylePack?: {
+      renderFamily?: string | null;
+      lineWeight?: string | null;
+      shadingMode?: string | null;
+      contrastProfile?: string | null;
+      anatomyBias?: string | null;
+      backgroundDensity?: string | null;
+      cameraLanguage?: string | null;
+      negativeConstraints?: string[];
+    };
+  };
+}
+
+function clamp01(value: number) {
+  return Math.max(0, Math.min(1, value));
+}
+
+function includesAll(text: string, needles: string[]) {
+  if (needles.length === 0) return 1;
+  const matches = needles.filter((needle) => text.includes(needle.toLowerCase()));
+  return matches.length / needles.length;
+}
+
+function computeQualityScores(panel: GeneratedPanelData, characterScore: number) {
+  const prompt = panel.metadata?.prompt?.toLowerCase() ?? "";
+  const blueprint = panel.metadata?.sceneBlueprint;
+  const contract = panel.metadata?.panelContract;
+  const stylePack = panel.metadata?.stylePack;
+  const propertyChecks = blueprint ? runPropertyValidators(blueprint) : [];
+  const backgroundNeedles = [
+    ...(blueprint?.environment.mustShowLocationSignals ?? []),
+    ...(blueprint?.environment.backgroundElements ?? []),
+    ...(contract?.backgroundExtras ?? []),
+  ]
+    .filter((item): item is string => typeof item === "string" && item.length > 0)
+    .map((item) => item.toLowerCase())
+    .slice(0, 8);
+  const interactionNeedles = [
+    blueprint?.composition.interactionBeat,
+    ...(blueprint?.procedural.selectedLocations.primary.flatMap((item) => item.interactionHooks) ?? []),
+    ...(blueprint?.procedural.selectedCreatures.primary.flatMap((item) => item.interactionHooks) ?? []),
+  ]
+    .filter((item): item is string => typeof item === "string" && item.length > 0)
+    .map((item) => item.toLowerCase())
+    .slice(0, 6);
+  const styleNeedles = [
+    stylePack?.renderFamily,
+    stylePack?.lineWeight,
+    stylePack?.shadingMode,
+    stylePack?.contrastProfile,
+    stylePack?.anatomyBias,
+    stylePack?.backgroundDensity,
+    stylePack?.cameraLanguage,
+  ]
+    .filter((item): item is string => typeof item === "string" && item.length > 0)
+    .map((item) => item.toLowerCase());
+  const shotType = contract?.shotType ?? blueprint?.composition.shotType ?? "";
+  const backgroundPresenceScore = clamp01(
+    shotType === "wide"
+      ? includesAll(prompt, backgroundNeedles.length > 0 ? backgroundNeedles.slice(0, 3) : ["environment"])
+      : 0.7 + includesAll(prompt, backgroundNeedles.slice(0, 2)) * 0.3,
+  );
+  const environmentReadabilityScore = clamp01(
+    0.4
+      + includesAll(prompt, backgroundNeedles) * 0.4
+      + ((blueprint?.environment.mustShowLocationSignals.length ?? 0) >= 2 ? 0.2 : 0),
+  );
+  const interactionScore = clamp01(0.35 + includesAll(prompt, interactionNeedles) * 0.65);
+  const shotComplianceScore = clamp01(
+    shotType === "wide"
+      ? prompt.includes("full environment visible") || prompt.includes("wide shot")
+        ? 1
+        : 0.45
+      : shotType === "medium"
+        ? prompt.includes("character and environment both readable")
+          ? 1
+          : 0.55
+        : shotType.includes("close")
+          ? prompt.includes("environmental cues")
+            ? 1
+            : 0.6
+          : shotType === "over_shoulder"
+            ? prompt.includes("spatial relation")
+              ? 1
+              : 0.55
+            : 0.7,
+  );
+  const styleConsistencyScore = clamp01(0.45 + includesAll(prompt, styleNeedles) * 0.55);
+  const releaseScore = clamp01(
+    characterScore * 0.25
+      + backgroundPresenceScore * 0.2
+      + environmentReadabilityScore * 0.15
+      + interactionScore * 0.15
+      + shotComplianceScore * 0.1
+      + styleConsistencyScore * 0.15,
+  );
+  return {
+    propertyChecks,
+    qualityScores: {
+      characterConsistencyScore: characterScore,
+      backgroundPresenceScore,
+      environmentReadabilityScore,
+      interactionScore,
+      shotComplianceScore,
+      styleConsistencyScore,
+      releaseScore,
+    },
   };
 }
 
@@ -127,15 +242,71 @@ export async function validateGeneratedPanel(
     }
   }
 
+  const { qualityScores, propertyChecks } = computeQualityScores(panel, score);
+  if (qualityScores.backgroundPresenceScore < 0.62) {
+    issues.push({
+      severity: (panel.metadata?.panelContract?.shotType ?? panel.metadata?.sceneBlueprint?.composition.shotType) === "wide" ? "critical" : "major",
+      type: "empty_background",
+      message: "Le décor lisible est insuffisant pour ce panel.",
+      autoFixable: true,
+    });
+  }
+  if (qualityScores.environmentReadabilityScore < 0.6) {
+    issues.push({
+      severity: "major",
+      type: "weak_environment",
+      message: "Les signaux d’environnement restent trop faibles.",
+      autoFixable: true,
+    });
+  }
+  if (qualityScores.interactionScore < 0.58) {
+    issues.push({
+      severity: "major",
+      type: "weak_interaction",
+      message: "L’interaction héros/PNJ/environnement manque de lisibilité.",
+      autoFixable: true,
+    });
+  }
+  if (qualityScores.styleConsistencyScore < 0.6) {
+    issues.push({
+      severity: "major",
+      type: "style_drift",
+      message: "Le style effectif ne reflète pas assez le style pack.",
+      autoFixable: true,
+    });
+  }
+  for (const check of propertyChecks.filter((item) => !item.ok)) {
+    issues.push({
+      severity: check.property === "background_presence" || check.property === "lore_guardrails" ? "critical" : "major",
+      type:
+        check.property === "background_presence"
+          ? "empty_background"
+          : check.property === "environment_interaction"
+            ? "weak_interaction"
+            : check.property === "style_pack_fidelity"
+              ? "style_drift"
+              : "weak_environment",
+      message: check.message,
+      autoFixable: check.property !== "lore_guardrails",
+    });
+  }
+
   // Borner le score entre 0 et 1
-  score = Math.max(0, Math.min(1, score));
+  score = clamp01(Math.min(score, qualityScores.releaseScore));
 
   // Déterminer si reroll requis
-  const requiredReroll = score < 0.78 || issues.some((i) => i.severity === "critical");
+  const requiredReroll =
+    score < 0.78
+    || qualityScores.releaseScore < 0.72
+    || qualityScores.backgroundPresenceScore < 0.55
+    || qualityScores.interactionScore < 0.5
+    || issues.some((i) => i.severity === "critical");
 
   return {
     panelId: panel.panelId,
     score,
+    qualityScores,
+    propertyChecks,
     issues,
     requiredReroll,
   };

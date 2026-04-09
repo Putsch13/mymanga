@@ -141,6 +141,9 @@ importers:
       '@manga-ai-studio/moderation':
         specifier: workspace:*
         version: link:../moderation
+      '@manga-ai-studio/world':
+        specifier: workspace:*
+        version: link:../world
       openai:
         specifier: ^6.33.0
         version: 6.33.0(ws@8.20.0)(zod@3.25.76)
@@ -189,9 +192,15 @@ importers:
 
   packages/continuity:
     dependencies:
+      '@manga-ai-studio/core':
+        specifier: workspace:*
+        version: link:../core
       '@manga-ai-studio/db':
         specifier: workspace:*
         version: link:../db
+      '@manga-ai-studio/world':
+        specifier: workspace:*
+        version: link:../world
       zod:
         specifier: ^3.24.2
         version: 3.25.76
@@ -199,6 +208,9 @@ importers:
       typescript:
         specifier: ^5
         version: 5.9.3
+      vitest:
+        specifier: ^3.0.9
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)
 
   packages/core:
     dependencies:
@@ -251,6 +263,9 @@ importers:
 
   packages/memory:
     dependencies:
+      '@manga-ai-studio/core':
+        specifier: workspace:*
+        version: link:../core
       '@manga-ai-studio/db':
         specifier: workspace:*
         version: link:../db
@@ -318,6 +333,9 @@ importers:
       '@manga-ai-studio/visual-consistency':
         specifier: workspace:*
         version: link:../visual-consistency
+      '@manga-ai-studio/world':
+        specifier: workspace:*
+        version: link:../world
       '@supabase/supabase-js':
         specifier: ^2.101.1
         version: 2.101.1
@@ -331,6 +349,22 @@ importers:
       typescript:
         specifier: ^5
         version: 5.9.3
+      vitest:
+        specifier: ^3.0.9
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)
+
+  packages/world:
+    dependencies:
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
+    devDependencies:
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.9
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)
 
 packages:
 

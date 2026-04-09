@@ -15,11 +15,17 @@
     "@manga-ai-studio/db": "workspace:*",
     "@manga-ai-studio/memory": "workspace:*",
     "@manga-ai-studio/visual-consistency": "workspace:*",
+    "@manga-ai-studio/world": "workspace:*",
     "@supabase/supabase-js": "^2.101.1",
     "inngest": "^4.1.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.0.9"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "lint": "echo ok"
   }
 }

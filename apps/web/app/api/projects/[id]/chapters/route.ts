@@ -13,6 +13,13 @@ const createSchema = z.object({
   tokenEstimate: z.number().int().optional(),
   focusCharacterIds: z.array(z.string()).optional(),
   selectedPlotLabel: z.enum(["safe", "bold", "shock"]).optional(),
+  creativityControls: z.object({
+    noveltyLevel: z.number().int().min(0).max(100).optional(),
+    worldStrictness: z.number().int().min(0).max(100).optional(),
+    visualExoticism: z.number().int().min(0).max(100).optional(),
+    npcVariety: z.number().int().min(0).max(100).optional(),
+    environmentRichness: z.number().int().min(0).max(100).optional(),
+  }).optional(),
 });
 
 export async function GET(_req: Request, ctx: Ctx) {
@@ -52,6 +59,7 @@ export async function POST(req: Request, ctx: Ctx) {
         draftSetup: {
           focusCharacterIds: body.focusCharacterIds ?? [],
           selectedPlotLabel: body.selectedPlotLabel ?? null,
+          creativityControls: body.creativityControls ?? null,
           sourceUserIntent: body.userIntent ?? null,
         },
       } as unknown) as Prisma.InputJsonValue,

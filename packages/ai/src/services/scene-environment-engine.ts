@@ -21,6 +21,16 @@ export interface EnvironmentContext {
   knownLocations?: Array<{ name: string; description: string | null }> | null;
   /** Glossaire du projet (termes, technos, factions…) */
   glossary?: unknown;
+  seed?: number | null;
+}
+
+function seededIndex(seed: number, max: number) {
+  if (max <= 0) return 0;
+  let state = seed | 0;
+  state ^= state << 13;
+  state ^= state >>> 17;
+  state ^= state << 5;
+  return Math.abs(state) % max;
 }
 
 // ── Genre flavors : ajustent CHAQUE lieu selon l'univers ──────────────────
@@ -338,7 +348,12 @@ export function composeEnvironment(ctx: EnvironmentContext): string {
   // 6. Creatures / éléments vivants selon le genre
   const creatures = GENRE_CREATURES[genreKey];
   if (creatures && creatures.length > 0) {
-    const pick = creatures[Math.floor(Math.random() * creatures.length)];
+    const seedBase =
+      ctx.seed
+      ?? `${ctx.location}|${ctx.mood}|${ctx.genre}|${ctx.sceneSummary ?? ""}`
+        .split("")
+        .reduce((acc, char) => ((acc * 31) + char.charCodeAt(0)) | 0, 7);
+    const pick = creatures[seededIndex(seedBase, creatures.length)];
     if (pick) parts.push(pick);
   }
 

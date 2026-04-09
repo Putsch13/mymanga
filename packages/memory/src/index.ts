@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from "@manga-ai-studio/db";
+export * from "./scene-extras-registry";
 
 type RagDocumentInput = {
   projectId: string;
@@ -18,6 +19,10 @@ type ChapterMemoryInput = {
   timelineEvents?: Array<Record<string, unknown>>;
   openLoops?: string[];
   title?: string | null;
+  characterSnapshots?: Prisma.InputJsonValue;
+  wardrobeSnapshots?: Prisma.InputJsonValue;
+  relationshipSnapshots?: Prisma.InputJsonValue;
+  visualContinuityWarnings?: Prisma.InputJsonValue;
 };
 
 function sanitizeRagContent(content: string) {
@@ -460,6 +465,10 @@ export async function persistChapterMemory(prisma: PrismaClient, input: ChapterM
       chapterId: input.chapterId,
       narrativeSummary: input.summary,
       structuredState: input.structuredState ?? {},
+      characterSnapshots: input.characterSnapshots ?? [],
+      wardrobeSnapshots: input.wardrobeSnapshots ?? [],
+      relationshipSnapshots: input.relationshipSnapshots ?? [],
+      visualContinuityWarnings: input.visualContinuityWarnings ?? [],
       embeddingStatus: "queued",
     },
   });

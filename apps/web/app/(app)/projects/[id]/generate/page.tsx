@@ -22,6 +22,45 @@ const STEP_LABELS: Record<string, string> = {
   update_memory: "Phase 3 — Mise en page et mémorisation…",
 };
 
+type CreativityControls = {
+  noveltyLevel: number;
+  worldStrictness: number;
+  visualExoticism: number;
+  npcVariety: number;
+  environmentRichness: number;
+};
+
+function SliderField({
+  label,
+  value,
+  onChange,
+  helper,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  helper: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <Label>{label}</Label>
+        <span className="text-xs text-muted-foreground">{value}/100</span>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full accent-primary"
+      />
+      <p className="text-xs text-muted-foreground">{helper}</p>
+    </div>
+  );
+}
+
 export default function ChapterGeneratorPage() {
   const params = useParams();
   const router = useRouter();
@@ -31,12 +70,28 @@ export default function ChapterGeneratorPage() {
   const [characters, setCharacters] = useState<Array<{ id: string; name: string; roleType: string | null }>>([]);
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>([]);
   const [selectedPlotLabel, setSelectedPlotLabel] = useState<"safe" | "bold" | "shock">("bold");
+  const [creativityControls, setCreativityControls] = useState<CreativityControls>({
+    noveltyLevel: 55,
+    worldStrictness: 85,
+    visualExoticism: 50,
+    npcVariety: 60,
+    environmentRichness: 78,
+  });
   const [selectedChapter, setSelectedChapter] = useState<string>("");
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [jobState, setJobState] = useState<{
     id: string;
     status: string;
-    output?: { currentStep?: string; steps?: Array<{ key: string; label: string; status: string }> };
+    output?: {
+      currentStep?: string;
+      steps?: Array<{ key: string; label: string; status: string }>;
+      operationalStatus?: string;
+      degradedModes?: string[];
+      generationDiagnostics?: {
+        outline?: { fallbackReason?: string; usedFallback?: boolean } | null;
+        dialogue?: { usedFallback?: boolean; fallbackSceneIds?: string[] } | null;
+      };
+    };
     error?: { message?: string };
   } | null>(null);
   const [pipelineMsg, setPipelineMsg] = useState<string | null>(null);
@@ -58,6 +113,7 @@ export default function ChapterGeneratorPage() {
       cliffhanger: string;
       beats: Array<{ summary: string; characters: string[]; location: string }>;
     };
+    creativityControls?: CreativityControls | null;
   } | null>(null);
 
   const loadChapters = useCallback(() => {
@@ -202,6 +258,7 @@ export default function ChapterGeneratorPage() {
           userIntent: buildFocusedIntent(),
           focusCharacterIds: selectedCharacterIds,
           selectedPlotLabel,
+          creativityControls,
         }),
       });
       const j = await res.json();
@@ -225,12 +282,27 @@ export default function ChapterGeneratorPage() {
       const res = await fetch(`/api/projects/${id}/pipeline`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chapterId: selectedChapter, focusCharacterIds: selectedCharacterIds, selectedPlotLabel }),
+        body: JSON.stringify({
+          chapterId: selectedChapter,
+          focusCharacterIds: selectedCharacterIds,
+          selectedPlotLabel,
+          creativityControls,
+        }),
       });
       const j = await res.json();
       if (j.jobId) {
         setSelectedJobId(j.jobId);
-        setJobState({ id: j.jobId, status: j.ok === false ? "failed" : "queued", output: { currentStep: "queued", steps: [] }, ...(j.ok === false ? { error: { message: j.message } } : {}) });
+        setJobState({
+          id: j.jobId,
+          status: j.ok === false ? "failed" : "queued",
+          output: {
+            currentStep: "queued",
+            steps: [],
+            operationalStatus: j.operationalStatus,
+            degradedModes: j.degradedModes ?? [],
+          },
+          ...(j.ok === false ? { error: { message: j.message } } : {}),
+        });
         if (!j.ok) setPipelineMsg(j.message ?? "Erreur de lancement.");
       } else if (!res.ok || j.ok === false) {
         setPipelineMsg(j.message ?? "Erreur de lancement.");
@@ -255,6 +327,7 @@ export default function ChapterGeneratorPage() {
           userIntent: buildFocusedIntent(),
           focusCharacterIds: selectedCharacterIds,
           selectedPlotLabel,
+          creativityControls,
         }),
       });
       const j = await res.json();
@@ -269,12 +342,26 @@ export default function ChapterGeneratorPage() {
       const pRes = await fetch(`/api/projects/${id}/pipeline`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chapterId: j.chapter.id, focusCharacterIds: selectedCharacterIds, selectedPlotLabel }),
+        body: JSON.stringify({
+          chapterId: j.chapter.id,
+          focusCharacterIds: selectedCharacterIds,
+          selectedPlotLabel,
+          creativityControls,
+        }),
       });
       const pJ = await pRes.json();
       if (pJ.jobId) {
         setSelectedJobId(pJ.jobId);
-        setJobState({ id: pJ.jobId, status: "queued", output: { currentStep: "queued", steps: [] } });
+        setJobState({
+          id: pJ.jobId,
+          status: "queued",
+          output: {
+            currentStep: "queued",
+            steps: [],
+            operationalStatus: pJ.operationalStatus,
+            degradedModes: pJ.degradedModes ?? [],
+          },
+        });
       } else {
         setPipelineMsg(pJ.message ?? "Erreur de lancement.");
       }
@@ -289,6 +376,21 @@ export default function ChapterGeneratorPage() {
   const isGenerating = Boolean(jobState && ["queued", "running"].includes(jobState.status));
   const isDone = Boolean(jobState && ["completed", "partial_success"].includes(jobState.status));
   const isFailed = Boolean(jobState && jobState.status === "failed");
+  const degradedModes = jobState?.output?.degradedModes ?? [];
+  const degradedWarning =
+    degradedModes.length > 0
+      ? [
+          `Mode dégradé actif: ${degradedModes.join(", ")}.`,
+          jobState?.output?.generationDiagnostics?.outline?.usedFallback
+            ? `Outline fallback: ${jobState.output.generationDiagnostics.outline.fallbackReason ?? "raison non précisée"}.`
+            : null,
+          jobState?.output?.generationDiagnostics?.dialogue?.usedFallback
+            ? `Dialogue fallback sur ${jobState.output.generationDiagnostics.dialogue.fallbackSceneIds?.length ?? 0} scène(s).`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" ")
+      : null;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -390,6 +492,44 @@ export default function ChapterGeneratorPage() {
               ))}
             </div>
           </div>
+          <div className="space-y-4 rounded-xl border border-border/60 bg-background/30 p-4">
+            <div>
+              <p className="text-sm font-medium">Contrôles créatifs avancés</p>
+              <p className="text-xs text-muted-foreground">
+                Ces réglages alimentent directement le moteur procédural et le `SceneBlueprint`.
+              </p>
+            </div>
+            <SliderField
+              label="Novelty"
+              value={creativityControls.noveltyLevel}
+              onChange={(value) => setCreativityControls((current) => ({ ...current, noveltyLevel: value }))}
+              helper="Plus haut = plus de variation contrôlée dans les propositions."
+            />
+            <SliderField
+              label="World strictness"
+              value={creativityControls.worldStrictness}
+              onChange={(value) => setCreativityControls((current) => ({ ...current, worldStrictness: value }))}
+              helper="Plus haut = le moteur reste collé au canon, au lore et aux contraintes du monde."
+            />
+            <SliderField
+              label="Visual exoticism"
+              value={creativityControls.visualExoticism}
+              onChange={(value) => setCreativityControls((current) => ({ ...current, visualExoticism: value }))}
+              helper="Plus haut = créatures, silhouettes et détails visuels plus inhabituels."
+            />
+            <SliderField
+              label="NPC variety"
+              value={creativityControls.npcVariety}
+              onChange={(value) => setCreativityControls((current) => ({ ...current, npcVariety: value }))}
+              helper="Plus haut = PNJ plus variés et plus présents dans le visuel et l’action."
+            />
+            <SliderField
+              label="Environment richness"
+              value={creativityControls.environmentRichness}
+              onChange={(value) => setCreativityControls((current) => ({ ...current, environmentRichness: value }))}
+              helper="Plus haut = décors plus denses, plus lisibles et plus persistants."
+            />
+          </div>
         </CardContent>
       </Card>
 
@@ -447,6 +587,10 @@ export default function ChapterGeneratorPage() {
               </div>
             )}
             <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+              <div>
+                <span className="font-medium text-foreground">Contrôles moteur : </span>
+                N {creativityControls.noveltyLevel} · W {creativityControls.worldStrictness} · X {creativityControls.visualExoticism} · PNJ {creativityControls.npcVariety} · Env {creativityControls.environmentRichness}
+              </div>
               <div>
                 <span className="font-medium text-foreground">Personnages impliqués : </span>
                 {previewData.contextPreview.characters.map((c) => c.name).join(", ") || "aucun"}
@@ -536,6 +680,11 @@ export default function ChapterGeneratorPage() {
                   ))}
                 </div>
               ) : null}
+              {degradedWarning ? (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
+                  {degradedWarning}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         )}
@@ -544,6 +693,7 @@ export default function ChapterGeneratorPage() {
           <Card className="border-emerald-500/30 bg-emerald-950/20">
             <CardContent className="pt-6 text-center space-y-3">
               <p className="text-sm font-medium text-emerald-300">Chapitre prêt ! Redirection vers le lecteur…</p>
+              {degradedWarning ? <p className="text-xs text-amber-300">{degradedWarning}</p> : null}
               <Button asChild>
                 <Link href={`/projects/${id}/chapters/${selectedChapter}/read`}>Lire le chapitre</Link>
               </Button>

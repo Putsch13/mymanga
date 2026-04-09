@@ -270,18 +270,18 @@ Routes principales :
 
 ## Cout IA par chapitre
 
-Pour **1 chapitre** (~10 pages, 4-6 panels/page) :
+Pour **1 chapitre premium** (~10 pages, 4-6 panels/page) :
 
 | Poste | Hypothese | Cout approx. |
 |------|-----------|--------------|
-| Images panels (40-60) | 512x768 via fal flux/dev | ~0.39-0.59 USD |
+| Images panels (40-60) | 768x1024 via fal `flux-pro/v1.1` | ~0.58-0.95 USD |
 | Style frame | 1 image | ~0.01 USD |
 | Keyframes scene | 10 images | ~0.10 USD |
 | Cover | 1 image 768x1024 | ~0.02 USD |
-| Auto-reroll drift | ~2% panels | ~0.01 USD |
-| Texte (outline + dialogues + passes) | gpt-4o-mini | ~0.02-0.05 USD |
+| Auto-reroll QA (decor / interaction / drift) | ~5-10% panels | ~0.03-0.10 USD |
+| Texte (outline + dialogues + passes) | gpt-4o-mini | ~0.03-0.06 USD |
 | Embeddings | text-embedding-3-small | ~0.001 USD |
-| **Total chapitre** | | **~0.55-0.78 USD** |
+| **Total chapitre** | | **~0.77-1.24 USD** |
 
 ---
 
@@ -297,7 +297,7 @@ Pour **1 chapitre** (~10 pages, 4-6 panels/page) :
 
 ### Deja fonctionnel
 
-- fal.ai (FLUX dev + FLUX LoRA + FLUX Redux + training LoRA)
+- fal.ai (modele panel principal: `flux-pro/v1.1`, LoRA, Redux, training LoRA)
 - OpenAI (outline, dialogues, coherence, continuity, embeddings)
 - LoRA auto-training (non bloquant, en arriere-plan)
 - Drift detection + auto-reroll
@@ -306,6 +306,11 @@ Pour **1 chapitre** (~10 pages, 4-6 panels/page) :
 - RAG pgvector (si OPENAI_API_KEY + pgvector actif)
 - Lecteur manga + mode webtoon vertical
 - Stripe + wallet
+- Outline structure avec beats porteurs de `arcPromises`, `worldConsequences` et `setupPayoffHooks`
+- Dialogue writer produisant des deltas structures `sceneEvents/characterDeltas/locationDeltas/arcDeltas`
+- Score qualite panel + score release chapitre, stockes dans les metadata et exposes en admin/debug
+- Routing image par complexite de scene + retries provider sur erreurs transitoires
+- Admin V5 avec visibilite stack/fallbacks/qualite premium
 
 ### Etat actuel des briques "coherence avancee"
 
@@ -345,15 +350,18 @@ Les gros travaux pousses le `2026-04-07` sont **toujours dans le code**. Pendant
 #### Present dans le code mais encore partiel / non totalement branche
 
 - **SceneExtrasRegistry**
-  - module present
-  - persistance reelle DB pas encore faite
-  - une partie reste en `TODO` / fallback memoire
+  - persistance scene-level faite en metadata `ChapterScene`
+  - reusage fiable dans une meme scene deja branche
+  - persistance cross-scenes / cross-locations encyclopedique encore perfectible
 - **PNJ / extras persistants**
-  - les PNJ auto-crees sont mieux injectes dans l'histoire et le prompt
-  - la couche "extras de decor persistants par lieu/scene" reste a terminer proprement en DB
+  - les PNJ auto-crees sont mieux injectes dans l'histoire, le prompt et la scene
+  - la couche "extras persistants globalement par lieu sur plusieurs chapitres" reste a etendre si besoin
 - **Fingerprint visuel**
   - l'extraction actuelle reste heuristique
   - une vraie analyse Vision renforcerait encore la precision
+- **QA vision finale**
+  - la QA premium pilote reroll, release score et degradations via heuristiques prompt + metadata
+  - une vraie verification vision modele-image (CLIP / vision model) reste la prochaine marche
 
 #### Important
 
@@ -367,6 +375,8 @@ Les gros travaux pousses le `2026-04-07` sont **toujours dans le code**. Pendant
   - `SceneState`
   - les types/exports coeur ajoutes lors du gros chantier
 - Plusieurs briques "bloc 2/3" sont maintenant branchees dans le flux principal, mais les PNJ/extras persistants et l'extraction visuelle profonde restent les deux chantiers principaux a finir.
+- Les beats d'outline portent maintenant une structure exploitable amont (`arcPromises`, `worldConsequences`, `setupPayoffHooks`) avant l'ecriture des dialogues.
+- Le fallback heuristique subsiste tant que le modele ne renvoie pas toujours un payload riche, mais il est maintenant trace, borne et secondaire.
 
 ### Ameliorations futures
 
@@ -374,7 +384,7 @@ Les gros travaux pousses le `2026-04-07` sont **toujours dans le code**. Pendant
 - **RAG** : durcir pgvector, migrations propres, monitoring queries
 - **Vision API** : scoring visuel par vision (CLIP) au lieu de heuristique texte
 - **Multi-agents** : orchestration LLM plus poussee pour la generation de scenario
-- **SceneExtrasRegistry persistant** : vrai stockage DB pour la reutilisation fiable des PNJ/extras
+- **SceneExtrasRegistry global** : vrai stockage DB cross-scenes / cross-locations pour la reutilisation fiable des PNJ/extras
 - **Vision fingerprint** : extraction robuste depuis images de reference pour verrouiller encore mieux les personnages
 - **Webtoon polish** : raffinements UI/UX du scroll vertical, espacements et rythme mobile
 

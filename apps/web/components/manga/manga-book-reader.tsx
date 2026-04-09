@@ -118,6 +118,35 @@ type ReaderResponse = {
   } | null;
   activeJob?: { id: string; status: string } | null;
   imageStats?: { total: number; completed: number; failed: number; pending: number } | null;
+  generationDiagnostics?: {
+    operationalStatus?: string;
+    degradedModes?: string[];
+    outline?: { fallbackReason?: string; usedFallback?: boolean } | null;
+    dialogue?: { usedFallback?: boolean; fallbackSceneIds?: string[] } | null;
+    sceneFallbacks?: Array<{ sceneId: string; title: string | null; reason: string }>;
+    creativityControls?: {
+      noveltyLevel?: number;
+      worldStrictness?: number;
+      visualExoticism?: number;
+      npcVariety?: number;
+      environmentRichness?: number;
+    } | null;
+    panelDebug?: Array<{
+      sceneId: string;
+      panelId: string;
+      panelNumber: number;
+      status: string | null;
+      provider: string | null;
+      model: string | null;
+      prompt: string | null;
+      releaseScore: number | null;
+      backgroundPresenceScore: number | null;
+      interactionScore: number | null;
+      styleConsistencyScore: number | null;
+      rerollCount: number;
+      issues: Array<{ message?: string; severity?: string; type?: string }>;
+    }>;
+  } | null;
 };
 
 function normalizeForReaderDup(value: string | null | undefined) {
@@ -221,6 +250,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   const [memorySummary, setMemorySummary] = useState<string | null>(null);
   const [imageStats, setImageStats] = useState<ReaderResponse["imageStats"]>(null);
   const [activeJob, setActiveJob] = useState<ReaderResponse["activeJob"]>(null);
+  const [generationDiagnostics, setGenerationDiagnostics] = useState<ReaderResponse["generationDiagnostics"]>(null);
   const [canonState, setCanonState] = useState<CanonStateData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
@@ -235,6 +265,20 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   const [continuing, setContinuing] = useState(false);
   const [continueMsg, setContinueMsg] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const degradedReaderWarning =
+    (generationDiagnostics?.degradedModes?.length ?? 0) > 0
+      ? [
+          `Sortie dégradée: ${generationDiagnostics?.degradedModes?.join(", ")}.`,
+          generationDiagnostics?.outline?.usedFallback
+            ? `Outline fallback: ${generationDiagnostics.outline.fallbackReason ?? "raison non précisée"}.`
+            : null,
+          generationDiagnostics?.dialogue?.usedFallback
+            ? `Dialogue fallback sur ${generationDiagnostics.dialogue.fallbackSceneIds?.length ?? 0} scène(s).`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" ")
+      : null;
 
   const load = useCallback(async (options?: { preserveIndex?: boolean }) => {
     setLoadError(null);
@@ -248,6 +292,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
     setMemorySummary(j.memorySnapshot?.narrativeSummary ?? null);
     setImageStats(j.imageStats ?? null);
     setActiveJob(j.activeJob ?? null);
+    setGenerationDiagnostics(j.generationDiagnostics ?? null);
     if (!options?.preserveIndex) {
       setPageIndex(0);
       setShowEnd(false);
@@ -812,6 +857,11 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
             <p>{memorySummary ?? "Aucun résumé mémoire disponible pour ce chapitre pour l'instant."}</p>
+            {degradedReaderWarning ? (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
+                {degradedReaderWarning}
+              </div>
+            ) : null}
             {imageStats ? (
               <div className="flex flex-wrap gap-2">
                 <span>{imageStats.completed}/{imageStats.total} images prêtes</span>
@@ -820,6 +870,38 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
               </div>
             ) : null}
             {activeJob ? <p>Job actif : {activeJob.status}</p> : <p>Job actif : aucun</p>}
+            {generationDiagnostics?.creativityControls ? (
+              <p>
+                Contrôles moteur : N {generationDiagnostics.creativityControls.noveltyLevel ?? "?"}
+                {" · "}W {generationDiagnostics.creativityControls.worldStrictness ?? "?"}
+                {" · "}X {generationDiagnostics.creativityControls.visualExoticism ?? "?"}
+                {" · "}PNJ {generationDiagnostics.creativityControls.npcVariety ?? "?"}
+                {" · "}Env {generationDiagnostics.creativityControls.environmentRichness ?? "?"}
+              </p>
+            ) : null}
+            {generationDiagnostics?.panelDebug && generationDiagnostics.panelDebug.length > 0 ? (
+              <div className="space-y-2 rounded-lg border border-stone-800 bg-stone-950/40 p-3">
+                <p className="text-xs font-semibold text-stone-200">Debug rendu</p>
+                {generationDiagnostics.panelDebug.slice(0, 6).map((panel) => (
+                  <div key={panel.panelId} className="rounded border border-stone-800/80 bg-black/20 p-2 text-[11px]">
+                    <p className="font-medium text-stone-100">
+                      Panel {panel.panelNumber} · {panel.status ?? "?"} · {panel.provider ?? "?"}
+                    </p>
+                    <p className="text-muted-foreground">
+                      Release {(panel.releaseScore ?? 0).toFixed(2)} · Fond {(panel.backgroundPresenceScore ?? 0).toFixed(2)} · Interaction {(panel.interactionScore ?? 0).toFixed(2)} · Style {(panel.styleConsistencyScore ?? 0).toFixed(2)} · Rerolls {panel.rerollCount}
+                    </p>
+                    {panel.issues.length > 0 ? (
+                      <p className="mt-1 text-[10px] text-amber-300/80">
+                        {panel.issues.slice(0, 2).map((issue) => issue.message ?? issue.type ?? "issue").join(" | ")}
+                      </p>
+                    ) : null}
+                    {panel.prompt ? (
+                      <p className="mt-1 line-clamp-3 text-[10px] text-stone-400">{panel.prompt}</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 

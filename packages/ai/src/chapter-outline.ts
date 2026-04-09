@@ -1,4 +1,6 @@
 import { z } from "zod";
+import type { StructuredBeatPayload } from "@manga-ai-studio/core";
+import type { GenerationOperationalStatus } from "./generation-status";
 
 const PAGE_ROLES = [
   "establishing",
@@ -10,6 +12,39 @@ const PAGE_ROLES = [
 ] as const;
 
 export type PageRole = (typeof PAGE_ROLES)[number];
+
+const outlineArcPromiseSchema = z.object({
+  arcName: z.string().min(1),
+  promise: z.string().min(3),
+  stage: z.enum(["setup", "progression", "payoff", "twist"]),
+  priority: z.enum(["low", "medium", "high"]).default("medium"),
+  payoffTarget: z.string().nullable().optional(),
+});
+
+const outlineWorldConsequenceSchema = z.object({
+  consequenceType: z.string().min(1),
+  description: z.string().min(3),
+  scope: z.enum(["local", "chapter", "world"]).default("local"),
+  persistence: z.enum(["temporary", "lasting", "permanent"]).default("lasting"),
+  affectedLocations: z.array(z.string()).default([]),
+  affectedCharacters: z.array(z.string()).default([]),
+});
+
+const outlineSetupPayoffHookSchema = z.object({
+  hookId: z.string().min(1),
+  label: z.string().min(3),
+  kind: z.enum(["setup", "foreshadowing", "echo", "payoff"]),
+  targetBeatHint: z.string().nullable().optional(),
+  resolved: z.boolean().optional().default(false),
+});
+
+const structuredBeatPayloadSchema = z.object({
+  source: z.enum(["generator_structured", "heuristic_fallback"]).default("heuristic_fallback"),
+  confidence: z.number().min(0).max(1).default(0.45),
+  arcPromises: z.array(outlineArcPromiseSchema).default([]),
+  worldConsequences: z.array(outlineWorldConsequenceSchema).default([]),
+  setupPayoffHooks: z.array(outlineSetupPayoffHookSchema).default([]),
+});
 
 const outlineResultSchema = z.object({
   title: z.string().min(1).optional(),
@@ -25,6 +60,13 @@ const outlineResultSchema = z.object({
         emotionalDelta: z.number().min(-3).max(3).default(0),
         location: z.string().default(""),
         characters: z.array(z.string()).default([]),
+        structuredBeat: structuredBeatPayloadSchema.default({
+          source: "heuristic_fallback",
+          confidence: 0.45,
+          arcPromises: [],
+          worldConsequences: [],
+          setupPayoffHooks: [],
+        }),
       }),
     )
     .min(3)
@@ -85,6 +127,142 @@ export type ChapterOutlineContext = {
   previousCliffhanger: string | null;
   seriesSynopsis?: string | null;
 };
+
+export type ChapterOutlineGenerationResult = {
+  outline: ChapterOutlineResult;
+  usedOpenAI: boolean;
+  model?: string;
+  degradedStatus: GenerationOperationalStatus;
+  fallbackReason?: string;
+};
+
+function buildBeatHookId(chapterNumber: number, index: number, label: string) {
+  return `ch${chapterNumber}-beat${index + 1}-${label}`
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function inferStructuredBeatPayload(
+  ctx: ChapterOutlineContext,
+  beat: {
+    summary: string;
+    turn?: string;
+    location?: string;
+    characters?: string[];
+    pageRole?: PageRole;
+  },
+  index: number,
+  total: number,
+): StructuredBeatPayload {
+  const stage: StructuredBeatPayload["arcPromises"][number]["stage"] =
+    beat.pageRole === "establishing"
+      ? "setup"
+      : beat.pageRole === "revelation"
+        ? "twist"
+        : beat.pageRole === "cliffhanger" || index === total - 1
+          ? "payoff"
+          : "progression";
+  const priority =
+    beat.pageRole === "cliffhanger" || beat.pageRole === "revelation"
+      ? "high"
+      : beat.pageRole === "confrontation" || beat.pageRole === "aftermath"
+        ? "medium"
+        : "low";
+  const primaryArc = ctx.arcs?.find((arc) => arc.status !== "closed") ?? ctx.arcs?.[0];
+  const primaryLocation = beat.location?.trim() || ctx.knownLocations?.[0]?.name || "lieu principal";
+  const characters = (beat.characters ?? []).filter(Boolean);
+  const payoffTarget =
+    stage === "setup" || stage === "progression"
+      ? `Beat ${Math.min(total, index + (stage === "setup" ? 3 : 2))}`
+      : null;
+
+  return {
+    source: "heuristic_fallback",
+    confidence: 0.46,
+    arcPromises: [
+      {
+        arcName: primaryArc?.name ?? "Arc principal",
+        promise: beat.turn?.trim() || beat.summary.slice(0, 140),
+        stage,
+        priority,
+        payoffTarget,
+      },
+    ],
+    worldConsequences: [
+      {
+        consequenceType:
+          beat.pageRole === "cliffhanger"
+            ? "cliffhanger_pressure"
+            : beat.pageRole === "revelation"
+              ? "new_information"
+              : beat.pageRole === "confrontation"
+                ? "conflict_shift"
+                : "scene_progression",
+        description: `Conséquence active autour de ${primaryLocation}: ${beat.turn?.trim() || beat.summary.slice(0, 120)}`,
+        scope: beat.pageRole === "cliffhanger" ? "chapter" : "local",
+        persistence: beat.pageRole === "aftermath" || beat.pageRole === "cliffhanger" ? "lasting" : "temporary",
+        affectedLocations: [primaryLocation],
+        affectedCharacters: characters,
+      },
+    ],
+    setupPayoffHooks: [
+      {
+        hookId: buildBeatHookId(ctx.chapterNumber, index, stage),
+        label:
+          stage === "payoff"
+            ? `Payoff de ${beat.turn?.trim() || beat.summary.slice(0, 80)}`
+            : `Setup à surveiller: ${beat.turn?.trim() || beat.summary.slice(0, 80)}`,
+        kind:
+          stage === "payoff"
+            ? "payoff"
+            : beat.pageRole === "revelation"
+              ? "foreshadowing"
+              : beat.pageRole === "aftermath"
+                ? "echo"
+                : "setup",
+        targetBeatHint: payoffTarget,
+        resolved: stage === "payoff",
+      },
+    ],
+  };
+}
+
+function mergeStructuredBeatPayload(
+  fallback: StructuredBeatPayload,
+  payload: StructuredBeatPayload | undefined,
+): StructuredBeatPayload {
+  if (!payload) return fallback;
+  return {
+    source: payload.source,
+    confidence:
+      payload.arcPromises.length + payload.worldConsequences.length + payload.setupPayoffHooks.length === 0
+        ? Math.max(payload.confidence, fallback.confidence)
+        : payload.confidence,
+    arcPromises: payload.arcPromises.length > 0 ? payload.arcPromises : fallback.arcPromises,
+    worldConsequences:
+      payload.worldConsequences.length > 0 ? payload.worldConsequences : fallback.worldConsequences,
+    setupPayoffHooks:
+      payload.setupPayoffHooks.length > 0 ? payload.setupPayoffHooks : fallback.setupPayoffHooks,
+  };
+}
+
+function normalizeOutlineResult(
+  ctx: ChapterOutlineContext,
+  outline: ChapterOutlineResult,
+): ChapterOutlineResult {
+  return {
+    ...outline,
+    beats: outline.beats.map((beat, index) => ({
+      ...beat,
+      structuredBeat: mergeStructuredBeatPayload(
+        inferStructuredBeatPayload(ctx, beat, index, outline.beats.length),
+        beat.structuredBeat,
+      ),
+    })),
+  };
+}
 
 function fallbackOutline(ctx: ChapterOutlineContext): ChapterOutlineResult {
   const inferPrimaryLocation = () => {
@@ -162,10 +340,90 @@ function fallbackOutline(ctx: ChapterOutlineContext): ChapterOutlineResult {
           ? "La situation semble tenue, mais un nouveau détail compromet l'équilibre."
           : "Au moment de souffler, un retournement rend la suite inévitable.",
     beats: [
-      { summary: `${genreBeats[0]} Intent: ${intent.slice(0, 100)}.`, emotionalTone: "tension", pageRole: "establishing" as const, turn: "Le décor est planté, un élément attire l'attention.", emotionalDelta: 1, location: primaryLocation, characters: castNames.slice(0, 2) },
-      { summary: `${genreBeats[1]} Le chapitre cherche une variation ${quickTag}.`, emotionalTone: "montée", pageRole: "escalation" as const, turn: "La pression monte, un choix se dessine.", emotionalDelta: 2, location: primaryLocation, characters: castNames.slice(0, 3) },
-      { summary: `${genreBeats[2]} Les conséquences deviennent visibles.`, emotionalTone: "pic", pageRole: "revelation" as const, turn: "Une vérité éclate et change la donne.", emotionalDelta: -1, location: primaryLocation, characters: castNames.slice(0, 2) },
-      { summary: `${genreBeats[3]} La fin du chapitre prépare une vraie relance.`, emotionalTone: "chute", pageRole: "cliffhanger" as const, turn: "Un retournement final rend la suite inévitable.", emotionalDelta: -2, location: primaryLocation, characters: castNames },
+      {
+        summary: `${genreBeats[0]} Intent: ${intent.slice(0, 100)}.`,
+        emotionalTone: "tension",
+        pageRole: "establishing" as const,
+        turn: "Le décor est planté, un élément attire l'attention.",
+        emotionalDelta: 1,
+        location: primaryLocation,
+        characters: castNames.slice(0, 2),
+        structuredBeat: inferStructuredBeatPayload(
+          ctx,
+          {
+            summary: `${genreBeats[0]} Intent: ${intent.slice(0, 100)}.`,
+            turn: "Le décor est planté, un élément attire l'attention.",
+            location: primaryLocation,
+            characters: castNames.slice(0, 2),
+            pageRole: "establishing",
+          },
+          0,
+          4,
+        ),
+      },
+      {
+        summary: `${genreBeats[1]} Le chapitre cherche une variation ${quickTag}.`,
+        emotionalTone: "montée",
+        pageRole: "escalation" as const,
+        turn: "La pression monte, un choix se dessine.",
+        emotionalDelta: 2,
+        location: primaryLocation,
+        characters: castNames.slice(0, 3),
+        structuredBeat: inferStructuredBeatPayload(
+          ctx,
+          {
+            summary: `${genreBeats[1]} Le chapitre cherche une variation ${quickTag}.`,
+            turn: "La pression monte, un choix se dessine.",
+            location: primaryLocation,
+            characters: castNames.slice(0, 3),
+            pageRole: "escalation",
+          },
+          1,
+          4,
+        ),
+      },
+      {
+        summary: `${genreBeats[2]} Les conséquences deviennent visibles.`,
+        emotionalTone: "pic",
+        pageRole: "revelation" as const,
+        turn: "Une vérité éclate et change la donne.",
+        emotionalDelta: -1,
+        location: primaryLocation,
+        characters: castNames.slice(0, 2),
+        structuredBeat: inferStructuredBeatPayload(
+          ctx,
+          {
+            summary: `${genreBeats[2]} Les conséquences deviennent visibles.`,
+            turn: "Une vérité éclate et change la donne.",
+            location: primaryLocation,
+            characters: castNames.slice(0, 2),
+            pageRole: "revelation",
+          },
+          2,
+          4,
+        ),
+      },
+      {
+        summary: `${genreBeats[3]} La fin du chapitre prépare une vraie relance.`,
+        emotionalTone: "chute",
+        pageRole: "cliffhanger" as const,
+        turn: "Un retournement final rend la suite inévitable.",
+        emotionalDelta: -2,
+        location: primaryLocation,
+        characters: castNames,
+        structuredBeat: inferStructuredBeatPayload(
+          ctx,
+          {
+            summary: `${genreBeats[3]} La fin du chapitre prépare une vraie relance.`,
+            turn: "Un retournement final rend la suite inévitable.",
+            location: primaryLocation,
+            characters: castNames,
+            pageRole: "cliffhanger",
+          },
+          3,
+          4,
+        ),
+      },
     ],
   };
 }
@@ -174,14 +432,27 @@ function fallbackOutline(ctx: ChapterOutlineContext): ChapterOutlineResult {
  * Produit un outline structuré (résumé, cliffhanger, beats) pour le lecteur manga / pipeline.
  * Sans `OPENAI_API_KEY`, renvoie un gabarit déterministe basé sur l’intention utilisateur.
  */
-export async function generateChapterOutline(ctx: ChapterOutlineContext): Promise<{
-  outline: ChapterOutlineResult;
-  usedOpenAI: boolean;
-  model?: string;
-}> {
+function buildOutlineFallbackResult(
+  ctx: ChapterOutlineContext,
+  fallbackReason: string,
+): ChapterOutlineGenerationResult {
+  console.warn(
+    `[generateChapterOutline] degraded_status=DEGRADED_OUTLINE_FALLBACK chapter=${ctx.chapterNumber} reason=${fallbackReason}`,
+  );
+  return {
+    outline: fallbackOutline(ctx),
+    usedOpenAI: false,
+    degradedStatus: "DEGRADED_OUTLINE_FALLBACK",
+    fallbackReason,
+  };
+}
+
+export async function generateChapterOutline(
+  ctx: ChapterOutlineContext,
+): Promise<ChapterOutlineGenerationResult> {
   const key = process.env.OPENAI_API_KEY?.trim();
   if (!key) {
-    return { outline: fallbackOutline(ctx), usedOpenAI: false };
+    return buildOutlineFallbackResult(ctx, "OPENAI_API_KEY missing");
   }
 
   const model = process.env.OPENAI_OUTLINE_MODEL?.trim() || "gpt-4o-mini";
@@ -195,6 +466,12 @@ Chaque beat DOIT contenir :
   - emotionalDelta (OBLIGATOIRE) : nombre entier de -3 à +3, variation émotionnelle par rapport au beat précédent
   - location (OBLIGATOIRE) : lieu principal de cette page, cohérent avec l'intention utilisateur et les pages voisines
   - characters (OBLIGATOIRE) : tableau de noms des personnages PRESENTS dans cette page (utiliser les noms exacts du cast fourni)
+  - structuredBeat (OBLIGATOIRE) :
+      - source = "generator_structured"
+      - confidence = nombre 0..1
+      - arcPromises = tableau de { arcName, promise, stage: "setup"|"progression"|"payoff"|"twist", priority: "low"|"medium"|"high", payoffTarget? }
+      - worldConsequences = tableau de { consequenceType, description, scope: "local"|"chapter"|"world", persistence: "temporary"|"lasting"|"permanent", affectedLocations?: string[], affectedCharacters?: string[] }
+      - setupPayoffHooks = tableau de { hookId, label, kind: "setup"|"foreshadowing"|"echo"|"payoff", targetBeatHint?, resolved? }
 
 Langue : français. Les beats sont des étapes narratives courtes (pas de dialogue complet).
 
@@ -228,6 +505,9 @@ RÈGLES ABSOLUES DE CONTINUITÉ :
 6. Respecter l'intention utilisateur tout en restant cohérent avec l'arc en cours.
 7. Si canonStrictness > 80, ne rien modifier qui contredise la bible ou les événements permanents.
 8. Les entités explicitement nommées dans intentEntities doivent apparaître dans l'histoire si elles sont pertinentes.
+9. Chaque beat doit porter au moins un arcPromise, une worldConsequence et un setupPayoffHook utiles à la suite.
+10. Les hooks des premiers beats doivent préparer explicitement les payoffs des derniers beats.
+11. Les conséquences monde doivent être concrètes et persistables, jamais vagues.
 
 TRADUCTION STRICTE DE L'INTENTION UTILISATEUR :
 - L'intention utilisateur n'est pas un thème vague : c'est une CONTRAINTE DE MISE EN SCÈNE.
@@ -299,7 +579,7 @@ RÈGLES DE COHÉRENCE INTER-CHAPITRES :
     if (!res.ok) {
       const errText = await res.text();
       console.warn("[generateChapterOutline] OpenAI error", res.status, errText);
-      return { outline: fallbackOutline(ctx), usedOpenAI: false };
+      return buildOutlineFallbackResult(ctx, `OpenAI HTTP ${res.status}`);
     }
 
     const data = (await res.json()) as {
@@ -307,18 +587,26 @@ RÈGLES DE COHÉRENCE INTER-CHAPITRES :
     };
     const raw = data.choices?.[0]?.message?.content;
     if (!raw) {
-      return { outline: fallbackOutline(ctx), usedOpenAI: false };
+      return buildOutlineFallbackResult(ctx, "OpenAI returned empty content");
     }
 
     const parsed = JSON.parse(raw) as unknown;
     const outline = outlineResultSchema.safeParse(parsed);
     if (!outline.success) {
-      return { outline: fallbackOutline(ctx), usedOpenAI: false };
+      return buildOutlineFallbackResult(ctx, "Outline JSON validation failed");
     }
 
-    return { outline: outline.data, usedOpenAI: true, model };
+    return {
+      outline: normalizeOutlineResult(ctx, outline.data),
+      usedOpenAI: true,
+      model,
+      degradedStatus: "FULLY_OPERATIONAL",
+    };
   } catch (e) {
     console.warn("[generateChapterOutline]", e);
-    return { outline: fallbackOutline(ctx), usedOpenAI: false };
+    return buildOutlineFallbackResult(
+      ctx,
+      e instanceof Error ? e.message : "Unknown outline exception",
+    );
   }
 }

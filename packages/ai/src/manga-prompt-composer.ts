@@ -1,4 +1,5 @@
 import type { PanelMood } from "./chapter-pipeline";
+import type { SceneBlueprint } from "@manga-ai-studio/world";
 
 export interface CharacterRef {
   name: string;
@@ -27,6 +28,7 @@ export interface StylePackRef {
 export interface PanelPromptInput {
   stylePack?: StylePackRef | null;
   characters?: CharacterRef[];
+  sceneBlueprint?: SceneBlueprint | null;
   location: string;
   action: string;
   camera: string;
@@ -80,7 +82,7 @@ const INTENSITY_CONSTRAINTS: Record<string, string> = {
 const BASE_NEGATIVE =
   "blurry, deformed hands, extra limbs, wrong hair color, inconsistent outfit, bad anatomy, " +
   "watermark, text overlay, low quality, duplicate character, poorly drawn face, " +
-  "missing fingers, extra fingers, fused characters, inconsistent art style";
+  "missing fingers, extra fingers, fused characters, inconsistent art style, empty background, vague background, plain backdrop, studio background, floating character, disconnected characters, no environment interaction, washed image, overblur";
 
 function describeCharacter(c: CharacterRef): string {
   const parts: string[] = [`[${c.name}]`];
@@ -167,6 +169,17 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
   // Environnement vivant : foule, heure du jour, météo, ambiance
   if (input.environmentHint) {
     positiveParts.push(input.environmentHint);
+  }
+  if (input.sceneBlueprint) {
+    positiveParts.push(
+      `scene blueprint narrative: ${input.sceneBlueprint.narrativeContext.progressionBeat}`,
+      `scene blueprint composition: ${input.sceneBlueprint.composition.framingRules.join(", ")}`,
+      `scene blueprint environment: foreground ${input.sceneBlueprint.environment.foregroundElements.join(", ")}; midground ${input.sceneBlueprint.environment.midgroundElements.join(", ")}; background ${input.sceneBlueprint.environment.backgroundElements.join(", ")}`,
+      `strict constraints: ${input.sceneBlueprint.constraints.hard.join(" | ")}`,
+    );
+    if (input.sceneBlueprint.constraints.soft.length > 0) {
+      positiveParts.push(`soft constraints: ${input.sceneBlueprint.constraints.soft.slice(0, 5).join(" | ")}`);
+    }
   }
 
   if (intensityNote && layer !== "GENERAL_SAFE") positiveParts.push(intensityNote);

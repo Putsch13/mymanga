@@ -15,11 +15,25 @@ const bodySchema = z.object({
   chapterId: z.string().min(1),
   focusCharacterIds: z.array(z.string()).optional(),
   selectedPlotLabel: z.enum(["safe", "bold", "shock"]).optional(),
+  creativityControls: z.object({
+    noveltyLevel: z.number().int().min(0).max(100).optional(),
+    worldStrictness: z.number().int().min(0).max(100).optional(),
+    visualExoticism: z.number().int().min(0).max(100).optional(),
+    npcVariety: z.number().int().min(0).max(100).optional(),
+    environmentRichness: z.number().int().min(0).max(100).optional(),
+  }).optional(),
 });
 
 const draftSetupSchema = z.object({
   focusCharacterIds: z.array(z.string()).optional(),
   selectedPlotLabel: z.enum(["safe", "bold", "shock"]).nullable().optional(),
+  creativityControls: z.object({
+    noveltyLevel: z.number().int().min(0).max(100).optional(),
+    worldStrictness: z.number().int().min(0).max(100).optional(),
+    visualExoticism: z.number().int().min(0).max(100).optional(),
+    npcVariety: z.number().int().min(0).max(100).optional(),
+    environmentRichness: z.number().int().min(0).max(100).optional(),
+  }).optional(),
 });
 
 /**
@@ -67,6 +81,8 @@ export async function POST(req: Request, ctx: Ctx) {
         : [];
   const selectedPlotLabel =
     body.selectedPlotLabel ?? (draftSetup.success ? draftSetup.data.selectedPlotLabel ?? undefined : undefined);
+  const creativityControls =
+    body.creativityControls ?? (draftSetup.success ? draftSetup.data.creativityControls ?? undefined : undefined);
 
   const estimatedCost = await estimateChapterTextTokensFromRules();
   const job = await prisma.job.create({
@@ -82,10 +98,14 @@ export async function POST(req: Request, ctx: Ctx) {
         chapterId: chapter.id,
         focusCharacterIds,
         selectedPlotLabel,
+        creativityControls,
       },
       output: {
         currentStep: "queued",
         steps: [],
+        operationalStatus: stack.operationalStatus,
+        degradedModes: stack.degradedModes,
+        stackWarnings: stack.warnings,
       },
     },
   });
@@ -103,6 +123,8 @@ export async function POST(req: Request, ctx: Ctx) {
       return NextResponse.json({
         ok: run.ok,
         jobId: job.id,
+        operationalStatus: stack.operationalStatus,
+        degradedModes: stack.degradedModes,
         message: run.ok
           ? "Pipeline exécuté immédiatement (Inngest non configuré)."
           : `Échec pipeline : ${run.error ?? "inconnu"}`,
@@ -113,6 +135,8 @@ export async function POST(req: Request, ctx: Ctx) {
       return NextResponse.json({
         ok: false,
         jobId: job.id,
+        operationalStatus: stack.operationalStatus,
+        degradedModes: stack.degradedModes,
         message: `Crash pipeline : ${msg}`,
       }, { status: 500 });
     }
@@ -122,6 +146,9 @@ export async function POST(req: Request, ctx: Ctx) {
     ok: true,
     jobId: job.id,
     inngest: sent,
+    operationalStatus: stack.operationalStatus,
+    degradedModes: stack.degradedModes,
+    stackWarnings: stack.warnings,
     message: "Pipeline enqueued (Inngest).",
   });
 }

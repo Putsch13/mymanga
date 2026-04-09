@@ -1,8 +1,10 @@
 import { generateChapterOutline } from "./chapter-outline";
+import { summarizeGenerationStatuses } from "./generation-status";
 import { parseIntentEntities } from "./services/entity-brain";
 import { writeDialogueForScene } from "./services/dialogue-writer";
 import { planPanelText, type PanelTextPlan } from "./services/panel-text-planner";
 import { analyzeBeatsForRepetition } from "./beat-advancement-checker";
+import type { SceneContinuityPayload, StructuredBeatPayload } from "@manga-ai-studio/core";
 
 export type ProjectContextForChapter = {
   project: {
@@ -168,6 +170,22 @@ type PanelBlueprint = {
 };
 
 export type GeneratedChapterBundle = {
+  generationDiagnostics: {
+    operationalStatus: string;
+    degradedModes: string[];
+    outline: {
+      degradedStatus: string;
+      usedFallback: boolean;
+      fallbackReason?: string;
+      model?: string;
+    };
+    dialogue: {
+      degradedStatus: string;
+      usedFallback: boolean;
+      fallbackSceneIds: string[];
+      reasonsByScene: Array<{ sceneId: string; reason: string }>;
+    };
+  };
   creativeDirection: {
     chapterGoal: string;
     tone: string;
@@ -190,6 +208,8 @@ export type GeneratedChapterBundle = {
       characters: string[];
       location: string;
       purpose: string;
+      pageRole?: string;
+      structuredBeat?: StructuredBeatPayload;
     }>;
     cliffhanger: string;
     continuity_notes: string[];
@@ -202,6 +222,7 @@ export type GeneratedChapterBundle = {
       location: string;
       characters: string[];
       purpose: string;
+      continuityPayload: SceneContinuityPayload;
       dialogue: Array<{
         speaker: string;
         text: string;
@@ -210,6 +231,13 @@ export type GeneratedChapterBundle = {
         intensity: number;
         balloon: string;
       }>;
+      generationDiagnostics?: {
+        dialogue: {
+          degradedStatus: string;
+          usedFallback: boolean;
+          fallbackReason?: string;
+        };
+      };
     }>;
   };
   storyboard: {
@@ -573,6 +601,50 @@ function buildNarrativeSummary(input: {
   return `${input.projectTitle}: ${input.chapterGoal}. ${highlights} Fin de chapitre: ${input.cliffhanger}`.slice(0, 1200);
 }
 
+function buildMemoryTimelineEventsFromScenes(
+  scenes: Array<{
+    summary: string;
+    location: string;
+    characters: string[];
+    continuityPayload: SceneContinuityPayload;
+  }>,
+) {
+  return scenes.flatMap((scene, sceneIndex) => {
+    const explicitEvents = scene.continuityPayload.sceneEvents;
+    if (explicitEvents.length > 0) {
+      return explicitEvents.map((event, eventIndex) => ({
+        eventType: event.eventType,
+        summary: event.description,
+        importance:
+          event.importance === "critical"
+            ? 90
+            : event.importance === "major"
+              ? 70
+              : Math.max(35, 45 + sceneIndex * 5 - eventIndex * 3),
+        entities: {
+          characters: event.actorNames ?? scene.characters,
+          location: event.location ?? scene.location,
+          consequences: event.consequences ?? [],
+          objectsGained: event.objectsGained ?? [],
+          objectsLost: event.objectsLost ?? [],
+          injuriesApplied: event.injuriesApplied ?? [],
+          injuriesResolved: event.injuriesResolved ?? [],
+          relationshipChanges: event.relationshipChanges ?? [],
+          continuityFlags: event.continuityFlags ?? [],
+        },
+        permanent: Boolean(event.irreversible),
+      }));
+    }
+    return [{
+      eventType: "chapter_beat",
+      summary: scene.summary,
+      importance: 45 + sceneIndex * 10,
+      entities: { characters: scene.characters, location: scene.location },
+      permanent: true,
+    }];
+  });
+}
+
 function buildPanelPrompt(
   context: ProjectContextForChapter,
   characters: string[],
@@ -839,6 +911,11 @@ export async function generateChapterBundle(input: {
     previousCliffhanger: previous?.cliffhanger ?? null,
     seriesSynopsis: input.context.seriesSynopsis ?? null,
   });
+  if (outlineResult.degradedStatus !== "FULLY_OPERATIONAL") {
+    console.warn(
+      `[chapter-pipeline] outline degraded chapter=${input.chapterNumber} status=${outlineResult.degradedStatus} reason=${outlineResult.fallbackReason ?? "n/a"}`,
+    );
+  }
 
   // Cible produit : ~10 pages par chapitre, 1 scène = 1 page.
   const PAGE_ROLE_SEQUENCE: import("./chapter-outline").PageRole[] = [
@@ -866,6 +943,7 @@ export async function generateChapterBundle(input: {
     pageRole: beat.pageRole ?? PAGE_ROLE_SEQUENCE[index % PAGE_ROLE_SEQUENCE.length] ?? "escalation",
     turn: beat.turn ?? beat.summary.slice(0, 80),
     emotionalDelta: beat.emotionalDelta ?? (index % 2 === 0 ? 1 : -1),
+    structuredBeat: beat.structuredBeat,
   }));
 
   if (shouldKeepSingleLocation(input.userIntent, rawOutlineBeats)) {
@@ -895,6 +973,7 @@ export async function generateChapterBundle(input: {
     pageRole: PAGE_ROLE_SEQUENCE[index % PAGE_ROLE_SEQUENCE.length] ?? "escalation",
     turn: `Progression inattendue vers ${input.context.project.title}.`,
     emotionalDelta: index % 2 === 0 ? 1 : -1,
+    structuredBeat: rawOutlineBeats[Math.max(0, rawOutlineBeats.length - 1)]?.structuredBeat,
   }));
 
   reinforceIntentEntityCoverage(beats, intentEntityHints);
@@ -982,9 +1061,13 @@ export async function generateChapterBundle(input: {
         panelCount,
         projectStyle: `${tone} / ${visualStyle} / dialogues ${input.context.settings?.dialogueDensity ?? 55}`,
         contentIntensityLayer: input.context.project.intensityLayer ?? undefined,
+        structuredBeatPayload: beats[index]?.structuredBeat,
         continuityContext: [
           previous?.summary ? `Résumé précédent: ${previous.summary}` : "",
           previous?.cliffhanger ? `Cliffhanger précédent: ${previous.cliffhanger}` : "",
+          beats[index]?.structuredBeat
+            ? `Structured beat payload: ${JSON.stringify(beats[index]?.structuredBeat)}`
+            : "",
           ...(input.context.storyBible?.summary ? [`Bible: ${input.context.storyBible.summary}`] : []),
           ...input.context.retrievedDocs.map((doc) => `${doc.title ?? doc.entityType ?? "mémoire"}: ${doc.content}`).slice(0, 4),
         ].filter(Boolean),
@@ -1007,20 +1090,41 @@ export async function generateChapterBundle(input: {
           };
         }),
       });
+      if (dialogue.usedFallback) {
+        console.warn(
+          `[chapter-pipeline] dialogue degraded scene=${scene.id} status=${dialogue.degradedStatus} reason=${dialogue.fallbackReason ?? "n/a"}`,
+        );
+      }
 
-      return planPanelText({
-        sceneId: scene.id,
-        layout,
-        panels: blueprints,
-        dialogue: dialogue.panels,
-      });
+      return {
+        plannedPanels: planPanelText({
+          sceneId: scene.id,
+          layout,
+          panels: blueprints,
+          dialogue: dialogue.panels,
+        }),
+        continuityPayload: dialogue.continuityPayload,
+        dialogueDiagnostics: {
+          degradedStatus: dialogue.degradedStatus,
+          usedFallback: dialogue.usedFallback,
+          fallbackReason: dialogue.fallbackReason,
+        },
+      };
     }),
   );
 
   const scenes = scenesBase.map((scene, index) => {
-    const plan = dialoguePlans[index] ?? [];
+    const plan = dialoguePlans[index]?.plannedPanels ?? [];
     return {
       ...scene,
+      continuityPayload: dialoguePlans[index]?.continuityPayload ?? {
+        source: "heuristic_fallback",
+        confidence: 0.3,
+        sceneEvents: [],
+        characterDeltas: [],
+        locationDeltas: [],
+        arcDeltas: [],
+      },
       dialogue: plan.flatMap((panel, panelIndex) =>
         (panel.bubbles ?? []).map((bubble: { speaker?: string; text?: string; emotion?: string; bubbleType?: string }) => ({
           speaker: bubble.speaker ?? scene.characters[0] ?? mainCast[0],
@@ -1031,6 +1135,12 @@ export async function generateChapterBundle(input: {
           balloon: bubble.bubbleType ?? "speech",
         })),
       ),
+      generationDiagnostics: {
+        dialogue: dialoguePlans[index]?.dialogueDiagnostics ?? {
+          degradedStatus: "FULLY_OPERATIONAL",
+          usedFallback: false,
+        },
+      },
     };
   });
 
@@ -1044,7 +1154,7 @@ export async function generateChapterBundle(input: {
       panelBlueprintsByScene[pageIndex] ?? buildPanelBlueprints(scene, beat, count, genre),
       visualStyle,
       genre,
-      dialoguePlans[pageIndex],
+      dialoguePlans[pageIndex]?.plannedPanels,
     );
     return {
       pageNumber: pageIndex + 1,
@@ -1072,7 +1182,7 @@ export async function generateChapterBundle(input: {
         regenBlueprints,
         visualStyle,
         genre,
-        dialoguePlans[pageIndex],
+        dialoguePlans[pageIndex]?.plannedPanels,
       ).map((panel, panelIndex) => ({
         ...panel,
         panelNumber: panelIndex + 1,
@@ -1098,8 +1208,35 @@ export async function generateChapterBundle(input: {
     scenes,
     cliffhanger,
   });
+  const dialogueFallbacks = scenes
+    .filter((scene) => scene.generationDiagnostics?.dialogue.usedFallback)
+    .map((scene) => ({
+      sceneId: scene.id,
+      reason:
+        scene.generationDiagnostics?.dialogue.fallbackReason ?? "Dialogue fallback used",
+    }));
+  const bundleStatus = summarizeGenerationStatuses([
+    outlineResult.degradedStatus,
+    ...dialogueFallbacks.map(() => "DEGRADED_DIALOGUE_FALLBACK" as const),
+  ]);
 
   return {
+    generationDiagnostics: {
+      operationalStatus: bundleStatus.operationalStatus,
+      degradedModes: bundleStatus.degradedModes,
+      outline: {
+        degradedStatus: outlineResult.degradedStatus,
+        usedFallback: !outlineResult.usedOpenAI,
+        fallbackReason: outlineResult.fallbackReason,
+        model: outlineResult.model,
+      },
+      dialogue: {
+        degradedStatus: dialogueFallbacks.length > 0 ? "DEGRADED_DIALOGUE_FALLBACK" : "FULLY_OPERATIONAL",
+        usedFallback: dialogueFallbacks.length > 0,
+        fallbackSceneIds: dialogueFallbacks.map((item) => item.sceneId),
+        reasonsByScene: dialogueFallbacks,
+      },
+    },
     creativeDirection: {
       chapterGoal,
       tone,
@@ -1116,6 +1253,7 @@ export async function generateChapterBundle(input: {
         `Conserver la cohérence émotionnelle de ${mainCast[0]}.`,
         "Réutiliser la mémoire récente avant toute nouvelle révélation.",
         "Ne pas contredire les relations ou statuts canoniques.",
+        ...beats.flatMap((beat) => beat.structuredBeat?.setupPayoffHooks.slice(0, 1).map((hook) => `Hook: ${hook.label}`) ?? []).slice(0, 3),
       ],
     },
     script: { scenes },
@@ -1132,14 +1270,16 @@ export async function generateChapterBundle(input: {
         focusCharacterIds: input.context.focusCharacterIds ?? [],
         selectedPlotLabel: input.selectedPlotLabel ?? "bold",
         location: locD ?? locC,
+        outlineBeatPayloads: beats.map((beat) => ({
+          beatId: beat.id,
+          payload: beat.structuredBeat ?? null,
+        })),
+        sceneContinuityPayloads: scenes.map((scene) => ({
+          sceneId: scene.id,
+          payload: scene.continuityPayload,
+        })),
       },
-      timelineEvents: scenes.map((scene, index) => ({
-        eventType: "chapter_beat",
-        summary: scene.summary,
-        importance: 45 + index * 10,
-        entities: { characters: scene.characters, location: scene.location },
-        permanent: true,
-      })),
+      timelineEvents: buildMemoryTimelineEventsFromScenes(scenes),
       openLoops: [cliffhanger, `Conséquences de la décision prise à ${locC}.`, `Effets durables sur ${mainCast.join(", ")}.`],
     },
   };

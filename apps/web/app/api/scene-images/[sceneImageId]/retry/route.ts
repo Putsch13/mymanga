@@ -5,6 +5,7 @@ import {
   runRoutedImageGeneration,
   resolveAdultEngine,
   validateGeneratedPanel,
+  resolvePremiumImageSize,
 } from "@manga-ai-studio/ai";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
@@ -58,6 +59,10 @@ export async function POST(_req: Request, ctx: Ctx) {
   }
 
   const metadata = ((img.metadata ?? {}) as unknown) as Record<string, unknown>;
+  const premiumSize = resolvePremiumImageSize("PANEL_DRAFT", {
+    width: img.width,
+    height: img.height,
+  });
   const characters = Array.isArray(metadata.characters) ? (metadata.characters as string[]) : [];
   const savedReferenceIds = Array.isArray(img.referenceImageIds) ? (img.referenceImageIds as string[]) : [];
 
@@ -130,8 +135,8 @@ export async function POST(_req: Request, ctx: Ctx) {
         mode: "PANEL_DRAFT",
         positivePrompt: img.prompt,
         negativePrompt: img.negativePrompt ?? undefined,
-        width: img.width ?? 512,
-        height: img.height ?? 768,
+        width: premiumSize.width,
+        height: premiumSize.height,
         loras: panelLoras.length > 0 ? panelLoras : undefined,
         referenceImageUrls: referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
         providerParams: { contentIntensityLayer: intensityLayer, mode: "PANEL_DRAFT" },
@@ -184,29 +189,27 @@ export async function POST(_req: Request, ctx: Ctx) {
       })
       .filter((c): c is NonNullable<typeof c> => c !== null);
 
-    let validationScore = 1.0;
+    const validation = await validateGeneratedPanel({
+      panelId: img.id,
+      imageUrl: persisted.url,
+      requiredCharacters: charactersWithFingerprints,
+      metadata: {
+        prompt: img.prompt,
+        negativePrompt: img.negativePrompt ?? undefined,
+        model: out.result.model,
+        sceneBlueprint: metadata.sceneBlueprint as never,
+        panelContract: metadata.panelContract as never,
+        stylePack: metadata.stylePack as never,
+      },
+    });
+    const validationScore = validation.score;
 
-    if (charactersWithFingerprints.length > 0) {
-      const validation = await validateGeneratedPanel({
-        panelId: img.id,
-        imageUrl: persisted.url,
-        requiredCharacters: charactersWithFingerprints,
-        metadata: {
-          prompt: img.prompt,
-          negativePrompt: img.negativePrompt ?? undefined,
-          model: out.result.model,
-        },
-      });
-
-      validationScore = validation.score;
-
-      if (validation.requiredReroll) {
-        console.warn(
-          `[retry] Validation failed for panel ${img.id}: score=${validation.score.toFixed(2)}, issues=${validation.issues.length}. Manual review required.`
-        );
-        // Pour retry, on ne reroll pas automatiquement une 2e fois (avoid infinite loops)
-        // On log juste le warning
-      }
+    if (validation.requiredReroll) {
+      console.warn(
+        `[retry] Validation failed for panel ${img.id}: score=${validation.score.toFixed(2)}, issues=${validation.issues.length}. Manual review required.`
+      );
+      // On évite une boucle infinie sur retry manuel, mais on expose désormais
+      // les sous-scores pour diagnostiquer décor / interaction / style.
     }
 
     await prisma.sceneImage.update({
@@ -216,6 +219,7 @@ export async function POST(_req: Request, ctx: Ctx) {
         imageUrl: persisted.url,
         provider: out.result.provider,
         model: out.result.model,
+        consistencyScore: validation.qualityScores?.releaseScore ?? validationScore,
         routingDecision: (out.routing as unknown) as Prisma.InputJsonValue,
         metadata: ({
           ...metadata,
@@ -223,7 +227,13 @@ export async function POST(_req: Request, ctx: Ctx) {
           persisted: persisted.persisted,
           retryUsedLoras: panelLoras.length,
           retryUsedRefs: referenceImageUrls.length,
-          validationScore: charactersWithFingerprints.length > 0 ? validationScore : undefined,
+          validationScore,
+          validationDetails: {
+            qualityScores: validation.qualityScores,
+            propertyChecks: validation.propertyChecks,
+            issues: validation.issues,
+            requiredReroll: validation.requiredReroll,
+          },
         } as unknown) as Prisma.InputJsonValue,
       },
     });
