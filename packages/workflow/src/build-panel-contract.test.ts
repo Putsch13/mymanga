@@ -33,6 +33,7 @@ describe("buildPanelContract", () => {
     expect(contract.mustNotShow).toContain("empty background");
     expect(contract.persistentSceneAnchors?.length).toBeGreaterThan(0);
     expect(contract.mustShowLocationSignals?.length).toBeGreaterThan(0);
+    expect(contract.mustAvoidPortraitIsolation).toBe(true);
   });
 
   it("verrouille les signaux de cour de lycée et la présence d'élèves", async () => {
@@ -63,5 +64,8 @@ describe("buildPanelContract", () => {
     expect(contract.mustShowLocationSignals).toContain("school courtyard ground markings and gathering space");
     expect(contract.backgroundExtras.join(" ")).toContain("students");
     expect(contract.mustNotShow).toContain("empty school background");
+    expect(contract.mandatoryLocationSignals).toContain("school courtyard ground markings and gathering space");
+    expect(contract.npcGroupPresence).toContain("student background group");
+    expect(contract.mustAvoidPortraitIsolation).toBe(true);
   });
 });

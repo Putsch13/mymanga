@@ -47,12 +47,15 @@ function sleep(ms: number) {
 export interface ImageGenerationLog {
   provider: string;
   model: string;
+  workflow?: string;
   promptHash: string;
   responseTimeMs: number;
   success: boolean;
   error?: string;
   moderationDecision?: string;
   imageUrl?: string;
+  imageSize?: string;
+  referenceImageCount?: number;
 }
 
 export async function runRoutedImageGeneration(
@@ -116,11 +119,17 @@ export async function runRoutedImageGeneration(
       const log: ImageGenerationLog = {
         provider: decision.provider,
         model: decision.model ?? "unknown",
+        workflow: decision.workflow,
         promptHash,
         responseTimeMs,
         success: true,
         imageUrl: result.imageUrl,
         moderationDecision: ctx.contentIntensityLayer ?? "GENERAL_SAFE",
+        imageSize:
+          typeof input.width === "number" && typeof input.height === "number"
+            ? `${input.width}x${input.height}`
+            : undefined,
+        referenceImageCount: input.referenceImageUrls?.length ?? 0,
       };
 
       console.log(
@@ -135,10 +144,16 @@ export async function runRoutedImageGeneration(
       lastLog = {
         provider: decision.provider,
         model: decision.model ?? "unknown",
+        workflow: decision.workflow,
         promptHash,
         responseTimeMs,
         success: false,
         error: errorMsg,
+        imageSize:
+          typeof input.width === "number" && typeof input.height === "number"
+            ? `${input.width}x${input.height}`
+            : undefined,
+        referenceImageCount: input.referenceImageUrls?.length ?? 0,
       };
 
       console.error(

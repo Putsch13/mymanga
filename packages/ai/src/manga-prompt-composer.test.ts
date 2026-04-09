@@ -44,7 +44,8 @@ describe("composeMangaPanelPrompt with scene blueprint", () => {
     });
 
     expect(result.positive).toContain("MANDATORY_ENVIRONMENT");
-    expect(result.positive).toContain("students visible in background");
-    expect(result.negative).toContain("empty school courtyard");
+    expect(result.positive).toContain("visible school courtyard");
+    expect(result.positive).toContain("school building facade, windows, concrete ground, students in background");
+    expect(result.negative).toContain("no school architecture");
   });
 });

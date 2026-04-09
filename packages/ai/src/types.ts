@@ -15,6 +15,7 @@ export interface ImageRoutingDecision {
   model: string;
   workflow: ImageWorkflow;
   reason: string;
+  environmentCritical?: boolean;
 }
 
 export interface LoraRef {
@@ -59,10 +60,12 @@ export interface RoutingContext {
   isNewCharacter: boolean;
   hasCanonReferences: boolean;
   characterCountInScene: number;
+  purpose?: "establishing" | "reaction" | "dialogue" | "action" | "reveal" | "aftermath";
   npcCount?: number;
   creatureCount?: number;
   shotType?: "wide" | "medium" | "closeup" | "extreme_closeup" | "over_shoulder";
   environmentPriority?: "low" | "medium" | "high";
+  environmentCritical?: boolean;
   styleReferenceRequired?: boolean;
   needsInpaint: boolean;
   needsPoseVariation: boolean;

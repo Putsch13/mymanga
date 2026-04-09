@@ -30,13 +30,16 @@ export interface PanelContract {
   foregroundSubjects?: string[];
   midgroundElements?: string[];
   backgroundElements?: string[];
+  mandatoryLocationSignals?: string[];
   npcPresence?: string[];
+  npcGroupPresence?: string[];
   creaturePresence?: string[];
   interactionBeat?: string | null;
   environmentStoryHooks?: string[];
   persistentSceneAnchors?: string[];
   mustShowProps?: string[];
   mustShowLocationSignals?: string[];
+  mustAvoidPortraitIsolation?: boolean;
   /** Éléments qui DOIVENT être visibles */
   mustShow: string[];
   /** Éléments qui NE DOIVENT PAS être visibles */
