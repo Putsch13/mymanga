@@ -50,8 +50,7 @@ export async function buildPanelContract(input: PanelContractInput): Promise<Pan
   const environmentPrimary = inferEnvironmentPrimary(input.sceneContext.location);
   const environmentSecondary = buildEnvironmentSecondary(input.sceneContext.location, sceneText, shotType);
   const persistentSceneAnchors = buildPersistentSceneAnchors(input.sceneContext.location, sceneText);
-  const mandatoryLocationSignals = buildLocationSignals(input.sceneContext.location, sceneText);
-  const mustShowLocationSignals = mandatoryLocationSignals;
+  const mustShowLocationSignals = buildLocationSignals(input.sceneContext.location, sceneText);
   const mustShowProps = mustShow.filter((item) => !mustShowLocationSignals.includes(item));
   const backgroundExtras = buildBackgroundExtras({
     shotType,
@@ -59,29 +58,7 @@ export async function buildPanelContract(input: PanelContractInput): Promise<Pan
     atmosphere: input.sceneContext.atmosphere,
     sceneText,
   });
-  const foregroundSubjects = buildForegroundSubjects(focusCharacters, shotType, input.sceneContext.location, sceneText);
-  const midgroundElements = buildMidgroundElements({
-    shotType,
-    requiredCharacters,
-    environmentSecondary,
-    location: input.sceneContext.location,
-    sceneText,
-  });
-  const backgroundElements = buildBackgroundElements({
-    shotType,
-    persistentSceneAnchors,
-    backgroundExtras,
-    location: input.sceneContext.location,
-    sceneText,
-  });
-  const npcGroupPresence = buildNpcGroupPresence(input.sceneContext.location, sceneText, backgroundExtras);
   const mustNotShow = buildMustNotShow(shotType, input.sceneContext.location, sceneText);
-  const mustAvoidPortraitIsolation =
-    shotType === "wide"
-    || purpose === "establishing"
-    || requiredCharacters.length >= 2
-    || mandatoryLocationSignals.length > 0
-    || npcGroupPresence.length > 0;
 
   const dialogueCount =
     (panel.dialogues?.length ?? 0) + (panel.dialogue ? 1 : 0);
@@ -112,12 +89,13 @@ export async function buildPanelContract(input: PanelContractInput): Promise<Pan
     environmentState: inferEnvironmentState(sceneText),
     weather,
     timeOfDay,
-    foregroundSubjects,
-    midgroundElements,
-    backgroundElements,
-    mandatoryLocationSignals,
+    foregroundSubjects: focusCharacters,
+    midgroundElements:
+      shotType === "wide"
+        ? [...requiredCharacters.slice(1, 3), ...environmentSecondary.slice(0, 2)]
+        : environmentSecondary.slice(0, 3),
+    backgroundElements: [...persistentSceneAnchors, ...backgroundExtras].slice(0, 6),
     npcPresence: backgroundExtras.filter((item) => /(crowd|guard|merchant|client|passant|patron)/i.test(item)),
-    npcGroupPresence,
     creaturePresence: backgroundExtras.filter((item) => /(creature|animal|drone|spirit|monster|bird|cat|dog)/i.test(item)),
     interactionBeat: extractInteractionBeat(sceneText, purpose),
     environmentStoryHooks: buildEnvironmentStoryHooks(sceneText, input.sceneContext.location),
@@ -126,7 +104,6 @@ export async function buildPanelContract(input: PanelContractInput): Promise<Pan
     mustShowLocationSignals,
     mustShow,
     mustNotShow,
-    mustAvoidPortraitIsolation,
     continuityFromPanelId: input.previousPanelId,
     visualAnchorIds: input.visualAnchorIds,
     textBoxPlan,
@@ -261,7 +238,6 @@ function inferEnvironmentPrimary(location: string) {
   if (/(lab|laboratoire|atelier)/.test(lower)) return "technical interior";
   if (/(arena|arène|ring)/.test(lower)) return "combat venue";
   if (/(forest|forêt|bois)/.test(lower)) return "natural environment";
-  if (/(lycée|lycee|école|ecole|school|campus|cour du lycée)/.test(lower)) return "visible school courtyard";
   if (/(palace|palais|throne|trône)/.test(lower)) return "seat of power";
   return "story environment";
 }
@@ -310,7 +286,7 @@ function buildEnvironmentSecondary(
     /(arena|arène|ring)/.test(lower) ? "spectator tiers" : "",
     /(forest|forêt|wood)/.test(lower) ? "dense vegetation" : "",
     /(lycée|lycee|école|ecole|school|campus)/.test(lower) ? "campus facade, windows and corridors" : "",
-    /(cour du lycée|school courtyard|cour|playground)/.test(lower) ? "concrete ground, benches, school yard depth" : "",
+    /(cour du lycée|school courtyard|cour|playground)/.test(lower) ? "yard depth with students and benches" : "",
     shotType === "wide" ? "depth layers" : "ambient background cues",
   ];
   return uniq(elements).slice(0, 5);
@@ -332,8 +308,8 @@ function buildBackgroundExtras(input: {
     /(forest|forêt|creature|monster|imaginaire)/.test(lower) ? "creature silhouettes in depth" : "",
     /(lab|laboratoire)/.test(lower) ? "blinking control lights" : "",
     /(lycée|lycee|école|ecole|school|campus)/.test(lower) ? "students in depth and campus traffic" : "",
-    /(cour du lycée|school courtyard|cour|playground)/.test(lower) ? "school building facade, windows and concrete yard" : "",
-    /(humili|ridicul|moque|raillerie|bullying)/.test(lower) ? "social circle or bullying formation around the main target" : "",
+    /(cour du lycée|school courtyard|cour|playground)/.test(lower) ? "yard architecture and student groups" : "",
+    /(humili|ridicul|moque|raillerie)/.test(lower) ? "witnessing crowd reacting to the scene" : "",
   ];
   return uniq(extras).slice(0, input.shotType === "wide" ? 5 : 3);
 }
@@ -347,7 +323,7 @@ function buildMustNotShow(
   if (shotType === "wide") rules.push("cropped environment", "isolated floating character");
   if (/(jardin|garden|flowers)/i.test(`${location} ${text}`)) rules.push("generic outdoor background");
   if (/(lab|laboratoire)/i.test(`${location} ${text}`)) rules.push("generic room without equipment");
-  if (/(lycée|lycee|école|ecole|school|campus)/i.test(`${location} ${text}`)) rules.push("empty school background", "courtyard without students or campus architecture", "isolated portrait in school scene");
+  if (/(lycée|lycee|école|ecole|school|campus)/i.test(`${location} ${text}`)) rules.push("empty school background", "courtyard without students or campus architecture");
   return rules;
 }
 
@@ -368,58 +344,6 @@ function buildEnvironmentStoryHooks(text: string, location: string) {
     /(camera|surveillance|garde|drone)/i.test(text) ? "surveillance may affect next beat" : "",
     /(ruin|détruit|effondré|danger)/i.test(text) ? "environment damage influences tension" : "",
     /(imaginaire|creature|spirit|familiar)/i.test(text) ? "fantastical presence can return later" : "",
-    /(lycée|lycee|école|ecole|school|campus)/i.test(`${location} ${text}`) ? "school space and witnesses shape the social stakes" : "",
     location,
   ]).slice(0, 4);
-}
-
-function buildForegroundSubjects(
-  focusCharacters: string[],
-  shotType: PanelContract["shotType"],
-  location: string,
-  sceneText: string,
-) {
-  const extras = [
-    shotType === "wide" ? "scene-leading spatial anchor" : "",
-    /(humili|ridicul|moque|bullying)/i.test(`${location} ${sceneText}`) ? "humiliated target or aggressor formation" : "",
-  ];
-  return uniq([...focusCharacters, ...extras]).slice(0, 4);
-}
-
-function buildMidgroundElements(input: {
-  shotType: PanelContract["shotType"];
-  requiredCharacters: string[];
-  environmentSecondary: string[];
-  location: string;
-  sceneText: string;
-}) {
-  return uniq([
-    ...(input.shotType === "wide" ? input.requiredCharacters.slice(1, 3) : []),
-    ...input.environmentSecondary.slice(0, 3),
-    /(lycée|lycee|école|ecole|school|campus)/i.test(`${input.location} ${input.sceneText}`) ? "students in background" : "",
-  ]).slice(0, 5);
-}
-
-function buildBackgroundElements(input: {
-  shotType: PanelContract["shotType"];
-  persistentSceneAnchors: string[];
-  backgroundExtras: string[];
-  location: string;
-  sceneText: string;
-}) {
-  return uniq([
-    ...input.persistentSceneAnchors,
-    ...input.backgroundExtras,
-    /(lycée|lycee|école|ecole|school|campus)/i.test(`${input.location} ${input.sceneText}`)
-      ? "school building, facade, windows, concrete ground"
-      : "",
-  ]).slice(0, input.shotType === "wide" ? 8 : 6);
-}
-
-function buildNpcGroupPresence(location: string, sceneText: string, backgroundExtras: string[]) {
-  return uniq([
-    ...backgroundExtras.filter((item) => /(crowd|students|group|formation|guard|merchant|passerby|client)/i.test(item)),
-    /(lycée|lycee|école|ecole|school|campus)/i.test(`${location} ${sceneText}`) ? "student background group" : "",
-    /(humili|ridicul|moque|bullying)/i.test(`${location} ${sceneText}`) ? "bullying social circle" : "",
-  ]);
 }

@@ -68,27 +68,6 @@ describe("decideImageRoute", () => {
     expect("model" in r && r.model).toBe("fal-ai/flux/dev");
   });
 
-  it("évite multi_ref pour un panel décor critique", () => {
-    const r = decideImageRoute({
-      mode: "PANEL_DRAFT",
-      contentIntensityLayer: "GENERAL_SAFE",
-      isNewCharacter: false,
-      hasCanonReferences: true,
-      characterCountInScene: 2,
-      purpose: "establishing",
-      shotType: "wide",
-      environmentPriority: "high",
-      environmentCritical: true,
-      needsInpaint: false,
-      needsPoseVariation: false,
-      preferPhotorealCover: false,
-      explicitBlocked: false,
-      goreStylizedMature: false,
-    });
-    expect("workflow" in r && r.workflow).toBe("txt2img");
-    expect("environmentCritical" in r && r.environmentCritical).toBe(true);
-  });
-
   it("priorise fal sur une scène complexe à décor fort", () => {
     process.env.FAL_KEY = "test";
     const r = decideImageRoute({

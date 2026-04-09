@@ -322,26 +322,10 @@ async function mergeJobOutput(jobId: string, patch: Record<string, unknown>) {
 function buildRoutingContext(
   intensityLayer: string,
   panel: StoryboardPanel,
-  panelContract: {
-    purpose?: "establishing" | "reaction" | "dialogue" | "action" | "reveal" | "aftermath";
-    shotType?: "wide" | "medium" | "closeup" | "extreme_closeup" | "over_shoulder";
-    mustShowLocationSignals?: string[];
-    backgroundElements?: string[];
-    npcGroupPresence?: string[];
-    mustAvoidPortraitIsolation?: boolean;
-  },
   hasCanonRef: boolean,
   adultEngine?: "realistic" | "fantasy",
 ): RoutingContext {
   const text = `${panel.camera} ${panel.caption} ${panel.prompt}`.toLowerCase();
-  const environmentCritical =
-    panelContract.mustAvoidPortraitIsolation === true
-    || panelContract.shotType === "wide"
-    || panelContract.purpose === "establishing"
-    || panel.characters.length >= 2
-    || (panelContract.mustShowLocationSignals?.length ?? 0) > 0
-    || (panelContract.backgroundElements?.length ?? 0) >= 2
-    || (panelContract.npcGroupPresence?.length ?? 0) > 0;
   return {
     mode: "PANEL_DRAFT",
     contentIntensityLayer: intensityLayer,
@@ -349,10 +333,9 @@ function buildRoutingContext(
     isNewCharacter: false,
     hasCanonReferences: hasCanonRef,
     characterCountInScene: panel.characters.length,
-    purpose: panelContract.purpose,
     npcCount: /(crowd|guard|merchant|passant|client|audience|foule|garde)/.test(text) ? 1 : 0,
     creatureCount: /(creature|monster|spirit|dragon|familiar|beast|mutant)/.test(text) ? 1 : 0,
-    shotType: panelContract.shotType ?? (/(wide|establishing|panorama|vue d'ensemble)/.test(text)
+    shotType: /(wide|establishing|panorama|vue d'ensemble)/.test(text)
       ? "wide"
       : /(over shoulder|over-shoulder|par-dessus l'épaule)/.test(text)
         ? "over_shoulder"
@@ -360,15 +343,13 @@ function buildRoutingContext(
           ? "extreme_closeup"
           : /(close-up|closeup|gros plan)/.test(text)
             ? "closeup"
-            : "medium"),
-    environmentPriority: environmentCritical
-      ? "high"
-      : /(environment|decor|décor|background|ruins|city|forest|garden|lab|arena|crowd)/.test(text)
+            : "medium",
+    environmentPriority:
+      /(environment|decor|décor|background|ruins|city|forest|garden|lab|arena|crowd)/.test(text)
         ? "high"
         : panel.characters.length >= 2
           ? "medium"
           : "low",
-    environmentCritical,
     styleReferenceRequired: hasCanonRef || /(style|render family|ink|shading)/.test(text),
     needsInpaint: false,
     needsPoseVariation: false,
@@ -1279,11 +1260,9 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 visualAnchorIds: panelCanonRefs,
               });
               const panelBackgroundExtras = [
-                ...(panelContractBase.backgroundElements ?? []),
-                ...(panelContractBase.mandatoryLocationSignals ?? []),
-                ...(panelContractBase.npcGroupPresence ?? []),
+                ...scene.characters.filter((name) => !panel.characters.includes(name)).slice(0, 2),
                 ...persistentSceneExtras.map((extra) => `${extra.archetype}:${extra.anchorSlot}`),
-              ].filter(Boolean).slice(0, 8);
+              ].slice(0, 4);
               const sceneBlueprint = buildSceneBlueprint({
                 panelId: `${createdScene.id}:${panel.panelNumber}`,
                 pageNumber: index + 1,
@@ -1332,7 +1311,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                   cameraAngle: panelContractBase.cameraAngle,
                   focusCharacters: panelContractBase.focusCharacters,
                   requiredCharacters: panelContractBase.requiredCharacters,
-                  backgroundExtras: [...panelContractBase.backgroundExtras, ...panelBackgroundExtras].slice(0, 8),
+                  backgroundExtras: [...panelContractBase.backgroundExtras, ...panelBackgroundExtras].slice(0, 6),
                 },
                 cast: {
                   namedCharacters: panel.characters,
@@ -1795,20 +1774,10 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         }
       }
 
-      const panelContractMeta = item.baseMetadata.panelContract as {
-        purpose?: "establishing" | "reaction" | "dialogue" | "action" | "reveal" | "aftermath";
-        shotType?: "wide" | "medium" | "closeup" | "extreme_closeup" | "over_shoulder";
-        mandatoryLocationSignals?: string[];
-        mustShowLocationSignals?: string[];
-        backgroundElements?: string[];
-        npcGroupPresence?: string[];
-        mustAvoidPortraitIsolation?: boolean;
-      };
       const hasCanonRef = refs.length > 0 || panelLoras.length > 0;
 
       try {
-        const routingCtx = buildRoutingContext(intensityLayer, item.panel, panelContractMeta, hasCanonRef, adultEngine);
-        const effectiveRefs = routingCtx.environmentCritical ? [] : refs;
+        const routingCtx = buildRoutingContext(intensityLayer, item.panel, hasCanonRef, adultEngine);
         const result = await runRoutedImageGeneration(routingCtx, {
           mode: "PANEL_DRAFT",
           positivePrompt: item.panel.prompt,
@@ -1816,12 +1785,10 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           width: PANEL_DRAFT_SIZE.width,
           height: PANEL_DRAFT_SIZE.height,
           loras: panelLoras.length > 0 ? panelLoras : undefined,
-          referenceImageUrls: effectiveRefs.length > 0 ? effectiveRefs : undefined,
+          referenceImageUrls: refs.length > 0 ? refs : undefined,
           providerParams: {
             contentIntensityLayer: intensityLayer,
             mode: "PANEL_DRAFT",
-            environmentCritical: routingCtx.environmentCritical,
-            purpose: routingCtx.purpose,
           },
         });
 
@@ -1913,35 +1880,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           });
 
           validationScore = validation.score;
-          const visionFindings = validation.visionAnalysis?.findings.join(" | ").toLowerCase() ?? "";
-          const schoolScene =
-            (panelContractMeta.mandatoryLocationSignals?.some((signal) => /school|courtyard|campus/i.test(signal)) ?? false)
-            || /school|lycée|lycee|école|ecole|campus|cour du lycée/i.test(item.panel.prompt);
-          const socialScene =
-            (panelContractMeta.npcGroupPresence?.length ?? 0) > 0
-            || /humili|ridicul|moque|bullying|crowd|students|élèves|eleves/i.test(item.panel.prompt);
-          const environmentCriticalReroll = Boolean(
-            (panelContractMeta.shotType === "wide"
-              && (
-                (validation.qualityScores?.backgroundPresenceScore ?? 1) < 0.68
-                || (validation.qualityScores?.environmentReadabilityScore ?? 1) < 0.66
-                || /fond vide|fond flou|background empty|generic background|blurry environment/.test(visionFindings)
-              ))
-            || (schoolScene
-              && (
-                (validation.qualityScores?.backgroundPresenceScore ?? 1) < 0.66
-                || /no school architecture|fond vide|cour du lycée|school courtyard/.test(visionFindings)
-              ))
-            || (socialScene
-              && (
-                (validation.qualityScores?.interactionScore ?? 1) < 0.6
-                || /interaction faible|no interaction|disconnected/.test(visionFindings)
-              ))
-            || (panelContractMeta.mustAvoidPortraitIsolation
-              && /isolated portrait|floating character|fond vide|background empty/.test(
-                `${visionFindings} ${(validationDetails?.issues ?? []).map((issue) => issue.type).join(" ")}`.toLowerCase(),
-              )));
-          shouldRerollStrict = validation.requiredReroll || environmentCriticalReroll;
+          shouldRerollStrict = validation.requiredReroll;
           validationDetails = {
             qualityScores: validation.qualityScores
               ? {
@@ -1961,7 +1900,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
 
           if (shouldRerollStrict) {
             console.warn(
-              `[pipeline] validation failed score=${validation.score.toFixed(2)} panel=${item.sceneImageId} critical_issues=${validation.issues.filter((i) => i.severity === "critical").length} envCritical=${routingCtx.environmentCritical}`
+              `[pipeline] validation failed score=${validation.score.toFixed(2)} panel=${item.sceneImageId} critical_issues=${validation.issues.filter((i) => i.severity === "critical").length}`
             );
           }
 
@@ -1970,7 +1909,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             prompt: item.panel.prompt,
             characters: panelCharDetails,
             usedLoras: panelLoras.length > 0,
-            usedRefs: effectiveRefs.length > 0,
+            usedRefs: refs.length > 0,
           });
 
           const MAX_REROLL = 2;
@@ -2033,19 +1972,17 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               const rerollResult = await runRoutedImageGeneration(routingCtx, {
                 mode: "PANEL_DRAFT",
                 positivePrompt: rerollPositivePrompt,
-                negativePrompt: [item.panel.negativePrompt, boostNeg, strongerNegative, "empty background, studio background, flat grey backdrop, isolated portrait, weak interaction, blurry environment"]
+                negativePrompt: [item.panel.negativePrompt, boostNeg, strongerNegative, "empty background, vague background, no environment interaction, plain backdrop"]
                   .filter(Boolean)
                   .join(", "),
                 width: PANEL_DRAFT_SIZE.width,
                 height: PANEL_DRAFT_SIZE.height,
                 loras: panelLoras.length > 0 ? panelLoras : undefined,
-                referenceImageUrls: effectiveRefs.length > 0 ? effectiveRefs : undefined,
+                referenceImageUrls: refs.length > 0 ? refs : undefined,
                 providerParams: {
                   contentIntensityLayer: intensityLayer,
                   mode: "PANEL_DRAFT",
                   seed: Date.now() + attempt,
-                  environmentCritical: routingCtx.environmentCritical,
-                  purpose: routingCtx.purpose,
                 },
               });
               rerollCount++;

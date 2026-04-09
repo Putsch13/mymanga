@@ -14,26 +14,6 @@ type FalImageResponse = {
   image?: { url: string };
 };
 
-function buildFalNegativePrompt(raw: string | undefined) {
-  if (!raw?.trim()) return "";
-  const normalized = optimizePromptForFal(raw, 320)
-    .split(",")
-    .map((part) => part.trim().toLowerCase())
-    .filter(Boolean);
-  const targeted = normalized.filter((part) =>
-    /empty background|studio background|flat grey backdrop|isolated portrait|no school architecture|no crowd|weak interaction|blurry environment|blank outdoor backdrop|empty school courtyard|missing students|plain backdrop/.test(part),
-  );
-  const fallback = [
-    "empty background",
-    "studio background",
-    "flat grey backdrop",
-    "isolated portrait",
-    "weak interaction",
-    "blurry environment",
-  ];
-  return [...new Set([...(targeted.length > 0 ? targeted : normalized.slice(0, 8)), ...fallback])].join(", ");
-}
-
 function normalizeRequestedFalModel(
   requested: string | null | undefined,
   flags: { useLora: boolean; useRedux: boolean },
@@ -131,11 +111,9 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
         typeof input.width === "number" && typeof input.height === "number"
           ? { width: input.width, height: input.height }
           : (isCover ? "landscape_4_3" : "portrait_4_3");
-      const environmentCritical = Boolean(input.providerParams?.environmentCritical);
 
       // Traduire FR→EN et dédupliquer avant envoi à FAL
       const translatedPositive = optimizePromptForFal(input.positivePrompt);
-      const translatedNegative = buildFalNegativePrompt(input.negativePrompt);
 
       // Injecter les trigger words des LoRAs dans le prompt
       const activeLoras = input.loras?.filter((l) => l.url) ?? [];
@@ -144,8 +122,8 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
         ? `${loraPromptPrefix}, ${translatedPositive}`
         : translatedPositive;
 
-      const promptWithNeg = translatedNegative
-        ? `${promptWithLoras}. Negative constraints: ${translatedNegative}`
+      const promptWithNeg = input.negativePrompt
+        ? `${promptWithLoras}. Avoid: ${optimizePromptForFal(input.negativePrompt, 500)}`
         : promptWithLoras;
 
       // Priorité : LoRA > IP-Adapter (redux) > txt2img standard
@@ -155,7 +133,7 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
           : null;
 
       const useLora = activeLoras.length > 0;
-      const useRedux = !useLora && Boolean(referenceUrl) && !environmentCritical;
+      const useRedux = !useLora && Boolean(referenceUrl);
       const useLoraWithRef = useLora && Boolean(referenceUrl);
       const falTarget = normalizeRequestedFalModel(
         typeof input.providerParams?.model === "string" ? input.providerParams.model : null,
@@ -181,7 +159,7 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
         };
         if (useLoraWithRef && referenceUrl) {
           body.image_url = referenceUrl;
-          body.strength = environmentCritical ? 0.3 : 0.55;
+          body.strength = 0.55;
         }
       } else if (useRedux) {
         // flux-redux : IP-Adapter avec image de référence
@@ -194,7 +172,7 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
           num_images: 1,
           enable_safety_checker: !isMature,
           output_format: "jpeg",
-          strength: environmentCritical ? 0.35 : 0.72,
+          strength: 0.72,
         };
       } else {
         // flux/dev standard
@@ -211,18 +189,6 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
 
       if (input.providerParams?.seed && typeof input.providerParams.seed === "number") {
         body.seed = input.providerParams.seed;
-      }
-
-      console.log(
-        `[fal] workflow=${useLora ? "lora" : useRedux ? "redux" : "txt2img"} model=${falTarget.model} image_size=${
-          typeof imageSize === "string" ? imageSize : `${imageSize.width}x${imageSize.height}`
-        } refs=${input.referenceImageUrls?.length ?? 0} envCritical=${environmentCritical}`,
-      );
-      console.log(`[fal] positive_composed=${input.positivePrompt.slice(0, 1600)}`);
-      console.log(`[fal] positive_optimized=${translatedPositive.slice(0, 1600)}`);
-      console.log(`[fal] negative_final=${translatedNegative.slice(0, 500)}`);
-      if (input.referenceImageUrls?.length) {
-        console.log(`[fal] refs_used=${input.referenceImageUrls.join(" | ").slice(0, 1500)}`);
       }
 
       const data = await callFal(apiKey, body, endpoint);

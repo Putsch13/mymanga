@@ -26,7 +26,6 @@ function pickBestAvailable(
 
 function pickFluxWorkflow(ctx: RoutingContext): ImageWorkflow {
   if (ctx.needsInpaint) return "inpaint";
-  if (ctx.environmentCritical) return "txt2img";
   if (ctx.hasCanonReferences && ctx.mode !== "LOCATION_KEYFRAME") return "multi_ref";
   if (ctx.needsPoseVariation) return "controlnet";
   return "txt2img";
@@ -64,13 +63,6 @@ export type RoutingResult =
  */
 export function decideImageRoute(ctx: RoutingContext): RoutingResult {
   const sceneComplexity = computeSceneComplexity(ctx);
-  const environmentCritical = Boolean(
-    ctx.environmentCritical
-    || ctx.shotType === "wide"
-    || ctx.purpose === "establishing"
-    || ctx.characterCountInScene >= 2
-    || ctx.environmentPriority === "high",
-  );
   if (ctx.explicitBlocked) {
     return { blocked: true, reason: "Demande explicite refusée", textOnlyFallback: true };
   }
@@ -88,7 +80,6 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
       model: DEFAULT_FLUX_MODEL,
       workflow: "inpaint",
       reason: "Édition locale case / inpaint prioritaire",
-      environmentCritical,
     };
   }
 
@@ -120,7 +111,6 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
                 : "flux-dev",
         workflow: provider === "fal" ? pickFluxWorkflow(ctx) : "txt2img",
         reason: "Adult realistic engine",
-        environmentCritical,
       };
     }
     const gate = assertProviderAllowed("fal", layer);
@@ -130,7 +120,6 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
       model: DEFAULT_FLUX_MODEL,
       workflow: pickFluxWorkflow(ctx),
       reason: "Adult fantasy engine",
-      environmentCritical,
     };
   }
 
@@ -152,7 +141,6 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
       model: DEFAULT_FLUX_MODEL,
       workflow: "lora_stack",
       reason: "Nouveau personnage manga : FLUX + LoRA stack",
-      environmentCritical,
     };
   }
 
@@ -170,14 +158,11 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
             : provider === "stability"
               ? DEFAULT_STABILITY_MODEL
               : "flux-dev",
-      workflow: provider === "fal" ? (environmentCritical ? "txt2img" : "multi_ref") : "txt2img",
+      workflow: provider === "fal" ? "multi_ref" : "txt2img",
       reason:
         provider === "fal"
-          ? environmentCritical
-            ? `Décor prioritaire : refs canoniques sans multi-ref forcé, complexity=${sceneComplexity}`
-            : `Cohérence personnage existant : multi-ref, complexity=${sceneComplexity}`
+          ? `Cohérence personnage existant : multi-ref, complexity=${sceneComplexity}`
           : `Fallback provider (multi-ref indisponible), complexity=${sceneComplexity}`,
-      environmentCritical,
     };
   }
 
@@ -200,7 +185,6 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
       model: DEFAULT_FLUX_MODEL,
       workflow: "multi_ref",
       reason: "Style transfer : FLUX multi-reference",
-      environmentCritical,
     };
   }
 
@@ -226,7 +210,6 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
       model: DEFAULT_FLUX_MODEL,
       workflow: pickFluxWorkflow(ctx),
       reason: "Cover stylisée premium : FLUX",
-      environmentCritical,
     };
   }
 
@@ -253,6 +236,5 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
       effectiveProvider === "fal"
         ? `Défaut : FLUX stylisé, complexity=${sceneComplexity}`
         : `Défaut : fallback provider (clé FAL manquante), complexity=${sceneComplexity}`,
-    environmentCritical,
   };
 }

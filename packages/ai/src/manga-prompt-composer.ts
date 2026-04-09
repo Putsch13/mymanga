@@ -86,7 +86,9 @@ const INTENSITY_CONSTRAINTS: Record<string, string> = {
 };
 
 const BASE_NEGATIVE =
-  "empty background, studio background, flat grey backdrop, isolated portrait, weak interaction, blurry environment, bad anatomy, watermark, text overlay";
+  "blurry, deformed hands, extra limbs, wrong hair color, inconsistent outfit, bad anatomy, " +
+  "watermark, text overlay, low quality, duplicate character, poorly drawn face, " +
+  "missing fingers, extra fingers, fused characters, inconsistent art style, empty background, vague background, plain backdrop, studio background, floating character, disconnected characters, no environment interaction, washed image, overblur";
 
 function describeCharacter(c: CharacterRef): string {
   const parts: string[] = [`[${c.name}]`];
@@ -148,13 +150,12 @@ function buildEnvironmentLock(input: PanelPromptInput) {
   const pieces: string[] = [];
   const lower = `${input.location} ${input.action} ${input.environmentHint ?? ""} ${input.sceneContext ?? ""}`.toLowerCase();
   if (/(lycée|lycee|école|ecole|school|campus)/.test(lower)) {
-    pieces.push("visible school courtyard");
-    pieces.push("school building facade, windows, concrete ground, students in background");
+    pieces.push("school courtyard or campus architecture must stay readable");
+    pieces.push("students visible in background or around the conflict");
     pieces.push("no generic outdoor backdrop");
   }
   if (/(humili|ridicul|moque|crowd|students|foule)/.test(lower)) {
-    pieces.push("social circle or bullying formation if relevant");
-    pieces.push("public humiliation staging if the scene says so");
+    pieces.push("social crowd reaction must be visible around the protagonists");
   }
   if (/(wide|establishing)/.test((input.camera ?? "").toLowerCase())) {
     pieces.push("full environment visible with clear foreground, midground and background");
@@ -258,7 +259,7 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     if (driftGuards) negative += `, ${driftGuards}`;
   }
   if (/(lycée|lycee|école|ecole|school|campus)/i.test(`${input.location} ${input.action} ${input.environmentHint ?? ""}`)) {
-    negative += ", no school architecture, no crowd, empty school courtyard";
+    negative += ", generic campus background, empty school courtyard, missing students, blank outdoor backdrop";
   }
   if (input.stylePack?.negativeConstraints?.length) {
     negative += `, ${input.stylePack.negativeConstraints.join(", ")}`;
