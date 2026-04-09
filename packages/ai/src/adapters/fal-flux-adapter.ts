@@ -14,6 +14,29 @@ type FalImageResponse = {
   image?: { url: string };
 };
 
+function buildFalNegativePrompt(raw: string | undefined) {
+  if (!raw?.trim()) return "";
+  const normalized = optimizePromptForFal(raw, 400)
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  const allowed = normalized.filter((item) =>
+    /empty background|studio backdrop|studio background|flat grey backdrop|isolated centered portrait|isolated portrait|blurry environment|weak social interaction|missing school architecture|floating character|disconnected characters|no crowd/.test(item),
+  );
+  const fallback = [
+    "empty background",
+    "studio backdrop",
+    "flat grey backdrop",
+    "isolated centered portrait",
+    "blurry environment",
+  ];
+  return [...new Set([...(allowed.length > 0 ? allowed : normalized.slice(0, 8)), ...fallback])].join(", ");
+}
+
+function describeReferencePolicy(value: unknown) {
+  return value === "NONE" || value === "LIGHT" || value === "STRONG" ? value : "LIGHT";
+}
+
 function normalizeRequestedFalModel(
   requested: string | null | undefined,
   flags: { useLora: boolean; useRedux: boolean },
@@ -111,9 +134,13 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
         typeof input.width === "number" && typeof input.height === "number"
           ? { width: input.width, height: input.height }
           : (isCover ? "landscape_4_3" : "portrait_4_3");
+      const referencePolicy = describeReferencePolicy(input.providerParams?.referencePolicy);
+      const panelCategory = typeof input.providerParams?.panelCategory === "string" ? input.providerParams.panelCategory : "CHARACTER_IN_SCENE";
+      const scenePass = typeof input.providerParams?.scenePass === "string" ? input.providerParams.scenePass : "single_pass";
 
       // Traduire FR→EN et dédupliquer avant envoi à FAL
       const translatedPositive = optimizePromptForFal(input.positivePrompt);
+      const translatedNegative = buildFalNegativePrompt(input.negativePrompt);
 
       // Injecter les trigger words des LoRAs dans le prompt
       const activeLoras = input.loras?.filter((l) => l.url) ?? [];
@@ -122,18 +149,32 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
         ? `${loraPromptPrefix}, ${translatedPositive}`
         : translatedPositive;
 
-      const promptWithNeg = input.negativePrompt
-        ? `${promptWithLoras}. Avoid: ${optimizePromptForFal(input.negativePrompt, 500)}`
+      const promptWithNeg = translatedNegative
+        ? `${promptWithLoras}. Negative constraints: ${translatedNegative}`
         : promptWithLoras;
 
       // Priorité : LoRA > IP-Adapter (redux) > txt2img standard
+      const effectiveReferenceUrls =
+        referencePolicy === "NONE"
+          ? []
+          : (input.referenceImageUrls ?? []);
       const referenceUrl =
-        input.referenceImageUrls && input.referenceImageUrls.length > 0
-          ? input.referenceImageUrls[0]
+        effectiveReferenceUrls.length > 0
+          ? effectiveReferenceUrls[0]
           : null;
 
-      const useLora = activeLoras.length > 0;
-      const useRedux = !useLora && Boolean(referenceUrl);
+      const effectiveLoras =
+        referencePolicy === "NONE"
+          ? []
+          : activeLoras.map((lora) => ({
+              ...lora,
+              scale:
+                referencePolicy === "LIGHT"
+                  ? Math.min(0.55, lora.scale ?? 0.85)
+                  : lora.scale ?? 0.85,
+            }));
+      const useLora = effectiveLoras.length > 0;
+      const useRedux = !useLora && Boolean(referenceUrl) && referencePolicy === "STRONG" && panelCategory === "CHARACTER_LOCK";
       const useLoraWithRef = useLora && Boolean(referenceUrl);
       const falTarget = normalizeRequestedFalModel(
         typeof input.providerParams?.model === "string" ? input.providerParams.model : null,
@@ -152,14 +193,14 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
           num_images: 1,
           enable_safety_checker: !isMature,
           output_format: "jpeg",
-          loras: activeLoras.map((l) => ({
+          loras: effectiveLoras.map((l) => ({
             path: l.url,
             scale: l.scale ?? 0.85,
           })),
         };
         if (useLoraWithRef && referenceUrl) {
           body.image_url = referenceUrl;
-          body.strength = 0.55;
+          body.strength = referencePolicy === "LIGHT" ? 0.28 : 0.55;
         }
       } else if (useRedux) {
         // flux-redux : IP-Adapter avec image de référence
@@ -172,7 +213,7 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
           num_images: 1,
           enable_safety_checker: !isMature,
           output_format: "jpeg",
-          strength: 0.72,
+          strength: 0.7,
         };
       } else {
         // flux/dev standard
@@ -190,6 +231,24 @@ export function createFalFluxAdapter(apiKey: string | undefined): ImageGeneratio
       if (input.providerParams?.seed && typeof input.providerParams.seed === "number") {
         body.seed = input.providerParams.seed;
       }
+
+      console.log(
+        `[fal] ${JSON.stringify({
+          workflow: useLora ? "lora_stack" : useRedux ? "redux" : "txt2img",
+          model: falTarget.model,
+          imageSize: typeof imageSize === "string" ? imageSize : `${imageSize.width}x${imageSize.height}`,
+          referencePolicy,
+          panelCategory,
+          scenePass,
+          refs: effectiveReferenceUrls,
+          guidanceScale: body.guidance_scale,
+          seed: body.seed ?? null,
+          strength: body.strength ?? null,
+          positivePrompt: input.positivePrompt,
+          optimizedPrompt: translatedPositive,
+          negativePrompt: translatedNegative,
+        })}`,
+      );
 
       const data = await callFal(apiKey, body, endpoint);
       const imageUrl = extractUrl(data);

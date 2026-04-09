@@ -23,8 +23,8 @@ describe("composeMangaPanelPrompt with scene blueprint", () => {
       characters: [{ name: "Héros", gender: "male", appearance: "silhouette fatiguée" }],
     });
 
-    expect(result.positive).toContain("BLUEPRINT_NARRATIVE");
-    expect(result.positive).toContain("STRICT_CONSTRAINTS");
+    expect(result.positive).toContain("Narrative context");
+    expect(result.positive).toContain("Mandatory constraints");
     expect(result.negative).toContain("empty background");
   });
 
@@ -43,7 +43,7 @@ describe("composeMangaPanelPrompt with scene blueprint", () => {
       },
     });
 
-    expect(result.positive).toContain("MANDATORY_ENVIRONMENT");
+    expect(result.positive).toContain("Environment must stay readable");
     expect(result.positive).toContain("students visible in background");
     expect(result.negative).toContain("empty school courtyard");
   });

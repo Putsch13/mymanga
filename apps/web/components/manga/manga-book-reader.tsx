@@ -144,6 +144,12 @@ type ReaderResponse = {
       status: string | null;
       provider: string | null;
       model: string | null;
+      workflow: string | null;
+      referencePolicy: string | null;
+      panelCategory: string | null;
+      sceneComplexityScore: number | null;
+      environmentCritical: boolean;
+      continuityCritical: boolean;
       prompt: string | null;
       releaseScore: number | null;
       backgroundPresenceScore: number | null;
@@ -153,6 +159,9 @@ type ReaderResponse = {
       visionEnabled: boolean;
       visionFindings: string[];
       rerollCount: number;
+      rerollKind: string | null;
+      scenePass: string | null;
+      imageSize: string | null;
       issues: Array<{ message?: string; severity?: string; type?: string }>;
     }>;
   } | null;
@@ -274,6 +283,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   const [continuing, setContinuing] = useState(false);
   const [continueMsg, setContinueMsg] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [retryingPanel, setRetryingPanel] = useState<string | null>(null);
   const degradedReaderWarning =
     (generationDiagnostics?.degradedModes?.length ?? 0) > 0
       ? [
@@ -312,6 +322,18 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
       .then((data) => setCanonState(data as CanonStateData))
       .catch(() => setCanonState(null));
   }, [projectId, chapterId]);
+
+  const retryPanel = useCallback(async (panelId: string, mode: "environment" | "character" | "composition") => {
+    setRetryingPanel(`${panelId}:${mode}`);
+    try {
+      const res = await fetch(`/api/scene-images/${panelId}/retry?mode=${mode}`, { method: "POST" });
+      if (res.ok) {
+        await load({ preserveIndex: true });
+      }
+    } finally {
+      setRetryingPanel(null);
+    }
+  }, [load]);
 
   useEffect(() => {
     void load();
@@ -906,6 +928,12 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                     <p className="text-muted-foreground">
                       Release {(panel.releaseScore ?? 0).toFixed(2)} · Fond {(panel.backgroundPresenceScore ?? 0).toFixed(2)} · Interaction {(panel.interactionScore ?? 0).toFixed(2)} · Style {(panel.styleConsistencyScore ?? 0).toFixed(2)} · Vision {panel.visionEnabled ? (panel.visionScore ?? 0).toFixed(2) : "off"} · Rerolls {panel.rerollCount}
                     </p>
+                    <p className="mt-1 text-[10px] text-stone-500">
+                      {panel.workflow ?? "workflow ?"} · refs {panel.referencePolicy ?? "?"} · {panel.panelCategory ?? "catégorie ?"} · complexité {panel.sceneComplexityScore ?? "?"} · env {panel.environmentCritical ? "critique" : "normal"} · continuité {panel.continuityCritical ? "critique" : "normale"}
+                    </p>
+                    <p className="text-[10px] text-stone-500">
+                      pass {panel.scenePass ?? "?"} · reroll {panel.rerollKind ?? "none"} · taille {panel.imageSize ?? "?"}
+                    </p>
                     {panel.issues.length > 0 ? (
                       <p className="mt-1 text-[10px] text-amber-300/80">
                         {panel.issues.slice(0, 2).map((issue) => issue.message ?? issue.type ?? "issue").join(" | ")}
@@ -919,6 +947,35 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                     {panel.prompt ? (
                       <p className="mt-1 line-clamp-3 text-[10px] text-stone-400">{panel.prompt}</p>
                     ) : null}
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-[10px]"
+                        disabled={retryingPanel !== null}
+                        onClick={() => void retryPanel(panel.panelId, "environment")}
+                      >
+                        {retryingPanel === `${panel.panelId}:environment` ? "Reroll..." : "Forcer décor"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-[10px]"
+                        disabled={retryingPanel !== null}
+                        onClick={() => void retryPanel(panel.panelId, "character")}
+                      >
+                        {retryingPanel === `${panel.panelId}:character` ? "Reroll..." : "Forcer personnage"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-[10px]"
+                        disabled={retryingPanel !== null}
+                        onClick={() => void retryPanel(panel.panelId, "composition")}
+                      >
+                        {retryingPanel === `${panel.panelId}:composition` ? "Reroll..." : "Forcer composition"}
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>

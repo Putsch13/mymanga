@@ -1,5 +1,6 @@
 import { moderationOutcomeForImage } from "@manga-ai-studio/moderation";
 import type { ContentIntensityLayer } from "@manga-ai-studio/moderation";
+import { computeFalSceneAssessment } from "./fal-scene-strategy";
 import type { ImageRoutingDecision, ImageWorkflow, RoutingContext } from "./types";
 
 const DEFAULT_FLUX_MODEL = "fal-ai/flux/dev";
@@ -26,21 +27,13 @@ function pickBestAvailable(
 
 function pickFluxWorkflow(ctx: RoutingContext): ImageWorkflow {
   if (ctx.needsInpaint) return "inpaint";
+  const assessment = computeFalSceneAssessment(ctx);
+  if (assessment.panelCategory === "CHARACTER_LOCK") return "multi_ref";
+  if (assessment.panelCategory === "LOCAL_FIX") return ctx.needsPoseVariation ? "controlnet" : "txt2img";
+  if (assessment.panelCategory === "ESTABLISHING_ENVIRONMENT") return "txt2img";
   if (ctx.hasCanonReferences && ctx.mode !== "LOCATION_KEYFRAME") return "multi_ref";
   if (ctx.needsPoseVariation) return "controlnet";
   return "txt2img";
-}
-
-function computeSceneComplexity(ctx: RoutingContext) {
-  let score = 0;
-  score += Math.max(0, ctx.characterCountInScene - 1) * 2;
-  score += (ctx.npcCount ?? 0) > 0 ? 2 : 0;
-  score += (ctx.creatureCount ?? 0) > 0 ? 2 : 0;
-  score += ctx.environmentPriority === "high" ? 3 : ctx.environmentPriority === "medium" ? 1 : 0;
-  score += ctx.shotType === "wide" || ctx.shotType === "over_shoulder" ? 2 : 0;
-  score += ctx.styleReferenceRequired ? 2 : 0;
-  score += ctx.hasCanonReferences ? 1 : 0;
-  return score;
 }
 
 function assertProviderAllowed(
@@ -62,7 +55,8 @@ export type RoutingResult =
  * Routage dynamique multi-backend (spec CTO).
  */
 export function decideImageRoute(ctx: RoutingContext): RoutingResult {
-  const sceneComplexity = computeSceneComplexity(ctx);
+  const assessment = computeFalSceneAssessment(ctx);
+  const sceneComplexity = assessment.sceneComplexityScore;
   if (ctx.explicitBlocked) {
     return { blocked: true, reason: "Demande explicite refusée", textOnlyFallback: true };
   }
@@ -80,6 +74,7 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
       model: DEFAULT_FLUX_MODEL,
       workflow: "inpaint",
       reason: "Édition locale case / inpaint prioritaire",
+      ...assessment,
     };
   }
 
@@ -111,6 +106,7 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
                 : "flux-dev",
         workflow: provider === "fal" ? pickFluxWorkflow(ctx) : "txt2img",
         reason: "Adult realistic engine",
+        ...assessment,
       };
     }
     const gate = assertProviderAllowed("fal", layer);
@@ -120,6 +116,7 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
       model: DEFAULT_FLUX_MODEL,
       workflow: pickFluxWorkflow(ctx),
       reason: "Adult fantasy engine",
+      ...assessment,
     };
   }
 
@@ -141,6 +138,7 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
       model: DEFAULT_FLUX_MODEL,
       workflow: "lora_stack",
       reason: "Nouveau personnage manga : FLUX + LoRA stack",
+      ...assessment,
     };
   }
 
@@ -158,11 +156,18 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
             : provider === "stability"
               ? DEFAULT_STABILITY_MODEL
               : "flux-dev",
-      workflow: provider === "fal" ? "multi_ref" : "txt2img",
+      workflow: provider === "fal"
+        ? assessment.panelCategory === "CHARACTER_LOCK"
+          ? "multi_ref"
+          : "txt2img"
+        : "txt2img",
       reason:
         provider === "fal"
-          ? `Cohérence personnage existant : multi-ref, complexity=${sceneComplexity}`
+          ? assessment.panelCategory === "CHARACTER_LOCK"
+            ? `Character lock prioritaire : multi-ref, complexity=${sceneComplexity}`
+            : `Scene-first panel : composition prioritaire avec refs dosées, complexity=${sceneComplexity}`
           : `Fallback provider (multi-ref indisponible), complexity=${sceneComplexity}`,
+      ...assessment,
     };
   }
 
@@ -185,6 +190,7 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
       model: DEFAULT_FLUX_MODEL,
       workflow: "multi_ref",
       reason: "Style transfer : FLUX multi-reference",
+      ...assessment,
     };
   }
 
@@ -210,6 +216,7 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
       model: DEFAULT_FLUX_MODEL,
       workflow: pickFluxWorkflow(ctx),
       reason: "Cover stylisée premium : FLUX",
+      ...assessment,
     };
   }
 
@@ -234,7 +241,8 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
     workflow: effectiveProvider === "fal" ? pickFluxWorkflow(ctx) : "txt2img",
     reason:
       effectiveProvider === "fal"
-        ? `Défaut : FLUX stylisé, complexity=${sceneComplexity}`
+        ? `${assessment.panelCategory}: FLUX scene-first, complexity=${sceneComplexity}`
         : `Défaut : fallback provider (clé FAL manquante), complexity=${sceneComplexity}`,
+    ...assessment,
   };
 }

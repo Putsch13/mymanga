@@ -141,11 +141,6 @@ function sanitizeSectionText(value: string) {
   return value.replace(/\s+/g, " ").replace(/,+/g, ",").trim();
 }
 
-function section(label: string, value: string | null | undefined) {
-  if (!value?.trim()) return "";
-  return `${label}: ${sanitizeSectionText(value)}`;
-}
-
 function buildEnvironmentLock(input: PanelPromptInput) {
   const pieces: string[] = [];
   const lower = `${input.location} ${input.action} ${input.environmentHint ?? ""} ${input.sceneContext ?? ""}`.toLowerCase();
@@ -186,57 +181,36 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
       ? input.characters.map(describeCharacter).join(" | ")
       : "";
 
+  const blueprint = input.sceneBlueprint;
   const positiveParts: string[] = [
-    section("STYLE", visualStyle),
-    section("CAMERA", cameraDesc),
-    section("SUBJECT", `location ${input.location}`),
+    sanitizeSectionText(`${visualStyle}. ${cameraDesc}. ${input.location} clearly visible.`),
   ];
-
-  if (charDescs) positiveParts.push(section("CAST", charDescs));
-  positiveParts.push(section("ACTION", input.action));
-  positiveParts.push(section("MOOD", moodDesc));
-
-  if (input.sceneContext) {
-    positiveParts.push(section("NARRATIVE", input.sceneContext.slice(0, 260)));
-  }
-
-  if (input.environmentHint) {
-    positiveParts.push(section("ENVIRONMENT", input.environmentHint.slice(0, 320)));
-  }
+  if (charDescs) positiveParts.push(sanitizeSectionText(`Characters in scene: ${charDescs}.`));
+  positiveParts.push(sanitizeSectionText(`Main action: ${input.action}.`));
+  positiveParts.push(sanitizeSectionText(`Mood and lighting: ${moodDesc}.`));
+  if (input.sceneContext) positiveParts.push(sanitizeSectionText(`Narrative context: ${input.sceneContext.slice(0, 220)}.`));
+  if (input.environmentHint) positiveParts.push(sanitizeSectionText(`Required environment: ${input.environmentHint.slice(0, 260)}.`));
   const environmentLock = buildEnvironmentLock(input);
-  if (environmentLock) positiveParts.push(section("MANDATORY_ENVIRONMENT", environmentLock));
-  if (input.sceneBlueprint) {
+  if (environmentLock) positiveParts.push(sanitizeSectionText(`Environment must stay readable: ${environmentLock}.`));
+  if (blueprint) {
     positiveParts.push(
-      section("BLUEPRINT_NARRATIVE", input.sceneBlueprint.narrativeContext.progressionBeat),
-      section("BLUEPRINT_COMPOSITION", input.sceneBlueprint.composition.framingRules.join(" | ")),
-      section(
-        "BLUEPRINT_SPACE",
-        `foreground ${input.sceneBlueprint.environment.foregroundElements.join(" | ")} ; midground ${input.sceneBlueprint.environment.midgroundElements.join(" | ")} ; background ${input.sceneBlueprint.environment.backgroundElements.join(" | ")}`,
+      sanitizeSectionText(`Panel composition: ${blueprint.composition.framingRules.join(", ")}.`),
+      sanitizeSectionText(
+        `Spatial staging: foreground ${blueprint.environment.foregroundElements.join(", ")}; midground ${blueprint.environment.midgroundElements.join(", ")}; background ${blueprint.environment.backgroundElements.join(", ")}.`,
       ),
-      section("STRICT_CONSTRAINTS", input.sceneBlueprint.constraints.hard.join(" | ")),
     );
-    if (input.sceneBlueprint.constraints.soft.length > 0) {
-      positiveParts.push(section("SOFT_CONSTRAINTS", input.sceneBlueprint.constraints.soft.slice(0, 5).join(" | ")));
+    if (blueprint.constraints.hard.length > 0) {
+      positiveParts.push(sanitizeSectionText(`Mandatory constraints: ${blueprint.constraints.hard.join(", ")}.`));
     }
   }
-
-  if (intensityNote && layer !== "GENERAL_SAFE") positiveParts.push(section("CONTENT", intensityNote));
-  positiveParts.push(section(
-    "QUALITY",
-    "high detail, consistent character design, professional manga art, ink lines, readable environment, clear spatial relation, same character appearance as previous panels",
-  ));
+  if (input.dialogueHint) positiveParts.push(sanitizeSectionText(`Character emotion or subtext: ${input.dialogueHint.slice(0, 120)}.`));
+  if (intensityNote && layer !== "GENERAL_SAFE") positiveParts.push(sanitizeSectionText(`Content boundaries: ${intensityNote}.`));
+  positiveParts.push("Readable background, strong environment, coherent manga composition, clear spatial relation between characters and place.");
   if (input.characters && input.characters.length > 0) {
-    positiveParts.push(section(
-      "CONTINUITY",
-      "preserve exact hair length and color, eye color, outfit, body modifications, scars, facial features, no character drift",
-    ));
+    positiveParts.push("Keep character continuity stable: same hair, same face, same outfit, same silhouette.");
   }
 
-  if (input.dialogueHint) {
-    positiveParts.push(section("SUBTEXT", input.dialogueHint.slice(0, 150)));
-  }
-
-  const positive = positiveParts.filter(Boolean).join(" ; ");
+  const positive = positiveParts.filter(Boolean).join(" ");
 
   // Negative prompt enrichi selon le layer + verrous de dérive visuelle
   let negative = BASE_NEGATIVE;

@@ -171,6 +171,14 @@ export async function GET(_req: Request, ctx: Ctx) {
         validationDetails.visionAnalysis && typeof validationDetails.visionAnalysis === "object"
           ? (validationDetails.visionAnalysis as Record<string, unknown>)
           : {};
+      const generationLog =
+        meta.generationLog && typeof meta.generationLog === "object"
+          ? (meta.generationLog as Record<string, unknown>)
+          : {};
+      const falStrategy =
+        meta.falStrategy && typeof meta.falStrategy === "object"
+          ? (meta.falStrategy as Record<string, unknown>)
+          : {};
       return {
         sceneId: scene.id,
         panelId: image.id,
@@ -178,10 +186,38 @@ export async function GET(_req: Request, ctx: Ctx) {
         status: image.status,
         provider: image.provider,
         model: image.model,
+        workflow:
+          typeof generationLog.workflow === "string"
+            ? generationLog.workflow
+            : typeof falStrategy.workflow === "string"
+              ? falStrategy.workflow
+              : null,
         prompt:
           typeof image.prompt === "string"
             ? image.prompt.slice(0, 700)
             : null,
+        referencePolicy:
+          typeof generationLog.referencePolicy === "string"
+            ? generationLog.referencePolicy
+            : typeof falStrategy.referencePolicy === "string"
+              ? falStrategy.referencePolicy
+              : null,
+        panelCategory:
+          typeof generationLog.panelCategory === "string"
+            ? generationLog.panelCategory
+            : typeof falStrategy.panelCategory === "string"
+              ? falStrategy.panelCategory
+              : null,
+        sceneComplexityScore:
+          typeof generationLog.sceneComplexityScore === "number"
+            ? generationLog.sceneComplexityScore
+            : typeof falStrategy.sceneComplexityScore === "number"
+              ? falStrategy.sceneComplexityScore
+              : null,
+        environmentCritical:
+          falStrategy.environmentCritical === true,
+        continuityCritical:
+          falStrategy.continuityCritical === true,
         releaseScore: typeof qualityScores.releaseScore === "number" ? qualityScores.releaseScore : image.consistencyScore ?? null,
         backgroundPresenceScore:
           typeof qualityScores.backgroundPresenceScore === "number" ? qualityScores.backgroundPresenceScore : null,
@@ -197,6 +233,9 @@ export async function GET(_req: Request, ctx: Ctx) {
             ? visionAnalysis.findings
             : [],
         rerollCount: typeof meta.rerollCount === "number" ? meta.rerollCount : 0,
+        rerollKind: typeof meta.rerollKind === "string" ? meta.rerollKind : null,
+        scenePass: typeof meta.scenePass === "string" ? meta.scenePass : null,
+        imageSize: typeof generationLog.imageSize === "string" ? generationLog.imageSize : null,
         issues:
           Array.isArray(validationDetails.issues)
             ? validationDetails.issues

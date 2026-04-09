@@ -10,6 +10,8 @@ export * from "./run-generation";
 export * from "./chapter-outline";
 export * from "./chapter-pipeline";
 export * from "./image-generation-config";
+export * from "./fal-scene-strategy";
+export * from "./fal-benchmark";
 export * from "./generation-status";
 export * from "./manga-prompt-composer";
 export * from "./character-visual-composer";

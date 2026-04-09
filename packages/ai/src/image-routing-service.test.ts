@@ -51,21 +51,23 @@ describe("decideImageRoute", () => {
     expect("provider" in r && r.provider).toBe("stability");
   });
 
-  it("panel avec refs vers multi_ref fal", () => {
+  it("panel narratif avec refs reste scene-first en txt2img", () => {
     const r = decideImageRoute({
       mode: "PANEL_FINAL",
       contentIntensityLayer: "GENERAL_SAFE",
       isNewCharacter: false,
       hasCanonReferences: true,
       characterCountInScene: 1,
+      scenePurpose: "simple story panel",
       needsInpaint: false,
       needsPoseVariation: false,
       preferPhotorealCover: false,
       explicitBlocked: false,
       goreStylizedMature: false,
     });
-    expect("workflow" in r && r.workflow).toBe("multi_ref");
+    expect("workflow" in r && r.workflow).toBe("txt2img");
     expect("model" in r && r.model).toBe("fal-ai/flux/dev");
+    expect("referencePolicy" in r && r.referencePolicy).toBe("LIGHT");
   });
 
   it("priorise fal sur une scène complexe à décor fort", () => {
@@ -89,5 +91,7 @@ describe("decideImageRoute", () => {
     });
     expect("provider" in r && r.provider).toBe("fal");
     expect("reason" in r && r.reason).toContain("complexity=");
+    expect("panelCategory" in r && r.panelCategory).toBe("ESTABLISHING_ENVIRONMENT");
+    expect("referencePolicy" in r && r.referencePolicy).toBe("NONE");
   });
 });

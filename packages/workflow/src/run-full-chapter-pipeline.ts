@@ -13,6 +13,8 @@ import {
   inferEntityProfile,
   resolveAdultEngine,
   buildCharacterPromptBundle,
+  computeFalSceneAssessment,
+  getFalImageSizePreset,
   getPremiumImageSize,
   type StoryboardPanel,
   type RoutingContext,
@@ -322,6 +324,16 @@ async function mergeJobOutput(jobId: string, patch: Record<string, unknown>) {
 function buildRoutingContext(
   intensityLayer: string,
   panel: StoryboardPanel,
+  panelContract: {
+    purpose?: string;
+    shotType?: "wide" | "medium" | "closeup" | "extreme_closeup" | "over_shoulder";
+    cameraAngle?: string;
+    npcPresence?: string[];
+    npcGroupPresence?: string[];
+    creaturePresence?: string[];
+    mustShowLocationSignals?: string[];
+  } | undefined,
+  stylePack: { backgroundDensity?: string | null } | null | undefined,
   hasCanonRef: boolean,
   adultEngine?: "realistic" | "fantasy",
 ): RoutingContext {
@@ -333,9 +345,12 @@ function buildRoutingContext(
     isNewCharacter: false,
     hasCanonReferences: hasCanonRef,
     characterCountInScene: panel.characters.length,
-    npcCount: /(crowd|guard|merchant|passant|client|audience|foule|garde)/.test(text) ? 1 : 0,
-    creatureCount: /(creature|monster|spirit|dragon|familiar|beast|mutant)/.test(text) ? 1 : 0,
-    shotType: /(wide|establishing|panorama|vue d'ensemble)/.test(text)
+    purpose: panelContract?.purpose,
+    npcCount: (panelContract?.npcPresence?.length ?? 0) > 0 || /(crowd|guard|merchant|passant|client|audience|foule|garde)/.test(text) ? 1 : 0,
+    creatureCount: (panelContract?.creaturePresence?.length ?? 0) > 0 || /(creature|monster|spirit|dragon|familiar|beast|mutant)/.test(text) ? 1 : 0,
+    hasNpcGroup: (panelContract?.npcGroupPresence?.length ?? 0) > 0,
+    hasCreatureGroup: (panelContract?.creaturePresence?.length ?? 0) > 1,
+    shotType: panelContract?.shotType ?? (/(wide|establishing|panorama|vue d'ensemble)/.test(text)
       ? "wide"
       : /(over shoulder|over-shoulder|par-dessus l'épaule)/.test(text)
         ? "over_shoulder"
@@ -343,13 +358,25 @@ function buildRoutingContext(
           ? "extreme_closeup"
           : /(close-up|closeup|gros plan)/.test(text)
             ? "closeup"
-            : "medium",
+            : "medium"),
+    cameraAngle: panelContract?.cameraAngle,
     environmentPriority:
-      /(environment|decor|décor|background|ruins|city|forest|garden|lab|arena|crowd)/.test(text)
+      (panelContract?.mustShowLocationSignals?.length ?? 0) >= 2
+      || /(environment|decor|décor|background|ruins|city|forest|garden|lab|arena|crowd|school|campus|courtyard)/.test(text)
         ? "high"
         : panel.characters.length >= 2
           ? "medium"
           : "low",
+    locationComplexity: Math.min(30, (panelContract?.mustShowLocationSignals?.length ?? 0) * 6),
+    environmentDensityRequired:
+      stylePack?.backgroundDensity === "high" || (panelContract?.shotType === "wide")
+        ? "high"
+        : stylePack?.backgroundDensity === "low"
+          ? "low"
+          : "medium",
+    continuityWeight: hasCanonRef ? 70 : 35,
+    scenePurpose: panel.caption,
+    styleBackgroundDensity: stylePack?.backgroundDensity ?? null,
     styleReferenceRequired: hasCanonRef || /(style|render family|ink|shading)/.test(text),
     needsInpaint: false,
     needsPoseVariation: false,
@@ -1749,7 +1776,6 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
 
     async function processOneImage(item: PlannedImage): Promise<"ok" | "fail"> {
       const panelCharacterNames: string[] = item.panel.characters ?? [];
-      // Ref canon : prendre la première ref disponible parmi les persos du panel
       const canonRef = panelCharacterNames.map((n) => canonRefByName.get(n)).find(Boolean) ?? null;
 
       const panelLoras = panelCharacterNames
@@ -1757,108 +1783,169 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         .filter((l): l is { url: string; triggerWord: string; scale: number } => Boolean(l))
         .slice(0, 2);
 
-      // Priorité : LoRA > ref canon perso > txt2img
-      // (pas de keyframe image : la cohérence décor passe par composeEnvironment dans le prompt)
       const refs: string[] = [];
       if (canonRef) {
         const signedCanonRef = await signIfSupabaseStorageUrl(canonRef);
-        // Vérifier que l'URL de référence est encore accessible avant de la passer à FAL
-        // Une URL expirée (FAL CDN temporaire) cause une erreur 422 "Failed to download the file"
         const isAccessible = await fetch(signedCanonRef, { method: "HEAD", signal: AbortSignal.timeout(4000) })
           .then((r) => r.ok)
           .catch(() => false);
-        if (isAccessible) {
-          refs.push(signedCanonRef);
-        } else {
-          console.warn(`[pipeline] canonRef URL inaccessible (expirée ?), ignorée pour ce panel: ${canonRef.slice(0, 80)}`);
-        }
+        if (isAccessible) refs.push(signedCanonRef);
+        else console.warn(`[pipeline] canonRef URL inaccessible (expirée ?), ignorée pour ce panel: ${canonRef.slice(0, 80)}`);
       }
 
       const hasCanonRef = refs.length > 0 || panelLoras.length > 0;
+      const panelContractMeta = item.baseMetadata.panelContract as {
+        purpose?: string;
+        shotType?: "wide" | "medium" | "closeup" | "extreme_closeup" | "over_shoulder";
+        cameraAngle?: string;
+        npcPresence?: string[];
+        npcGroupPresence?: string[];
+        creaturePresence?: string[];
+        mustShowLocationSignals?: string[];
+      } | undefined;
+      const stylePackMeta = item.baseMetadata.stylePack as {
+        renderFamily?: string | null;
+        lineWeight?: string | null;
+        shadingMode?: string | null;
+        contrastProfile?: string | null;
+        anatomyBias?: string | null;
+        backgroundDensity?: string | null;
+        cameraLanguage?: string | null;
+        negativeConstraints?: string[];
+      } | undefined;
+      const panelCharDetails = panelCharacterNames.map((name) => {
+        const c = rawCharacters.find((rc) => rc.name === name);
+        return {
+          name,
+          gender: c?.gender ?? null,
+          hairColor: c?.hairColor ?? null,
+          eyeColor: c?.eyeColor ?? null,
+          bodyDetails: c?.bodyDetails ?? null,
+          appearance: c?.appearance ?? null,
+        };
+      });
+      const charactersWithFingerprints = panelCharacterNames
+        .map((name) => {
+          const c = rawCharacters.find((rc) => rc.name === name);
+          if (!c) return null;
+          const fingerprintRaw = (c as { characterFingerprint?: unknown }).characterFingerprint;
+          const fingerprint = fingerprintRaw && typeof fingerprintRaw === "object"
+            ? fingerprintRaw as Record<string, unknown>
+            : null;
+          if (!fingerprint || Object.keys(fingerprint).length === 0) return null;
+          return {
+            characterId: c.id,
+            characterName: c.name,
+            fingerprint: fingerprint as never,
+          };
+        })
+        .filter((c): c is NonNullable<typeof c> => c !== null);
 
       try {
-        const routingCtx = buildRoutingContext(intensityLayer, item.panel, hasCanonRef, adultEngine);
-        const result = await runRoutedImageGeneration(routingCtx, {
-          mode: "PANEL_DRAFT",
-          positivePrompt: item.panel.prompt,
-          negativePrompt: item.panel.negativePrompt,
-          width: PANEL_DRAFT_SIZE.width,
-          height: PANEL_DRAFT_SIZE.height,
-          loras: panelLoras.length > 0 ? panelLoras : undefined,
-          referenceImageUrls: refs.length > 0 ? refs : undefined,
-          providerParams: {
-            contentIntensityLayer: intensityLayer,
-            mode: "PANEL_DRAFT",
-          },
+        const routingCtx = buildRoutingContext(intensityLayer, item.panel, panelContractMeta, stylePackMeta, hasCanonRef, adultEngine);
+        const strategy = computeFalSceneAssessment(routingCtx);
+
+        const buildValidationDetails = (validation: Awaited<ReturnType<typeof validateGeneratedPanel>>) => ({
+          qualityScores: validation.qualityScores
+            ? {
+                backgroundPresenceScore: validation.qualityScores.backgroundPresenceScore,
+                environmentReadabilityScore: validation.qualityScores.environmentReadabilityScore,
+                interactionScore: validation.qualityScores.interactionScore,
+                shotComplianceScore: validation.qualityScores.shotComplianceScore,
+                styleConsistencyScore: validation.qualityScores.styleConsistencyScore,
+                releaseScore: validation.qualityScores.releaseScore,
+                visionScore: validation.qualityScores.visionScore ?? null,
+              }
+            : undefined,
+          visionAnalysis: validation.visionAnalysis,
+          issues: validation.issues,
+          propertyChecks: validation.propertyChecks,
         });
 
-        if (result.ok) {
-          // Drift detection + auto-reroll
-          const panelCharDetails = panelCharacterNames.map((name) => {
-            const c = rawCharacters.find((rc) => rc.name === name);
-            return {
-              name,
-              gender: c?.gender ?? null,
-              hairColor: c?.hairColor ?? null,
-              eyeColor: c?.eyeColor ?? null,
-              bodyDetails: c?.bodyDetails ?? null,
-              appearance: c?.appearance ?? null,
-            };
+        const isEnvironmentSufficientForNarrativePanel = (validation: Awaited<ReturnType<typeof validateGeneratedPanel>>) => {
+          if (strategy.panelCategory === "CHARACTER_LOCK" || strategy.panelCategory === "LOCAL_FIX") return true;
+          const scores = validation.qualityScores;
+          if (!scores) return false;
+          const schoolScene = /school|lycée|lycee|école|ecole|campus|cour du lycée/i.test(item.panel.prompt);
+          const visionFindings = validation.visionAnalysis?.findings.join(" | ").toLowerCase() ?? "";
+          return !(
+            scores.backgroundPresenceScore < 0.62
+            || scores.environmentReadabilityScore < 0.6
+            || (strategy.interactionCritical && scores.interactionScore < 0.58)
+            || (schoolScene && /missing school architecture|generic background|fond vide/.test(visionFindings))
+          );
+        };
+
+        const pickRerollKind = (
+          validation: Awaited<ReturnType<typeof validateGeneratedPanel>>,
+          driftPass: boolean,
+        ): "REROLL_ENVIRONMENT" | "REROLL_CHARACTER_FIDELITY" | "REROLL_INTERACTION" | "REROLL_STYLE" | "REROLL_COMPOSITION" => {
+          const scores = validation.qualityScores;
+          if (!scores) return "REROLL_COMPOSITION";
+          if (scores.backgroundPresenceScore < 0.62 || scores.environmentReadabilityScore < 0.6) return "REROLL_ENVIRONMENT";
+          if (strategy.interactionCritical && scores.interactionScore < 0.58) return "REROLL_INTERACTION";
+          if (!driftPass || validation.issues.some((issue) => issue.type === "missing_character" || issue.type === "wrong_hair" || issue.type === "wrong_outfit")) {
+            return "REROLL_CHARACTER_FIDELITY";
+          }
+          if (validation.issues.some((issue) => issue.type === "style_drift")) return "REROLL_STYLE";
+          return "REROLL_COMPOSITION";
+        };
+
+        const rankCandidate = (
+          validation: Awaited<ReturnType<typeof validateGeneratedPanel>>,
+          drift: ReturnType<typeof detectVisualDrift>,
+        ) => {
+          const scores = validation.qualityScores;
+          const release = scores?.releaseScore ?? validation.score;
+          return release
+            + (scores?.backgroundPresenceScore ?? 0) * 0.2
+            + (scores?.interactionScore ?? 0) * 0.15
+            + (drift.pass ? 0.05 : -0.08);
+        };
+
+        const generateAttempt = async (params: {
+          scenePass: "scene_base" | "character_reinforcement" | "reroll";
+          referencePolicy: "NONE" | "LIGHT" | "STRONG";
+          positivePrompt: string;
+          negativePrompt: string;
+          sizePreset: "character_ref" | "panel_story" | "panel_establishing" | "reroll_local" | "reroll_scene";
+          rerollKind?: "REROLL_ENVIRONMENT" | "REROLL_CHARACTER_FIDELITY" | "REROLL_INTERACTION" | "REROLL_STYLE" | "REROLL_COMPOSITION";
+          seed?: number;
+        }) => {
+          const size = getFalImageSizePreset(params.sizePreset);
+          return runRoutedImageGeneration(routingCtx, {
+            mode: "PANEL_DRAFT",
+            positivePrompt: params.positivePrompt,
+            negativePrompt: params.negativePrompt,
+            width: size.width,
+            height: size.height,
+            loras: params.referencePolicy === "NONE" ? undefined : (panelLoras.length > 0 ? panelLoras : undefined),
+            referenceImageUrls: params.referencePolicy === "NONE" ? undefined : (refs.length > 0 ? refs : undefined),
+            providerParams: {
+              contentIntensityLayer: intensityLayer,
+              mode: "PANEL_DRAFT",
+              seed: params.seed,
+              referencePolicy: params.referencePolicy,
+              panelCategory: strategy.panelCategory,
+              scenePass: params.scenePass,
+              rerollKind: params.rerollKind,
+            },
           });
-          // ── Validation stricte avec CharacterFingerprint (Bloc 2) ──────────────
-          const charactersWithFingerprints = panelCharacterNames
-            .map((name) => {
-              const c = rawCharacters.find((rc) => rc.name === name);
-              if (!c) return null;
-              
-              const fingerprintRaw = (c as { characterFingerprint?: unknown }).characterFingerprint;
-              const fingerprint = fingerprintRaw && typeof fingerprintRaw === "object"
-                ? fingerprintRaw as Record<string, unknown>
-                : null;
+        };
 
-              // Si pas de fingerprint, skip validation stricte
-              if (!fingerprint || Object.keys(fingerprint).length === 0) return null;
-
-              return {
-                characterId: c.id,
-                characterName: c.name,
-                fingerprint: fingerprint as never,
-              };
-            })
-            .filter((c): c is NonNullable<typeof c> => c !== null);
-
-          let shouldRerollStrict = false;
-          let validationScore = 1.0;
-          let validationDetails:
-            | {
-                qualityScores?: {
-                  backgroundPresenceScore: number;
-                  environmentReadabilityScore: number;
-                  interactionScore: number;
-                  shotComplianceScore: number;
-                  styleConsistencyScore: number;
-                  releaseScore: number;
-                  visionScore?: number | null;
-                };
-                visionAnalysis?: {
-                  enabled: boolean;
-                  model?: string | null;
-                  confidence?: number | null;
-                  findings: string[];
-                };
-                issues: Array<{ message: string; severity: string; type: string }>;
-                propertyChecks?: Array<{ property: string; ok: boolean; message: string }>;
-              }
-            | undefined;
-
+        const validateAttempt = async (
+          generation: Awaited<ReturnType<typeof generateAttempt>>,
+          referencePolicy: "NONE" | "LIGHT" | "STRONG",
+        ) => {
+          if (!generation.ok) return null;
           const validation = await validateGeneratedPanel({
             panelId: item.sceneImageId,
-            imageUrl: result.result.imageUrl,
+            imageUrl: generation.result.imageUrl,
             requiredCharacters: charactersWithFingerprints,
             metadata: {
               prompt: item.panel.prompt,
               negativePrompt: item.panel.negativePrompt,
-              model: result.result.model,
+              model: generation.result.model,
               sceneBlueprint: item.baseMetadata.sceneBlueprint as SceneBlueprint,
               panelContract: item.baseMetadata.panelContract as {
                 shotType?: string;
@@ -1866,223 +1953,224 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 mustShow?: string[];
                 backgroundExtras?: string[];
               },
-              stylePack: (item.baseMetadata.stylePack ?? undefined) as {
-                renderFamily?: string | null;
-                lineWeight?: string | null;
-                shadingMode?: string | null;
-                contrastProfile?: string | null;
-                anatomyBias?: string | null;
-                backgroundDensity?: string | null;
-                cameraLanguage?: string | null;
-                negativeConstraints?: string[];
-              } | undefined,
+              stylePack: stylePackMeta,
             },
           });
-
-          validationScore = validation.score;
-          shouldRerollStrict = validation.requiredReroll;
-          validationDetails = {
-            qualityScores: validation.qualityScores
-              ? {
-                  backgroundPresenceScore: validation.qualityScores.backgroundPresenceScore,
-                  environmentReadabilityScore: validation.qualityScores.environmentReadabilityScore,
-                  interactionScore: validation.qualityScores.interactionScore,
-                  shotComplianceScore: validation.qualityScores.shotComplianceScore,
-                  styleConsistencyScore: validation.qualityScores.styleConsistencyScore,
-                  releaseScore: validation.qualityScores.releaseScore,
-                  visionScore: validation.qualityScores.visionScore ?? null,
-                }
-              : undefined,
-            visionAnalysis: validation.visionAnalysis,
-            issues: validation.issues,
-            propertyChecks: validation.propertyChecks,
-          };
-
-          if (shouldRerollStrict) {
-            console.warn(
-              `[pipeline] validation failed score=${validation.score.toFixed(2)} panel=${item.sceneImageId} critical_issues=${validation.issues.filter((i) => i.severity === "critical").length}`
-            );
-          }
-
-          // Fallback sur ancien drift detector si pas de fingerprint
           const drift = detectVisualDrift({
             prompt: item.panel.prompt,
             characters: panelCharDetails,
-            usedLoras: panelLoras.length > 0,
-            usedRefs: refs.length > 0,
+            usedLoras: referencePolicy !== "NONE" && panelLoras.length > 0,
+            usedRefs: referencePolicy !== "NONE" && refs.length > 0,
           });
+          return {
+            generation,
+            validation,
+            drift,
+            validationScore: validation.score,
+            validationDetails: buildValidationDetails(validation),
+            rerollKind: pickRerollKind(validation, drift.pass),
+          };
+        };
 
-          const MAX_REROLL = 2;
-          let finalResult = result;
-          let rerollCount = 0;
+        const baseReferencePolicy = strategy.panelCategory === "ESTABLISHING_ENVIRONMENT" ? "NONE" : (strategy.referencePolicy ?? "LIGHT");
+        let bestAttempt = await validateAttempt(
+          await generateAttempt({
+            scenePass: strategy.panelCategory === "ESTABLISHING_ENVIRONMENT" ? "scene_base" : "character_reinforcement",
+            referencePolicy: baseReferencePolicy,
+            positivePrompt: item.panel.prompt,
+            negativePrompt: item.panel.negativePrompt,
+            sizePreset: strategy.sizePreset,
+          }),
+          baseReferencePolicy,
+        );
 
-          const shouldReroll = shouldRerollStrict || !drift.pass;
-
-          if (shouldReroll && MAX_REROLL > 0) {
-            const reason = shouldRerollStrict
-              ? `validation score=${validationScore.toFixed(2)}`
-              : `drift score=${drift.score}`;
-            console.warn(`[pipeline] reroll required: ${reason} panel=${item.sceneImageId}`);
-
-            for (let attempt = 0; attempt < MAX_REROLL; attempt++) {
-              const boostNeg = drift.issues
-                .filter((issue) => issue.includes("absent"))
-                .map((issue) => {
-                  const match = issue.match(/"([^"]+)" absent/);
-                  return match ? `wrong ${match[1]}` : "";
-                })
-                .filter(Boolean)
-                .join(", ");
-              const strongerEnvironmentPrompt = validationDetails?.qualityScores
-                && (
-                  validationDetails.qualityScores.backgroundPresenceScore < 0.62
-                  || validationDetails.qualityScores.environmentReadabilityScore < 0.6
-                )
-                ? [
-                    "full environment visible",
-                    "readable layered background",
-                    "foreground, midground, background all explicit",
-                    ...(Array.isArray((item.baseMetadata.panelContract as Record<string, unknown> | undefined)?.mustShow)
-                      ? ((item.baseMetadata.panelContract as Record<string, unknown>).mustShow as string[])
-                      : []
-                    ).slice(0, 4),
-                  ].join(", ")
-                : "";
-              const strongerInteractionPrompt = validationDetails?.qualityScores
-                && validationDetails.qualityScores.interactionScore < 0.58
-                ? `environment affects action, ${String((item.baseMetadata.sceneBlueprint as Record<string, unknown> | undefined)?.promptBridge && typeof (item.baseMetadata.sceneBlueprint as { promptBridge?: { actionLine?: string } }).promptBridge?.actionLine === "string"
-                    ? (item.baseMetadata.sceneBlueprint as { promptBridge?: { actionLine?: string } }).promptBridge?.actionLine
-                    : "interaction remains readable")}`
-                : "";
-              const rerollPositivePrompt = [
-                item.panel.prompt,
-                strongerEnvironmentPrompt,
-                strongerInteractionPrompt,
-              ].filter(Boolean).join(", ");
-              const strongerNegative = validationDetails?.issues
-                .filter((issue) =>
-                  issue.type === "empty_background"
-                  || issue.type === "weak_environment"
-                  || issue.type === "weak_interaction"
-                  || issue.type === "style_drift",
-                )
-                .map((issue) => issue.type)
-                .join(", ");
-
-              const rerollResult = await runRoutedImageGeneration(routingCtx, {
-                mode: "PANEL_DRAFT",
-                positivePrompt: rerollPositivePrompt,
-                negativePrompt: [item.panel.negativePrompt, boostNeg, strongerNegative, "empty background, vague background, no environment interaction, plain backdrop"]
-                  .filter(Boolean)
-                  .join(", "),
-                width: PANEL_DRAFT_SIZE.width,
-                height: PANEL_DRAFT_SIZE.height,
-                loras: panelLoras.length > 0 ? panelLoras : undefined,
-                referenceImageUrls: refs.length > 0 ? refs : undefined,
-                providerParams: {
-                  contentIntensityLayer: intensityLayer,
-                  mode: "PANEL_DRAFT",
-                  seed: Date.now() + attempt,
-                },
-              });
-              rerollCount++;
-
-              if (rerollResult.ok) {
-                finalResult = rerollResult;
-                break;
-              }
-            }
-          }
-
-          const persisted = await persistImageIfNeeded({
-            imageUrl: finalResult.ok ? finalResult.result.imageUrl : result.result.imageUrl,
-            projectId,
-            chapterId,
-            sceneImageId: item.sceneImageId,
-          });
-
-          if (!persisted.ok) {
-            await prisma.sceneImage.update({
-              where: { id: item.sceneImageId },
-              data: {
-                status: "failed",
-                metadata: ({
-                  ...item.baseMetadata,
-                  error: persisted.error,
-                  sourceUrl: finalResult.ok ? finalResult.result.imageUrl : result.result.imageUrl,
-                  generationLog: finalResult.ok ? finalResult.log : result.log,
-                } as unknown) as Prisma.InputJsonValue,
-              },
-            });
-            return "fail";
-          }
-
-          const finalLog = finalResult.ok ? finalResult.log : result.log;
-          const finalRouting = finalResult.ok ? finalResult.routing : result.routing;
-          const finalProvider = finalResult.ok ? finalResult.result.provider : result.result.provider;
-          const finalModel = finalResult.ok ? finalResult.result.model : result.result.model;
-          const primaryCharacterId =
-            charactersWithFingerprints[0]?.characterId
-            ?? rawCharacters.find((character) => character.name === item.panel.characters[0])?.id;
-          const visualConsistency =
-            finalResult.ok && primaryCharacterId
-              ? await scoreVisualConsistency(prisma, {
-                  imageId: item.sceneImageId,
-                  characterId: primaryCharacterId,
-                  generatedMetadata: {
-                    prompt: item.panel.prompt,
-                  },
-                })
-              : null;
-          const combinedConsistencyScore =
-            validationDetails?.qualityScores?.releaseScore != null
-              ? visualConsistency
-                ? (validationDetails.qualityScores.releaseScore + visualConsistency.overall) / 2
-                : validationDetails.qualityScores.releaseScore
-              : drift.score;
-
-          await prisma.sceneImage.update({
-            where: { id: item.sceneImageId },
-            data: {
-              imageUrl: persisted.url,
-              provider: finalProvider,
-              model: finalModel,
-              status: "completed",
-              consistencyScore: combinedConsistencyScore,
-              routingDecision: finalRouting as unknown as Prisma.InputJsonValue,
-              metadata: ({
-                ...item.baseMetadata,
-                generationLog: finalLog,
-                persisted: persisted.persisted,
-                temporary: "temporary" in persisted ? (persisted.temporary as boolean) : undefined,
-                storageWarning: "warning" in persisted ? (persisted.warning as string) : undefined,
-                sourceUrl: finalResult.ok ? finalResult.result.imageUrl : result.result.imageUrl,
-                canonRefUsed: canonRef ?? null,
-                driftScore: drift.score,
-                driftPass: drift.pass,
-                driftIssues: drift.issues.slice(0, 5),
-                promptVisualConsistency: visualConsistency,
-                validationScore,
-                validationDetails,
-                rerollCount,
-              } as unknown) as Prisma.InputJsonValue,
-            },
-          });
-          return "ok";
-        } else {
+        if (!bestAttempt) {
           await prisma.sceneImage.update({
             where: { id: item.sceneImageId },
             data: {
               status: "blocked",
               metadata: ({
                 ...item.baseMetadata,
-                blockedReason: result.reason,
-                generationLog: result.log,
+                blockedReason: "initial_generation_failed",
               } as unknown) as Prisma.InputJsonValue,
             },
           });
           return "fail";
         }
+
+        const sceneFirstEligible =
+          strategy.panelCategory === "ESTABLISHING_ENVIRONMENT"
+          || strategy.crowdCritical
+          || strategy.interactionCritical;
+        let rerollCount = 0;
+
+        if (
+          sceneFirstEligible
+          && strategy.continuityCritical
+          && hasCanonRef
+          && isEnvironmentSufficientForNarrativePanel(bestAttempt.validation)
+        ) {
+          const reinforcementAttempt = await validateAttempt(
+            await generateAttempt({
+              scenePass: "character_reinforcement",
+              referencePolicy: "LIGHT",
+              positivePrompt: `${item.panel.prompt}, preserve character continuity while keeping full scene composition and readable environment`,
+              negativePrompt: item.panel.negativePrompt,
+              sizePreset: "reroll_scene",
+            }),
+            "LIGHT",
+          );
+          if (
+            reinforcementAttempt
+            && rankCandidate(reinforcementAttempt.validation, reinforcementAttempt.drift) >= rankCandidate(bestAttempt.validation, bestAttempt.drift) - 0.04
+          ) {
+            bestAttempt = reinforcementAttempt;
+            rerollCount++;
+          }
+        }
+
+        const MAX_REROLL = strategy.retryPolicy === "robust" ? 3 : 2;
+        const shouldReroll =
+          bestAttempt.validation.requiredReroll
+          || !bestAttempt.drift.pass
+          || !isEnvironmentSufficientForNarrativePanel(bestAttempt.validation);
+
+        if (shouldReroll && MAX_REROLL > 0) {
+          console.warn(`[pipeline] reroll required panel=${item.sceneImageId} kind=${bestAttempt.rerollKind} score=${bestAttempt.validationScore.toFixed(2)}`);
+          for (let attempt = 0; attempt < MAX_REROLL; attempt++) {
+            const strongerEnvironmentPrompt =
+              bestAttempt.rerollKind === "REROLL_ENVIRONMENT" || bestAttempt.rerollKind === "REROLL_COMPOSITION"
+                ? [
+                    "wide manga panel with readable environment",
+                    "clear foreground midground background separation",
+                    ...(Array.isArray((item.baseMetadata.panelContract as Record<string, unknown> | undefined)?.mustShow)
+                      ? ((item.baseMetadata.panelContract as Record<string, unknown>).mustShow as string[])
+                      : []
+                    ).slice(0, 5),
+                  ].join(", ")
+                : "";
+            const strongerInteractionPrompt =
+              bestAttempt.rerollKind === "REROLL_INTERACTION"
+                ? "social interaction must be obvious, body language and environment reaction clearly readable"
+                : "";
+            const strongerCharacterPrompt =
+              bestAttempt.rerollKind === "REROLL_CHARACTER_FIDELITY"
+                ? "same hero face, same hair, same outfit, same silhouette, preserve character continuity"
+                : "";
+            const rerollPolicy =
+              bestAttempt.rerollKind === "REROLL_CHARACTER_FIDELITY"
+                ? "STRONG"
+                : bestAttempt.rerollKind === "REROLL_ENVIRONMENT" || bestAttempt.rerollKind === "REROLL_COMPOSITION"
+                  ? "NONE"
+                  : "LIGHT";
+            const rerollAttempt = await validateAttempt(
+              await generateAttempt({
+                scenePass: "reroll",
+                referencePolicy: rerollPolicy,
+                positivePrompt: [item.panel.prompt, strongerEnvironmentPrompt, strongerInteractionPrompt, strongerCharacterPrompt].filter(Boolean).join(", "),
+                negativePrompt: [
+                  item.panel.negativePrompt,
+                  bestAttempt.rerollKind === "REROLL_ENVIRONMENT" ? "empty background, studio backdrop, flat grey backdrop, blurry environment" : "",
+                  bestAttempt.rerollKind === "REROLL_INTERACTION" ? "weak social interaction, disconnected characters" : "",
+                  bestAttempt.rerollKind === "REROLL_CHARACTER_FIDELITY" ? "wrong hair color, wrong outfit, inconsistent face" : "",
+                ].filter(Boolean).join(", "),
+                sizePreset:
+                  bestAttempt.rerollKind === "REROLL_ENVIRONMENT" || bestAttempt.rerollKind === "REROLL_COMPOSITION"
+                    ? "reroll_scene"
+                    : "reroll_local",
+                rerollKind: bestAttempt.rerollKind,
+                seed: Date.now() + attempt,
+              }),
+              rerollPolicy,
+            );
+            rerollCount++;
+            if (rerollAttempt && rankCandidate(rerollAttempt.validation, rerollAttempt.drift) > rankCandidate(bestAttempt.validation, bestAttempt.drift)) {
+              bestAttempt = rerollAttempt;
+              if (!bestAttempt.validation.requiredReroll && bestAttempt.drift.pass && isEnvironmentSufficientForNarrativePanel(bestAttempt.validation)) {
+                break;
+              }
+            }
+          }
+        }
+
+        const persisted = await persistImageIfNeeded({
+          imageUrl: bestAttempt.generation.result.imageUrl,
+          projectId,
+          chapterId,
+          sceneImageId: item.sceneImageId,
+        });
+
+        if (!persisted.ok) {
+          await prisma.sceneImage.update({
+            where: { id: item.sceneImageId },
+            data: {
+              status: "failed",
+              metadata: ({
+                ...item.baseMetadata,
+                error: persisted.error,
+                sourceUrl: bestAttempt.generation.result.imageUrl,
+                generationLog: bestAttempt.generation.log,
+              } as unknown) as Prisma.InputJsonValue,
+            },
+          });
+          return "fail";
+        }
+
+        const finalLog = bestAttempt.generation.log;
+        const finalRouting = bestAttempt.generation.routing;
+        const finalProvider = bestAttempt.generation.result.provider;
+        const finalModel = bestAttempt.generation.result.model;
+        const primaryCharacterId =
+          charactersWithFingerprints[0]?.characterId
+          ?? rawCharacters.find((character) => character.name === item.panel.characters[0])?.id;
+        const visualConsistency =
+          primaryCharacterId
+            ? await scoreVisualConsistency(prisma, {
+                imageId: item.sceneImageId,
+                characterId: primaryCharacterId,
+                generatedMetadata: {
+                  prompt: item.panel.prompt,
+                },
+              })
+            : null;
+        const combinedConsistencyScore =
+          bestAttempt.validationDetails?.qualityScores?.releaseScore != null
+            ? visualConsistency
+              ? (bestAttempt.validationDetails.qualityScores.releaseScore + visualConsistency.overall) / 2
+              : bestAttempt.validationDetails.qualityScores.releaseScore
+            : bestAttempt.drift.score;
+
+        await prisma.sceneImage.update({
+          where: { id: item.sceneImageId },
+          data: {
+            imageUrl: persisted.url,
+            provider: finalProvider,
+            model: finalModel,
+            status: "completed",
+            consistencyScore: combinedConsistencyScore,
+            routingDecision: finalRouting as unknown as Prisma.InputJsonValue,
+            metadata: ({
+              ...item.baseMetadata,
+              generationLog: finalLog,
+              falStrategy: finalRouting,
+              persisted: persisted.persisted,
+              temporary: "temporary" in persisted ? (persisted.temporary as boolean) : undefined,
+              storageWarning: "warning" in persisted ? (persisted.warning as string) : undefined,
+              sourceUrl: bestAttempt.generation.result.imageUrl,
+              canonRefUsed: canonRef ?? null,
+              driftScore: bestAttempt.drift.score,
+              driftPass: bestAttempt.drift.pass,
+              driftIssues: bestAttempt.drift.issues.slice(0, 5),
+              promptVisualConsistency: visualConsistency,
+              validationScore: bestAttempt.validationScore,
+              validationDetails: bestAttempt.validationDetails,
+              rerollCount,
+              rerollKind: bestAttempt.rerollKind,
+              scenePass: finalRouting.panelCategory === "ESTABLISHING_ENVIRONMENT" ? "scene_first" : "single_or_light_ref",
+            } as unknown) as Prisma.InputJsonValue,
+          },
+        });
+        return "ok";
       } catch (imgError) {
         const msg = imgError instanceof Error ? imgError.message : "image_error";
         console.error(`[pipeline] image failed sceneImageId=${item.sceneImageId} error=${msg}`);

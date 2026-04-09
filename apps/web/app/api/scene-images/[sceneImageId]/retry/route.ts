@@ -17,8 +17,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ sceneImageId: string }> };
+type RetryMode = "environment" | "character" | "interaction" | "style" | "composition";
 
-export async function POST(_req: Request, ctx: Ctx) {
+export async function POST(req: Request, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return unauthorized();
   const stack = getGenerationStackStatus();
@@ -59,6 +60,7 @@ export async function POST(_req: Request, ctx: Ctx) {
   }
 
   const metadata = ((img.metadata ?? {}) as unknown) as Record<string, unknown>;
+  const retryMode = new URL(req.url).searchParams.get("mode") as RetryMode | null;
   const premiumSize = resolvePremiumImageSize("PANEL_DRAFT", {
     width: img.width,
     height: img.height,
@@ -107,6 +109,46 @@ export async function POST(_req: Request, ctx: Ctx) {
   }
 
   const hasCanonRef = referenceImageUrls.length > 0 || panelLoras.length > 0;
+  const positiveAugment = retryMode === "environment"
+    ? "readable environment, strong background, visible architecture, clear foreground midground background"
+    : retryMode === "character"
+      ? "same hero face, same hair, same outfit, preserve continuity"
+      : retryMode === "interaction"
+        ? "clear body language, readable interaction, characters connected to environment"
+        : retryMode === "style"
+          ? "consistent manga style, clean line art, coherent shading"
+          : retryMode === "composition"
+            ? "balanced manga composition, spatial clarity, dynamic framing"
+            : "";
+  const negativeAugment = retryMode === "environment"
+    ? "empty background, studio backdrop, flat grey backdrop, blurry environment"
+    : retryMode === "character"
+      ? "wrong hair color, wrong outfit, inconsistent face"
+      : retryMode === "interaction"
+        ? "weak social interaction, disconnected characters"
+        : retryMode === "style"
+          ? "style drift, muddy rendering, off-model manga style"
+          : retryMode === "composition"
+            ? "floating character, poor framing, weak staging"
+            : "";
+  const referencePolicy =
+    retryMode === "environment" || retryMode === "composition"
+      ? "NONE"
+      : retryMode === "character"
+        ? "STRONG"
+        : "LIGHT";
+  const rerollKind =
+    retryMode === "environment"
+      ? "REROLL_ENVIRONMENT"
+      : retryMode === "character"
+        ? "REROLL_CHARACTER_FIDELITY"
+        : retryMode === "interaction"
+          ? "REROLL_INTERACTION"
+          : retryMode === "style"
+            ? "REROLL_STYLE"
+            : retryMode === "composition"
+              ? "REROLL_COMPOSITION"
+              : undefined;
 
   await prisma.sceneImage.update({
     where: { id: img.id },
@@ -133,13 +175,19 @@ export async function POST(_req: Request, ctx: Ctx) {
       },
       {
         mode: "PANEL_DRAFT",
-        positivePrompt: img.prompt,
-        negativePrompt: img.negativePrompt ?? undefined,
+        positivePrompt: [img.prompt, positiveAugment].filter(Boolean).join(", "),
+        negativePrompt: [img.negativePrompt ?? undefined, negativeAugment].filter(Boolean).join(", "),
         width: premiumSize.width,
         height: premiumSize.height,
-        loras: panelLoras.length > 0 ? panelLoras : undefined,
-        referenceImageUrls: referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
-        providerParams: { contentIntensityLayer: intensityLayer, mode: "PANEL_DRAFT" },
+        loras: referencePolicy === "NONE" ? undefined : (panelLoras.length > 0 ? panelLoras : undefined),
+        referenceImageUrls: referencePolicy === "NONE" ? undefined : (referenceImageUrls.length > 0 ? referenceImageUrls : undefined),
+        providerParams: {
+          contentIntensityLayer: intensityLayer,
+          mode: "PANEL_DRAFT",
+          referencePolicy,
+          scenePass: "reroll",
+          rerollKind,
+        },
       },
     );
 

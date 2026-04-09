@@ -10,11 +10,36 @@ export type ImageWorkflow =
   | "controlnet"
   | "lora_stack";
 
+export type ReferencePolicy = "NONE" | "LIGHT" | "STRONG";
+
+export type FalPanelCategory =
+  | "ESTABLISHING_ENVIRONMENT"
+  | "CHARACTER_IN_SCENE"
+  | "CHARACTER_LOCK"
+  | "LOCAL_FIX";
+
+export type RerollKind =
+  | "REROLL_ENVIRONMENT"
+  | "REROLL_CHARACTER_FIDELITY"
+  | "REROLL_INTERACTION"
+  | "REROLL_STYLE"
+  | "REROLL_COMPOSITION";
+
 export interface ImageRoutingDecision {
   provider: ImageProviderId;
   model: string;
   workflow: ImageWorkflow;
   reason: string;
+  panelCategory?: FalPanelCategory;
+  sceneArchetype?: string;
+  referencePolicy?: ReferencePolicy;
+  sceneComplexityScore?: number;
+  environmentCritical?: boolean;
+  continuityCritical?: boolean;
+  crowdCritical?: boolean;
+  interactionCritical?: boolean;
+  retryPolicy?: "standard" | "robust";
+  sizePreset?: string;
 }
 
 export interface LoraRef {
@@ -59,10 +84,19 @@ export interface RoutingContext {
   isNewCharacter: boolean;
   hasCanonReferences: boolean;
   characterCountInScene: number;
+  purpose?: string;
   npcCount?: number;
   creatureCount?: number;
+  hasNpcGroup?: boolean;
+  hasCreatureGroup?: boolean;
   shotType?: "wide" | "medium" | "closeup" | "extreme_closeup" | "over_shoulder";
+  cameraAngle?: string;
   environmentPriority?: "low" | "medium" | "high";
+  locationComplexity?: number;
+  environmentDensityRequired?: "low" | "medium" | "high";
+  continuityWeight?: number;
+  scenePurpose?: string;
+  styleBackgroundDensity?: string | null;
   styleReferenceRequired?: boolean;
   needsInpaint: boolean;
   needsPoseVariation: boolean;

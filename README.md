@@ -28,7 +28,7 @@ Fonctions cle actuelles :
 - chapitres : outline structure, dialogues, continuity, storyboard, images, memoire
 - PNJ/extras : generation procedurale, reusage scene-level et cross-scenes par lieu/projet
 - images : fal en provider principal, retries explicites, proxy et URLs signees
-- debug premium : fallbacks visibles, scores qualite, diagnostics panel/chapitre
+- debug premium : fallbacks visibles, scores qualite, diagnostics panel/chapitre, routing FAL scene-first
 
 ## Architecture
 
@@ -95,6 +95,7 @@ Blocs premium actifs :
 - `CharacterFingerprint` persiste sur les personnages et reinjecte dans les prompts
 - `SceneState` et `PanelContract` sont construits avant image
 - `SceneBlueprint` relie narration, environnement, style, cast et contraintes
+- routing FAL scene-first avec `sceneComplexityScore`, `referencePolicy` et categories de panel
 - outline structure avec `arcPromises`, `worldConsequences`, `setupPayoffHooks`
 - dialogues produisent `sceneEvents`, `characterDeltas`, `locationDeltas`, `arcDeltas`
 - `SceneExtrasRegistry` gere la recurrence des PNJ/extras
@@ -158,6 +159,18 @@ La validation panel combine :
 - property validators du `SceneBlueprint`
 - analyse vision reelle optionnelle via OpenAI sur les panels critiques ou ambigus
 
+### Integration FAL scene-first
+
+Le pipeline image n'est plus "portrait-first". Il applique maintenant :
+
+- categories de panel : `ESTABLISHING_ENVIRONMENT`, `CHARACTER_IN_SCENE`, `CHARACTER_LOCK`, `LOCAL_FIX`
+- reference policy progressive : `NONE`, `LIGHT`, `STRONG`
+- tailles FAL centralisees : `character_ref`, `panel_story`, `panel_establishing`, `reroll_local`, `reroll_scene`
+- passe scene-first sur les panels complexes : scene base puis renfort continuite personnage si utile
+- rerolls cibles : decor, fidelite personnage, interaction, style, composition
+- logs FAL structures : workflow, model, prompt final, negative constraints, taille, refs, reference policy, complexite
+- benchmark FAL code-level pour archetypes de scene (`school_bullying`, `post_apo_establishing`, etc.)
+
 ### QA suites
 
 Suites actuellement dans le code :
@@ -183,7 +196,7 @@ Le reader V5 supporte :
 - manga pagine, simple ou double page
 - webtoon vertical par defaut
 - proxy image, URLs signees, retries d'images
-- debug panel : provider, score, rerolls, issues, findings vision
+- debug panel : provider, workflow, reference policy, complexite, rerolls, issues, findings vision
 - bloc memoire + statut generation
 
 Le webtoon a ete repoli pour :
@@ -208,6 +221,7 @@ Le reader expose aussi :
 - quality report chapitre
 - panel debug
 - findings vision quand disponibles
+- boutons debug de reroll force : decor / personnage / composition
 
 ## Providers et modeles
 
@@ -219,12 +233,13 @@ Etat actuel :
 
 Modele fal principal utilise pour les panels premium :
 
-- `flux-pro/v1.1`
+- `fal-ai/flux/dev`
 
 Autres usages possibles selon routage et contexte :
 
-- `fal-ai/flux/dev`
 - LoRA / Redux / refs selon complexite
+- `fal-ai/flux-lora`
+- `fal-ai/flux/dev/redux` pour les vrais cas `CHARACTER_LOCK`
 
 ## Installation locale
 
@@ -347,7 +362,7 @@ Modeles notables :
 | `POST` | `/api/projects/[id]/pipeline` | lancer pipeline |
 | `GET` | `/api/projects/[id]/chapters/[chapterId]` | data reader + debug |
 | `POST` | `/api/projects/[id]/chapters/[chapterId]/continue` | suite chapitre |
-| `POST` | `/api/scene-images/[sceneImageId]/retry` | reroll image |
+| `POST` | `/api/scene-images/[sceneImageId]/retry` | reroll image (`?mode=environment|character|interaction|style|composition`) |
 | `GET` | `/api/diagnostics/public` | checks prod sans secrets |
 
 ## Paiement et tokens
