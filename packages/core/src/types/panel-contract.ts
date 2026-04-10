@@ -66,6 +66,10 @@ export interface PanelContract {
 export interface PanelValidationResult {
   panelId: string;
   score: number;
+  panelCriticality?: {
+    level: "NON_CRITICAL" | "CRITICAL";
+    reasons: string[];
+  };
   qualityScores?: {
     characterConsistencyScore: number;
     backgroundPresenceScore: number;
@@ -101,10 +105,15 @@ export interface PanelValidationResult {
       | "empty_background"
       | "weak_environment"
       | "weak_interaction"
-      | "style_drift";
+      | "style_drift"
+      | "missing_visual_qa";
     message: string;
     autoFixable: boolean;
   }>;
+  qaWasRequired?: boolean;
+  qaWasExecuted?: boolean;
+  qaFailureReason?: string | null;
+  qaBypassReason?: string | null;
   requiredReroll: boolean;
 }
 

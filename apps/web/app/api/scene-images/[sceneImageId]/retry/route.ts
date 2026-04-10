@@ -248,6 +248,22 @@ export async function POST(req: Request, ctx: Ctx) {
         sceneBlueprint: metadata.sceneBlueprint as never,
         panelContract: metadata.panelContract as never,
         stylePack: metadata.stylePack as never,
+        panelQa: {
+          heroCharacterId: typeof metadata.heroCharacterId === "string" ? metadata.heroCharacterId : null,
+          pageNumber: typeof metadata.pageNumber === "number" ? metadata.pageNumber : null,
+          panelNumber: typeof metadata.panelNumber === "number" ? metadata.panelNumber : img.panelNumber,
+          pagePanelCount: typeof metadata.pagePanelCount === "number" ? metadata.pagePanelCount : null,
+          panelCategory: typeof metadata.panelCategory === "string" ? metadata.panelCategory : null,
+          visualPriority: typeof metadata.visualPriority === "string" ? metadata.visualPriority : null,
+          characterRoles: Array.isArray(metadata.panelCharacterRoles)
+            ? (metadata.panelCharacterRoles as Array<string | null>)
+            : [],
+          characterIds: Array.isArray(metadata.characterIds) ? (metadata.characterIds as string[]) : [],
+          explicitCriticality:
+            metadata.panelCriticality && typeof metadata.panelCriticality === "object"
+              ? (metadata.panelCriticality as { level: "NON_CRITICAL" | "CRITICAL"; reasons: string[] })
+              : null,
+        },
       },
     });
     const validationScore = validation.score;
@@ -260,10 +276,12 @@ export async function POST(req: Request, ctx: Ctx) {
       // les sous-scores pour diagnostiquer décor / interaction / style.
     }
 
+    const shouldBlockForReview = validation.requiredReroll || (validation.qaWasRequired && !validation.qaWasExecuted);
+
     await prisma.sceneImage.update({
       where: { id: img.id },
       data: {
-        status: "completed",
+        status: shouldBlockForReview ? "blocked" : "completed",
         imageUrl: persisted.url,
         provider: out.result.provider,
         model: out.result.model,
@@ -271,17 +289,43 @@ export async function POST(req: Request, ctx: Ctx) {
         routingDecision: (out.routing as unknown) as Prisma.InputJsonValue,
         metadata: ({
           ...metadata,
+          previousImageUrl:
+            typeof img.imageUrl === "string" && img.imageUrl.length > 0
+              ? img.imageUrl
+              : typeof metadata.previousImageUrl === "string"
+                ? metadata.previousImageUrl
+                : null,
+          rerollHistory: [
+            ...((Array.isArray(metadata.rerollHistory) ? metadata.rerollHistory : []) as unknown[]),
+            {
+              at: new Date().toISOString(),
+              previousImageUrl: typeof img.imageUrl === "string" ? img.imageUrl : null,
+              nextImageUrl: persisted.url,
+              mode: retryMode,
+            },
+          ].slice(-5),
           generationLog: out.log,
           persisted: persisted.persisted,
           retryUsedLoras: panelLoras.length,
           retryUsedRefs: referenceImageUrls.length,
           validationScore,
           validationDetails: {
+            panelCriticality: validation.panelCriticality,
             qualityScores: validation.qualityScores,
             propertyChecks: validation.propertyChecks,
             issues: validation.issues,
             requiredReroll: validation.requiredReroll,
+            qaWasRequired: validation.qaWasRequired,
+            qaWasExecuted: validation.qaWasExecuted,
+            qaFailureReason: validation.qaFailureReason,
+            qaBypassReason: validation.qaBypassReason,
           },
+          panelCriticality: validation.panelCriticality,
+          qaWasRequired: validation.qaWasRequired,
+          qaWasExecuted: validation.qaWasExecuted,
+          qaFailureReason: validation.qaFailureReason,
+          qaBypassReason: validation.qaBypassReason,
+          criticalQaBlocked: shouldBlockForReview,
         } as unknown) as Prisma.InputJsonValue,
       },
     });

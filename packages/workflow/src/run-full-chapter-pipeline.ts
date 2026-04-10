@@ -22,7 +22,16 @@ import {
   type RoutingContext,
   type ProjectContextForChapter,
 } from "@manga-ai-studio/ai";
-import { parseApprovedOutline, type PanelCharacterPlan } from "@manga-ai-studio/core";
+import {
+  buildLegacyApprovedOutlineFromStudio,
+  chapterStudioSnapshotSchema,
+  classifyPanelCriticality,
+  getCharacterTierPolicy,
+  parseApprovedOutline,
+  resolveEffectiveProductionSource,
+  resolveCharacterImportanceTier,
+  type PanelCharacterPlan,
+} from "@manga-ai-studio/core";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import {
   buildProjectContext,
@@ -51,6 +60,12 @@ import { scoreVisualConsistency } from "@manga-ai-studio/visual-consistency";
 import { buildSceneBlueprint, type CreativityControls, type SceneBlueprint } from "@manga-ai-studio/world";
 import { createClient } from "@supabase/supabase-js";
 import { buildPanelContract } from "./build-panel-contract";
+import {
+  buildPersistedChapterRuntimeState,
+  buildRuntimeDebugSummary,
+  buildValidationDetails as buildSharedValidationDetails,
+  computeChapterQualityReport as computeChapterQualityReportShared,
+} from "./chapter-runtime-helpers";
 
 type JobStep = {
   key: string;
@@ -441,8 +456,20 @@ function buildRoutingContext(
   stylePack: { backgroundDensity?: string | null } | null | undefined,
   hasCanonRef: boolean,
   adultEngine?: "realistic" | "fantasy",
+  panelCharacterRoles: string[] = [],
+  panelCharacterImportanceTiers: Array<"MAIN_HERO" | "SECONDARY_CORE" | "IMPORTANT_SUPPORTING_CHARACTER" | "RECURRING_NPC" | "BACKGROUND_EXTRA"> = [],
 ): RoutingContext {
   const text = `${panel.camera} ${panel.caption} ${panel.prompt}`.toLowerCase();
+  const heroPresent = panelCharacterRoles.some((role) => /hero|protagon|main_hero|héros|heros/i.test(role));
+  const shotType = panelContract?.shotType ?? (/(wide|establishing|panorama|vue d'ensemble)/.test(text)
+    ? "wide"
+    : /(over shoulder|over-shoulder|par-dessus l'épaule)/.test(text)
+      ? "over_shoulder"
+      : /(extreme close)/.test(text)
+        ? "extreme_closeup"
+        : /(close-up|closeup|gros plan)/.test(text)
+          ? "closeup"
+          : "medium");
   return {
     mode: "PANEL_DRAFT",
     contentIntensityLayer: intensityLayer,
@@ -450,20 +477,16 @@ function buildRoutingContext(
     isNewCharacter: false,
     hasCanonReferences: hasCanonRef,
     characterCountInScene: panel.characters.length,
+    panelCharacterRoles,
+    panelCharacterImportanceTiers,
+    heroPresent,
+    heroFocus: heroPresent && (shotType === "closeup" || shotType === "extreme_closeup"),
     purpose: panelContract?.purpose,
     npcCount: (panelContract?.npcPresence?.length ?? 0) > 0 || /(crowd|guard|merchant|passant|client|audience|foule|garde)/.test(text) ? 1 : 0,
     creatureCount: (panelContract?.creaturePresence?.length ?? 0) > 0 || /(creature|monster|spirit|dragon|familiar|beast|mutant)/.test(text) ? 1 : 0,
     hasNpcGroup: (panelContract?.npcGroupPresence?.length ?? 0) > 0,
     hasCreatureGroup: (panelContract?.creaturePresence?.length ?? 0) > 1,
-    shotType: panelContract?.shotType ?? (/(wide|establishing|panorama|vue d'ensemble)/.test(text)
-      ? "wide"
-      : /(over shoulder|over-shoulder|par-dessus l'épaule)/.test(text)
-        ? "over_shoulder"
-        : /(extreme close)/.test(text)
-          ? "extreme_closeup"
-          : /(close-up|closeup|gros plan)/.test(text)
-            ? "closeup"
-            : "medium"),
+    shotType,
     cameraAngle: panelContract?.cameraAngle,
     environmentPriority:
       (panelContract?.mustShowLocationSignals?.length ?? 0) >= 2
@@ -532,39 +555,7 @@ function computeChapterQualityReport(
     metadata: unknown;
   }>,
 ) {
-  const releaseThreshold = Number(process.env.PREMIUM_RELEASE_SCORE_THRESHOLD ?? "0.72");
-  const completed = rows.filter((row) => typeof row.consistencyScore === "number");
-  const averageReleaseScore =
-    completed.length > 0
-      ? completed.reduce((acc, row) => acc + Number(row.consistencyScore ?? 0), 0) / completed.length
-      : 0;
-  const weakPanels = rows
-    .map((row, index) => {
-      const metadata = asRecord(row.metadata);
-      const validationDetails = asRecord(metadata.validationDetails);
-      const qualityScores = asRecord(validationDetails.qualityScores);
-      return {
-        panelIndex: index + 1,
-        releaseScore:
-          typeof qualityScores.releaseScore === "number"
-            ? qualityScores.releaseScore
-            : row.consistencyScore,
-        issues: Array.isArray(validationDetails.issues)
-          ? validationDetails.issues.length
-          : 0,
-      };
-    })
-    .filter((row) => typeof row.releaseScore === "number" && row.releaseScore < releaseThreshold)
-    .slice(0, 8);
-
-  return {
-    averageReleaseScore,
-    releaseThreshold,
-    totalPanels: rows.length,
-    passingPanels: rows.length - weakPanels.length,
-    weakPanels,
-    premiumReleaseAccepted: completed.length > 0 && averageReleaseScore >= releaseThreshold && weakPanels.length === 0,
-  };
+  return computeChapterQualityReportShared(rows);
 }
 
 type LoadedLoraAttachment = {
@@ -583,6 +574,12 @@ type LoadedLoraAttachment = {
 type LoadedCharacterForPipeline = {
   id: string;
   name: string;
+  roleType?: string | null;
+  objective?: string | null;
+  fear?: string | null;
+  biography?: string | null;
+  traits?: string[];
+  flaws?: string[];
   gender: string | null;
   appearance: string | null;
   hairColor: string | null;
@@ -594,6 +591,11 @@ type LoadedCharacterForPipeline = {
   bodyDetails: string | null;
   wardrobeDetails: string | null;
   visualProfile: Record<string, unknown>;
+  bodyState?: Record<string, unknown>;
+  wardrobeProfile?: Record<string, unknown>;
+  speechProfile?: Record<string, unknown>;
+  continuityProfile?: Record<string, unknown>;
+  characterFingerprint?: Record<string, unknown> | null;
   visualRefUrls: string[];
   entityKind?: string | null;
   speciesLabel?: string | null;
@@ -858,7 +860,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     return { ok: false as const, error: "invalid_job" };
   }
 
-  const [chapter, project, stylePacks, loraAttachments, rawCharacters] = await Promise.all([
+  const [chapter, project, stylePacks, loraAttachments, rawCharacters, npcProfiles] = await Promise.all([
     prisma.chapter.findUnique({ where: { id: job.chapterId } }),
     prisma.project.findUnique({
       where: { id: job.projectId },
@@ -956,6 +958,23 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         };
       });
     }),
+    prisma.npcVisualProfile.findMany({
+      where: {
+        projectId: job.projectId ?? undefined,
+        characterId: { not: null },
+      },
+      orderBy: [{ updatedAt: "desc" }, { appearanceCount: "desc" }],
+      select: {
+        characterId: true,
+        importanceLevel: true,
+        promotionStatus: true,
+        appearanceCount: true,
+        silhouetteSignature: true,
+        accessoryMarker: true,
+        outfitSignature: true,
+        metadata: true,
+      },
+    }),
   ]);
 
   if (!chapter) {
@@ -965,6 +984,11 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
   const projectId = job.projectId;
   const chapterId = job.chapterId;
   const chapterNumber = chapter.chapterNumber;
+  const npcProfileByCharacterId = new Map(
+    npcProfiles
+      .filter((profile): profile is typeof profile & { characterId: string } => typeof profile.characterId === "string")
+      .map((profile) => [profile.characterId, profile]),
+  );
   const intensityLayer = (project?.intensityLayer as string | null) ?? "TEEN";
   const jobInput = ((job.input as Record<string, unknown>) ?? {}) as PipelineJobInput;
   const focusCharacterIds = Array.isArray(jobInput.focusCharacterIds) ? jobInput.focusCharacterIds.filter(Boolean) : [];
@@ -1115,13 +1139,23 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       { key: "generate_bundle", label: "Direction, outline, script, storyboard" },
       "running",
     );
+    const chapterOutlineRecord = asRecord(chapter.outline);
+    const studioSnapshotResult = chapterStudioSnapshotSchema.safeParse(chapterOutlineRecord.studio);
+    const studioSnapshot = studioSnapshotResult.success ? studioSnapshotResult.data : null;
+    const productionSource = studioSnapshot
+      ? resolveEffectiveProductionSource(studioSnapshot)
+      : { source: "missing", fallbackUsed: true, legacyBridgeUsed: true };
+    const approvedOutlineForBundle =
+      studioSnapshot
+        ? buildLegacyApprovedOutlineFromStudio(studioSnapshot) ?? parseApprovedOutline(chapterOutlineRecord.approvedOutline)
+        : parseApprovedOutline(chapterOutlineRecord.approvedOutline);
     const bundle = await generateChapterBundle({
       chapterNumber,
       chapterTitle: chapter.title,
       userIntent: enrichedIntent || chapter.userIntent || `Continuer ${context.project.title}`,
       selectedPlotLabel,
       context,
-      approvedOutline: parseApprovedOutline(asRecord(chapter.outline).approvedOutline),
+      approvedOutline: approvedOutlineForBundle,
     });
     await setJobProgress(
       jobId,
@@ -1476,6 +1510,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             // Compose le prompt enrichi via le manga-prompt-composer
               let composedPositive = panel.prompt;
               let composedNegative = panel.negativePrompt;
+              let promptDebug: Record<string, unknown> | null = null;
               const panelCanonRefs = panel.characters
                 .map((name) => rawCharacters.find((c) => c.name === name)?.canonicalImageUrl)
                 .filter((url): url is string => Boolean(url));
@@ -1644,6 +1679,11 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 const promptCharacters = rawCharacters
                   .filter((c) => panel.characters.includes(c.name))
                   .map((c) => {
+                    const importanceTier = resolveCharacterImportanceTier({
+                      roleType: typeof c.roleType === "string" ? c.roleType : null,
+                      recurrencePolicy: typeof c.recurrencePolicy === "string" ? c.recurrencePolicy : null,
+                    });
+                    const tierPolicy = getCharacterTierPolicy(importanceTier);
                     const promptBundle = buildCharacterPromptBundle({
                       name: c.name,
                       roleType: c.roleType,
@@ -1695,6 +1735,29 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                         ? fingerprint.forbiddenDrift.filter((item): item is string => typeof item === "string")
                         : []),
                     ];
+                    const npcProfile = npcProfileByCharacterId.get(c.id);
+                    const npcProfileMetadata =
+                      npcProfile?.metadata && typeof npcProfile.metadata === "object" && !Array.isArray(npcProfile.metadata)
+                        ? (npcProfile.metadata as Record<string, unknown>)
+                        : {};
+                    const npcVisualMemory =
+                      npcProfileMetadata.visualMemory && typeof npcProfileMetadata.visualMemory === "object" && !Array.isArray(npcProfileMetadata.visualMemory)
+                        ? (npcProfileMetadata.visualMemory as Record<string, unknown>)
+                        : {};
+                    const recurringMemory =
+                      importanceTier === "RECURRING_NPC" || npcProfile?.importanceLevel === "recurring"
+                        ? [
+                            npcProfile?.silhouetteSignature,
+                            typeof npcVisualMemory.hairFamily === "string" ? npcVisualMemory.hairFamily : null,
+                            typeof npcVisualMemory.ageBand === "string" ? `age ${npcVisualMemory.ageBand}` : null,
+                            npcProfile?.accessoryMarker ? `marker ${npcProfile.accessoryMarker}` : null,
+                            npcProfile?.outfitSignature ? `outfit ${npcProfile.outfitSignature}` : null,
+                            npcProfile?.appearanceCount ? `seen ${npcProfile.appearanceCount} times` : null,
+                            c.outfitDefault,
+                          ]
+                            .filter(Boolean)
+                            .join(", ")
+                        : null;
 
                     return {
                       name: c.name,
@@ -1707,6 +1770,15 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                       outfitDefault: c.outfitDefault,
                       canonicalImageUrl: c.canonicalImageUrl ?? null,
                       forbiddenDrift,
+                      importanceTier,
+                      lockStrength: tierPolicy.minimumLock,
+                      continuityBudget:
+                        tierPolicy.qaExpectation === "strict"
+                          ? ("strict" as const)
+                          : tierPolicy.qaExpectation === "light"
+                            ? ("light" as const)
+                            : ("none" as const),
+                      recurringMemory,
                       bodyDetails: c.bodyDetails,
                       wardrobeDetails: c.wardrobeDetails,
                       visualSignatureText:
@@ -1782,6 +1854,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               panelContract.mustNotShow.length > 0 ? `avoid showing: ${panelContract.mustNotShow.join(", ")}` : "",
             ].filter(Boolean).join(", ");
             composedNegative = composed.negative;
+            promptDebug = composed.debug ?? null;
           } catch {
             // fallback sur le prompt du storyboard
           }
@@ -1790,10 +1863,12 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               caption: panel.caption,
               camera: panel.camera,
               characters: panel.characters,
-                  sceneId: createdScene.id,
-                  sceneKeyframeId: sceneKeyframe.id,
+              sceneId: createdScene.id,
+              sceneKeyframeId: sceneKeyframe.id,
+              pageNumber: storyboardPage.pageNumber,
+              pagePanelCount: storyboardPage.panels.length,
               mood: panel.mood,
-                  combatDirection,
+              combatDirection,
               textScale: panel.textScale ?? "normal",
               sfx: panel.sfx,
               dialogue: panel.dialogue,
@@ -1801,9 +1876,10 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               narration: panel.narration,
               layout: storyboardPage.layout,
               panelContract,
-                  panelCharacterPlan,
+              panelCharacterPlan,
               sceneBlueprint,
               effectiveCreativeControls,
+              visualPriority: panelContract.purpose === "reveal" ? "critical" : panelContract.shotType === "closeup" ? "high" : "medium",
               stylePack: stylePack
                 ? {
                     renderFamily: stylePack.renderFamily,
@@ -1823,6 +1899,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 focalPoint: panelContract.renderHints.focalPoint,
                 reservedTextZones: panelContract.textBoxPlan.reservedZones,
               },
+              promptDebug,
               layoutMeta: {
                 slotType:
                   panelContract.shotType === "wide"
@@ -2281,6 +2358,23 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           };
         })
         .filter((c): c is NonNullable<typeof c> => c !== null);
+      const panelCharacterRoles = panelCharacterNames
+        .map((name) => {
+          const c = rawCharacters.find((rc) => rc.name === name);
+          return typeof c?.roleType === "string" ? c.roleType : null;
+        })
+        .filter((role): role is string => Boolean(role));
+      const panelCharacterIds = panelCharacterNames
+        .map((name) => rawCharacters.find((rc) => rc.name === name)?.id ?? null)
+        .filter((characterId): characterId is string => Boolean(characterId));
+      const panelCharacterTiers = panelCharacterNames.map((name) => {
+        const character = rawCharacters.find((rc) => rc.name === name);
+        return resolveCharacterImportanceTier({
+          roleType: typeof character?.roleType === "string" ? character.roleType : null,
+          recurrencePolicy: typeof character?.recurrencePolicy === "string" ? character.recurrencePolicy : null,
+        });
+      });
+      const panelRequiresStrictQa = panelCharacterTiers.some((tier) => getCharacterTierPolicy(tier).qaExpectation === "strict");
 
       try {
         const preflight = validatePreflightPanel({
@@ -2317,24 +2411,32 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           });
           return "fail";
         }
-        const routingCtx = buildRoutingContext(intensityLayer, item.panel, panelContractMeta, stylePackMeta, hasCanonRef, adultEngine);
+        const routingCtx = buildRoutingContext(
+          intensityLayer,
+          item.panel,
+          panelContractMeta,
+          stylePackMeta,
+          hasCanonRef,
+          adultEngine,
+          panelCharacterRoles,
+          panelCharacterTiers,
+        );
         const strategy = computeFalSceneAssessment(routingCtx);
-
-        const buildValidationDetails = (validation: Awaited<ReturnType<typeof validateGeneratedPanel>>) => ({
-          qualityScores: validation.qualityScores
-            ? {
-                backgroundPresenceScore: validation.qualityScores.backgroundPresenceScore,
-                environmentReadabilityScore: validation.qualityScores.environmentReadabilityScore,
-                interactionScore: validation.qualityScores.interactionScore,
-                shotComplianceScore: validation.qualityScores.shotComplianceScore,
-                styleConsistencyScore: validation.qualityScores.styleConsistencyScore,
-                releaseScore: validation.qualityScores.releaseScore,
-                visionScore: validation.qualityScores.visionScore ?? null,
-              }
-            : undefined,
-          visionAnalysis: validation.visionAnalysis,
-          issues: validation.issues,
-          propertyChecks: validation.propertyChecks,
+        const panelCriticality = classifyPanelCriticality({
+          shotType: panelContractMeta?.shotType,
+          purpose: panelContractMeta?.purpose,
+          panelCategory: strategy.panelCategory,
+          pageNumber: typeof item.baseMetadata.pageNumber === "number" ? item.baseMetadata.pageNumber : null,
+          panelNumber: item.panel.panelNumber,
+          pagePanelCount: typeof item.baseMetadata.pagePanelCount === "number" ? item.baseMetadata.pagePanelCount : null,
+          characterIds: panelCharacterIds,
+          characterTiers: panelCharacterTiers,
+          visualPriority:
+            typeof item.baseMetadata.visualPriority === "string"
+              ? item.baseMetadata.visualPriority
+              : panelRequiresStrictQa
+                ? "critical"
+                : null,
         });
 
         const isEnvironmentSufficientForNarrativePanel = (validation: Awaited<ReturnType<typeof validateGeneratedPanel>>) => {
@@ -2463,6 +2565,16 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 backgroundExtras?: string[];
               },
               stylePack: stylePackMeta,
+              panelQa: {
+                pageNumber: typeof item.baseMetadata.pageNumber === "number" ? item.baseMetadata.pageNumber : null,
+                panelNumber: item.panel.panelNumber,
+                pagePanelCount: typeof item.baseMetadata.pagePanelCount === "number" ? item.baseMetadata.pagePanelCount : null,
+                panelCategory: strategy.panelCategory,
+                visualPriority: typeof item.baseMetadata.visualPriority === "string" ? item.baseMetadata.visualPriority : null,
+                characterRoles: panelCharacterRoles,
+                characterIds: panelCharacterIds,
+                explicitCriticality: panelCriticality,
+              },
             },
           });
           const drift = detectVisualDrift({
@@ -2476,7 +2588,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             validation,
             drift,
             validationScore: validation.score,
-            validationDetails: buildValidationDetails(validation),
+            validationDetails: buildSharedValidationDetails(validation),
             rerollKind: pickRerollKind(validation, drift.pass),
           };
         };
@@ -2648,6 +2760,9 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               ? (bestAttempt.validationDetails.qualityScores.releaseScore + visualConsistency.overall) / 2
               : bestAttempt.validationDetails.qualityScores.releaseScore
             : bestAttempt.drift.score;
+        const shouldBlockForReview =
+          bestAttempt.validation.requiredReroll
+          || (bestAttempt.validation.qaWasRequired === true && bestAttempt.validation.qaWasExecuted !== true);
 
         await prisma.sceneImage.update({
           where: { id: item.sceneImageId },
@@ -2655,7 +2770,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             imageUrl: persisted.url,
             provider: finalProvider,
             model: finalModel,
-            status: "completed",
+            status: shouldBlockForReview ? "blocked" : "completed",
             consistencyScore: combinedConsistencyScore,
             routingDecision: finalRouting as unknown as Prisma.InputJsonValue,
             metadata: ({
@@ -2673,6 +2788,14 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               promptVisualConsistency: visualConsistency,
               validationScore: bestAttempt.validationScore,
               validationDetails: bestAttempt.validationDetails,
+              panelCriticality: bestAttempt.validation.panelCriticality,
+              qaWasRequired: bestAttempt.validation.qaWasRequired,
+              qaWasExecuted: bestAttempt.validation.qaWasExecuted,
+              qaFailureReason: bestAttempt.validation.qaFailureReason,
+              qaBypassReason: bestAttempt.validation.qaBypassReason,
+              criticalQaBlocked: shouldBlockForReview,
+              panelCharacterRoles,
+              characterIds: panelCharacterIds,
               rerollCount,
               rerollKind: bestAttempt.rerollKind,
               scenePass: finalRouting.panelCategory === "ESTABLISHING_ENVIRONMENT" ? "scene_first" : "single_or_light_ref",
@@ -2805,17 +2928,65 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     console.log(
       `[pipeline] quality average=${chapterQualityReport.averageReleaseScore.toFixed(2)} accepted=${chapterQualityReport.premiumReleaseAccepted} weakPanels=${chapterQualityReport.weakPanels.length}`
     );
+    const persistedRuntime = buildPersistedChapterRuntimeState({
+      studioSnapshot,
+      chapterId,
+      chapterNumber,
+      jobId,
+      totalPlannedImages: plannedImages.length,
+      generatedCount,
+      failedCount,
+      qualityReport: chapterQualityReport,
+    });
+    const generationRunSummary = buildRuntimeDebugSummary({
+      generationRunSummary: persistedRuntime.generationRunSummary,
+      productionSource,
+    });
 
     // Mettre à jour le statut du chapitre
     await prisma.chapter.update({
       where: { id: chapterId },
       data: {
-        status: generatedCount > 0 ? "published" : "ready_for_render",
+        status: persistedRuntime.persistedChapterStatus,
+        ...(persistedRuntime.structuredRuntimeFields
+          ? {
+              studioStatus: persistedRuntime.structuredRuntimeFields.studioStatus,
+              studioCurrentStep: persistedRuntime.structuredRuntimeFields.studioCurrentStep,
+              studioUpdatedAt: persistedRuntime.structuredRuntimeFields.studioUpdatedAt
+                ? new Date(persistedRuntime.structuredRuntimeFields.studioUpdatedAt)
+                : null,
+              studioAutosaveVersion: persistedRuntime.structuredRuntimeFields.studioAutosaveVersion,
+              minimumImages: persistedRuntime.structuredRuntimeFields.minimumImages,
+              generatedImages: persistedRuntime.structuredRuntimeFields.generatedImages,
+              acceptedImages: persistedRuntime.structuredRuntimeFields.acceptedImages,
+              rejectedImages: persistedRuntime.structuredRuntimeFields.rejectedImages,
+              missingImages: persistedRuntime.structuredRuntimeFields.missingImages,
+              criticalPanelsCount: persistedRuntime.structuredRuntimeFields.criticalPanelsCount,
+              criticalPanelsBlocked: persistedRuntime.structuredRuntimeFields.criticalPanelsBlocked,
+              criticalPanelsMissingQa: persistedRuntime.structuredRuntimeFields.criticalPanelsMissingQa,
+              reviewBlockedReason: persistedRuntime.structuredRuntimeFields.reviewBlockedReason,
+            }
+          : {}),
         outline: ({
           ...revisedBundle.outline,
           operationalStatus: revisedBundle.generationDiagnostics.operationalStatus,
           degradedModes: revisedBundle.generationDiagnostics.degradedModes,
           generationDiagnostics: revisedBundle.generationDiagnostics.outline,
+          generationRunSummary,
+          imageStats: {
+            total: plannedImages.length,
+            generated: generatedCount,
+            failed: failedCount,
+            accepted: chapterQualityReport.acceptedImages,
+            rejected: chapterQualityReport.rejectedImages,
+            minimumAcceptedImages: chapterQualityReport.minimumAcceptedImages,
+            missingImages: chapterQualityReport.missingImages,
+          },
+          runtimeSources: {
+            outlineSource: productionSource.source,
+            fallbackUsed: productionSource.fallbackUsed,
+            legacyBridgeUsed: productionSource.legacyBridgeUsed,
+          },
           qualityReport: chapterQualityReport,
         } as unknown) as Prisma.InputJsonValue,
         script: ({
@@ -2823,6 +2994,21 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           operationalStatus: revisedBundle.generationDiagnostics.operationalStatus,
           degradedModes: revisedBundle.generationDiagnostics.degradedModes,
           generationDiagnostics: revisedBundle.generationDiagnostics.dialogue,
+          generationRunSummary,
+          imageStats: {
+            total: plannedImages.length,
+            generated: generatedCount,
+            failed: failedCount,
+            accepted: chapterQualityReport.acceptedImages,
+            rejected: chapterQualityReport.rejectedImages,
+            minimumAcceptedImages: chapterQualityReport.minimumAcceptedImages,
+            missingImages: chapterQualityReport.missingImages,
+          },
+          runtimeSources: {
+            outlineSource: productionSource.source,
+            fallbackUsed: productionSource.fallbackUsed,
+            legacyBridgeUsed: productionSource.legacyBridgeUsed,
+          },
           qualityReport: chapterQualityReport,
         } as unknown) as Prisma.InputJsonValue,
       },

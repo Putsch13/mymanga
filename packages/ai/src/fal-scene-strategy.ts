@@ -18,6 +18,21 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
+function isHeroRole(role: string) {
+  return /hero|protagon|main_hero|héros|heros/i.test(role);
+}
+
+function resolveMinimumReferencePolicy(ctx: RoutingContext): ReferencePolicy {
+  if (ctx.heroFocus) return "STRONG";
+  if (ctx.heroPresent) return "LIGHT";
+  if ((ctx.panelCharacterImportanceTiers ?? []).includes("SECONDARY_CORE")) return "STRONG";
+  if ((ctx.panelCharacterImportanceTiers ?? []).includes("IMPORTANT_SUPPORTING_CHARACTER")) return "LIGHT";
+  if ((ctx.panelCharacterImportanceTiers ?? []).includes("RECURRING_NPC") && ctx.hasCanonReferences) return "LIGHT";
+  if ((ctx.shotType === "closeup" || ctx.shotType === "extreme_closeup") && ctx.characterCountInScene > 0) return "STRONG";
+  if (ctx.characterCountInScene > 0 && ctx.hasCanonReferences) return "LIGHT";
+  return "NONE";
+}
+
 export function computeSceneComplexityScore(ctx: RoutingContext) {
   let score = 0;
   score += Math.max(0, ctx.characterCountInScene - 1) * 16;
@@ -36,6 +51,12 @@ export function computeSceneComplexityScore(ctx: RoutingContext) {
 export function computeFalSceneAssessment(ctx: RoutingContext): FalSceneAssessment {
   const sceneText = `${ctx.scenePurpose ?? ""} ${ctx.purpose ?? ""}`.toLowerCase();
   const sceneComplexityScore = computeSceneComplexityScore(ctx);
+  const heroPresent =
+    ctx.heroPresent === true
+    || (ctx.panelCharacterRoles ?? []).some(isHeroRole);
+  const heroFocus =
+    ctx.heroFocus === true
+    || (heroPresent && (ctx.shotType === "closeup" || ctx.shotType === "extreme_closeup"));
   const environmentCritical = Boolean(
     ctx.shotType === "wide"
     || ctx.purpose === "establishing"
@@ -95,6 +116,21 @@ export function computeFalSceneAssessment(ctx: RoutingContext): FalSceneAssessme
   const benchmarkBaseline = sceneArchetype !== "generic" ? FAL_STRATEGY_BASELINES[sceneArchetype] : null;
   if (benchmarkBaseline && panelCategory !== "CHARACTER_LOCK" && panelCategory !== "LOCAL_FIX") {
     referencePolicy = benchmarkBaseline.referencePolicy;
+  }
+
+  const minimumReferencePolicy = resolveMinimumReferencePolicy({
+    ...ctx,
+    heroPresent,
+    heroFocus,
+  });
+  if (minimumReferencePolicy === "STRONG") {
+    referencePolicy = "STRONG";
+  } else if (minimumReferencePolicy === "LIGHT" && referencePolicy === "NONE") {
+    referencePolicy = "LIGHT";
+  }
+
+  if (heroFocus && panelCategory !== "LOCAL_FIX") {
+    panelCategory = "CHARACTER_LOCK";
   }
 
   return {

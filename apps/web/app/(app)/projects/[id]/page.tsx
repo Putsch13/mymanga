@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { BookMarked, BookOpen, GitBranch, ImageIcon, Palette, ScrollText, Users, Wand2 } from "lucide-react";
+import { BookMarked, BookOpen, GitBranch, ImageIcon, Palette, ScrollText, Settings, Users, Wand2, History } from "lucide-react";
 import { prisma } from "@manga-ai-studio/db";
 import { getCurrentUser } from "@/lib/auth/get-app-user";
 import { Badge } from "@/components/ui/badge";
@@ -15,8 +15,8 @@ const tiles = (id: string) =>
   [
     {
       href: `/projects/${id}/chapters`,
-      title: "Chapitres & lecture",
-      desc: "Liste, lecteur manga (feuilletage), suite en fin de chapitre.",
+      title: "Chapitres",
+      desc: "Studio de création, génération, revue QA et lecture.",
       icon: BookMarked,
     },
     {
@@ -26,9 +26,9 @@ const tiles = (id: string) =>
       icon: Users,
     },
     {
-      href: `/projects/${id}/style`,
-      title: "Style pack",
-      desc: "DA structurée : ligne, ombres, caméra, LoRAs.",
+      href: `/projects/${id}/canon`,
+      title: "Canon visuel",
+      desc: "Style pack, décor, locks et cohérence canon-first.",
       icon: Palette,
     },
     {
@@ -38,16 +38,28 @@ const tiles = (id: string) =>
       icon: BookOpen,
     },
     {
-      href: `/projects/${id}/generate`,
-      title: "Chapitre & images",
-      desc: "Estimation routing, tokens, génération IA.",
+      href: `/projects/${id}/chapters/new`,
+      title: "Nouveau chapitre",
+      desc: "Wizard studio, validation readiness puis génération.",
       icon: Wand2,
     },
     {
-      href: `/projects/${id}/studio`,
-      title: "Studio image",
-      desc: "Test fal / Runware / Stability avec débit tokens.",
+      href: `/projects/${id}/assets`,
+      title: "Assets",
+      desc: "Références, variations validées et ressources canon.",
       icon: ImageIcon,
+    },
+    {
+      href: `/projects/${id}/settings`,
+      title: "Réglages",
+      desc: "Préférences du projet et garde-fous du studio.",
+      icon: Settings,
+    },
+    {
+      href: `/projects/${id}/history`,
+      title: "Historique",
+      desc: "États studio, transitions et versions récentes.",
+      icon: History,
     },
   ] as const;
 
@@ -103,7 +115,7 @@ export default async function ProjectOverviewPage({ params }: Props) {
             <Link href={`/projects/${id}/characters`}>Configurer héros / antagonistes</Link>
           </Button>
           <Button asChild className="border-border">
-            <Link href={`/projects/${id}/generate`}>Continuer le flux créatif</Link>
+            <Link href={`/projects/${id}/chapters/new`}>Continuer dans le studio chapitre</Link>
           </Button>
         </div>
       </div>

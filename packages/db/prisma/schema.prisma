@@ -570,6 +570,10 @@ model Chapter {
   chapterNumber  Int
   title          String?
   status         String   @default("draft")
+  studioStatus   String?
+  studioCurrentStep String?
+  studioUpdatedAt DateTime?
+  studioAutosaveVersion Int?
   userIntent     String?
   outline        Json     @default("{}")
   script         Json     @default("{}")
@@ -579,6 +583,15 @@ model Chapter {
   coverImageUrl  String?
   tokenEstimate  Int?
   tokenActual    Int?
+  minimumImages  Int?
+  generatedImages Int?
+  acceptedImages Int?
+  rejectedImages Int?
+  missingImages  Int?
+  criticalPanelsCount Int?
+  criticalPanelsBlocked Int?
+  criticalPanelsMissingQa Int?
+  reviewBlockedReason String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -595,6 +608,7 @@ model Chapter {
   sceneStates    SceneState[]
 
   @@unique([projectId, chapterNumber])
+  @@index([projectId, studioStatus])
 }
 
 model ChapterScene {

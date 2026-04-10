@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { parseApprovedOutline } from "@manga-ai-studio/core";
+import {
+  buildChapterReadinessReport,
+  buildLegacyApprovedOutlineFromStudio,
+  parseApprovedOutline,
+} from "@manga-ai-studio/core";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { prisma } from "@manga-ai-studio/db";
 import { runFullChapterPipelineFromJob, sendChapterGenerateRequested } from "@manga-ai-studio/workflow";
@@ -9,6 +13,7 @@ import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } fro
 import { notFound, unauthorized, badRequest, validationError } from "@/lib/api-response";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { readChapterStudioSnapshotFromOutline } from "@/lib/chapter-studio";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -72,7 +77,32 @@ export async function POST(req: Request, ctx: Ctx) {
     chapter.outline && typeof chapter.outline === "object" && !Array.isArray(chapter.outline)
       ? (chapter.outline as Record<string, unknown>)
       : {};
-  const approvedOutline = parseApprovedOutline(chapterOutlineRecord.approvedOutline);
+  const snapshot = readChapterStudioSnapshotFromOutline({
+    outline: chapter.outline,
+    chapterNumber: chapter.chapterNumber,
+    chapterTitle: chapter.title,
+    chapterSummary: chapter.summary,
+    cliffhanger: chapter.cliffhanger,
+    userIntent: chapter.userIntent,
+    studioStatus: chapter.studioStatus,
+    studioCurrentStep: chapter.studioCurrentStep,
+    studioUpdatedAt: chapter.studioUpdatedAt,
+    studioAutosaveVersion: chapter.studioAutosaveVersion,
+    minimumImages: chapter.minimumImages,
+    generatedImages: chapter.generatedImages,
+    acceptedImages: chapter.acceptedImages,
+    rejectedImages: chapter.rejectedImages,
+    missingImages: chapter.missingImages,
+    criticalPanelsCount: chapter.criticalPanelsCount,
+    criticalPanelsBlocked: chapter.criticalPanelsBlocked,
+    criticalPanelsMissingQa: chapter.criticalPanelsMissingQa,
+    reviewBlockedReason: chapter.reviewBlockedReason,
+  });
+  const readiness = snapshot.data.readinessReport ?? buildChapterReadinessReport(snapshot);
+  if (readiness.status === "blocked") {
+    return validationError("Le chapitre n'est pas prêt pour la génération.", readiness);
+  }
+  const approvedOutline = buildLegacyApprovedOutlineFromStudio(snapshot) ?? parseApprovedOutline(chapterOutlineRecord.approvedOutline);
   if (!approvedOutline) {
     return validationError("Valide d'abord le plan détaillé du chapitre avant de lancer la génération.");
   }

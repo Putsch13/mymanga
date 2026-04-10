@@ -17,6 +17,10 @@ export interface CharacterRef {
   bodyDetails?: string | null;
   /** Détails tenue enrichis */
   wardrobeDetails?: string | null;
+  importanceTier?: "MAIN_HERO" | "SECONDARY_CORE" | "IMPORTANT_SUPPORTING_CHARACTER" | "RECURRING_NPC" | "BACKGROUND_EXTRA" | null;
+  lockStrength?: "HARD_LOCK" | "STRONG" | "MEDIUM" | "LIGHT" | "NONE" | null;
+  continuityBudget?: "strict" | "light" | "none" | null;
+  recurringMemory?: string | null;
 }
 
 export interface StylePackRef {
@@ -46,12 +50,27 @@ export interface PanelPromptInput {
   sceneContext?: string | null;
   /** Ambiance d'environnement : foule, heure, météo, etc. */
   environmentHint?: string | null;
+  /** Intention narrative condensée pour prioriser le panel */
+  narrativeObjective?: string | null;
+  /** Contraintes canon actives pour le panel */
+  canonConstraints?: string[] | null;
 }
 
 export interface ComposedPrompt {
   positive: string;
   negative: string;
   seed?: number;
+  debug?: {
+    finalPrompt: string;
+    promptSections: Array<{ key: string; label: string; content: string }>;
+    sectionSources: Record<string, string[]>;
+    resolvedPolicy: {
+      hasCharacterLock: boolean;
+      hasNarrativeObjective: boolean;
+      hasEnvironmentLock: boolean;
+    };
+    promptWarnings: string[];
+  };
   fal?: {
     positivePrompt: string;
     negativePrompt: string;
@@ -107,6 +126,15 @@ const BASE_NEGATIVE =
 
 function describeCharacter(c: CharacterRef): string {
   const parts: string[] = [`[${c.name}]`];
+  if (c.lockStrength && c.lockStrength !== "NONE") {
+    parts.push(`lock ${c.lockStrength.toLowerCase()}`);
+  }
+  if (c.importanceTier) {
+    parts.push(`tier ${c.importanceTier.toLowerCase()}`);
+  }
+  if (c.continuityBudget && c.continuityBudget !== "none") {
+    parts.push(`continuity ${c.continuityBudget}`);
+  }
 
   const entityKind = c.entityKind?.trim().toLowerCase();
   if (entityKind && entityKind !== "human" && entityKind !== "named_npc") {
@@ -135,6 +163,7 @@ function describeCharacter(c: CharacterRef): string {
   // Détails corporels et vestimentaires enrichis
   if (c.bodyDetails) parts.push(c.bodyDetails);
   if (c.wardrobeDetails) parts.push(c.wardrobeDetails);
+  if (c.recurringMemory) parts.push(c.recurringMemory);
 
   return parts.join(", ");
 }
@@ -210,16 +239,41 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
 
   const blueprint = input.sceneBlueprint;
   const preset = inferPromptPreset(input);
-  const positiveParts: string[] = [];
-  positiveParts.push(sanitizeSectionText(`Style: ${visualStyle}.`));
-  if (charDescs) positiveParts.push(sanitizeSectionText(`Subject lock: ${charDescs}.`));
-  positiveParts.push(sanitizeSectionText(`Action: ${input.action}.`));
-  positiveParts.push(sanitizeSectionText(`Camera and composition: ${cameraDesc}.`));
-  positiveParts.push(sanitizeSectionText(`Environment: ${input.location} clearly visible. ${input.environmentHint?.slice(0, 220) ?? ""}`));
-  positiveParts.push(sanitizeSectionText(`Mood and lighting: ${moodDesc}.`));
-  if (input.sceneContext) positiveParts.push(sanitizeSectionText(`Continuity: ${input.sceneContext.slice(0, 220)}.`));
   const environmentLock = buildEnvironmentLock(input);
-  if (environmentLock) positiveParts.push(sanitizeSectionText(`Strict environment readability: ${environmentLock}.`));
+  const promptWarnings: string[] = [];
+  const promptSections: Array<{ key: string; label: string; content: string }> = [];
+  const addSection = (key: string, label: string, content: string) => {
+    if (!content.trim()) return;
+    promptSections.push({ key, label, content: sanitizeSectionText(content) });
+  };
+
+  addSection("characterCanonLock", "Character Canon Lock", charDescs ? `Subject lock: ${charDescs}.` : "");
+  addSection(
+    "narrativeObjective",
+    "Narrative Objective",
+    input.narrativeObjective
+      ? `Narrative objective: ${input.narrativeObjective}.`
+      : input.sceneContext
+        ? `Continuity: ${input.sceneContext.slice(0, 220)}.`
+        : "",
+  );
+  addSection("actionPoseEmotion", "Exact Action / Pose / Emotion", `Action: ${input.action}. Mood and lighting: ${moodDesc}.`);
+  addSection("cameraComposition", "Camera / Composition / Framing", `Camera and composition: ${cameraDesc}.`);
+  addSection(
+    "environmentContext",
+    "Environment / Context",
+    `Environment: ${input.location} clearly visible. ${input.environmentHint?.slice(0, 220) ?? ""}${environmentLock ? ` Strict environment readability: ${environmentLock}.` : ""}`,
+  );
+  addSection("renderingMood", "Rendering / Inking / Mood", `Style: ${visualStyle}. ${intensityNote && layer !== "GENERAL_SAFE" ? `Content boundaries: ${intensityNote}.` : ""}`);
+
+  if (!charDescs && input.characters && input.characters.length > 0) {
+    promptWarnings.push("character_lock_missing");
+  }
+  if (!input.narrativeObjective && !input.sceneContext) {
+    promptWarnings.push("narrative_objective_missing");
+  }
+
+  const positiveParts = promptSections.map((section) => section.content);
   if (blueprint) {
     positiveParts.push(
       sanitizeSectionText(`Spatial relation: ${blueprint.composition.framingRules.join(", ")}.`),
@@ -232,7 +286,6 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     }
   }
   if (input.dialogueHint) positiveParts.push(sanitizeSectionText(`Subtext: ${input.dialogueHint.slice(0, 120)}.`));
-  if (intensityNote && layer !== "GENERAL_SAFE") positiveParts.push(sanitizeSectionText(`Content boundaries: ${intensityNote}.`));
   positiveParts.push("Readable background, strong environment, coherent manga composition, clear spatial relation between characters and place.");
   if (input.characters && input.characters.length > 0) {
     positiveParts.push("Keep character continuity stable: same hair, same face, same outfit, same silhouette.");
@@ -284,6 +337,24 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     positive,
     negative,
     seed: input.seed,
+    debug: {
+      finalPrompt: positive,
+      promptSections,
+      sectionSources: {
+        characterCanonLock: input.characters?.map((character) => character.name) ?? [],
+        narrativeObjective: [input.narrativeObjective ?? input.sceneContext ?? ""].filter(Boolean),
+        actionPoseEmotion: [input.action, input.mood],
+        cameraComposition: [input.camera],
+        environmentContext: [input.location, input.environmentHint ?? "", environmentLock],
+        renderingMood: [visualStyle, intensityNote],
+      },
+      resolvedPolicy: {
+        hasCharacterLock: Boolean(charDescs),
+        hasNarrativeObjective: Boolean(input.narrativeObjective || input.sceneContext),
+        hasEnvironmentLock: Boolean(environmentLock),
+      },
+      promptWarnings,
+    },
     fal: {
       positivePrompt: positive,
       negativePrompt: negative,

@@ -2,6 +2,86 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { validateGeneratedPanel } from "./panel-validator";
 import type { SceneBlueprint } from "@manga-ai-studio/world";
 
+const analyzePanelWithVisionMock = vi.fn();
+
+vi.mock("./services/panel-vision-analyzer", () => ({
+  analyzePanelWithVision: (...args: unknown[]) => analyzePanelWithVisionMock(...args),
+}));
+
+describe("panel-validator QA critique", () => {
+  beforeEach(() => {
+    analyzePanelWithVisionMock.mockReset();
+  });
+
+  const requiredCharacters = [
+    {
+      characterId: "hero-1",
+      characterName: "Aiko",
+      fingerprint: {
+        hair: { color: "silver" },
+        face: { eyeColor: "blue" },
+        identity: { gender: "female" },
+        permanentMarkers: [],
+        forbiddenDrift: [],
+        defaultOutfit: [],
+      } as never,
+    },
+  ];
+
+  it("invalide un panel critique si l'analyzer visuel est indisponible", async () => {
+    analyzePanelWithVisionMock.mockResolvedValue(null);
+
+    const validation = await validateGeneratedPanel({
+      panelId: "panel-1",
+      imageUrl: "https://example.com/panel.png",
+      requiredCharacters,
+      metadata: {
+        prompt: "Aiko silver hair blue eyes closeup manga panel",
+        panelContract: { shotType: "closeup", purpose: "reaction", mustShow: [], backgroundExtras: [] },
+        panelQa: {
+          panelCategory: "CHARACTER_LOCK",
+          panelNumber: 1,
+          pagePanelCount: 4,
+          characterRoles: ["hero"],
+          characterIds: ["hero-1"],
+          explicitCriticality: { level: "CRITICAL", reasons: ["hero_closeup"] },
+        },
+      },
+    });
+
+    expect(validation.qaWasRequired).toBe(true);
+    expect(validation.qaWasExecuted).toBe(false);
+    expect(validation.qaFailureReason).toBe("visual_analyzer_unavailable_for_critical_panel");
+    expect(validation.requiredReroll).toBe(true);
+  });
+
+  it("autorise explicitement un panel non critique sans analyzer", async () => {
+    analyzePanelWithVisionMock.mockResolvedValue(null);
+
+    const validation = await validateGeneratedPanel({
+      panelId: "panel-2",
+      imageUrl: "https://example.com/panel.png",
+      requiredCharacters: [],
+      metadata: {
+        prompt: "city street medium shot manga panel",
+        panelContract: { shotType: "medium", purpose: "dialogue", mustShow: [], backgroundExtras: [] },
+        panelQa: {
+          panelCategory: "CHARACTER_IN_SCENE",
+          panelNumber: 1,
+          pagePanelCount: 3,
+          characterRoles: [],
+          characterIds: [],
+          explicitCriticality: { level: "NON_CRITICAL", reasons: [] },
+        },
+      },
+    });
+
+    expect(validation.qaWasRequired).toBe(false);
+    expect(validation.qaWasExecuted).toBe(false);
+    expect(validation.qaBypassReason).toBe("non_critical_panel");
+  });
+});
+
 const blueprint: SceneBlueprint = {
   id: "panel-1",
   seed: 42,
@@ -78,6 +158,8 @@ const blueprint: SceneBlueprint = {
 describe("panel validator premium scoring", () => {
   beforeEach(() => {
     process.env.ENABLE_PREMIUM_VISION_QA = "false";
+    analyzePanelWithVisionMock.mockReset();
+    analyzePanelWithVisionMock.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -140,33 +222,18 @@ describe("panel validator premium scoring", () => {
   });
 
   it("merges vision QA when available", async () => {
-    process.env.OPENAI_API_KEY = "test-key";
-    process.env.ENABLE_PREMIUM_VISION_QA = "true";
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({
-                  characterConsistencyScore: 0.9,
-                  backgroundPresenceScore: 0.88,
-                  environmentReadabilityScore: 0.9,
-                  interactionScore: 0.81,
-                  shotComplianceScore: 0.92,
-                  styleConsistencyScore: 0.89,
-                  releaseScore: 0.9,
-                  confidence: 0.8,
-                  findings: ["decor riche et lisible", "interaction credible"],
-                }),
-              },
-            },
-          ],
-        }),
-      }),
-    );
+    analyzePanelWithVisionMock.mockResolvedValue({
+      characterConsistencyScore: 0.9,
+      backgroundPresenceScore: 0.88,
+      environmentReadabilityScore: 0.9,
+      interactionScore: 0.81,
+      shotComplianceScore: 0.92,
+      styleConsistencyScore: 0.89,
+      releaseScore: 0.9,
+      confidence: 0.8,
+      findings: ["decor riche et lisible", "interaction credible"],
+      model: "mock-vision",
+    });
 
     const result = await validateGeneratedPanel({
       panelId: "panel-vision",

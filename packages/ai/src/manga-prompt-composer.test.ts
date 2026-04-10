@@ -47,4 +47,27 @@ describe("composeMangaPanelPrompt with scene blueprint", () => {
     expect(result.positive).toContain("students visible in background");
     expect(result.negative).toContain("empty school courtyard");
   });
+
+  it("injecte la memoire legere d'un recurring NPC dans le lock personnage", () => {
+    const result = composeMangaPanelPrompt({
+      location: "rue commerçante",
+      action: "Le hero recroise un marchand deja vu plusieurs fois",
+      camera: "medium shot",
+      mood: "dramatic",
+      contentIntensityLayer: "TEEN",
+      characters: [
+        {
+          name: "Marchand 12",
+          importanceTier: "RECURRING_NPC",
+          lockStrength: "MEDIUM",
+          continuityBudget: "light",
+          recurringMemory: "broad silhouette, hair braid, age adult, marker copper earring, outfit patched vest, seen 4 times",
+        },
+      ],
+    });
+
+    expect(result.positive).toContain("broad silhouette");
+    expect(result.positive).toContain("marker copper earring");
+    expect(result.positive).toContain("seen 4 times");
+  });
 });

@@ -1,6 +1,5 @@
 export * from "./types";
 export * from "./image-routing-service";
-export * from "./prompt-composer-v2";
 export * from "./adapters/mock-image-provider";
 export * from "./adapters/fal-flux-adapter";
 export * from "./adapters/fal-character-adapter";

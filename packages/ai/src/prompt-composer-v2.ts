@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+/**
+ * Legacy prompt payload shape kept only for compatibility bridges.
+ * The main runtime path now goes through `composeMangaPanelPrompt()`.
+ */
 export const promptComposerV2Schema = z.object({
   base_prompt: z.string(),
   style_pack_prompt: z.string(),
@@ -13,10 +17,12 @@ export const promptComposerV2Schema = z.object({
 
 export type PromptComposerV2 = z.infer<typeof promptComposerV2Schema>;
 
+/** @deprecated Use `composeMangaPanelPrompt()` as the primary runtime path. */
 export function parsePromptComposerV2(raw: unknown): PromptComposerV2 {
   return promptComposerV2Schema.parse(raw);
 }
 
+/** @deprecated Use `composeMangaPanelPrompt()` as the primary runtime path. */
 export function mergePositivePrompt(pc: PromptComposerV2): string {
   const parts = [
     pc.base_prompt.trim(),
@@ -28,13 +34,15 @@ export function mergePositivePrompt(pc: PromptComposerV2): string {
   return parts.join(". ");
 }
 
+/** @deprecated Use `composeMangaPanelPrompt()` as the primary runtime path. */
 export function mergeNegativePrompt(pc: PromptComposerV2): string {
   return pc.negative_prompt.map((s) => s.trim()).filter(Boolean).join(", ");
 }
 
 /**
- * Assembleur minimal par famille de provider (à étendre par adapter).
+ * Legacy assembler kept only for compatibility bridges.
  */
+/** @deprecated Use `composeMangaPanelPrompt()` as the primary runtime path. */
 export function toFalPayload(pc: PromptComposerV2) {
   return {
     prompt: mergePositivePrompt(pc),
@@ -43,6 +51,7 @@ export function toFalPayload(pc: PromptComposerV2) {
   };
 }
 
+/** @deprecated Use `composeMangaPanelPrompt()` as the primary runtime path. */
 export function toStabilityPayload(pc: PromptComposerV2) {
   return {
     prompt: mergePositivePrompt(pc),

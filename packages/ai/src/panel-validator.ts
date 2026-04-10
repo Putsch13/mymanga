@@ -3,7 +3,13 @@
  * Détecte les dérives visuelles et les incohérences.
  */
 
-import type { CharacterFingerprint, PanelValidationResult } from "@manga-ai-studio/core";
+import {
+  classifyPanelCriticality,
+  getCharacterTierPolicy,
+  resolveCharacterImportanceTier,
+  type CharacterFingerprint,
+  type PanelValidationResult,
+} from "@manga-ai-studio/core";
 import { runPropertyValidators, type SceneBlueprint } from "@manga-ai-studio/world";
 import { analyzePanelWithVision } from "./services/panel-vision-analyzer";
 
@@ -35,6 +41,20 @@ export interface GeneratedPanelData {
       backgroundDensity?: string | null;
       cameraLanguage?: string | null;
       negativeConstraints?: string[];
+    };
+    panelQa?: {
+      heroCharacterId?: string | null;
+      pageNumber?: number | null;
+      panelNumber?: number | null;
+      pagePanelCount?: number | null;
+      panelCategory?: string | null;
+      visualPriority?: string | null;
+      characterRoles?: Array<string | null>;
+      characterIds?: string[];
+      explicitCriticality?: {
+        level: "NON_CRITICAL" | "CRITICAL";
+        reasons: string[];
+      } | null;
     };
   };
 }
@@ -157,6 +177,25 @@ export async function validateGeneratedPanel(
 ): Promise<PanelValidationResult> {
   const issues: PanelValidationResult["issues"] = [];
   let score = 1.0;
+  const characterTiers = (panel.metadata?.panelQa?.characterRoles ?? []).map((role) =>
+    resolveCharacterImportanceTier({ roleType: role ?? null })
+  );
+  const computedCriticality =
+    panel.metadata?.panelQa?.explicitCriticality
+    ?? classifyPanelCriticality({
+      shotType: panel.metadata?.panelContract?.shotType,
+      purpose: panel.metadata?.panelContract?.purpose,
+      panelCategory: panel.metadata?.panelQa?.panelCategory,
+      pageNumber: panel.metadata?.panelQa?.pageNumber,
+      panelNumber: panel.metadata?.panelQa?.panelNumber,
+      pagePanelCount: panel.metadata?.panelQa?.pagePanelCount,
+      characterIds: panel.metadata?.panelQa?.characterIds,
+      characterTiers,
+      heroCharacterId: panel.metadata?.panelQa?.heroCharacterId,
+      visualPriority: panel.metadata?.panelQa?.visualPriority,
+    });
+  const qaWasRequired = computedCriticality.level === "CRITICAL"
+    || characterTiers.some((tier) => getCharacterTierPolicy(tier).qaExpectation === "strict");
 
   // 1. Vérifier que tous les personnages requis sont mentionnés dans le prompt
   const prompt = panel.metadata?.prompt?.toLowerCase() ?? "";
@@ -296,6 +335,17 @@ export async function validateGeneratedPanel(
     ),
     visionScore: visionAnalysis?.releaseScore ?? null,
   };
+  const qaWasExecuted = Boolean(visionAnalysis);
+  const qaFailureReason = qaWasRequired && !qaWasExecuted ? "visual_analyzer_unavailable_for_critical_panel" : null;
+  const qaBypassReason = !qaWasRequired && !qaWasExecuted ? "non_critical_panel" : null;
+  if (qaFailureReason) {
+    issues.push({
+      severity: "critical",
+      type: "missing_visual_qa",
+      message: "QA visuelle obligatoire indisponible sur un panel critique.",
+      autoFixable: false,
+    });
+  }
   if (qualityScores.backgroundPresenceScore < 0.62) {
     issues.push({
       severity: (panel.metadata?.panelContract?.shotType ?? panel.metadata?.sceneBlueprint?.composition.shotType) === "wide" ? "critical" : "major",
@@ -374,6 +424,10 @@ export async function validateGeneratedPanel(
 
   // Déterminer si reroll requis
   const requiredReroll =
+    Boolean(qaFailureReason)
+    || !qaWasExecuted && qaWasRequired
+    || issues.some((i) => i.type === "missing_visual_qa")
+    ||
     score < 0.78
     || qualityScores.releaseScore < 0.72
     || qualityScores.backgroundPresenceScore < 0.55
@@ -383,15 +437,23 @@ export async function validateGeneratedPanel(
   return {
     panelId: panel.panelId,
     score,
+    panelCriticality: {
+      level: computedCriticality.level,
+      reasons: computedCriticality.reasons,
+    },
     qualityScores,
     visionAnalysis: {
-      enabled: Boolean(visionAnalysis),
+      enabled: qaWasExecuted,
       model: visionAnalysis?.model ?? null,
       confidence: visionAnalysis?.confidence ?? null,
       findings: visionAnalysis?.findings ?? [],
     },
     propertyChecks,
     issues,
+    qaWasRequired,
+    qaWasExecuted,
+    qaFailureReason,
+    qaBypassReason,
     requiredReroll,
   };
 }

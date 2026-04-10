@@ -47,7 +47,7 @@ export const approvedOutlineBeatSchema = z.object({
 export const approvedOutlineSchema = z.object({
   summary: z.string().min(10),
   cliffhanger: z.string().min(3),
-  beats: z.array(approvedOutlineBeatSchema).min(1).max(5),
+  beats: z.array(approvedOutlineBeatSchema).min(1).max(24),
   approvedAt: z.string().min(1),
   approvalVersion: z.string().min(1),
   source: z.enum(["estimate_preview", "user_approved"]).default("user_approved"),

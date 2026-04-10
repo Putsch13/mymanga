@@ -16,6 +16,8 @@
     "checks:legacy": "tsx prisma/run-legacy-prechecks.ts",
     "checks:hard-switch": "tsx prisma/run-hard-switch-postchecks.ts",
     "backfill:hard-switch": "tsx prisma/backfill-hard-switch.ts",
+    "backfill:chapter-studio": "tsx prisma/backfill-chapter-studio.ts",
+    "backfill:chapter-runtime-structured": "tsx prisma/backfill-chapter-runtime-structured.ts",
     "studio": "prisma studio",
     "seed": "tsx prisma/seed.ts",
     "lint": "echo ok"

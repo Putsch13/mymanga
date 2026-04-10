@@ -153,6 +153,10 @@ type ReaderResponse = {
       environmentCritical: boolean;
       continuityCritical: boolean;
       prompt: string | null;
+      promptDebug?: {
+        finalPrompt: string | null;
+        promptWarnings: string[];
+      } | null;
       releaseScore: number | null;
       backgroundPresenceScore: number | null;
       interactionScore: number | null;
@@ -946,6 +950,11 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                     <p className="mt-1 text-[10px] text-stone-500">
                       {panel.workflow ?? "workflow ?"} · refs {panel.referencePolicy ?? "?"} · {panel.panelCategory ?? "catégorie ?"} · complexité {panel.sceneComplexityScore ?? "?"} · env {panel.environmentCritical ? "critique" : "normal"} · continuité {panel.continuityCritical ? "critique" : "normale"}
                     </p>
+                    {panel.promptDebug?.promptWarnings?.length ? (
+                      <p className="text-[10px] text-amber-500">
+                        warnings prompt: {panel.promptDebug.promptWarnings.join(", ")}
+                      </p>
+                    ) : null}
                     <p className="text-[10px] text-stone-500">
                       pass {panel.scenePass ?? "?"} · reroll {panel.rerollKind ?? "none"} · taille {panel.imageSize ?? "?"}
                     </p>

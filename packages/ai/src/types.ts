@@ -1,4 +1,4 @@
-import type { RenderingMode } from "@manga-ai-studio/core";
+import type { CharacterImportanceTier, RenderingMode } from "@manga-ai-studio/core";
 
 export type ImageProviderId = "fal" | "bfl" | "runware" | "stability";
 
@@ -101,6 +101,10 @@ export interface RoutingContext {
   scenePurpose?: string;
   styleBackgroundDensity?: string | null;
   styleReferenceRequired?: boolean;
+  panelCharacterRoles?: string[];
+  panelCharacterImportanceTiers?: CharacterImportanceTier[];
+  heroPresent?: boolean;
+  heroFocus?: boolean;
   needsInpaint: boolean;
   needsPoseVariation: boolean;
   preferPhotorealCover: boolean;

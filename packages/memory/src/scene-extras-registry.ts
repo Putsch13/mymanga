@@ -61,6 +61,21 @@ function buildNpcVisualCore(extra: SceneExtra) {
     .join(", ");
 }
 
+function deriveNpcAgeBand(extra: SceneExtra) {
+  if (extra.archetype === "crowd") return "mixed";
+  return "adult";
+}
+
+function buildNpcVisualMemory(extra: SceneExtra) {
+  return {
+    silhouetteFamily: extra.visualSignature.silhouette ?? null,
+    hairFamily: extra.visualSignature.hair ?? null,
+    ageBand: deriveNpcAgeBand(extra),
+    accessoryMarker: extra.visualSignature.hair ?? null,
+    clothingSignature: extra.visualSignature.outfit ?? null,
+  };
+}
+
 async function upsertNpcVisualProfile(
   prisma: PrismaClient | Prisma.TransactionClient,
   input: {
@@ -106,6 +121,8 @@ async function upsertNpcVisualProfile(
   const existing = await prisma.npcVisualProfile.findUnique({
     where: { stableNpcId: input.extra.id },
   });
+  const existingMetadata = asRecord(existing?.metadata);
+  const visualMemory = buildNpcVisualMemory(input.extra);
   const nextAppearanceCount = (existing?.appearanceCount ?? 0) + 1;
   const shouldPromote = input.forceImportant || nextAppearanceCount >= NPC_PROMOTION_THRESHOLD;
   return prisma.npcVisualProfile.upsert({
@@ -118,11 +135,14 @@ async function upsertNpcVisualProfile(
       shortVisualCore: buildNpcVisualCore(input.extra),
       outfitSignature: input.extra.visualSignature.outfit ?? null,
       silhouetteSignature: input.extra.visualSignature.silhouette ?? null,
+      accessoryMarker: input.extra.visualSignature.hair ?? existing?.accessoryMarker ?? null,
       relationToLocation: input.extra.anchorSlot,
       importanceLevel: input.forceImportant ? "important" : shouldPromote ? "recurring" : "generic",
       promotionStatus: input.forceImportant ? "locked" : shouldPromote ? "promoted" : "candidate",
       appearanceCount: nextAppearanceCount,
       metadata: {
+        ...existingMetadata,
+        visualMemory,
         lastSceneId: input.sceneId,
         lastArchetype: input.extra.archetype,
       },
@@ -143,6 +163,7 @@ async function upsertNpcVisualProfile(
       promotionStatus: input.forceImportant ? "locked" : "candidate",
       appearanceCount: 1,
       metadata: {
+        visualMemory,
         firstSceneId: input.sceneId,
         firstArchetype: input.extra.archetype,
       },

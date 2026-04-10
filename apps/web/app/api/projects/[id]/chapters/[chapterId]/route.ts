@@ -3,8 +3,9 @@ import { z } from "zod";
 import type { Prisma } from "@manga-ai-studio/db";
 import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
-import { notFound, unauthorized } from "@/lib/api-response";
+import { notFound, unauthorized, validationError } from "@/lib/api-response";
 import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
+import { patchChapterStudioSnapshot } from "@/lib/chapter-studio";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -149,6 +150,27 @@ export async function GET(_req: Request, ctx: Ctx) {
     failed: allImages.filter((i) => i.status === "failed" || i.status === "blocked").length,
     pending: allImages.filter((i) => i.status === "planned" || i.status === "pending").length,
   };
+  const studioSnapshot = patchChapterStudioSnapshot(
+    chapter.outline,
+    {},
+    {
+      chapterNumber: chapter.chapterNumber,
+      chapterTitle: chapter.title,
+      chapterSummary: chapter.summary,
+      cliffhanger: chapter.cliffhanger,
+      userIntent: chapter.userIntent,
+      transitionReason: "reader_hydration",
+    },
+  );
+  if (studioSnapshot.data.readinessReport) {
+    studioSnapshot.data.readinessReport.imageCounts = {
+      ...studioSnapshot.data.readinessReport.imageCounts,
+      generatedImages: imageStats.total,
+      acceptedImages: imageStats.completed,
+      rejectedImages: imageStats.failed,
+      missingImages: Math.max(0, studioSnapshot.data.readinessReport.imageCounts.minimumImages - imageStats.completed),
+    };
+  }
 
   const outlineRecord =
     chapter.outline && typeof chapter.outline === "object" && !Array.isArray(chapter.outline)
@@ -210,6 +232,10 @@ export async function GET(_req: Request, ctx: Ctx) {
         meta.generationLog && typeof meta.generationLog === "object"
           ? (meta.generationLog as Record<string, unknown>)
           : {};
+      const promptDebug =
+        meta.promptDebug && typeof meta.promptDebug === "object"
+          ? (meta.promptDebug as Record<string, unknown>)
+          : {};
       const falStrategy =
         meta.falStrategy && typeof meta.falStrategy === "object"
           ? (meta.falStrategy as Record<string, unknown>)
@@ -234,6 +260,15 @@ export async function GET(_req: Request, ctx: Ctx) {
           typeof image.prompt === "string"
             ? image.prompt.slice(0, 700)
             : null,
+        promptDebug: {
+          finalPrompt:
+            typeof promptDebug.finalPrompt === "string"
+              ? promptDebug.finalPrompt.slice(0, 1000)
+              : null,
+          promptWarnings: Array.isArray(promptDebug.promptWarnings)
+            ? (promptDebug.promptWarnings as string[])
+            : [],
+        },
         referencePolicy:
           typeof generationLog.referencePolicy === "string"
             ? generationLog.referencePolicy
@@ -303,9 +338,14 @@ export async function GET(_req: Request, ctx: Ctx) {
 
   return NextResponse.json({
     chapter,
+    studio: studioSnapshot,
     memorySnapshot,
     activeJob,
     imageStats,
+    generationRunSummary:
+      typeof outlineRecord.generationRunSummary === "object" && outlineRecord.generationRunSummary
+        ? outlineRecord.generationRunSummary
+        : null,
     generationDiagnostics: {
       operationalStatus:
         typeof outlineRecord.operationalStatus === "string"
@@ -353,12 +393,15 @@ export async function PATCH(req: Request, ctx: Ctx) {
   if (!existing) return notFound();
   const body = patchSchema.parse(await req.json());
 
+  if (body.status !== undefined) {
+    return validationError("Le statut chapitre ne peut plus être modifié via l'endpoint legacy. Utilise le workflow Chapter Studio.");
+  }
+
   const data: Prisma.ChapterUpdateInput = {};
   if (body.title !== undefined) data.title = body.title;
   if (body.summary !== undefined) data.summary = body.summary;
   if (body.cliffhanger !== undefined) data.cliffhanger = body.cliffhanger;
   if (body.userIntent !== undefined) data.userIntent = body.userIntent;
-  if (body.status !== undefined) data.status = body.status;
   if (body.storyboard !== undefined) data.storyboard = body.storyboard as Prisma.InputJsonValue;
   if (body.script !== undefined) data.script = body.script as Prisma.InputJsonValue;
   if (body.outline !== undefined) data.outline = body.outline as Prisma.InputJsonValue;
