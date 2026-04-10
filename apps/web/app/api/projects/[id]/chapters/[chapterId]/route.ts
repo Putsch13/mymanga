@@ -33,6 +33,16 @@ export async function GET(_req: Request, ctx: Ctx) {
         scenes: {
           orderBy: { sceneNumber: "asc" },
           include: {
+            keyframes: {
+              where: { selected: true },
+              orderBy: { version: "desc" },
+              take: 1,
+              select: {
+                id: true,
+                imageUrl: true,
+                metadata: true,
+              },
+            },
             images: {
               orderBy: { panelNumber: "asc" },
               select: {
@@ -45,6 +55,24 @@ export async function GET(_req: Request, ctx: Ctx) {
                 consistencyScore: true,
                 prompt: true,
                 metadata: true,
+                falTraces: {
+                  orderBy: { createdAt: "desc" },
+                  take: 6,
+                  select: {
+                    id: true,
+                    status: true,
+                    mode: true,
+                    provider: true,
+                    model: true,
+                    requestId: true,
+                    jobId: true,
+                    requestPayload: true,
+                    timings: true,
+                    refsUsed: true,
+                    lorasUsed: true,
+                    createdAt: true,
+                  },
+                },
               },
             },
           },
@@ -91,16 +119,23 @@ export async function GET(_req: Request, ctx: Ctx) {
   let signedCount = 0;
   await Promise.all(
     chapter.scenes.flatMap((scene) =>
-      scene.images.map(async (img) => {
-        const original = img.imageUrl;
-        // Signer d'abord (pour les buckets Supabase privés)
-        const signed = await signSupabaseUrlIfNeeded(img.imageUrl);
-        if (signed !== original) signedCount++;
-        // Puis proxifier (même domaine, évite CORS/ITP)
-        const proxied = toProxied(signed ?? original);
-        if (proxied && proxied !== (signed ?? original)) proxiedCount++;
-        img.imageUrl = proxied ?? signed ?? original;
-      }),
+      [
+        ...scene.keyframes.map(async (keyframe) => {
+          const original = keyframe.imageUrl;
+          const signed = await signSupabaseUrlIfNeeded(keyframe.imageUrl);
+          keyframe.imageUrl = toProxied(signed ?? original);
+        }),
+        ...scene.images.map(async (img) => {
+          const original = img.imageUrl;
+          // Signer d'abord (pour les buckets Supabase privés)
+          const signed = await signSupabaseUrlIfNeeded(img.imageUrl);
+          if (signed !== original) signedCount++;
+          // Puis proxifier (même domaine, évite CORS/ITP)
+          const proxied = toProxied(signed ?? original);
+          if (proxied && proxied !== (signed ?? original)) proxiedCount++;
+          img.imageUrl = proxied ?? signed ?? original;
+        }),
+      ],
     ),
   );
   const totalImages = chapter.scenes.flatMap((s) => s.images).length;
@@ -179,6 +214,7 @@ export async function GET(_req: Request, ctx: Ctx) {
         meta.falStrategy && typeof meta.falStrategy === "object"
           ? (meta.falStrategy as Record<string, unknown>)
           : {};
+      const activeKeyframe = scene.keyframes[0] ?? null;
       return {
         sceneId: scene.id,
         panelId: image.id,
@@ -186,6 +222,8 @@ export async function GET(_req: Request, ctx: Ctx) {
         status: image.status,
         provider: image.provider,
         model: image.model,
+        keyframeId: activeKeyframe?.id ?? null,
+        keyframeImageUrl: activeKeyframe?.imageUrl ?? null,
         workflow:
           typeof generationLog.workflow === "string"
             ? generationLog.workflow
@@ -240,6 +278,25 @@ export async function GET(_req: Request, ctx: Ctx) {
           Array.isArray(validationDetails.issues)
             ? validationDetails.issues
             : [],
+        traces: image.falTraces.map((trace) => ({
+          id: trace.id,
+          status: trace.status,
+          mode: trace.mode,
+          provider: trace.provider,
+          model: trace.model,
+          requestId: trace.requestId,
+          jobId: trace.jobId,
+          refsUsed: Array.isArray(trace.refsUsed) ? trace.refsUsed : [],
+          lorasUsed: Array.isArray(trace.lorasUsed) ? trace.lorasUsed : [],
+          timings:
+            trace.timings && typeof trace.timings === "object" && !Array.isArray(trace.timings)
+              ? trace.timings
+              : null,
+          requestPayload:
+            trace.requestPayload && typeof trace.requestPayload === "object" && !Array.isArray(trace.requestPayload)
+              ? trace.requestPayload
+              : null,
+        })),
       };
     }),
   );

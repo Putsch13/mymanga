@@ -21,8 +21,8 @@ export async function POST(_req: Request, ctx: Ctx) {
   const payload = await exportChapterPdfStub(chapterId);
   return new Response(Buffer.from(payload), {
     headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="chapter-${chapter.chapterNumber}.pdf"`,
+      "Content-Type": "text/plain; charset=utf-8",
+      "Content-Disposition": `attachment; filename="chapter-${chapter.chapterNumber}-export.txt"`,
     },
   });
 }

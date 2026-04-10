@@ -67,6 +67,7 @@ export function regenerationWorkflowPreference(ctx: SceneRegenerationContext): S
 export function isTxt2imgReservedForConcept(mode: RenderingMode): boolean {
   return (
     mode === "LOCATION_KEYFRAME" ||
+    mode === "SCENE_KEYFRAME" ||
     mode === "CHARACTER_SHEET" ||
     mode === "STYLE_TRANSFER_VARIATION"
   );

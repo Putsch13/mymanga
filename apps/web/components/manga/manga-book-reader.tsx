@@ -144,6 +144,8 @@ type ReaderResponse = {
       status: string | null;
       provider: string | null;
       model: string | null;
+      keyframeId: string | null;
+      keyframeImageUrl: string | null;
       workflow: string | null;
       referencePolicy: string | null;
       panelCategory: string | null;
@@ -163,6 +165,19 @@ type ReaderResponse = {
       scenePass: string | null;
       imageSize: string | null;
       issues: Array<{ message?: string; severity?: string; type?: string }>;
+      traces: Array<{
+        id: string;
+        status: string;
+        mode: string;
+        provider: string;
+        model: string;
+        requestId: string | null;
+        jobId: string | null;
+        refsUsed: string[];
+        lorasUsed: unknown[];
+        timings: Record<string, unknown> | null;
+        requestPayload: Record<string, unknown> | null;
+      }>;
     }>;
   } | null;
 };
@@ -934,6 +949,11 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                     <p className="text-[10px] text-stone-500">
                       pass {panel.scenePass ?? "?"} · reroll {panel.rerollKind ?? "none"} · taille {panel.imageSize ?? "?"}
                     </p>
+                    {panel.keyframeId ? (
+                      <p className="text-[10px] text-stone-500">
+                        keyframe {panel.keyframeId.slice(0, 8)}{panel.keyframeImageUrl ? " · image OK" : " · image pending"}
+                      </p>
+                    ) : null}
                     {panel.issues.length > 0 ? (
                       <p className="mt-1 text-[10px] text-amber-300/80">
                         {panel.issues.slice(0, 2).map((issue) => issue.message ?? issue.type ?? "issue").join(" | ")}
@@ -946,6 +966,11 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                     ) : null}
                     {panel.prompt ? (
                       <p className="mt-1 line-clamp-3 text-[10px] text-stone-400">{panel.prompt}</p>
+                    ) : null}
+                    {panel.traces.length > 0 ? (
+                      <p className="mt-1 text-[10px] text-stone-500">
+                        Trace {panel.traces[0].status} · {panel.traces[0].mode} · req {panel.traces[0].requestId ?? "n/a"} · refs {panel.traces[0].refsUsed.length}
+                      </p>
                     ) : null}
                     <div className="mt-2 flex flex-wrap gap-2">
                       <Button

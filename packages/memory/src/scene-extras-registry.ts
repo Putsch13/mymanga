@@ -6,6 +6,8 @@
 import type { PrismaClient, Prisma } from "@manga-ai-studio/db";
 import type { SceneExtra, NpcType } from "@manga-ai-studio/core";
 
+const NPC_PROMOTION_THRESHOLD = 3;
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -44,6 +46,77 @@ function dedupeExtras(extras: SceneExtra[]) {
     if (!seen.has(key)) seen.set(key, extra);
   }
   return [...seen.values()];
+}
+
+function buildNpcVisualCore(extra: SceneExtra) {
+  return [
+    extra.archetype,
+    extra.visualSignature.genderPresentation,
+    extra.visualSignature.hair,
+    extra.visualSignature.outfit,
+    extra.visualSignature.silhouette,
+  ]
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .slice(0, 4)
+    .join(", ");
+}
+
+async function upsertNpcVisualProfile(
+  prisma: PrismaClient | Prisma.TransactionClient,
+  input: {
+    projectId: string;
+    sceneId: string;
+    locationId?: string;
+    extra: SceneExtra;
+    characterId?: string | null;
+    forceImportant?: boolean;
+  },
+) {
+  const existing = await prisma.npcVisualProfile.findUnique({
+    where: { stableNpcId: input.extra.id },
+  });
+  const nextAppearanceCount = (existing?.appearanceCount ?? 0) + 1;
+  const shouldPromote = input.forceImportant || nextAppearanceCount >= NPC_PROMOTION_THRESHOLD;
+  return prisma.npcVisualProfile.upsert({
+    where: { stableNpcId: input.extra.id },
+    update: {
+      sceneId: input.sceneId,
+      locationId: input.locationId ?? null,
+      characterId: input.characterId ?? existing?.characterId ?? null,
+      role: input.extra.archetype,
+      shortVisualCore: buildNpcVisualCore(input.extra),
+      outfitSignature: input.extra.visualSignature.outfit ?? null,
+      silhouetteSignature: input.extra.visualSignature.silhouette ?? null,
+      relationToLocation: input.extra.anchorSlot,
+      importanceLevel: input.forceImportant ? "important" : shouldPromote ? "recurring" : "generic",
+      promotionStatus: input.forceImportant ? "locked" : shouldPromote ? "promoted" : "candidate",
+      appearanceCount: nextAppearanceCount,
+      metadata: {
+        lastSceneId: input.sceneId,
+        lastArchetype: input.extra.archetype,
+      },
+    },
+    create: {
+      projectId: input.projectId,
+      sceneId: input.sceneId,
+      locationId: input.locationId ?? null,
+      characterId: input.characterId ?? null,
+      stableNpcId: input.extra.id,
+      role: input.extra.archetype,
+      shortVisualCore: buildNpcVisualCore(input.extra),
+      outfitSignature: input.extra.visualSignature.outfit ?? null,
+      silhouetteSignature: input.extra.visualSignature.silhouette ?? null,
+      accessoryMarker: input.extra.visualSignature.hair ?? null,
+      relationToLocation: input.extra.anchorSlot,
+      importanceLevel: input.forceImportant ? "important" : "generic",
+      promotionStatus: input.forceImportant ? "locked" : "candidate",
+      appearanceCount: 1,
+      metadata: {
+        firstSceneId: input.sceneId,
+        firstArchetype: input.extra.archetype,
+      },
+    },
+  });
 }
 
 /**
@@ -167,6 +240,14 @@ export async function promoteExtraToNarrativeNpc(
     },
   });
 
+  await upsertNpcVisualProfile(prisma, {
+    projectId: input.projectId,
+    sceneId: input.extra.sceneId,
+    extra: input.extra,
+    characterId: character.id,
+    forceImportant: true,
+  });
+
   return {
     characterId: character.id,
     promoted: true,
@@ -240,9 +321,21 @@ export async function ensureSceneExtras(
           sceneId: input.sceneId,
         };
         await persistSceneExtra(prisma, rebound);
+        await upsertNpcVisualProfile(prisma, {
+          projectId: input.projectId,
+          sceneId: input.sceneId,
+          locationId: input.locationId,
+          extra: rebound,
+        });
         result.push(rebound);
         continue;
       }
+      await upsertNpcVisualProfile(prisma, {
+        projectId: input.projectId,
+        sceneId: input.sceneId,
+        locationId: input.locationId,
+        extra: reused,
+      });
       result.push(reused);
     } else {
       // Créer un nouvel extra
@@ -258,6 +351,12 @@ export async function ensureSceneExtras(
       };
       
       await persistSceneExtra(prisma, newExtra);
+      await upsertNpcVisualProfile(prisma, {
+        projectId: input.projectId,
+        sceneId: input.sceneId,
+        locationId: input.locationId,
+        extra: newExtra,
+      });
       result.push(newExtra);
     }
   }

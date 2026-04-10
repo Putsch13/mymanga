@@ -52,6 +52,21 @@ export interface ComposedPrompt {
   positive: string;
   negative: string;
   seed?: number;
+  fal?: {
+    positivePrompt: string;
+    negativePrompt: string;
+    safetyProfile: "safe" | "teen" | "mature_non_explicit";
+    intensityProfile: string;
+    preset:
+      | "combat_clash"
+      | "combat_aftermath"
+      | "rage_closeup"
+      | "dialogue_tension"
+      | "establishing_location"
+      | "crowd_reaction"
+      | "hero_entry_panel"
+      | "story_panel";
+  };
 }
 
 const MOOD_DESCRIPTORS: Record<PanelMood, string> = {
@@ -158,6 +173,18 @@ function buildEnvironmentLock(input: PanelPromptInput) {
   return pieces.join(" | ");
 }
 
+function inferPromptPreset(input: PanelPromptInput): NonNullable<ComposedPrompt["fal"]>["preset"] {
+  const lower = `${input.action} ${input.sceneContext ?? ""} ${input.dialogueHint ?? ""}`.toLowerCase();
+  if (/(fight|combat|battle|duel|impact|strike|kick|punch)/.test(lower)) return "combat_clash";
+  if (/(aftermath|retomb|apres le choc|after the hit)/.test(lower)) return "combat_aftermath";
+  if (/(rage|furie|berserk|scream)/.test(lower)) return "rage_closeup";
+  if (/(crowd|foule|public|students reacting)/.test(lower)) return "crowd_reaction";
+  if (/(entry|apparition|entr[ée]e|arrive)/.test(lower)) return "hero_entry_panel";
+  if (/(wide|establishing)/.test((input.camera ?? "").toLowerCase())) return "establishing_location";
+  if (input.dialogueHint) return "dialogue_tension";
+  return "story_panel";
+}
+
 /**
  * Compose un prompt image structuré pour un panel manga.
  * Intègre le style du projet, les descriptions canoniques des personnages,
@@ -182,19 +209,20 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
       : "";
 
   const blueprint = input.sceneBlueprint;
-  const positiveParts: string[] = [
-    sanitizeSectionText(`${visualStyle}. ${cameraDesc}. ${input.location} clearly visible.`),
-  ];
-  if (charDescs) positiveParts.push(sanitizeSectionText(`Characters in scene: ${charDescs}.`));
-  positiveParts.push(sanitizeSectionText(`Main action: ${input.action}.`));
+  const preset = inferPromptPreset(input);
+  const positiveParts: string[] = [];
+  positiveParts.push(sanitizeSectionText(`Style: ${visualStyle}.`));
+  if (charDescs) positiveParts.push(sanitizeSectionText(`Subject lock: ${charDescs}.`));
+  positiveParts.push(sanitizeSectionText(`Action: ${input.action}.`));
+  positiveParts.push(sanitizeSectionText(`Camera and composition: ${cameraDesc}.`));
+  positiveParts.push(sanitizeSectionText(`Environment: ${input.location} clearly visible. ${input.environmentHint?.slice(0, 220) ?? ""}`));
   positiveParts.push(sanitizeSectionText(`Mood and lighting: ${moodDesc}.`));
-  if (input.sceneContext) positiveParts.push(sanitizeSectionText(`Narrative context: ${input.sceneContext.slice(0, 220)}.`));
-  if (input.environmentHint) positiveParts.push(sanitizeSectionText(`Required environment: ${input.environmentHint.slice(0, 260)}.`));
+  if (input.sceneContext) positiveParts.push(sanitizeSectionText(`Continuity: ${input.sceneContext.slice(0, 220)}.`));
   const environmentLock = buildEnvironmentLock(input);
-  if (environmentLock) positiveParts.push(sanitizeSectionText(`Environment must stay readable: ${environmentLock}.`));
+  if (environmentLock) positiveParts.push(sanitizeSectionText(`Strict environment readability: ${environmentLock}.`));
   if (blueprint) {
     positiveParts.push(
-      sanitizeSectionText(`Panel composition: ${blueprint.composition.framingRules.join(", ")}.`),
+      sanitizeSectionText(`Spatial relation: ${blueprint.composition.framingRules.join(", ")}.`),
       sanitizeSectionText(
         `Spatial staging: foreground ${blueprint.environment.foregroundElements.join(", ")}; midground ${blueprint.environment.midgroundElements.join(", ")}; background ${blueprint.environment.backgroundElements.join(", ")}.`,
       ),
@@ -203,7 +231,7 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
       positiveParts.push(sanitizeSectionText(`Mandatory constraints: ${blueprint.constraints.hard.join(", ")}.`));
     }
   }
-  if (input.dialogueHint) positiveParts.push(sanitizeSectionText(`Character emotion or subtext: ${input.dialogueHint.slice(0, 120)}.`));
+  if (input.dialogueHint) positiveParts.push(sanitizeSectionText(`Subtext: ${input.dialogueHint.slice(0, 120)}.`));
   if (intensityNote && layer !== "GENERAL_SAFE") positiveParts.push(sanitizeSectionText(`Content boundaries: ${intensityNote}.`));
   positiveParts.push("Readable background, strong environment, coherent manga composition, clear spatial relation between characters and place.");
   if (input.characters && input.characters.length > 0) {
@@ -256,6 +284,13 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     positive,
     negative,
     seed: input.seed,
+    fal: {
+      positivePrompt: positive,
+      negativePrompt: negative,
+      safetyProfile: layer === "GENERAL_SAFE" ? "safe" : layer === "TEEN" ? "teen" : "mature_non_explicit",
+      intensityProfile: intensityNote,
+      preset,
+    },
   };
 }
 

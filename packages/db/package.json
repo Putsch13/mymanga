@@ -8,7 +8,14 @@
   },
   "scripts": {
     "generate": "prisma generate",
-    "push": "prisma db push",
+    "push": "echo 'Use reviewable Prisma migrations instead of prisma db push.' && exit 1",
+    "migrate:status": "prisma migrate status",
+    "migrate:deploy": "prisma migrate deploy",
+    "baseline:introspect:print": "prisma db pull --print --schema prisma/schema.prisma",
+    "baseline:resolve:prod": "prisma migrate resolve --applied 20260410_080000_prod_legacy_baseline",
+    "checks:legacy": "tsx prisma/run-legacy-prechecks.ts",
+    "checks:hard-switch": "tsx prisma/run-hard-switch-postchecks.ts",
+    "backfill:hard-switch": "tsx prisma/backfill-hard-switch.ts",
     "studio": "prisma studio",
     "seed": "tsx prisma/seed.ts",
     "lint": "echo ok"

@@ -576,12 +576,22 @@ function buildPanelBlueprints(
 
   return Array.from({ length: panelCount }).map((_, panelIndex) => {
     const mood = inferMood(beat.tension + panelIndex / Math.max(panelCount, 1), genre);
-    const baseCharacters =
-      panelIndex === 0
-        ? scene.characters
-        : panelIndex % 3 === 0
-          ? scene.characters
-          : [scene.characters[panelIndex % Math.max(scene.characters.length, 1)] ?? mainA].filter(Boolean);
+    const isEstablishingPanel = panelIndex === 0;
+    const isClosingPanel = panelIndex === panelCount - 1;
+    const shouldKeepFullScene =
+      isEstablishingPanel
+      || role === "confrontation"
+      || role === "aftermath"
+      || role === "cliffhanger";
+    const focusedCharacter =
+      scene.characters[panelIndex % Math.max(scene.characters.length, 1)] ?? mainA;
+    const supportCharacter =
+      scene.characters[(panelIndex + 1) % Math.max(scene.characters.length, 1)] ?? mainB;
+    const baseCharacters = shouldKeepFullScene
+      ? scene.characters
+      : isClosingPanel
+        ? [focusedCharacter, supportCharacter].filter((name, index, all) => Boolean(name) && all.indexOf(name) === index)
+        : [focusedCharacter].filter(Boolean);
     return {
       panelId: `panel_${panelIndex + 1}`,
       action: templates[panelIndex] ?? `${scene.summary} — ${beat.turn ?? "progression"}.`,

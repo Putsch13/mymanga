@@ -5,6 +5,7 @@ import {
   resolveAdultEngine,
   extractCharacterFingerprintFromRefs,
   buildCharacterPromptBundle,
+  buildCharacterVisualLock,
   getPremiumImageSize,
 } from "@manga-ai-studio/ai";
 import {
@@ -13,7 +14,7 @@ import {
   reserveTokens,
   settleReservedTokens,
 } from "@manga-ai-studio/billing";
-import { prisma } from "@manga-ai-studio/db";
+import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
@@ -159,14 +160,57 @@ export async function POST(_req: Request, ctx: Ctx) {
       userIntent: fullAppearance ?? character.name,
     });
 
+    const rawRefs = await Promise.all(
+      character.visualRefs.slice(0, 4).map(async (ref) => (await signSupabaseUrlIfNeeded(ref.imageUrl)) ?? ref.imageUrl),
+    );
+    const referenceImageUrls = rawRefs.filter((url): url is string => Boolean(url));
+    const activeLoras = character.loraAttachments
+      .map((attachment) => {
+        const weightsMeta = attachment.lora.weightsMeta as Record<string, unknown>;
+        const loraUrl = typeof weightsMeta.loraUrl === "string" ? weightsMeta.loraUrl : null;
+        const triggerWord = typeof weightsMeta.triggerWord === "string" ? weightsMeta.triggerWord : attachment.lora.externalId;
+        return loraUrl
+          ? {
+              url: loraUrl,
+              triggerWord,
+              scale: attachment.weight,
+            }
+          : null;
+      })
+      .filter((item): item is { url: string; triggerWord: string; scale: number } => Boolean(item))
+      .slice(0, 2);
+    const existingFingerprint =
+      raw.characterFingerprint && typeof raw.characterFingerprint === "object"
+        ? (raw.characterFingerprint as Record<string, unknown>)
+        : {};
+    const lockExpected =
+      character.visualRefs.length > 0
+      || character.visualLocks.length > 0
+      || activeLoras.length > 0
+      || character.canonLocked
+      || Object.keys(existingFingerprint).length > 0;
+    if (lockExpected && referenceImageUrls.length === 0 && activeLoras.length === 0) {
+      await refundReservation(
+        prisma,
+        user.id,
+        reservation.reservationId,
+        "character_visual_lock_missing_refs",
+      );
+      return NextResponse.json(
+        { error: "Character lock requis mais aucune ref canonique ni LoRA active n'est disponible." },
+        { status: 422 },
+      );
+    }
+
     const output = await runRoutedImageGeneration(
       {
-        mode: "PANEL_DRAFT",
+        mode: "CHARACTER_SHEET",
         contentIntensityLayer: intensityLayer,
         adultEngine,
         isNewCharacter: true,
-        hasCanonReferences: character.visualRefs.length > 0,
+        hasCanonReferences: referenceImageUrls.length > 0 || activeLoras.length > 0,
         characterCountInScene: 1,
+        continuityWeight: lockExpected ? 90 : 30,
         needsInpaint: false,
         needsPoseVariation: false,
         preferPhotorealCover: false,
@@ -175,14 +219,19 @@ export async function POST(_req: Request, ctx: Ctx) {
           intensityLayer === "MATURE_VISUAL" || intensityLayer === "ADULT_EXPLICIT",
       },
       {
-        mode: "PANEL_DRAFT",
+        mode: "CHARACTER_SHEET",
         positivePrompt: lockedPositive,
         negativePrompt: lockedNegative,
         width: characterSheetSize.width,
         height: characterSheetSize.height,
+        referenceImageUrls: referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+        loras: activeLoras.length > 0 ? activeLoras : undefined,
         providerParams: {
           contentIntensityLayer: intensityLayer,
           mode: "CHARACTER_SHEET",
+          referencePolicy: lockExpected ? "STRONG" : "LIGHT",
+          panelCategory: "CHARACTER_LOCK",
+          triggerWords: activeLoras.map((item) => item.triggerWord),
         },
       },
     );
@@ -215,22 +264,102 @@ export async function POST(_req: Request, ctx: Ctx) {
 
     const isTemporary = "temporary" in persisted && persisted.temporary === true;
 
-    const visualRef = await prisma.characterVisualRef.create({
-      data: {
-        characterId: character.id,
-        type: "generated_primary",
-        imageUrl: persisted.url,
-        promptSnapshot: lockedPositive,
-        isPrimary: character.visualRefs.length === 0,
-        metadata: {
-          provider: output.result.provider,
-          model: output.result.model,
-          negativePrompt: lockedNegative,
-          persisted: persisted.persisted,
-          temporary: isTemporary,
-          storageWarning: isTemporary ? "Image temporaire — configure Supabase Storage pour la rendre permanente." : undefined,
+    const visualRef = await prisma.$transaction(async (tx) => {
+      const previousLock = character.visualLocks[0] ?? null;
+      if (previousLock) {
+        await tx.characterVisualLock.updateMany({
+          where: { characterId: character.id, isActive: true },
+          data: { isActive: false },
+        });
+      }
+      const mediaAsset = await tx.mediaAsset.create({
+        data: {
+          projectId: character.project.id,
+          characterId: character.id,
+          type: "character_ref",
+          origin: "generated",
+          ownerType: "character_visual",
+          ownerId: character.id,
+          storageProvider: persisted.persisted ? "supabase" : "fal",
+          publicUrl: persisted.url,
+          storageKey: `characters/${character.id}/refs/${Date.now()}`,
+          metadata: {
+            provider: output.result.provider,
+            model: output.result.model,
+            requestId: output.result.requestId ?? null,
+            jobId: output.result.jobId ?? null,
+          },
         },
-      },
+      });
+      const nextVersion = (previousLock?.version ?? 0) + 1;
+      const activeLora = activeLoras[0] ?? null;
+      const nextLock = buildCharacterVisualLock({
+        characterId: character.id,
+        displayName: character.name,
+        roleType: character.roleType,
+        hairColor: typeof raw.hairColor === "string" ? raw.hairColor : null,
+        eyeColor: typeof raw.eyeColor === "string" ? raw.eyeColor : null,
+        appearance: fullAppearance,
+        outfitDefault: fullOutfit,
+        bodyState,
+        visualProfile: raw.visualProfile && typeof raw.visualProfile === "object" ? raw.visualProfile as Record<string, unknown> : {},
+        wardrobeProfile,
+        triggerWord: activeLora?.triggerWord ?? null,
+        loraUrl: activeLora?.url ?? null,
+        canonicalRefUrls: [persisted.url, ...referenceImageUrls].slice(0, 4),
+        currentState: {
+          emotionalState: character.emotionalState,
+          status: character.status,
+        },
+        version: nextVersion,
+      });
+      const storedLock = await tx.characterVisualLock.create({
+        data: {
+          projectId: character.project.id,
+          characterId: character.id,
+          version: nextVersion,
+          isActive: true,
+          displayName: nextLock.displayName,
+          shortVisualCore: nextLock.shortVisualCore,
+          triggerWord: nextLock.triggerWord ?? null,
+          canonicalRefUrls: nextLock.canonicalRefUrls,
+          defaultOutfit: nextLock.defaultOutfit ?? null,
+          altOutfits: nextLock.altOutfits as Prisma.InputJsonValue,
+          currentState: nextLock.currentState as Prisma.InputJsonValue,
+          injuryState: (nextLock.injuryState ?? {}) as Prisma.InputJsonValue,
+          ageVariant: nextLock.ageVariant ?? null,
+          faceCloseupAssetId: mediaAsset.id,
+          actionRefAssetId: mediaAsset.id,
+          metadata: {
+            requestId: output.result.requestId ?? null,
+            jobId: output.result.jobId ?? null,
+            source: "generate-visual",
+          },
+        },
+      });
+      return tx.characterVisualRef.create({
+        data: {
+          characterId: character.id,
+          mediaAssetId: mediaAsset.id,
+          sourceVisualLockId: storedLock.id,
+          type: "generated_primary",
+          imageUrl: persisted.url,
+          promptSnapshot: lockedPositive,
+          isPrimary: character.visualRefs.length === 0,
+          metadata: {
+            provider: output.result.provider,
+            model: output.result.model,
+            negativePrompt: lockedNegative,
+            requestId: output.result.requestId ?? null,
+            jobId: output.result.jobId ?? null,
+            referenceImageUrls,
+            loras: activeLoras,
+            persisted: persisted.persisted,
+            temporary: isTemporary,
+            storageWarning: isTemporary ? "Image temporaire — configure Supabase Storage pour la rendre permanente." : undefined,
+          },
+        },
+      });
     });
 
     await settleReservedTokens(prisma, user.id, reservation.reservationId, estimatedTokens);

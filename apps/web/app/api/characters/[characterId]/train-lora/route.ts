@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { trainCharacterLora, buildTriggerWord } from "@manga-ai-studio/ai";
-import { prisma } from "@manga-ai-studio/db";
+import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
 import { getOwnedCharacter } from "@/lib/ownership";
@@ -34,9 +34,13 @@ export async function POST(_req: Request, ctx: Ctx) {
   const triggerWord = buildTriggerWord(character.name, character.project.id);
 
   const result = await trainCharacterLora({
+    prisma,
+    projectId: character.project.id,
+    characterId,
     characterName: character.name,
     triggerWord,
     imageUrls,
+    imageTypes: character.visualRefs.map((ref) => ref.type),
     steps: 300,
   });
 
@@ -53,11 +57,16 @@ export async function POST(_req: Request, ctx: Ctx) {
       weightsMeta: {
         loraUrl: result.loraUrl,
         configUrl: result.configUrl,
+        requestId: result.requestId,
+        jobId: result.jobId,
         triggerWord,
         characterId,
         trainedAt: new Date().toISOString(),
         imageCount: imageUrls.length,
-      },
+        previewImages: result.previewImages ?? [],
+        trainingAssetId: result.trainingAssetId ?? null,
+        readiness: result.readiness ?? null,
+      } as Prisma.InputJsonValue,
       status: "active",
       attachments: {
         create: {

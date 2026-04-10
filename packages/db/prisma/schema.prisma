@@ -158,6 +158,57 @@ enum WalletTransactionType {
   adjustment
 }
 
+enum MediaAssetType {
+  character_ref
+  face_crop
+  action_ref
+  npc_ref
+  scene_keyframe
+  panel_output
+  training_zip
+  lora_weights
+  lora_config
+  trace_payload
+  trace_response
+  other
+}
+
+enum MediaAssetOrigin {
+  user_upload
+  generated
+  fal_upload
+  fal_output
+  derived_crop
+  system
+}
+
+enum FalMode {
+  text2img
+  img2img
+  lora_training
+}
+
+enum FalTraceStatus {
+  submitted
+  running
+  completed
+  failed
+  timeout
+  canceled
+}
+
+enum NpcImportanceLevel {
+  generic
+  recurring
+  important
+}
+
+enum NpcPromotionStatus {
+  candidate
+  promoted
+  locked
+}
+
 model User {
   id             String    @id @default(cuid())
   /// Identifiant auth.users Supabase (SSO / magic link)
@@ -223,6 +274,11 @@ model Project {
   jobs            Job[]
   loraModels      LoraModel[]
   loraAttachments LoraAttachment[] @relation("ProjectLoras")
+  mediaAssets     MediaAsset[]
+  falTraces       FalTrace[]
+  characterVisualLocks CharacterVisualLock[]
+  npcVisualProfiles NpcVisualProfile[]
+  sceneKeyframes  SceneKeyframe[]
   chapterCanonStates ChapterCanonState[]
   sceneStates     SceneState[]
   canonTimelineEvents CanonTimelineEvent[]
@@ -354,6 +410,10 @@ model Character {
   updatedAt       DateTime  @updatedAt
 
   visualRefs      CharacterVisualRef[]
+  mediaAssets     MediaAsset[]
+  visualLocks     CharacterVisualLock[]
+  falTraces       FalTrace[]
+  npcProfiles     NpcVisualProfile[]
   canonPack       CharacterCanonPack?
   relationshipsFrom CharacterRelationship[] @relation("RelFrom")
   relationshipsTo   CharacterRelationship[] @relation("RelTo")
@@ -368,6 +428,10 @@ model CharacterVisualRef {
   id            String   @id @default(cuid())
   characterId   String
   character     Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  mediaAssetId  String?
+  mediaAsset    MediaAsset? @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
+  sourceVisualLockId String?
+  sourceVisualLock CharacterVisualLock? @relation(fields: [sourceVisualLockId], references: [id], onDelete: SetNull)
   type          String
   imageUrl      String
   promptSnapshot String?
@@ -411,10 +475,15 @@ model LoraModel {
   externalId  String
   name        String
   weightsMeta Json     @default("{}")
+  weightsAssetId String?
+  weightsAsset MediaAsset? @relation("LoraWeightsAsset", fields: [weightsAssetId], references: [id], onDelete: SetNull)
+  configAssetId String?
+  configAsset MediaAsset? @relation("LoraConfigAsset", fields: [configAssetId], references: [id], onDelete: SetNull)
   status      String   @default("active")
   createdAt   DateTime @default(now())
 
   attachments LoraAttachment[]
+  visualLocks CharacterVisualLock[]
 }
 
 model LoraAttachment {
@@ -464,6 +533,8 @@ model Location {
   children       Location[] @relation("LocationHierarchy")
   metadata       Json      @default("{}")
   canonLocked    Boolean   @default(false)
+
+  npcVisualProfiles NpcVisualProfile[]
 }
 
 model Item {
@@ -512,9 +583,12 @@ model Chapter {
   updatedAt      DateTime @updatedAt
 
   scenes         ChapterScene[]
+  mediaAssets    MediaAsset[]
   continuityEvents ContinuityEvent[]
   memorySnapshots MemorySnapshot[]
   jobs           Job[]
+  sceneKeyframes SceneKeyframe[]
+  falTraces      FalTrace[]
   canonState     ChapterCanonState?
   canonTimelineEvents CanonTimelineEvent[]
   canonChangeRequests CanonChangeRequest[]
@@ -537,6 +611,10 @@ model ChapterScene {
   metadata   Json     @default("{}")
 
   images     SceneImage[]
+  mediaAssets MediaAsset[]
+  keyframes  SceneKeyframe[]
+  npcVisualProfiles NpcVisualProfile[]
+  falTraces  FalTrace[]
   sceneState SceneState?
 }
 
@@ -554,12 +632,218 @@ model SceneImage {
   height             Int             @default(1024)
   status             String          @default("pending")
   imageUrl           String?
+  mediaAssetId       String?
+  mediaAsset         MediaAsset?       @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
+  sceneKeyframeId    String?
+  sceneKeyframe      SceneKeyframe?    @relation(fields: [sceneKeyframeId], references: [id], onDelete: SetNull)
   moderationStatus   String?
   routingDecision    Json?
   promptComposerPayload Json?
   consistencyScore   Float?
   referenceImageIds  Json            @default("[]")
   metadata           Json            @default("{}")
+  falTraces          FalTrace[]
+}
+
+model MediaAsset {
+  id            String           @id @default(cuid())
+  projectId     String
+  project       Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  chapterId     String?
+  chapter       Chapter?         @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  sceneId       String?
+  scene         ChapterScene?    @relation(fields: [sceneId], references: [id], onDelete: SetNull)
+  characterId   String?
+  character     Character?       @relation(fields: [characterId], references: [id], onDelete: SetNull)
+  type          MediaAssetType
+  origin        MediaAssetOrigin
+  ownerType     String?
+  ownerId       String?
+  storageProvider String         @default("supabase")
+  bucket        String?
+  storageKey    String?
+  publicUrl     String?
+  signedUrl     String?
+  falCdnUrl     String?
+  sha256        String?
+  mimeType      String?
+  width         Int?
+  height        Int?
+  bytes         Int?
+  metadata      Json             @default("{}")
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  characterRefs CharacterVisualRef[]
+  imageOutputs  SceneImage[]
+  sourceLocks   CharacterVisualLock[] @relation("VisualLockPrimaryAsset")
+  faceCloseupLocks CharacterVisualLock[] @relation("VisualLockFaceCloseupAsset")
+  actionRefLocks CharacterVisualLock[] @relation("VisualLockActionAsset")
+  loraWeightModels LoraModel[] @relation("LoraWeightsAsset")
+  loraConfigModels LoraModel[] @relation("LoraConfigAsset")
+  sceneKeyframes SceneKeyframe[]
+  npcProfiles    NpcVisualProfile[]
+  falTraceRequestAssets FalTrace[] @relation("FalTraceRequestAsset")
+  falTraceResponseAssets FalTrace[] @relation("FalTraceResponseAsset")
+
+  @@index([projectId, type])
+  @@index([projectId, type, ownerType, ownerId])
+  @@index([chapterId])
+  @@index([sceneId])
+  @@index([characterId])
+  @@unique([projectId, sha256])
+}
+
+model CharacterVisualLock {
+  id              String      @id @default(cuid())
+  projectId       String
+  project         Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  characterId     String
+  character       Character   @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  version         Int
+  isActive        Boolean     @default(true)
+  displayName     String
+  shortVisualCore String
+  triggerWord     String?
+  loraModelId     String?
+  loraModel       LoraModel?  @relation(fields: [loraModelId], references: [id], onDelete: SetNull)
+  loraAssetId     String?
+  loraAsset       MediaAsset? @relation("VisualLockPrimaryAsset", fields: [loraAssetId], references: [id], onDelete: SetNull)
+  faceCloseupAssetId String?
+  faceCloseupAsset MediaAsset? @relation("VisualLockFaceCloseupAsset", fields: [faceCloseupAssetId], references: [id], onDelete: SetNull)
+  actionRefAssetId String?
+  actionRefAsset  MediaAsset? @relation("VisualLockActionAsset", fields: [actionRefAssetId], references: [id], onDelete: SetNull)
+  canonicalRefUrls Json       @default("[]")
+  defaultOutfit   String?
+  altOutfits      Json        @default("[]")
+  currentState    Json        @default("{}")
+  injuryState     Json        @default("{}")
+  ageVariant      String?
+  metadata        Json        @default("{}")
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  visualRefs      CharacterVisualRef[]
+  falTraces       FalTrace[]
+
+  // Enforced in SQL migration reviewable:
+  // unique active lock per character via partial unique index WHERE isActive = true
+  @@unique([characterId, version])
+  @@index([projectId, characterId, isActive])
+}
+
+model NpcVisualProfile {
+  id                String              @id @default(cuid())
+  projectId         String
+  project           Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sceneId           String?
+  scene             ChapterScene?       @relation(fields: [sceneId], references: [id], onDelete: SetNull)
+  locationId        String?
+  location          Location?           @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  characterId       String?
+  character         Character?          @relation(fields: [characterId], references: [id], onDelete: SetNull)
+  stableNpcId       String              @unique
+  role              String
+  shortVisualCore   String
+  outfitSignature   String?
+  silhouetteSignature String?
+  accessoryMarker   String?
+  relationToLocation String?
+  importanceLevel   NpcImportanceLevel  @default(generic)
+  promotionStatus   NpcPromotionStatus  @default(candidate)
+  appearanceCount   Int                 @default(1)
+  canonicalRefAssetId String?
+  canonicalRefAsset MediaAsset?         @relation(fields: [canonicalRefAssetId], references: [id], onDelete: SetNull)
+  metadata          Json                @default("{}")
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  falTraces         FalTrace[]
+
+  @@index([projectId, importanceLevel])
+  @@index([sceneId])
+  @@index([locationId])
+  @@index([characterId])
+}
+
+model SceneKeyframe {
+  id                  String       @id @default(cuid())
+  projectId           String
+  project             Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  chapterId           String
+  chapter             Chapter      @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  sceneId             String
+  scene               ChapterScene @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  version             Int
+  selected            Boolean      @default(true)
+  /// Primary source of truth for the persisted keyframe binary asset.
+  imageAssetId        String?
+  imageAsset          MediaAsset?  @relation(fields: [imageAssetId], references: [id], onDelete: SetNull)
+  /// Legacy/debug fallback URL, tolerated when no MediaAsset is available yet.
+  imageUrl            String?
+  involvedCharacterIds Json        @default("[]")
+  environmentLock     Json         @default("{}")
+  lightingLock        String?
+  timeOfDay           String?
+  compositionArchetype String?
+  emotionalTone       String?
+  combatMode          Boolean      @default(false)
+  referenceCropAssetIds Json       @default("[]")
+  metadata            Json         @default("{}")
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  derivedPanels       SceneImage[]
+  falTraces           FalTrace[]
+
+  // Enforced in SQL migration reviewable:
+  // unique selected keyframe per scene via partial unique index WHERE selected = true
+  @@unique([sceneId, version])
+  @@index([projectId, chapterId, sceneId, selected])
+}
+
+model FalTrace {
+  id                 String           @id @default(cuid())
+  projectId          String
+  project            Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  chapterId          String?
+  chapter            Chapter?         @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  sceneId            String?
+  scene              ChapterScene?    @relation(fields: [sceneId], references: [id], onDelete: SetNull)
+  panelId            String?
+  panel              SceneImage?      @relation(fields: [panelId], references: [id], onDelete: SetNull)
+  characterId        String?
+  character          Character?       @relation(fields: [characterId], references: [id], onDelete: SetNull)
+  npcVisualProfileId String?
+  npcVisualProfile   NpcVisualProfile? @relation(fields: [npcVisualProfileId], references: [id], onDelete: SetNull)
+  sceneKeyframeId    String?
+  sceneKeyframe      SceneKeyframe?   @relation(fields: [sceneKeyframeId], references: [id], onDelete: SetNull)
+  visualLockId       String?
+  visualLock         CharacterVisualLock? @relation(fields: [visualLockId], references: [id], onDelete: SetNull)
+  provider           String
+  model              String
+  mode               FalMode
+  status             FalTraceStatus   @default(submitted)
+  requestId          String?
+  jobId              String?
+  requestAssetId     String?
+  requestAsset       MediaAsset?      @relation("FalTraceRequestAsset", fields: [requestAssetId], references: [id], onDelete: SetNull)
+  responseAssetId    String?
+  responseAsset      MediaAsset?      @relation("FalTraceResponseAsset", fields: [responseAssetId], references: [id], onDelete: SetNull)
+  requestPayload     Json             @default("{}")
+  responsePayload    Json             @default("{}")
+  refsUsed           Json             @default("[]")
+  lorasUsed          Json             @default("[]")
+  timings            Json             @default("{}")
+  error              Json?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@index([projectId, chapterId, sceneId])
+  @@index([panelId])
+  @@index([sceneKeyframeId])
+  @@index([characterId])
+  @@index([status, createdAt])
 }
 
 model ContinuityEvent {

@@ -48,6 +48,8 @@ export interface ImageGenerationLog {
   provider: string;
   model: string;
   workflow?: string;
+  requestId?: string;
+  jobId?: string;
   promptHash: string;
   responseTimeMs: number;
   success: boolean;
@@ -126,6 +128,8 @@ export async function runRoutedImageGeneration(
         responseTimeMs,
         success: true,
         imageUrl: result.imageUrl,
+        requestId: result.requestId,
+        jobId: result.jobId,
         moderationDecision: ctx.contentIntensityLayer ?? "GENERAL_SAFE",
         sceneComplexityScore: decision.sceneComplexityScore,
         referencePolicy: decision.referencePolicy,
@@ -137,7 +141,7 @@ export async function runRoutedImageGeneration(
       };
 
       console.log(
-        `[image-gen] OK provider=${decision.provider} model=${decision.model} hash=${promptHash} ms=${responseTimeMs} attempt=${attempt} url=${result.imageUrl?.slice(0, 60)}...`
+        `[image-gen] OK provider=${decision.provider} model=${decision.model} hash=${promptHash} requestId=${result.requestId ?? "n/a"} jobId=${result.jobId ?? "n/a"} ms=${responseTimeMs} attempt=${attempt} url=${result.imageUrl?.slice(0, 60)}...`
       );
 
       return { ok: true, result, routing: decision, log };

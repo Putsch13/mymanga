@@ -16,11 +16,13 @@ import {
   computeFalSceneAssessment,
   getFalImageSizePreset,
   getPremiumImageSize,
+  directCombatPanel,
+  validatePreflightPanel,
   type StoryboardPanel,
   type RoutingContext,
   type ProjectContextForChapter,
 } from "@manga-ai-studio/ai";
-import { parseApprovedOutline } from "@manga-ai-studio/core";
+import { parseApprovedOutline, type PanelCharacterPlan } from "@manga-ai-studio/core";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import {
   buildProjectContext,
@@ -75,6 +77,109 @@ type PipelineBundle = Awaited<ReturnType<typeof generateChapterBundle>>;
 const STD_NEGATIVE =
   "blurry, deformed hands, extra limbs, wrong hair color, inconsistent outfit, bad anatomy, watermark, text overlay, low quality, duplicate character";
 const PANEL_DRAFT_SIZE = getPremiumImageSize("PANEL_DRAFT");
+
+function buildPanelCharacterPlan(input: {
+  panelId: string;
+  panel: StoryboardPanel;
+  sceneCharacters: string[];
+  shotType?: string;
+  purpose?: string;
+}): PanelCharacterPlan {
+  const characters = input.panel.characters ?? [];
+  const foregroundCharacters =
+    input.shotType === "wide"
+      ? characters.slice(0, 1)
+      : input.shotType === "closeup" || input.shotType === "extreme_closeup"
+        ? characters.slice(0, 1)
+        : characters.slice(0, 2);
+  const midgroundCharacters =
+    input.shotType === "wide"
+      ? characters.slice(1, 3)
+      : input.shotType === "over_shoulder"
+        ? characters.slice(0, 2)
+        : characters.slice(1, 3);
+  const backgroundCharacters = input.sceneCharacters.filter((name) => !foregroundCharacters.includes(name) && !midgroundCharacters.includes(name));
+  return {
+    panelId: input.panelId,
+    foregroundCharacters,
+    midgroundCharacters,
+    backgroundCharacters,
+    faceVisibilityExpected:
+      input.shotType === "closeup" || input.shotType === "extreme_closeup"
+        ? "priority"
+        : input.shotType === "medium"
+          ? "clear"
+          : input.shotType === "over_shoulder"
+            ? "partial"
+            : "none",
+    actionIntensity:
+      input.purpose === "action"
+        ? "high"
+        : input.purpose === "reaction" || input.purpose === "dialogue"
+          ? "low"
+          : "medium",
+    speakingPriority: (input.panel.dialogues ?? [])
+      .map((dialogue) => dialogue.speaker)
+      .concat(input.panel.dialogue?.speaker ? [input.panel.dialogue.speaker] : [])
+      .filter((speaker, index, all) => Boolean(speaker) && all.indexOf(speaker) === index),
+  };
+}
+
+function buildSceneKeyframeDraft(input: {
+  sceneId: string;
+  scene: { summary: string; location: string; characters: string[]; purpose?: string | null };
+  sceneBlueprint: SceneBlueprint;
+  stylePack?: {
+    renderFamily?: string | null;
+    lineWeight?: string | null;
+    shadingMode?: string | null;
+    contrastProfile?: string | null;
+    backgroundDensity?: string | null;
+    cameraLanguage?: string | null;
+  } | null;
+  persistentSceneExtras: Array<{ archetype: string; anchorSlot: string }>;
+}) {
+  const styleLine = [
+    input.stylePack?.renderFamily,
+    input.stylePack?.lineWeight,
+    input.stylePack?.shadingMode,
+    input.stylePack?.contrastProfile,
+  ].filter(Boolean).join(", ");
+  const extrasLine = input.persistentSceneExtras
+    .map((extra) => `${extra.archetype}:${extra.anchorSlot}`)
+    .slice(0, 5)
+    .join(", ");
+  const positivePrompt = [
+    styleLine || "premium manga scene keyframe",
+    "establishing scene keyframe",
+    `location: ${input.scene.location}`,
+    input.sceneBlueprint.promptBridge.sceneContextLine,
+    input.sceneBlueprint.promptBridge.environmentLine,
+    `characters present: ${input.scene.characters.join(", ")}`,
+    input.scene.purpose ? `scene purpose: ${input.scene.purpose}` : "",
+    input.scene.summary,
+    extrasLine ? `persistent extras: ${extrasLine}` : "",
+    "clear environment, readable architecture, balanced foreground midground background",
+  ].filter(Boolean).join(", ");
+  const negativePrompt = [
+    "empty background",
+    "studio backdrop",
+    "isolated portrait",
+    "blurred environment",
+  ].join(", ");
+  return {
+    positivePrompt,
+    negativePrompt,
+    environmentLock: {
+      location: input.scene.location,
+      summary: input.scene.summary,
+      extras: input.persistentSceneExtras,
+      requiredSignals: parseIntentEntities(`${input.scene.location} ${input.scene.summary}`, []).map((entity) => entity.name).slice(0, 6),
+    },
+    compositionArchetype: input.scene.purpose?.toLowerCase().includes("fight") ? "combat_establishing" : "story_scene",
+    involvedCharacterNames: input.scene.characters,
+  };
+}
 
 function extractSceneFactions(text: string) {
   const normalized = text.toLowerCase();
@@ -541,7 +646,7 @@ async function queueAutoLoraTrainingIfEligible(input: {
           characterId: candidate.id,
           imageCount: seedRefs.length,
           queuedAt: new Date().toISOString(),
-        },
+        } as Prisma.InputJsonValue,
       },
     });
 
@@ -559,9 +664,13 @@ async function queueAutoLoraTrainingIfEligible(input: {
 
     void (async () => {
       const result = await trainCharacterLora({
+        prisma,
+        projectId: input.projectId,
+        characterId: candidate.id,
         characterName: candidate.name,
         triggerWord,
         imageUrls: seedRefs,
+        imageTypes: seedRefs.map(() => "generated_primary"),
         steps: 300,
       });
       if (!result.ok) {
@@ -575,8 +684,9 @@ async function queueAutoLoraTrainingIfEligible(input: {
               characterId: candidate.id,
               imageCount: seedRefs.length,
               error: result.error ?? "training_failed",
+              readiness: result.readiness ?? null,
               failedAt: new Date().toISOString(),
-            },
+            } as Prisma.InputJsonValue,
           },
         });
         console.error(`[auto-lora] failed character=${candidate.name} error=${result.error ?? "unknown"}`);
@@ -594,8 +704,13 @@ async function queueAutoLoraTrainingIfEligible(input: {
             imageCount: seedRefs.length,
             loraUrl: result.loraUrl,
             configUrl: result.configUrl ?? null,
+            requestId: result.requestId ?? null,
+            jobId: result.jobId ?? null,
+            previewImages: result.previewImages ?? [],
+            trainingAssetId: result.trainingAssetId ?? null,
+            readiness: result.readiness ?? null,
             trainedAt: new Date().toISOString(),
-          },
+          } as Prisma.InputJsonValue,
         },
       });
       await prisma.loraAttachment.updateMany({
@@ -1264,10 +1379,101 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
 
           const storyboardPage = revisedBundle.storyboard.pages[index];
           if (!storyboardPage) continue;
+          const stylePack = stylePacks[0];
+          const sceneKeyframeDraft = buildSceneKeyframeDraft({
+            sceneId: createdScene.id,
+            scene: {
+              summary: scene.summary,
+              location: scene.location,
+              characters: scene.characters,
+              purpose: scene.purpose,
+            },
+            sceneBlueprint: buildSceneBlueprint({
+              panelId: `${createdScene.id}:scene_keyframe`,
+              pageNumber: index + 1,
+              panelNumber: 0,
+              seed: chapterNumber * 10_000 + (index + 1) * 100,
+              narrative: {
+                chapterTitle: revisedBundle.outline.chapter_title,
+                chapterGoal: revisedBundle.outline.chapter_goal,
+                sceneSummary: scene.summary,
+                scenePurpose: scene.purpose,
+                panelIntent: scene.summary,
+                pageRole: "establishing",
+                panelNarration: scene.summary,
+              },
+              cast: {
+                namedCharacters: scene.characters,
+                npcNames: persistentSceneExtras.map((extra) => extra.archetype),
+                creatureNames: [],
+              },
+              scene: {
+                location: scene.location,
+                weather: inferSceneWeather(scene.summary),
+                timeOfDay: inferSceneTimeOfDay(scene.summary),
+                worldState: [],
+                factions: extractSceneFactions(scene.summary),
+              },
+              style: {
+                universe: context.project.primaryGenre ?? "fantasy",
+                tone: context.project.tone ?? "dramatic",
+                visualStyle: project?.visualStyle ?? "manga",
+                renderFamily: stylePack?.renderFamily ?? undefined,
+                cameraLanguage: stylePack?.cameraLanguage ?? undefined,
+                backgroundDensity: stylePack?.backgroundDensity ?? undefined,
+              },
+              composition: {
+                shotType: "wide",
+                cameraAngle: "eye_level",
+                focusCharacters: scene.characters.slice(0, 2),
+                requiredCharacters: scene.characters,
+                backgroundExtras: persistentSceneExtras.map((extra) => `${extra.archetype}:${extra.anchorSlot}`),
+              },
+              controls: effectiveCreativeControls,
+              continuity: {
+                anchors: persistentSceneExtras.map((extra) => `${extra.anchorSlot}:${extra.archetype}`),
+                worldRules: [],
+                styleRules: [],
+                loreConstraints: [],
+              },
+            }),
+            stylePack: stylePack
+              ? {
+                  renderFamily: stylePack.renderFamily,
+                  lineWeight: stylePack.lineWeight,
+                  shadingMode: stylePack.shadingMode,
+                  contrastProfile: stylePack.contrastProfile,
+                  backgroundDensity: stylePack.backgroundDensity,
+                  cameraLanguage: stylePack.cameraLanguage,
+                }
+              : null,
+            persistentSceneExtras,
+          });
+          const sceneKeyframe = await tx.sceneKeyframe.create({
+            data: {
+              projectId,
+              chapterId,
+              sceneId: createdScene.id,
+              version: 1,
+              selected: true,
+              imageUrl: null,
+              involvedCharacterIds: scene.characters,
+              environmentLock: sceneKeyframeDraft.environmentLock as Prisma.InputJsonValue,
+              lightingLock: inferSceneTimeOfDay(scene.summary),
+              timeOfDay: inferSceneTimeOfDay(scene.summary),
+              compositionArchetype: sceneKeyframeDraft.compositionArchetype,
+              emotionalTone: scene.purpose,
+              combatMode: /fight|combat|battle|duel|impact/i.test(scene.purpose ?? scene.summary),
+              metadata: {
+                positivePrompt: sceneKeyframeDraft.positivePrompt,
+                negativePrompt: sceneKeyframeDraft.negativePrompt,
+                involvedCharacterNames: sceneKeyframeDraft.involvedCharacterNames,
+              } as Prisma.InputJsonValue,
+            },
+          });
 
           for (const panel of storyboardPage.panels) {
             // Compose le prompt enrichi via le manga-prompt-composer
-              const stylePack = stylePacks[0];
               let composedPositive = panel.prompt;
               let composedNegative = panel.negativePrompt;
               const panelCanonRefs = panel.characters
@@ -1418,6 +1624,21 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                   ...persistentSceneExtras.map((extra) => `${extra.anchorSlot}:${extra.visualSignature.outfit ?? extra.archetype}`),
                 ]).slice(0, 6),
               };
+              const panelCharacterPlan = buildPanelCharacterPlan({
+                panelId: `${createdScene.id}:${panel.panelNumber}`,
+                panel,
+                sceneCharacters: scene.characters,
+                shotType: panelContract.shotType,
+                purpose: panelContract.purpose,
+              });
+              const combatDirection =
+                panelContract.purpose === "action"
+                  ? directCombatPanel({
+                      beatText: `${panel.caption ?? ""} ${panel.prompt ?? ""}`,
+                      scenePurpose: scene.purpose,
+                      currentShotType: panelContract.shotType,
+                    })
+                  : null;
 
               try {
                 const promptCharacters = rawCharacters
@@ -1518,8 +1739,9 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 panel.narration ?? panel.caption ?? (panel as { turn?: string }).turn ?? scene.summary.slice(0, 120),
                 panelContract.mustShow.length > 0 ? `must show: ${panelContract.mustShow.join(", ")}` : "",
                 panelContract.backgroundExtras.length > 0 ? `background extras: ${panelContract.backgroundExtras.join(", ")}` : "",
+                combatDirection ? `combat framing: ${combatDirection.framing}. ${combatDirection.impactCue}. ${combatDirection.environmentReaction}` : "",
               ].filter(Boolean).join(". "),
-              camera: panel.camera,
+              camera: combatDirection ? `${panel.camera}, ${combatDirection.framing}` : panel.camera,
               mood: panel.mood,
               contentIntensityLayer: intensityLayer,
               dialogueHint: panel.dialogues?.length
@@ -1568,7 +1790,10 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               caption: panel.caption,
               camera: panel.camera,
               characters: panel.characters,
+                  sceneId: createdScene.id,
+                  sceneKeyframeId: sceneKeyframe.id,
               mood: panel.mood,
+                  combatDirection,
               textScale: panel.textScale ?? "normal",
               sfx: panel.sfx,
               dialogue: panel.dialogue,
@@ -1576,6 +1801,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               narration: panel.narration,
               layout: storyboardPage.layout,
               panelContract,
+                  panelCharacterPlan,
               sceneBlueprint,
               effectiveCreativeControls,
               stylePack: stylePack
@@ -1616,13 +1842,14 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 sceneId: createdScene.id,
                 panelNumber: panel.panelNumber,
                 renderingMode: "PANEL_DRAFT",
+                sceneKeyframeId: sceneKeyframe.id,
                 prompt: composedPositive,
                 negativePrompt: composedNegative,
                 status: "planned",
                 width: PANEL_DRAFT_SIZE.width,
                 height: PANEL_DRAFT_SIZE.height,
                 referenceImageIds: panelCanonRefs as unknown as Prisma.InputJsonValue,
-                metadata: baseMetadata,
+                metadata: baseMetadata as unknown as Prisma.InputJsonValue,
               },
             });
 
@@ -1773,27 +2000,241 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
 
     let generatedCount = 0;
     let failedCount = 0;
+    const sceneKeyframeUrlCache = new Map<string, Promise<string | null>>();
+
+    async function persistFalTraceEntry(input: {
+      sceneId: string;
+      panelId?: string;
+      sceneKeyframeId?: string;
+      characterId?: string | null;
+      provider: string;
+      model: string;
+      mode: "text2img" | "img2img" | "lora_training";
+      status: "completed" | "failed";
+      requestId?: string | null;
+      jobId?: string | null;
+      requestPayload: Record<string, unknown>;
+      responsePayload: unknown;
+      refsUsed?: string[];
+      lorasUsed?: Array<{ url: string; triggerWord: string; scale?: number }>;
+      timings?: Record<string, unknown>;
+      error?: Record<string, unknown> | null;
+    }) {
+      return prisma.falTrace.create({
+        data: {
+          projectId,
+          chapterId,
+          sceneId: input.sceneId,
+          panelId: input.panelId ?? null,
+          sceneKeyframeId: input.sceneKeyframeId ?? null,
+          characterId: input.characterId ?? null,
+          provider: input.provider,
+          model: input.model,
+          mode: input.mode,
+          status: input.status,
+          requestId: input.requestId ?? null,
+          jobId: input.jobId ?? null,
+          requestPayload: input.requestPayload as Prisma.InputJsonValue,
+          responsePayload: (input.responsePayload ?? {}) as Prisma.InputJsonValue,
+          refsUsed: (input.refsUsed ?? []) as Prisma.InputJsonValue,
+          lorasUsed: (input.lorasUsed ?? []) as Prisma.InputJsonValue,
+          timings: (input.timings ?? {}) as Prisma.InputJsonValue,
+          error: input.error ? (input.error as Prisma.InputJsonValue) : undefined,
+        },
+      });
+    }
+
+    async function ensureSceneKeyframeUrl(item: PlannedImage): Promise<string | null> {
+      const sceneKeyframeId =
+        typeof item.baseMetadata.sceneKeyframeId === "string"
+          ? item.baseMetadata.sceneKeyframeId
+          : null;
+      if (!sceneKeyframeId) return null;
+      const existingPromise = sceneKeyframeUrlCache.get(sceneKeyframeId);
+      if (existingPromise) return existingPromise;
+
+      const promise = (async () => {
+        const keyframe = await prisma.sceneKeyframe.findUnique({
+          where: { id: sceneKeyframeId },
+        });
+        if (!keyframe) return null;
+        if (keyframe.imageUrl) {
+          return signIfSupabaseStorageUrl(keyframe.imageUrl);
+        }
+
+        const metadata =
+          keyframe.metadata && typeof keyframe.metadata === "object"
+            ? (keyframe.metadata as Record<string, unknown>)
+            : {};
+        const sceneCharacterNames = Array.isArray(metadata.involvedCharacterNames)
+          ? metadata.involvedCharacterNames.filter((value): value is string => typeof value === "string")
+          : [];
+        const keyframeRefs = await Promise.all(
+          sceneCharacterNames
+            .map((name) => canonRefByName.get(name))
+            .filter((value): value is string => Boolean(value))
+            .slice(0, 2)
+            .map((url) => signIfSupabaseStorageUrl(url)),
+        );
+        const keyframeLoras = sceneCharacterNames
+          .map((name) => loraByCharName.get(name))
+          .filter((value): value is { url: string; triggerWord: string; scale: number } => Boolean(value))
+          .slice(0, 2);
+        const size = getFalImageSizePreset("panel_establishing");
+        const generation = await runRoutedImageGeneration(
+          {
+            mode: "SCENE_KEYFRAME",
+            contentIntensityLayer: intensityLayer,
+            adultEngine,
+            isNewCharacter: false,
+            hasCanonReferences: keyframeRefs.length > 0 || keyframeLoras.length > 0,
+            characterCountInScene: sceneCharacterNames.length,
+            purpose: "establishing",
+            shotType: "wide",
+            environmentPriority: "high",
+            locationComplexity: 80,
+            environmentDensityRequired: "high",
+            continuityWeight: 85,
+            scenePurpose: "scene_keyframe",
+            needsInpaint: false,
+            needsPoseVariation: false,
+            preferPhotorealCover: false,
+            explicitBlocked: intensityLayer === "RESTRICTED_BLOCKED_VISUAL",
+            goreStylizedMature:
+              intensityLayer === "MATURE_VISUAL" || intensityLayer === "ADULT_EXPLICIT",
+          },
+          {
+            mode: "SCENE_KEYFRAME",
+            positivePrompt: typeof metadata.positivePrompt === "string" ? metadata.positivePrompt : item.panel.prompt,
+            negativePrompt: typeof metadata.negativePrompt === "string" ? metadata.negativePrompt : STD_NEGATIVE,
+            width: size.width,
+            height: size.height,
+            referenceImageUrls: keyframeRefs.length > 0 ? keyframeRefs : undefined,
+            loras: keyframeLoras.length > 0 ? keyframeLoras : undefined,
+            providerParams: {
+              contentIntensityLayer: intensityLayer,
+              mode: "SCENE_KEYFRAME",
+              referencePolicy: keyframeRefs.length > 0 || keyframeLoras.length > 0 ? "LIGHT" : "NONE",
+              panelCategory: "ESTABLISHING_ENVIRONMENT",
+              scenePass: "scene_base",
+            },
+          },
+        );
+        if (!generation.ok) {
+          await persistFalTraceEntry({
+            sceneId: keyframe.sceneId,
+            sceneKeyframeId,
+            provider: "fal",
+            model: "fal-ai/flux/dev",
+            mode: keyframeRefs.length > 0 || keyframeLoras.length > 0 ? "img2img" : "text2img",
+            status: "failed",
+            requestId: null,
+            jobId: null,
+            requestPayload: {
+              positivePrompt: typeof metadata.positivePrompt === "string" ? metadata.positivePrompt : item.panel.prompt,
+              negativePrompt: typeof metadata.negativePrompt === "string" ? metadata.negativePrompt : STD_NEGATIVE,
+              width: size.width,
+              height: size.height,
+            },
+            responsePayload: generation.log,
+            refsUsed: keyframeRefs,
+            lorasUsed: keyframeLoras,
+            error: { reason: generation.reason },
+          });
+          return null;
+        }
+        await persistFalTraceEntry({
+          sceneId: keyframe.sceneId,
+          sceneKeyframeId,
+          provider: generation.result.provider,
+          model: generation.result.model,
+          mode: keyframeRefs.length > 0 || keyframeLoras.length > 0 ? "img2img" : "text2img",
+          status: "completed",
+          requestId: generation.result.requestId ?? null,
+          jobId: generation.result.jobId ?? null,
+          requestPayload: {
+            positivePrompt: typeof metadata.positivePrompt === "string" ? metadata.positivePrompt : item.panel.prompt,
+            negativePrompt: typeof metadata.negativePrompt === "string" ? metadata.negativePrompt : STD_NEGATIVE,
+            width: size.width,
+            height: size.height,
+          },
+          responsePayload: generation.result.raw ?? generation.log,
+          refsUsed: keyframeRefs,
+          lorasUsed: keyframeLoras,
+          timings: generation.result.timings,
+        });
+
+        const persisted = await persistImageIfNeeded({
+          imageUrl: generation.result.imageUrl,
+          projectId,
+          chapterId,
+          sceneImageId: `scene_keyframe_${sceneKeyframeId}`,
+        });
+        if (!persisted.ok) {
+          return null;
+        }
+
+        const mediaAsset = await prisma.mediaAsset.create({
+          data: {
+            projectId,
+            chapterId,
+            sceneId: keyframe.sceneId,
+            type: "scene_keyframe",
+            origin: "generated",
+            ownerType: "scene_keyframe",
+            ownerId: sceneKeyframeId,
+            storageProvider: persisted.persisted ? "supabase" : "fal",
+            publicUrl: persisted.url,
+            storageKey: `scene-keyframes/${sceneKeyframeId}`,
+            metadata: ({
+              requestId: generation.result.requestId ?? null,
+              jobId: generation.result.jobId ?? null,
+              generationLog: generation.log,
+            } as unknown) as Prisma.InputJsonValue,
+          },
+        });
+        await prisma.sceneKeyframe.update({
+          where: { id: sceneKeyframeId },
+          data: {
+            imageUrl: persisted.url,
+            imageAssetId: mediaAsset.id,
+            metadata: ({
+              ...metadata,
+              generatedAt: new Date().toISOString(),
+              persisted: persisted.persisted,
+            } as unknown) as Prisma.InputJsonValue,
+          },
+        });
+        return persisted.url;
+      })();
+
+      sceneKeyframeUrlCache.set(sceneKeyframeId, promise);
+      return promise;
+    }
 
     async function processOneImage(item: PlannedImage): Promise<"ok" | "fail"> {
       const panelCharacterNames: string[] = item.panel.characters ?? [];
       const canonRef = panelCharacterNames.map((n) => canonRefByName.get(n)).find(Boolean) ?? null;
+      const sceneKeyframeUrl = await ensureSceneKeyframeUrl(item);
 
       const panelLoras = panelCharacterNames
         .map((n) => loraByCharName.get(n))
         .filter((l): l is { url: string; triggerWord: string; scale: number } => Boolean(l))
         .slice(0, 2);
 
-      const refs: string[] = [];
+      const sceneRefs: string[] = sceneKeyframeUrl ? [sceneKeyframeUrl] : [];
+      const characterRefs: string[] = [];
       if (canonRef) {
         const signedCanonRef = await signIfSupabaseStorageUrl(canonRef);
         const isAccessible = await fetch(signedCanonRef, { method: "HEAD", signal: AbortSignal.timeout(4000) })
           .then((r) => r.ok)
           .catch(() => false);
-        if (isAccessible) refs.push(signedCanonRef);
+        if (isAccessible) characterRefs.push(signedCanonRef);
         else console.warn(`[pipeline] canonRef URL inaccessible (expirée ?), ignorée pour ce panel: ${canonRef.slice(0, 80)}`);
       }
 
-      const hasCanonRef = refs.length > 0 || panelLoras.length > 0;
+      const refs = [...sceneRefs, ...characterRefs];
+      const hasCanonRef = characterRefs.length > 0 || panelLoras.length > 0;
       const panelContractMeta = item.baseMetadata.panelContract as {
         purpose?: string;
         shotType?: "wide" | "medium" | "closeup" | "extreme_closeup" | "over_shoulder";
@@ -1842,6 +2283,40 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         .filter((c): c is NonNullable<typeof c> => c !== null);
 
       try {
+        const preflight = validatePreflightPanel({
+          panelId: item.sceneImageId,
+          positivePrompt: item.panel.prompt,
+          negativePrompt: item.panel.negativePrompt,
+          shotType: typeof (item.baseMetadata.panelContract as Record<string, unknown> | undefined)?.shotType === "string"
+            ? String((item.baseMetadata.panelContract as Record<string, unknown>).shotType)
+            : null,
+          purpose: typeof (item.baseMetadata.panelContract as Record<string, unknown> | undefined)?.purpose === "string"
+            ? String((item.baseMetadata.panelContract as Record<string, unknown>).purpose)
+            : null,
+          mustShow: Array.isArray((item.baseMetadata.panelContract as Record<string, unknown> | undefined)?.mustShow)
+            ? ((item.baseMetadata.panelContract as Record<string, unknown>).mustShow as string[])
+            : [],
+          backgroundExtras: Array.isArray((item.baseMetadata.panelContract as Record<string, unknown> | undefined)?.backgroundExtras)
+            ? ((item.baseMetadata.panelContract as Record<string, unknown>).backgroundExtras as string[])
+            : [],
+          hasSceneKeyframe: Boolean(sceneKeyframeUrl),
+          hasCharacterLock: hasCanonRef,
+          characterCount: panelCharacterNames.length,
+        });
+        if (!preflight.ok) {
+          await prisma.sceneImage.update({
+            where: { id: item.sceneImageId },
+            data: {
+              status: "blocked",
+              metadata: ({
+                ...item.baseMetadata,
+                preflight,
+                blockedReason: preflight.reasons.join(","),
+              } as unknown) as Prisma.InputJsonValue,
+            },
+          });
+          return "fail";
+        }
         const routingCtx = buildRoutingContext(intensityLayer, item.panel, panelContractMeta, stylePackMeta, hasCanonRef, adultEngine);
         const strategy = computeFalSceneAssessment(routingCtx);
 
@@ -1913,14 +2388,16 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           seed?: number;
         }) => {
           const size = getFalImageSizePreset(params.sizePreset);
-          return runRoutedImageGeneration(routingCtx, {
-            mode: "PANEL_DRAFT",
+          const requestPayload = {
             positivePrompt: params.positivePrompt,
             negativePrompt: params.negativePrompt,
             width: size.width,
             height: size.height,
-            loras: params.referencePolicy === "NONE" ? undefined : (panelLoras.length > 0 ? panelLoras : undefined),
-            referenceImageUrls: params.referencePolicy === "NONE" ? undefined : (refs.length > 0 ? refs : undefined),
+            loras: params.referencePolicy === "NONE" ? [] : panelLoras,
+            referenceImageUrls:
+              params.referencePolicy === "NONE"
+                ? sceneRefs
+                : refs,
             providerParams: {
               contentIntensityLayer: intensityLayer,
               mode: "PANEL_DRAFT",
@@ -1930,7 +2407,39 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               scenePass: params.scenePass,
               rerollKind: params.rerollKind,
             },
+          };
+          const generation = await runRoutedImageGeneration(routingCtx, {
+            mode: "PANEL_DRAFT",
+            positivePrompt: params.positivePrompt,
+            negativePrompt: params.negativePrompt,
+            width: size.width,
+            height: size.height,
+            loras: params.referencePolicy === "NONE" ? undefined : (panelLoras.length > 0 ? panelLoras : undefined),
+            referenceImageUrls:
+              params.referencePolicy === "NONE"
+                ? (sceneRefs.length > 0 ? sceneRefs : undefined)
+                : (refs.length > 0 ? refs : undefined),
+            providerParams: requestPayload.providerParams,
           });
+          await persistFalTraceEntry({
+            sceneId: String(item.baseMetadata.sceneId ?? ""),
+            panelId: item.sceneImageId,
+            sceneKeyframeId: typeof item.baseMetadata.sceneKeyframeId === "string" ? item.baseMetadata.sceneKeyframeId : undefined,
+            characterId: charactersWithFingerprints[0]?.characterId ?? undefined,
+            provider: generation.ok ? generation.result.provider : "fal",
+            model: generation.ok ? generation.result.model : String(routingCtx.mode),
+            mode: params.referencePolicy === "NONE" && panelLoras.length === 0 ? "text2img" : "img2img",
+            status: generation.ok ? "completed" : "failed",
+            requestId: generation.ok ? generation.result.requestId ?? null : null,
+            jobId: generation.ok ? generation.result.jobId ?? null : null,
+            requestPayload,
+            responsePayload: generation.ok ? (generation.result.raw ?? generation.log) : generation.log,
+            refsUsed: requestPayload.referenceImageUrls as string[],
+            lorasUsed: requestPayload.loras as Array<{ url: string; triggerWord: string; scale?: number }>,
+            timings: generation.ok ? generation.result.timings : undefined,
+            error: generation.ok ? null : { reason: generation.reason },
+          });
+          return generation;
         };
 
         const validateAttempt = async (
@@ -1960,7 +2469,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             prompt: item.panel.prompt,
             characters: panelCharDetails,
             usedLoras: referencePolicy !== "NONE" && panelLoras.length > 0,
-            usedRefs: referencePolicy !== "NONE" && refs.length > 0,
+            usedRefs: referencePolicy !== "NONE" && characterRefs.length > 0,
           });
           return {
             generation,

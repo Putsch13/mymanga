@@ -68,6 +68,9 @@ export interface GenerateImageResult {
   imageUrl: string;
   provider: ImageProviderId;
   model: string;
+  requestId?: string;
+  jobId?: string;
+  timings?: Record<string, unknown>;
   raw?: unknown;
 }
 

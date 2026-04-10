@@ -15,8 +15,8 @@ export async function POST(_req: Request, ctx: Ctx) {
   const payload = await exportProjectPackage(projectId);
   return new Response(Buffer.from(payload), {
     headers: {
-      "Content-Type": "application/zip",
-      "Content-Disposition": `attachment; filename="${project.slug}-package.zip"`,
+      "Content-Type": "text/plain; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${project.slug}-package.txt"`,
     },
   });
 }

@@ -25,6 +25,12 @@ export async function getOwnedCharacter(userId: string, characterId: string, pro
       project: true,
       canonPack: { include: { assets: true } },
       visualRefs: { orderBy: { createdAt: "desc" } },
+      visualLocks: { where: { isActive: true }, orderBy: { version: "desc" } },
+      loraAttachments: {
+        where: { enabled: true },
+        include: { lora: true },
+        orderBy: { createdAt: "desc" },
+      },
       relationshipsFrom: true,
       relationshipsTo: true,
     },
