@@ -1372,7 +1372,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
 
           const persistentSceneExtras = await ensureSceneExtras(tx, {
             sceneId: createdScene.id,
-            locationId: scene.location,
+            locationName: scene.location,
             projectId,
             requiredExtras: inferRequiredSceneExtras(scene),
           });

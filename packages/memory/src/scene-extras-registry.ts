@@ -67,11 +67,42 @@ async function upsertNpcVisualProfile(
     projectId: string;
     sceneId: string;
     locationId?: string;
+    locationName?: string;
     extra: SceneExtra;
     characterId?: string | null;
     forceImportant?: boolean;
   },
 ) {
+  const normalizedLocationName = normalizeLocationKey(input.locationName ?? input.locationId);
+  const resolvedLocation = input.locationId
+    ? await prisma.location.findFirst({
+        where: {
+          projectId: input.projectId,
+          OR: [
+            { id: input.locationId },
+            ...(normalizedLocationName
+              ? [
+                  { slug: normalizedLocationName },
+                  { name: { equals: input.locationName ?? input.locationId, mode: "insensitive" as const } },
+                ]
+              : []),
+          ],
+        },
+        select: { id: true },
+      })
+    : normalizedLocationName
+      ? await prisma.location.findFirst({
+          where: {
+            projectId: input.projectId,
+            OR: [
+              { slug: normalizedLocationName },
+              { name: { equals: input.locationName ?? input.locationId ?? "", mode: "insensitive" as const } },
+            ],
+          },
+          select: { id: true },
+        })
+      : null;
+  const resolvedLocationId = resolvedLocation?.id ?? null;
   const existing = await prisma.npcVisualProfile.findUnique({
     where: { stableNpcId: input.extra.id },
   });
@@ -81,7 +112,7 @@ async function upsertNpcVisualProfile(
     where: { stableNpcId: input.extra.id },
     update: {
       sceneId: input.sceneId,
-      locationId: input.locationId ?? null,
+      locationId: resolvedLocationId,
       characterId: input.characterId ?? existing?.characterId ?? null,
       role: input.extra.archetype,
       shortVisualCore: buildNpcVisualCore(input.extra),
@@ -99,7 +130,7 @@ async function upsertNpcVisualProfile(
     create: {
       projectId: input.projectId,
       sceneId: input.sceneId,
-      locationId: input.locationId ?? null,
+      locationId: resolvedLocationId,
       characterId: input.characterId ?? null,
       stableNpcId: input.extra.id,
       role: input.extra.archetype,
@@ -127,6 +158,7 @@ export async function loadSceneExtras(
   input: {
     sceneId?: string;
     locationId?: string;
+    locationName?: string;
     projectId: string;
   }
 ): Promise<SceneExtra[]> {
@@ -139,9 +171,11 @@ export async function loadSceneExtras(
     : null;
   const currentMetadata = asRecord(currentScene?.metadata);
   const currentExtras = toSceneExtraList(currentMetadata.sceneExtras);
-  const locationKey = normalizeLocationKey(
-    input.locationId || (typeof currentMetadata.location === "string" ? currentMetadata.location : undefined),
-  );
+  const currentLocationLabel =
+    input.locationName
+    || (typeof currentMetadata.location === "string" ? currentMetadata.location : undefined)
+    || undefined;
+  const locationKey = normalizeLocationKey(currentLocationLabel);
 
   if (!locationKey) {
     return currentExtras;
@@ -291,8 +325,9 @@ export async function ensureSceneExtras(
   prisma: PrismaClient | Prisma.TransactionClient,
   input: {
     sceneId: string;
-    locationId: string;
+    locationName: string;
     projectId: string;
+    locationId?: string;
     requiredExtras: Array<{
       archetype: SceneExtra["archetype"];
       anchorSlot: string;
@@ -303,6 +338,7 @@ export async function ensureSceneExtras(
   const existing = await loadSceneExtras(prisma, {
     sceneId: input.sceneId,
     locationId: input.locationId,
+    locationName: input.locationName,
     projectId: input.projectId,
   });
 
@@ -325,6 +361,7 @@ export async function ensureSceneExtras(
           projectId: input.projectId,
           sceneId: input.sceneId,
           locationId: input.locationId,
+          locationName: input.locationName,
           extra: rebound,
         });
         result.push(rebound);
@@ -334,12 +371,13 @@ export async function ensureSceneExtras(
         projectId: input.projectId,
         sceneId: input.sceneId,
         locationId: input.locationId,
+        locationName: input.locationName,
         extra: reused,
       });
       result.push(reused);
     } else {
       // Créer un nouvel extra
-      const stableId = `extra-${stableToken(`${input.projectId}:${normalizeLocationKey(input.locationId)}:${req.anchorSlot}:${req.archetype}`)}`;
+      const stableId = `extra-${stableToken(`${input.projectId}:${normalizeLocationKey(input.locationName)}:${req.anchorSlot}:${req.archetype}`)}`;
       const newExtra: SceneExtra = {
         id: stableId,
         sceneId: input.sceneId,
@@ -355,6 +393,7 @@ export async function ensureSceneExtras(
         projectId: input.projectId,
         sceneId: input.sceneId,
         locationId: input.locationId,
+        locationName: input.locationName,
         extra: newExtra,
       });
       result.push(newExtra);
