@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AutofillMeta, ChapterReadinessIssue, ChapterStudioData, ChapterStudioSnapshot, ChapterStudioStep } from "@manga-ai-studio/core";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChapterBriefStep } from "./chapter-brief-step";
 import { ChapterCastCanonStep } from "./chapter-cast-canon-step";
@@ -18,7 +17,6 @@ import {
   type ChapterFlowStepId,
   type StudioResponse,
 } from "./chapter-studio-flow";
-import { StudioInlineIssues } from "./studio-inline-issues";
 
 function primaryStudioStepForFlowStep(flowStep: ChapterFlowStepId): ChapterStudioStep {
   if (flowStep === "brief") return "intent";
@@ -248,74 +246,71 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
         acceptedImages={acceptedImages}
         minimumImages={minimumImages}
         generatedImages={generatedImages}
+        estimateContext={draft.estimateContext}
         onSelectStep={(step) => goToFlowStep(step)}
         onSave={() => void save(draft, activeStudioStep)}
       />
 
       <div className="space-y-6">
-        <Card className="border-border/60 bg-card/40">
-          <CardHeader>
-            <CardTitle className="text-base">Tunnel Chapter Studio simplifié</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="rounded-xl border border-border/60 bg-background/30 p-4">
-              <p className="text-sm font-medium">{summary.title}</p>
-              <p className="mt-2 text-sm text-muted-foreground">{summary.summary}</p>
-            </div>
+        {/* Résumé chapitre + CTA autofill natif au flow */}
+        <div className="rounded-xl border border-border/60 bg-card/40 p-4 space-y-3">
+          <div>
+            <p className="text-sm font-semibold">{summary.title}</p>
+            {summary.summary ? (
+              <p className="mt-1 text-sm text-muted-foreground">{summary.summary}</p>
+            ) : null}
+          </div>
 
-            <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              data-testid="autofill-all-missing"
+              size="sm"
+              variant="outline"
+              disabled={autofilling}
+              onClick={() => void runAutofill("all_missing")}
+            >
+              {autofilling ? "Complétion en cours…" : "L'IA complète les infos manquantes"}
+            </Button>
+            {blockerItems.length > 0 ? (
               <Button
-                data-testid="autofill-all-missing"
+                data-testid="autofill-repair-readiness"
                 size="sm"
-                variant="outline"
+                variant="ghost"
                 disabled={autofilling}
-                onClick={() => void runAutofill("all_missing")}
+                onClick={() => void runAutofill("repair_readiness")}
               >
-                {autofilling ? "Complétion en cours…" : "L'IA complète les infos manquantes"}
+                Réparer ce qui bloque
               </Button>
-              {blockerItems.length > 0 ? (
-                <Button
-                  data-testid="autofill-repair-readiness"
-                  size="sm"
-                  variant="ghost"
-                  disabled={autofilling}
-                  onClick={() => void runAutofill("repair_readiness")}
-                >
-                  Réparer ce qui bloque
-                </Button>
+            ) : null}
+          </div>
+
+          {autofillResult ? (
+            <div className="rounded-lg border border-border/40 bg-muted/30 p-3 text-xs space-y-1" data-testid="autofill-result">
+              <p className="font-medium text-foreground/80">
+                Autofill IA — confiance : {Math.round(autofillResult.meta.confidence * 100)}%
+              </p>
+              {autofillResult.appliedFields.length > 0 ? (
+                <p className="text-muted-foreground">
+                  Champs complétés : {autofillResult.appliedFields.join(", ")}
+                </p>
+              ) : null}
+              {autofillResult.unresolvedQuestions.length > 0 ? (
+                <div>
+                  <p className="text-amber-600 dark:text-amber-400 font-medium">À valider manuellement :</p>
+                  <ul className="list-disc list-inside text-muted-foreground space-y-0.5">
+                    {autofillResult.unresolvedQuestions.map((q, i) => (
+                      <li key={i}>{q}</li>
+                    ))}
+                  </ul>
+                </div>
               ) : null}
             </div>
+          ) : null}
 
-            {autofillResult ? (
-              <div className="rounded-lg border border-border/40 bg-muted/30 p-3 text-xs space-y-1">
-                <p className="font-medium text-foreground/80">
-                  Autofill IA — confiance : {Math.round(autofillResult.meta.confidence * 100)}%
-                </p>
-                {autofillResult.appliedFields.length > 0 ? (
-                  <p className="text-muted-foreground">
-                    Champs complétés : {autofillResult.appliedFields.join(", ")}
-                  </p>
-                ) : null}
-                {autofillResult.unresolvedQuestions.length > 0 ? (
-                  <div>
-                    <p className="text-amber-600 dark:text-amber-400 font-medium">À valider manuellement :</p>
-                    <ul className="list-disc list-inside text-muted-foreground space-y-0.5">
-                      {autofillResult.unresolvedQuestions.map((q, i) => (
-                        <li key={i}>{q}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
+          {message ? <p data-testid="studio-message" className="text-sm text-muted-foreground">{message}</p> : null}
+        </div>
 
-            {message ? <p data-testid="studio-message" className="text-sm text-muted-foreground">{message}</p> : null}
-          </CardContent>
-        </Card>
-
-        <StudioInlineIssues title="Blocants actionnables" issues={blockerItems} emptyLabel="Aucun blocant métier: le chapitre est prêt pour la suite." testIdPrefix="blocker-action" onAction={handleIssueAction} />
-        <StudioInlineIssues title="Warnings globaux" issues={warningItems} tone="neutral" testIdPrefix="warning-action" onAction={handleIssueAction} />
-
+        {/* Étapes du flow simple — blocants localisés dans chaque étape */}
         {activeFlowStep === "brief" ? (
           <ChapterBriefStep
             draft={draft}

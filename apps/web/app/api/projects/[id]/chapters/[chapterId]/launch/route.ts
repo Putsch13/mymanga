@@ -78,6 +78,22 @@ export async function POST(_req: Request, ctx: Ctx) {
     return badRequest("Aucun outline validé n'est disponible pour lancer la génération.");
   }
 
+  // ── Vérification authoritative estimate → launch ──────────────────────────
+  // Si un estimateContext est présent dans le snapshot, vérifier qu'il cible bien ce chapitre.
+  const estimateContext = snapshot.data.estimateContext;
+  if (estimateContext?.targetChapterId && estimateContext.targetChapterId !== chapterId) {
+    console.warn(
+      `[launch] estimate_context_mismatch chapterId=${chapterId} estimateTargetChapterId=${estimateContext.targetChapterId} — invalidating context`,
+    );
+    // On ne bloque pas le launch mais on invalide le contexte divergent et on le trace
+    // Le pipeline utilisera le chapterId réel (celui de la route)
+  }
+  if (estimateContext) {
+    console.log(
+      `[launch] estimate_context chapterId=${chapterId} targetChapterId=${estimateContext.targetChapterId ?? "none"} estimateSource=${estimateContext.estimateSource ?? "unknown"} estimatedAt=${estimateContext.estimatedAt ?? "unknown"} divergence=${estimateContext.targetChapterId && estimateContext.targetChapterId !== chapterId ? "YES" : "NO"}`,
+    );
+  }
+
   const nextSnapshot = {
     ...snapshot,
     status: "GENERATING" as const,
@@ -128,13 +144,23 @@ export async function POST(_req: Request, ctx: Ctx) {
       type: "GENERATE_CHAPTER_SCRIPT",
       status: "queued",
       estimatedTokenCost: estimatedCost,
-      input: {
+      input: ({
         source: "chapter_studio_launch",
         chapterId,
         approvedOutlineVersion: approvedOutline.approvalVersion,
         selectedPlotLabel: snapshot.data.selectedPlotLabel ?? "bold",
         creativityControls: snapshot.data.creativityControls ?? undefined,
-      },
+        // Traçabilité estimate → launch
+        estimateContext: estimateContext
+          ? {
+              targetChapterId: estimateContext.targetChapterId ?? null,
+              targetChapterNumber: estimateContext.targetChapterNumber ?? null,
+              estimateSource: estimateContext.estimateSource,
+              estimatedAt: estimateContext.estimatedAt,
+              divergenceDetected: !!(estimateContext.targetChapterId && estimateContext.targetChapterId !== chapterId),
+            }
+          : null,
+      } as unknown) as Prisma.InputJsonValue,
       output: {
         currentStep: "queued",
         steps: [],

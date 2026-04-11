@@ -1,11 +1,33 @@
 import type { GeneratedChapterBundle } from "../chapter-pipeline";
 import type { ChapterDramaticSpine } from "./story-spine";
+import type { GenreDirectorMode } from "./genre-director";
 
 export type StoryQualityIssue = {
   code: string;
   severity: "info" | "warning" | "error";
   message: string;
   sceneIndex?: number;
+};
+
+/**
+ * Patch narratif léger suggéré ou appliqué automatiquement par le quality gate.
+ * Les patches auto-appliqués modifient directement le bundle ; les suggestions restent dans le diagnostic.
+ */
+export type NarrativePatch = {
+  type:
+    | "strengthen_cliffhanger"
+    | "inject_micro_turn"
+    | "add_payoff_hint"
+    | "add_breathing_beat"
+    | "mark_weak_scene"
+    | "add_reveal_beat";
+  targetSceneIndex?: number;
+  targetBeatIndex?: number;
+  description: string;
+  /** Valeur appliquée (ex: texte du cliffhanger renforcé) */
+  appliedValue?: string;
+  /** true si le patch a été appliqué automatiquement au bundle */
+  autoApplied: boolean;
 };
 
 export type StoryQualityReport = {
@@ -20,6 +42,12 @@ export type StoryQualityReport = {
   breathingScore: number;
   sceneUtilityScore: number;
   characterFunctionScore: number;
+  /** Patches suggérés mais non appliqués automatiquement */
+  suggestedPatches: NarrativePatch[];
+  /** Patches appliqués automatiquement au bundle */
+  autoAppliedPatches: NarrativePatch[];
+  /** Mode genre utilisé pour orienter les patches */
+  genreMode: GenreDirectorMode;
 };
 
 function scoreCausality(bundle: GeneratedChapterBundle): { score: number; issues: StoryQualityIssue[] } {
@@ -246,10 +274,147 @@ function scoreCharacterFunction(bundle: GeneratedChapterBundle): { score: number
   return { score, issues };
 }
 
+/**
+ * Génère des patches narratifs légers en fonction des issues et du mode genre.
+ * Retourne { suggestedPatches, autoAppliedPatches, patchedBundle }.
+ */
+function generateNarrativePatches(
+  bundle: GeneratedChapterBundle,
+  spine: ChapterDramaticSpine,
+  issues: StoryQualityIssue[],
+  genreMode: GenreDirectorMode,
+): { suggestedPatches: NarrativePatch[]; autoAppliedPatches: NarrativePatch[]; patchedBundle: GeneratedChapterBundle } {
+  const suggested: NarrativePatch[] = [];
+  const autoApplied: NarrativePatch[] = [];
+  let patchedBundle = bundle;
+
+  const issueCodes = new Set(issues.map((i) => i.code));
+
+  // ── Cliffhanger trop faible ────────────────────────────────────────────────
+  if (issueCodes.has("no_cliffhanger_prep") || issueCodes.has("weak_cliffhanger_text")) {
+    const cliffhangerByGenre: Record<GenreDirectorMode, string> = {
+      shonen_combat: "Au moment où la poussière retombe, une silhouette inconnue surgit — et tout le monde reconnaît ce pouvoir.",
+      seinen_tension: "La vérité éclate en une phrase. Personne ne bouge. Le silence dit tout.",
+      romance_shojo: "Leurs regards se croisent une dernière fois — et elle comprend qu'elle a tout mal interprété.",
+      thriller_horror: "La porte se referme. Derrière, quelque chose respire.",
+      quiet_aftermath: "Il reste seul dans la pièce vide. Sur la table, une lettre qu'il n'avait pas vue.",
+    };
+    const suggestedCliffhanger = cliffhangerByGenre[genreMode];
+    // Auto-appliquer si le cliffhanger actuel est vraiment trop court
+    if (!bundle.outline.cliffhanger || bundle.outline.cliffhanger.length < 20) {
+      patchedBundle = {
+        ...patchedBundle,
+        outline: { ...patchedBundle.outline, cliffhanger: suggestedCliffhanger },
+      };
+      autoApplied.push({
+        type: "strengthen_cliffhanger",
+        description: `Cliffhanger renforcé selon le mode ${genreMode}`,
+        appliedValue: suggestedCliffhanger,
+        autoApplied: true,
+      });
+    } else {
+      suggested.push({
+        type: "strengthen_cliffhanger",
+        description: `Cliffhanger faible détecté. Suggestion (${genreMode}) : "${suggestedCliffhanger}"`,
+        appliedValue: suggestedCliffhanger,
+        autoApplied: false,
+      });
+    }
+  }
+
+  // ── Aucun micro-turn ───────────────────────────────────────────────────────
+  if (issueCodes.has("no_micro_turns")) {
+    const microTurnByGenre: Record<GenreDirectorMode, string> = {
+      shonen_combat: "Mais soudain, l'adversaire sourit — il attendait ça.",
+      seinen_tension: "Cependant, quelque chose cloche dans sa réponse.",
+      romance_shojo: "Pourtant, au moment de partir, elle s'arrête.",
+      thriller_horror: "Sauf que la porte était censée être verrouillée.",
+      quiet_aftermath: "Mais il remarque quelque chose qu'il n'avait pas vu avant.",
+    };
+    const scenes = patchedBundle.script?.scenes ?? [];
+    // Trouver la scène la plus plate (milieu du chapitre)
+    const midIndex = Math.floor(scenes.length / 2);
+    const targetScene = scenes[midIndex];
+    if (targetScene) {
+      suggested.push({
+        type: "inject_micro_turn",
+        targetSceneIndex: midIndex,
+        description: `Micro-turn suggéré pour la scène ${midIndex + 1} (${genreMode}) : "${microTurnByGenre[genreMode]}"`,
+        appliedValue: microTurnByGenre[genreMode],
+        autoApplied: false,
+      });
+    }
+  }
+
+  // ── Payoff trop faible ─────────────────────────────────────────────────────
+  if (issueCodes.has("payoff_weakness") || spine.payoffTargets.length === 0) {
+    const payoffByGenre: Record<GenreDirectorMode, string> = {
+      shonen_combat: "La promesse du début du chapitre est tenue : le héros prouve sa valeur.",
+      seinen_tension: "La révélation partielle satisfait sans tout résoudre.",
+      romance_shojo: "Un geste discret répond à la tension accumulée.",
+      thriller_horror: "La menace se concrétise partiellement — assez pour valider la peur.",
+      quiet_aftermath: "Un détail silencieux clôt l'arc émotionnel de la scène.",
+    };
+    suggested.push({
+      type: "add_payoff_hint",
+      description: `Payoff faible. Suggestion (${genreMode}) : ${payoffByGenre[genreMode]}`,
+      appliedValue: payoffByGenre[genreMode],
+      autoApplied: false,
+    });
+  }
+
+  // ── Trop d'action, pas de respiration ─────────────────────────────────────
+  if (issueCodes.has("too_much_action")) {
+    const breathingByGenre: Record<GenreDirectorMode, string> = {
+      shonen_combat: "Un panel silencieux après le combat : les personnages reprennent leur souffle.",
+      seinen_tension: "Une pause de dialogue sobre avant la prochaine escalade.",
+      romance_shojo: "Un moment contemplatif — regard sur un objet symbolique.",
+      thriller_horror: "Un instant de faux calme avant la prochaine menace.",
+      quiet_aftermath: "Une scène entière de silence et de réflexion.",
+    };
+    suggested.push({
+      type: "add_breathing_beat",
+      description: `Trop d'action. Beat de respiration suggéré (${genreMode}) : ${breathingByGenre[genreMode]}`,
+      appliedValue: breathingByGenre[genreMode],
+      autoApplied: false,
+    });
+  }
+
+  // ── Scènes faibles marquées ────────────────────────────────────────────────
+  for (const issue of issues.filter((i) => i.code === "weak_scene" && i.sceneIndex !== undefined)) {
+    suggested.push({
+      type: "mark_weak_scene",
+      targetSceneIndex: issue.sceneIndex,
+      description: `Scène ${(issue.sceneIndex ?? 0) + 1} marquée comme faible — à enrichir ou supprimer.`,
+      autoApplied: false,
+    });
+  }
+
+  // ── Variété de beats insuffisante ─────────────────────────────────────────
+  if (issueCodes.has("low_beat_variety")) {
+    const revealByGenre: Record<GenreDirectorMode, string> = {
+      shonen_combat: "Un reveal de capacité cachée ou d'identité adversaire.",
+      seinen_tension: "Une révélation d'information qui change la lecture des événements.",
+      romance_shojo: "Un aveu indirect ou une découverte sur les sentiments de l'autre.",
+      thriller_horror: "Une révélation sur la nature de la menace.",
+      quiet_aftermath: "Une vérité émotionnelle qui émerge doucement.",
+    };
+    suggested.push({
+      type: "add_reveal_beat",
+      description: `Variété de beats insuffisante. Beat reveal suggéré (${genreMode}) : ${revealByGenre[genreMode]}`,
+      appliedValue: revealByGenre[genreMode],
+      autoApplied: false,
+    });
+  }
+
+  return { suggestedPatches: suggested, autoAppliedPatches: autoApplied, patchedBundle };
+}
+
 export function runStoryQualityGate(
   bundle: GeneratedChapterBundle,
   spine: ChapterDramaticSpine,
-): StoryQualityReport {
+  genreMode: GenreDirectorMode = "seinen_tension",
+): { report: StoryQualityReport; patchedBundle: GeneratedChapterBundle } {
   const causality = scoreCausality(bundle);
   const beatVariety = scoreBeatVariety(spine);
   const microTurns = scoreMicroTurns(bundle);
@@ -284,7 +449,21 @@ export function runStoryQualityGate(
   const errorCount = allIssues.filter((i) => i.severity === "error").length;
   const passed = errorCount === 0 && overallScore >= 50;
 
-  return {
+  // Générer les patches genre-aware
+  const { suggestedPatches, autoAppliedPatches, patchedBundle } = generateNarrativePatches(
+    bundle,
+    spine,
+    allIssues,
+    genreMode,
+  );
+
+  if (autoAppliedPatches.length > 0) {
+    console.log(
+      `[quality-gate] auto_applied_patches=${autoAppliedPatches.length} genre=${genreMode} score=${overallScore}`,
+    );
+  }
+
+  const report: StoryQualityReport = {
     passed,
     overallScore,
     issues: allIssues,
@@ -296,5 +475,10 @@ export function runStoryQualityGate(
     breathingScore: breathing.score,
     sceneUtilityScore: sceneUtility.score,
     characterFunctionScore: characterFunction.score,
+    suggestedPatches,
+    autoAppliedPatches,
+    genreMode,
   };
+
+  return { report, patchedBundle };
 }

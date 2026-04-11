@@ -3,7 +3,7 @@ import type { GeneratedChapterBundle, ProjectContextForChapter } from "../chapte
 import { buildBundleDigestForNarrative, buildContextDigest } from "./chapter-pass-digests";
 import { buildStorySpine, type ChapterDramaticSpine } from "./story-spine";
 import { inferGenreMode } from "./genre-director";
-import { runStoryQualityGate, type StoryQualityReport } from "./story-quality-gate";
+import { runStoryQualityGate, type StoryQualityReport, type NarrativePatch } from "./story-quality-gate";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -160,6 +160,7 @@ export type NarrativeCoherencePassResult = {
   premiumDiagnostic: {
     spine: ChapterDramaticSpine;
     qualityReport: StoryQualityReport;
+    autoAppliedPatches: NarrativePatch[];
   } | null;
 };
 
@@ -176,13 +177,23 @@ export async function runChapterNarrativeCoherencePass(input: {
   // Construire le diagnostic premium (indépendant d'OpenAI)
   const genreMode = inferGenreMode(input.creativityControls ?? {}, input.selectedPlotLabel);
   const spine = buildStorySpine(input.bundle, genreMode);
-  const qualityReport = runStoryQualityGate(input.bundle, spine);
-  const premiumDiagnostic = { spine, qualityReport };
+  const { report: qualityReport, patchedBundle: qualityPatchedBundle } = runStoryQualityGate(input.bundle, spine, genreMode);
+  const premiumDiagnostic = { spine, qualityReport, autoAppliedPatches: qualityReport.autoAppliedPatches };
+
+  // Appliquer les patches auto du quality gate avant la passe OpenAI
+  const bundleAfterQualityPatches = qualityReport.autoAppliedPatches.length > 0 ? qualityPatchedBundle : input.bundle;
 
   if (!apiKey) {
     return {
-      bundle: input.bundle,
-      notes: [...baseNotes, "OpenAI absent : passe ignorée.", `Premium score: ${spine.premiumScore}/100`],
+      bundle: bundleAfterQualityPatches,
+      notes: [
+        ...baseNotes,
+        "OpenAI absent : passe ignorée.",
+        `Premium score: ${spine.premiumScore}/100`,
+        ...(qualityReport.autoAppliedPatches.length > 0
+          ? [`Quality gate: ${qualityReport.autoAppliedPatches.length} patch(es) auto-appliqué(s)`]
+          : []),
+      ],
       usedOpenAI: false,
       premiumDiagnostic,
     };
@@ -194,13 +205,15 @@ export async function runChapterNarrativeCoherencePass(input: {
     chapterGoal: input.chapterGoal,
     selectedPlotLabel: input.selectedPlotLabel ?? "bold",
     context: buildContextDigest(input.context),
-    bundle: buildBundleDigestForNarrative(input.bundle),
+    bundle: buildBundleDigestForNarrative(bundleAfterQualityPatches),
     premiumHints: {
       genreMode,
       premiumScore: spine.premiumScore,
       pacingIssues: spine.pacingIssues,
       payoffWeaknesses: spine.payoffWeaknesses,
       hookOpportunities: spine.hookOpportunities,
+      qualityGateScore: qualityReport.overallScore,
+      suggestedPatches: qualityReport.suggestedPatches.slice(0, 4).map((p) => p.description),
     },
   };
 
@@ -222,11 +235,11 @@ export async function runChapterNarrativeCoherencePass(input: {
     const raw = response.choices[0]?.message?.content ?? "{}";
     const parsed = JSON.parse(raw) as NarrativePayload;
     const fixes = (parsed.panelStoryFixes ?? []).slice(0, 14);
-    const nextBundle = applyNarrativeReview(input.bundle, { ...parsed, panelStoryFixes: fixes });
+    const nextBundle = applyNarrativeReview(bundleAfterQualityPatches, { ...parsed, panelStoryFixes: fixes });
 
     // Recalculer le diagnostic sur le bundle patché
     const patchedSpine = buildStorySpine(nextBundle, genreMode);
-    const patchedQuality = runStoryQualityGate(nextBundle, patchedSpine);
+    const { report: patchedQuality } = runStoryQualityGate(nextBundle, patchedSpine, genreMode);
 
     return {
       bundle: nextBundle,
@@ -234,16 +247,30 @@ export async function runChapterNarrativeCoherencePass(input: {
         ...baseNotes,
         ...(parsed.notes ?? []).slice(0, 12),
         `Premium score: ${patchedSpine.premiumScore}/100`,
+        ...(qualityReport.autoAppliedPatches.length > 0
+          ? [`Quality gate: ${qualityReport.autoAppliedPatches.length} patch(es) auto-appliqué(s)`]
+          : []),
       ],
       usedOpenAI: true,
-      premiumDiagnostic: { spine: patchedSpine, qualityReport: patchedQuality },
+      premiumDiagnostic: {
+        spine: patchedSpine,
+        qualityReport: patchedQuality,
+        autoAppliedPatches: qualityReport.autoAppliedPatches,
+      },
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[narrative-coherence-pass] error=${msg}`);
     return {
-      bundle: input.bundle,
-      notes: [...baseNotes, "Échec OpenAI : narrative pass ignorée.", `Premium score: ${spine.premiumScore}/100`],
+      bundle: bundleAfterQualityPatches,
+      notes: [
+        ...baseNotes,
+        "Échec OpenAI : narrative pass ignorée.",
+        `Premium score: ${spine.premiumScore}/100`,
+        ...(qualityReport.autoAppliedPatches.length > 0
+          ? [`Quality gate: ${qualityReport.autoAppliedPatches.length} patch(es) auto-appliqué(s)`]
+          : []),
+      ],
       usedOpenAI: false,
       premiumDiagnostic,
     };
