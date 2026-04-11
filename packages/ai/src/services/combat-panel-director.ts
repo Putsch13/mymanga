@@ -4,6 +4,8 @@ export interface CombatPanelDirectionInput {
   currentShotType?: string | null;
   momentum?: number;
   characterCount?: number;
+  /** Bonus de lisibilité combat issu du genre director (ex: +20 pour shonen_combat) */
+  combatReadabilityBonus?: number;
 }
 
 export type CombatPreset =
@@ -229,10 +231,15 @@ export function directCombatPanel(input: CombatPanelDirectionInput): CombatPanel
     ? Math.round((definition.momentum + input.momentum) / 2)
     : definition.momentum;
 
+  // Appliquer le bonus de lisibilité combat issu du genre director
+  const readabilityBonus = input.combatReadabilityBonus ?? 0;
+  const actionReadabilityScore = Math.min(100, definition.actionReadabilityScore + readabilityBonus);
+
   return {
     preset,
     ...definition,
     shotType,
     momentum,
+    actionReadabilityScore,
   };
 }

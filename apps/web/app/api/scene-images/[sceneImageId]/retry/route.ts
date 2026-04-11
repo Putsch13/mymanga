@@ -6,6 +6,7 @@ import {
   resolveAdultEngine,
   validateGeneratedPanel,
   resolvePremiumImageSize,
+  detectVisualDrift,
 } from "@manga-ai-studio/ai";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
@@ -107,13 +108,57 @@ export async function POST(req: Request, ctx: Ctx) {
   const referenceImageUrls = retryReferenceResolution.urls;
 
   const hasCanonRef = referenceImageUrls.length > 0 || panelLoras.length > 0;
+
+  // Analyse de drift pré-reroll pour informer la politique de référence
+  const driftCharacters = projectChars
+    .filter((pc) => characters.includes(pc.name))
+    .map((pc) => {
+      const fp = (pc.characterFingerprint as Record<string, unknown> | null) ?? {};
+      return {
+        name: pc.name,
+        gender: typeof fp.gender === "string" ? fp.gender : null,
+        hairColor: typeof fp.hairColor === "string" ? fp.hairColor : null,
+        eyeColor: typeof fp.eyeColor === "string" ? fp.eyeColor : null,
+        bodyDetails: typeof fp.bodyDetails === "string" ? fp.bodyDetails : null,
+        appearance: typeof fp.appearance === "string" ? fp.appearance : null,
+        canonicalReferenceAvailable: hasCanonRef,
+      };
+    });
+
+  const preDriftResult = driftCharacters.length > 0
+    ? detectVisualDrift({
+        prompt: img.prompt ?? "",
+        characters: driftCharacters,
+        usedLoras: panelLoras.length > 0,
+        usedRefs: referenceImageUrls.length > 0,
+        panelCategory: typeof metadata.panelCategory === "string" ? metadata.panelCategory : null,
+        beatEventType: typeof metadata.beatEventType === "string" ? metadata.beatEventType : null,
+      })
+    : null;
+
   const retryReferenceDecision = resolveRetryReferencePolicy({
     retryMode,
     metadata,
     hasReusableCharacterLock: hasCanonRef,
   });
+
+  // Si le drift pré-reroll recommande un character_reroll mais que le mode est environment,
+  // on force au moins LIGHT pour préserver le personnage
+  const effectiveReferencePolicy = (() => {
+    const base = retryReferenceDecision.referencePolicy;
+    if (
+      preDriftResult?.recommendedAction === "character_reroll" &&
+      (retryMode === "environment" || retryMode === "composition") &&
+      base === "NONE" &&
+      hasCanonRef
+    ) {
+      return "LIGHT" as const;
+    }
+    return base;
+  })();
+
   console.info(
-    `[retry] policy panel=${img.id} mode=${retryMode ?? "default"} refPolicy=${retryReferenceDecision.referencePolicy} importantCharacter=${retryReferenceDecision.importantCharacterPresent} reason=${retryReferenceDecision.reason} refs=${referenceImageUrls.length}/${retryStableReferences.length} loras=${panelLoras.length}`
+    `[retry] policy panel=${img.id} mode=${retryMode ?? "default"} refPolicy=${effectiveReferencePolicy} (base=${retryReferenceDecision.referencePolicy}) importantCharacter=${retryReferenceDecision.importantCharacterPresent} reason=${retryReferenceDecision.reason} refs=${referenceImageUrls.length}/${retryStableReferences.length} loras=${panelLoras.length} driftAction=${preDriftResult?.recommendedAction ?? "n/a"} driftScore=${preDriftResult?.score ?? "n/a"}`
   );
   const positiveAugment = retryMode === "environment"
     ? "readable environment, strong background, visible architecture, clear foreground midground background"
@@ -137,7 +182,7 @@ export async function POST(req: Request, ctx: Ctx) {
           : retryMode === "composition"
             ? "floating character, poor framing, weak staging"
             : "";
-  const referencePolicy = retryReferenceDecision.referencePolicy;
+  const referencePolicy = effectiveReferencePolicy;
   const rerollKind =
     retryMode === "environment"
       ? "REROLL_ENVIRONMENT"
@@ -335,8 +380,18 @@ export async function POST(req: Request, ctx: Ctx) {
             availableReferenceUrls: referenceImageUrls.length,
             availableLoras: panelLoras.length,
             appliedReferencePolicy: referencePolicy,
+            driftOverrideApplied: effectiveReferencePolicy !== retryReferenceDecision.referencePolicy,
           },
           retryReferenceTrace: retryReferenceResolution.trace,
+          preDriftAnalysis: preDriftResult
+            ? {
+                score: preDriftResult.score,
+                severity: preDriftResult.severity,
+                recommendedAction: preDriftResult.recommendedAction,
+                continuityRisk: preDriftResult.continuityRisk,
+                reasons: preDriftResult.reasons.slice(0, 4),
+              }
+            : null,
           validationScore,
           validationDetails: {
             panelCriticality: validation.panelCriticality,

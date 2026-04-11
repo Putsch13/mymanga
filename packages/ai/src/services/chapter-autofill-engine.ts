@@ -4,6 +4,7 @@ import type {
   ChapterStudioData,
   AutofillMeta,
 } from "@manga-ai-studio/core";
+import { inferGenreMode, buildGenreDirectorPromptHints, getGenreDirectorConfig } from "./genre-director";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -35,6 +36,7 @@ type AutofillInput = {
   currentData: Partial<ChapterStudioData>;
   context: ProjectContextForChapter;
   force?: boolean;
+  selectedPlotLabel?: string | null;
 };
 
 function buildContextSummary(context: ProjectContextForChapter): string {
@@ -106,12 +108,29 @@ function buildMissingFieldsList(data: Partial<ChapterStudioData>, mode: Autofill
   return missing;
 }
 
+function buildGenreHintsBlock(
+  context: ProjectContextForChapter,
+  selectedPlotLabel?: string | null,
+): string {
+  const controls = context.settings
+    ? {
+        noveltyLevel: context.settings.mysteryLevel ?? 55,
+        worldStrictness: context.settings.canonStrictness ?? 80,
+      }
+    : {};
+  const genreMode = inferGenreMode(controls, selectedPlotLabel);
+  const genreConfig = getGenreDirectorConfig(genreMode);
+  const hints = buildGenreDirectorPromptHints(genreConfig);
+  return `\nDIRECTEUR DE GENRE (mode: ${genreMode}) :\n${hints.map((h) => `- ${h}`).join("\n")}\n`;
+}
+
 function buildPromptForMode(
   mode: AutofillMode,
   contextSummary: string,
   currentDataSummary: string,
   missingFields: string[],
   force: boolean,
+  genreHintsBlock?: string,
 ): string {
   const forceNote = force
     ? "Tu peux réécrire les champs déjà remplis si tu penses pouvoir les améliorer significativement."
@@ -121,7 +140,7 @@ function buildPromptForMode(
 
 CONTEXTE DU PROJET :
 ${contextSummary}
-
+${genreHintsBlock ?? ""}
 DONNÉES ACTUELLES DU CHAPITRE :
 ${currentDataSummary}
 
@@ -131,7 +150,7 @@ RÈGLES :
 - ${forceNote}
 - Base-toi UNIQUEMENT sur le contexte du projet (story bible, personnages, chapitres précédents)
 - Ne pas inventer de personnages ou de lieux qui n'existent pas dans le projet
-- Reste cohérent avec le ton et le genre du projet
+- Reste cohérent avec le ton et le genre du projet (respecte les indications du directeur de genre ci-dessus)
 - Si tu ne peux pas déduire une information de manière fiable, indique-la dans unresolvedQuestions
 - Chaque suggestion doit avoir une provenance claire (d'où vient l'information)`;
 
@@ -271,7 +290,7 @@ function mergePatchRespectingExisting(
 }
 
 export async function runChapterAutofill(input: AutofillInput): Promise<AutofillResult> {
-  const { mode, currentData, context, force = false } = input;
+  const { mode, currentData, context, force = false, selectedPlotLabel } = input;
   const now = new Date().toISOString();
 
   const missingFields = buildMissingFieldsList(currentData, mode);
@@ -302,7 +321,8 @@ export async function runChapterAutofill(input: AutofillInput): Promise<Autofill
 
   const contextSummary = buildContextSummary(context);
   const currentDataSummary = buildCurrentDataSummary(currentData);
-  const prompt = buildPromptForMode(mode, contextSummary, currentDataSummary, missingFields, force);
+  const genreHintsBlock = buildGenreHintsBlock(context, selectedPlotLabel);
+  const prompt = buildPromptForMode(mode, contextSummary, currentDataSummary, missingFields, force, genreHintsBlock);
 
   try {
     const response = await openai.chat.completions.create({

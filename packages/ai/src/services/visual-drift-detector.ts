@@ -32,6 +32,21 @@ export interface DriftCheckInput {
 
 export type DriftSeverity = "none" | "low" | "medium" | "high" | "critical";
 
+/**
+ * Action recommandée après analyse de drift.
+ * - keep: aucune action requise, le panel est cohérent
+ * - soft_reroll: reroll léger avec lock personnage conservé (LIGHT policy)
+ * - character_reroll: reroll ciblé sur le personnage (STRONG policy)
+ * - full_reroll: reroll complet nécessaire (trop de conflits)
+ * - flag_for_review: signaler en review sans reroll automatique
+ */
+export type DriftRecommendedAction =
+  | "keep"
+  | "soft_reroll"
+  | "character_reroll"
+  | "full_reroll"
+  | "flag_for_review";
+
 export interface DriftTraitMismatch {
   characterName: string;
   trait: string;
@@ -49,6 +64,10 @@ export interface DriftCheckResult {
   reasons: string[];
   missingTraits: DriftTraitMismatch[];
   conflictingTraits: DriftTraitMismatch[];
+  /** Action recommandée pour corriger le drift détecté */
+  recommendedAction: DriftRecommendedAction;
+  /** Risque de continuité : true si des traits critiques (genre, couleur cheveux) sont en conflit */
+  continuityRisk: boolean;
 }
 
 const COLOR_TOKENS = [
@@ -122,6 +141,33 @@ function scoreToSeverity(score: number): DriftSeverity {
   if (score >= 50) return "medium";
   if (score >= 30) return "high";
   return "critical";
+}
+
+function computeRecommendedAction(
+  score: number,
+  conflictingTraits: DriftTraitMismatch[],
+  missingTraits: DriftTraitMismatch[],
+  isEnvironmentPanel: boolean,
+): DriftRecommendedAction {
+  // Panel décor pur sans personnage important → keep même avec un score moyen
+  if (isEnvironmentPanel && conflictingTraits.length === 0) return "keep";
+
+  // Traits critiques en conflit (genre, couleur cheveux) → reroll fort
+  const hasCriticalConflict = conflictingTraits.some(
+    (t) => t.trait === "gender" || t.trait === "hairColor" || t.trait === "forbiddenVisualDrift",
+  );
+  if (hasCriticalConflict) return "character_reroll";
+
+  // Score très bas avec plusieurs conflits → reroll complet
+  if (score < 30 && conflictingTraits.length >= 2) return "full_reroll";
+
+  // Score bas avec traits manquants → reroll léger avec lock
+  if (score < 50 && missingTraits.length >= 2) return "soft_reroll";
+
+  // Score moyen → signaler en review
+  if (score < 70) return "flag_for_review";
+
+  return "keep";
 }
 
 function pushMissingTrait(
@@ -267,6 +313,17 @@ export function detectVisualDrift(input: DriftCheckInput): DriftCheckResult {
   const pass = score >= 60 && conflictingTraits.length === 0;
   const issues = reasons.slice(0, 8);
 
+  const continuityRisk = conflictingTraits.some(
+    (t) => t.trait === "gender" || t.trait === "hairColor",
+  );
+
+  const recommendedAction = computeRecommendedAction(
+    score,
+    conflictingTraits,
+    missingTraits,
+    isEnvironmentPanel,
+  );
+
   return {
     score,
     driftScore: score,
@@ -276,5 +333,7 @@ export function detectVisualDrift(input: DriftCheckInput): DriftCheckResult {
     reasons,
     missingTraits,
     conflictingTraits,
+    recommendedAction,
+    continuityRisk,
   };
 }

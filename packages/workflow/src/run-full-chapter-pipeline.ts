@@ -18,6 +18,9 @@ import {
   getPremiumImageSize,
   directCombatPanel,
   validatePreflightPanel,
+  inferGenreMode,
+  getGenreDirectorConfig,
+  directRomanceDramaScene,
   type StoryboardPanel,
   type RoutingContext,
   type ProjectContextForChapter,
@@ -1168,6 +1171,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       chapterTitle: chapter.title,
       userIntent: enrichedIntent || chapter.userIntent || `Continuer ${context.project.title}`,
       selectedPlotLabel,
+      creativityControls: effectiveCreativeControls,
       context,
       approvedOutline: approvedOutlineForBundle,
     });
@@ -1204,6 +1208,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       bundle: revisedBundle,
       chapterGoal: revisedBundle.creativeDirection.chapterGoal,
       selectedPlotLabel,
+      creativityControls: effectiveCreativeControls as Record<string, number>,
     });
     revisedBundle = narrative.bundle;
     const integrity = enforceBundleIntegrity(revisedBundle);
@@ -1410,6 +1415,29 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     };
     const chapterStoryboard: Prisma.InputJsonValue = revisedBundle.storyboard;
 
+    // ── Genre director : inférer le mode une fois pour tout le chapitre ──────
+    const chapterGenreMode = inferGenreMode(effectiveCreativeControls, selectedPlotLabel);
+    const chapterGenreConfig = getGenreDirectorConfig(chapterGenreMode);
+
+    // ── Romance director : pré-calculer la direction pour les scènes émotionnelles ──
+    const romanceDirectionByScene = new Map<number, ReturnType<typeof directRomanceDramaScene>>();
+    if (chapterGenreMode === "romance_shojo" || chapterGenreMode === "quiet_aftermath") {
+      for (let idx = 0; idx < revisedBundle.script.scenes.length; idx++) {
+        const scene = revisedBundle.script.scenes[idx];
+        if (!scene) continue;
+        const romanceDirection = directRomanceDramaScene({
+          sceneText: scene.summary,
+          involvedCharacters: scene.characters.slice(0, 3),
+          currentTensionLevel: 40 + idx * 8,
+        });
+        romanceDirectionByScene.set(idx, romanceDirection);
+      }
+    }
+
+    console.log(
+      `[pipeline] genre_director mode=${chapterGenreMode} rhythm=${chapterGenreConfig.beatRhythm} panelDensity=${chapterGenreConfig.panelDensity} romance_scenes=${romanceDirectionByScene.size}`,
+    );
+
     // Map sceneId → list of planned SceneImage ids (for image generation step)
     const plannedImages: PlannedImage[] = [];
     const sceneBlueprintsByScene = new Map<number, SceneBlueprint[]>();
@@ -1438,6 +1466,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           const scene = revisedBundle.script.scenes[index];
           if (!scene) continue;
 
+          const romanceDirection = romanceDirectionByScene.get(index);
           const createdScene = await tx.chapterScene.create({
             data: {
               chapterId,
@@ -1456,6 +1485,19 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                   degradedStatus: "FULLY_OPERATIONAL",
                   usedFallback: false,
                 },
+                // Genre director metadata
+                genreDirectorMode: chapterGenreMode,
+                genreBeatRhythm: chapterGenreConfig.beatRhythm,
+                genrePanelDensity: chapterGenreConfig.panelDensity,
+                // Romance director metadata (si applicable)
+                romanceDirection: romanceDirection
+                  ? {
+                      detectedBeat: romanceDirection.detectedBeat,
+                      suggestedBeat: romanceDirection.suggestedBeat.type,
+                      tensionAfter: romanceDirection.tensionAfter,
+                      panelSuggestions: romanceDirection.suggestedBeat.panelSuggestions.slice(0, 2),
+                    }
+                  : null,
               },
             },
           });
@@ -1728,6 +1770,8 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                       beatText: `${panel.caption ?? ""} ${panel.prompt ?? ""}`,
                       scenePurpose: scene.purpose,
                       currentShotType: panelContract.shotType,
+                      // Enrichissement via genre director : shonen_combat booste la lisibilité
+                      combatReadabilityBonus: chapterGenreConfig.combatReadabilityBonus,
                     })
                   : null;
 

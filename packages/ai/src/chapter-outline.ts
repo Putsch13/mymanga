@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { StructuredBeatPayload } from "@manga-ai-studio/core";
 import type { GenerationOperationalStatus } from "./generation-status";
+import { inferGenreMode, buildGenreDirectorPromptHints, getGenreDirectorConfig } from "./services/genre-director";
 
 const PAGE_ROLES = [
   "establishing",
@@ -461,6 +462,12 @@ export async function generateChapterOutline(
     return buildOutlineFallbackResult(ctx, "OPENAI_API_KEY missing");
   }
 
+  // Inférer le mode genre et construire les hints directeur
+  const genreMode = inferGenreMode(ctx.creativityControls ?? {}, ctx.quickTag);
+  const genreConfig = getGenreDirectorConfig(genreMode);
+  const genreHints = buildGenreDirectorPromptHints(genreConfig);
+  const genreDirectorBlock = `\nDIRECTEUR DE GENRE (mode: ${genreMode}) :\n${genreHints.map((h) => `- ${h}`).join("\n")}\n`;
+
   const model = process.env.OPENAI_OUTLINE_MODEL?.trim() || "gpt-4o-mini";
   const system = `Tu es scénariste manga / webtoon senior pour un outil de production professionnelle.
 Réponds UNIQUEMENT en JSON valide, clés : title (optionnel), summary (string), cliffhanger (string), beats (array).
@@ -480,7 +487,7 @@ Chaque beat DOIT contenir :
       - setupPayoffHooks = tableau de { hookId, label, kind: "setup"|"foreshadowing"|"echo"|"payoff", targetBeatHint?, resolved? }
 
 Langue : français. Les beats sont des étapes narratives courtes (pas de dialogue complet).
-
+${genreDirectorBlock}
 RÈGLES DE RYTHME MANGA :
 - INTERDIT : 2 beats consécutifs avec le même pageRole.
 - OBLIGATOIRE : au moins 1 beat "revelation" et 1 beat "aftermath" par chapitre.
@@ -556,6 +563,7 @@ RÈGLES DE COHÉRENCE INTER-CHAPITRES :
     userIntent: ctx.userIntent,
     quickTag: ctx.quickTag,
     creativityControls: ctx.creativityControls ?? null,
+    genreDirectorMode: genreMode,
     previousChapterSummary: ctx.previousSummary,
     previousCliffhanger: ctx.previousCliffhanger,
     seriesSynopsis: ctx.seriesSynopsis ?? null,
