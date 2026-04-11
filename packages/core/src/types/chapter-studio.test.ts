@@ -115,6 +115,8 @@ describe("chapter studio domain", () => {
 
     const report = buildChapterReadinessReport(snapshot);
     expect(report.blockingIssues.some((issue) => issue.includes("55"))).toBe(true);
+    expect(report.blockerItems.some((issue) => issue.id === "production_plan_under_minimum_images" && issue.step === "production_plan")).toBe(true);
+    expect(report.warningItems.some((issue) => issue.id === "missing_continuity_notes" && issue.step === "canon")).toBe(true);
   });
 
   it("adapte un outline legacy vers le studio puis le retransforme", () => {

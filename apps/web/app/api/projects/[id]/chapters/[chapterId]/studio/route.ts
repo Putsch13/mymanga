@@ -9,6 +9,7 @@ import {
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
+import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { getOwnedChapter } from "@/lib/ownership";
 import {
   buildCharacterCanonFromCharacter,
@@ -41,6 +42,13 @@ export async function GET(_req: Request, ctx: Ctx) {
   const chapter = await prisma.chapter.findFirst({
     where: { id: chapterId, projectId, project: { userId: user.id } },
     include: {
+      scenes: {
+        include: {
+          images: {
+            select: { status: true },
+          },
+        },
+      },
       project: {
         include: {
           settings: true,
@@ -156,8 +164,14 @@ export async function GET(_req: Request, ctx: Ctx) {
     criticalPanelsMissingQa: chapter.criticalPanelsMissingQa,
     reviewBlockedReason: chapter.reviewBlockedReason,
   });
+  const stack = getGenerationStackStatus();
+  const allImages = chapter.scenes.flatMap((scene) => scene.images);
 
   return NextResponse.json({
+    project: {
+      id: chapter.project.id,
+      title: chapter.project.title,
+    },
     chapter: {
       id: chapter.id,
       chapterNumber: chapter.chapterNumber,
@@ -171,6 +185,15 @@ export async function GET(_req: Request, ctx: Ctx) {
       data: {
         ...snapshot.data,
         readinessReport: snapshot.data.readinessReport ?? buildChapterReadinessReport(snapshot),
+      },
+    },
+    generationContext: {
+      stack,
+      imageStats: {
+        total: allImages.length,
+        completed: allImages.filter((image) => image.status === "completed").length,
+        failed: allImages.filter((image) => image.status === "failed" || image.status === "blocked").length,
+        pending: allImages.filter((image) => image.status === "pending" || image.status === "planned").length,
       },
     },
   });

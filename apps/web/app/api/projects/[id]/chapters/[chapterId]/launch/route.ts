@@ -132,6 +132,8 @@ export async function POST(_req: Request, ctx: Ctx) {
         source: "chapter_studio_launch",
         chapterId,
         approvedOutlineVersion: approvedOutline.approvalVersion,
+        selectedPlotLabel: snapshot.data.selectedPlotLabel ?? "bold",
+        creativityControls: snapshot.data.creativityControls ?? undefined,
       },
       output: {
         currentStep: "queued",

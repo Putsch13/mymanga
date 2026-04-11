@@ -290,11 +290,24 @@ export const chapterImageCountSchema = z.object({
 
 export type ChapterImageCount = z.infer<typeof chapterImageCountSchema>;
 
+export const chapterReadinessIssueSchema = z.object({
+  id: z.string(),
+  step: chapterStudioStepSchema,
+  field: z.string().optional().nullable(),
+  message: z.string(),
+  ctaLabel: z.string().optional().nullable(),
+  action: z.enum(["open_step", "focus_field", "generate_outline", "open_generation", "open_review"]).default("open_step"),
+});
+
+export type ChapterReadinessIssue = z.infer<typeof chapterReadinessIssueSchema>;
+
 export const chapterReadinessReportSchema = z.object({
   status: z.enum(["blocked", "warning", "ready"]).default("blocked"),
   preparationScore: z.number().int().min(0).max(100).default(0),
   blockingIssues: z.array(z.string()).default([]),
   warnings: z.array(z.string()).default([]),
+  blockerItems: z.array(chapterReadinessIssueSchema).default([]),
+  warningItems: z.array(chapterReadinessIssueSchema).default([]),
   completedSteps: z.array(chapterStudioStepSchema).default([]),
   imageCounts: chapterImageCountSchema.default({}),
 });
@@ -329,6 +342,16 @@ export const chapterQAReportSchema = z.object({
 
 export type ChapterQAReport = z.infer<typeof chapterQAReportSchema>;
 
+export const chapterCreativeControlsSchema = z.object({
+  noveltyLevel: z.number().int().min(0).max(100).default(55),
+  worldStrictness: z.number().int().min(0).max(100).default(85),
+  visualExoticism: z.number().int().min(0).max(100).default(50),
+  npcVariety: z.number().int().min(0).max(100).default(60),
+  environmentRichness: z.number().int().min(0).max(100).default(78),
+});
+
+export type ChapterCreativeControls = z.infer<typeof chapterCreativeControlsSchema>;
+
 export const chapterStudioDataSchema = z.object({
   intent: chapterIntentSchema.optional(),
   narrativeContract: chapterNarrativeContractSchema.optional(),
@@ -340,6 +363,8 @@ export const chapterStudioDataSchema = z.object({
   editorialOutline: editorialOutlineSchema.optional(),
   productionOutline: productionOutlineSchema.optional(),
   productionPlan: productionPlanSchema.optional(),
+  selectedPlotLabel: z.enum(["safe", "bold", "shock"]).default("bold"),
+  creativityControls: chapterCreativeControlsSchema.default({}),
   readinessReport: chapterReadinessReportSchema.optional(),
   qaReport: chapterQAReportSchema.optional(),
   lastCompletedStep: chapterStudioStepSchema.optional(),
@@ -514,29 +539,86 @@ export function normalizeChapterImageCounts(input?: Partial<ChapterImageCount> |
 
 export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): ChapterReadinessReport {
   const completedSteps: ChapterStudioStep[] = [];
-  const blockingIssues: string[] = [];
-  const warnings: string[] = [];
+  const blockerItems: ChapterReadinessIssue[] = [];
+  const warningItems: ChapterReadinessIssue[] = [];
+
+  const addBlocker = (issue: ChapterReadinessIssue) => {
+    blockerItems.push(issue);
+  };
+
+  const addWarning = (issue: ChapterReadinessIssue) => {
+    warningItems.push(issue);
+  };
 
   if (snapshot.data.intent?.shortPitch && snapshot.data.intent?.mainConflict) completedSteps.push("intent");
-  else blockingIssues.push("L’intention du chapitre est incomplète.");
+  else addBlocker({
+    id: "missing_intent",
+    step: "intent",
+    field: "studio-short-pitch",
+    message: "L’intention du chapitre est incomplète.",
+    ctaLabel: "Compléter l’intention",
+    action: "focus_field",
+  });
 
   if (snapshot.data.narrativeContract) completedSteps.push("narrative_contract");
-  else blockingIssues.push("Le contrat narratif est manquant.");
+  else addBlocker({
+    id: "missing_narrative_contract",
+    step: "narrative_contract",
+    field: "studio-emotional-goal",
+    message: "Le contrat narratif est manquant.",
+    ctaLabel: "Renseigner le contrat narratif",
+    action: "focus_field",
+  });
 
   if (snapshot.data.characterSelection?.heroCharacterId) completedSteps.push("characters");
-  else blockingIssues.push("Le héros principal du chapitre doit être sélectionné.");
+  else addBlocker({
+    id: "missing_hero_character",
+    step: "characters",
+    field: "studio-hero-character",
+    message: "Le héros principal du chapitre doit être sélectionné.",
+    ctaLabel: "Choisir le héros",
+    action: "focus_field",
+  });
 
   if (snapshot.data.chapterCanon?.currentLocation) completedSteps.push("canon");
-  else blockingIssues.push("Le canon actif du chapitre doit préciser le décor principal.");
+  else addBlocker({
+    id: "missing_chapter_location",
+    step: "canon",
+    field: "studio-location",
+    message: "Le canon actif du chapitre doit préciser le décor principal.",
+    ctaLabel: "Préciser le décor",
+    action: "focus_field",
+  });
 
   if (snapshot.data.editorialOutline?.beats.length) completedSteps.push("editorial_outline");
-  else blockingIssues.push("L’outline éditorial n’est pas prêt.");
+  else addBlocker({
+    id: "missing_editorial_outline",
+    step: "editorial_outline",
+    field: null,
+    message: "L’outline éditorial n’est pas prêt.",
+    ctaLabel: "Générer outline & plan",
+    action: "generate_outline",
+  });
 
   if ((snapshot.data.productionOutline?.beats.length ?? 0) >= 10) completedSteps.push("production_outline");
-  else blockingIssues.push("L’outline de production doit contenir au moins 10 beats.");
+  else addBlocker({
+    id: "production_outline_too_short",
+    step: "production_outline",
+    field: null,
+    message: "L’outline de production doit contenir au moins 10 beats.",
+    ctaLabel: "Régénérer l’outline de production",
+    action: "generate_outline",
+  });
 
   if (snapshot.data.productionPlan) completedSteps.push("production_plan");
-  else blockingIssues.push("Le plan de production n’a pas encore été calculé.");
+  else addBlocker({
+    id: "missing_production_plan",
+    step: "production_plan",
+    field: null,
+    message: "Le plan de production n’a pas encore été calculé.",
+    ctaLabel: "Calculer le plan",
+    action: "generate_outline",
+  });
 
   const imageCounts = normalizeChapterImageCounts({
     estimatedImages: snapshot.data.productionPlan?.estimatedImages ?? 0,
@@ -548,31 +630,54 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
   });
 
   if (imageCounts.targetImages < imageCounts.minimumImages) {
-    blockingIssues.push(`Le plan vise ${imageCounts.targetImages} images, sous le minimum requis (${imageCounts.minimumImages}).`);
+    addBlocker({
+      id: "production_plan_under_minimum_images",
+      step: "production_plan",
+      field: null,
+      message: `Le plan vise ${imageCounts.targetImages} images, sous le minimum requis (${imageCounts.minimumImages}).`,
+      ctaLabel: "Corriger le plan de production",
+      action: snapshot.data.productionPlan ? "open_step" : "generate_outline",
+    });
   }
 
   if ((snapshot.data.chapterCanon?.continuityNotes.length ?? 0) === 0) {
-    warnings.push("Aucune note de continuité n’a été fournie pour le chapitre.");
+    addWarning({
+      id: "missing_continuity_notes",
+      step: "canon",
+      field: "studio-continuity-notes",
+      message: "Aucune note de continuité n’a été fournie pour le chapitre.",
+      ctaLabel: "Ajouter une note de continuité",
+      action: "focus_field",
+    });
   }
 
   if ((snapshot.data.characterCanons ?? []).length === 0) {
-    warnings.push("Aucun canon personnage détaillé n’est encore rattaché au chapitre.");
+    addWarning({
+      id: "missing_character_canons",
+      step: "characters",
+      field: "studio-hero-character",
+      message: "Aucun canon personnage détaillé n’est encore rattaché au chapitre.",
+      ctaLabel: "Vérifier le casting",
+      action: "focus_field",
+    });
   }
 
   const preparationScore = clamp(
     100
-      - blockingIssues.length * 14
-      - warnings.length * 4
+      - blockerItems.length * 14
+      - warningItems.length * 4
       + completedSteps.length * 6,
     0,
     100,
   );
 
   return {
-    status: blockingIssues.length > 0 ? "blocked" : warnings.length > 0 ? "warning" : "ready",
+    status: blockerItems.length > 0 ? "blocked" : warningItems.length > 0 ? "warning" : "ready",
     preparationScore,
-    blockingIssues,
-    warnings,
+    blockingIssues: blockerItems.map((issue) => issue.message),
+    warnings: warningItems.map((issue) => issue.message),
+    blockerItems,
+    warningItems,
     completedSteps,
     imageCounts,
   };
