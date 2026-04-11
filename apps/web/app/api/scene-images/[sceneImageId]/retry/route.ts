@@ -125,14 +125,52 @@ export async function POST(req: Request, ctx: Ctx) {
       };
     });
 
-  const preDriftResult = driftCharacters.length > 0
+  // Lire les flags premium depuis la metadata persistée
+  const hasLookProfile = typeof metadata.chapterLookProfileMode === "string";
+  const hasFingerprint = driftCharacters.some((c) => {
+    const char = projectChars.find((pc) => pc.name === c.name);
+    return char?.characterFingerprint && typeof char.characterFingerprint === "object" && Object.keys(char.characterFingerprint).length > 0;
+  });
+  const hasSceneAnchor = metadata.sceneAnchor != null && typeof metadata.sceneAnchor === "object";
+
+  // Enrichir les characters avec hardTraits/softTraits depuis le fingerprint
+  const driftCharactersEnriched = driftCharacters.map((dc) => {
+    const char = projectChars.find((pc) => pc.name === dc.name);
+    const fp = char?.characterFingerprint && typeof char.characterFingerprint === "object"
+      ? char.characterFingerprint as Record<string, unknown>
+      : null;
+    return {
+      ...dc,
+      hardTraits: Array.isArray(fp?.hardTraits)
+        ? (fp!.hardTraits as string[]).filter((t): t is string => typeof t === "string")
+        : null,
+      softTraits: Array.isArray(fp?.softTraits)
+        ? (fp!.softTraits as string[]).filter((t): t is string => typeof t === "string")
+        : null,
+    };
+  });
+
+  // Résoudre le chapterLookProfile depuis la metadata
+  const { resolveChapterLookProfile } = await import("@manga-ai-studio/core");
+  const lookProfileMode = typeof metadata.chapterLookProfileMode === "string"
+    ? metadata.chapterLookProfileMode as Parameters<typeof resolveChapterLookProfile>[0]
+    : null;
+  const retryLookProfile = lookProfileMode ? resolveChapterLookProfile(lookProfileMode) : null;
+  const retryIntentCard = metadata.intentCard as Parameters<typeof detectVisualDrift>[0]["intentCard"] | undefined;
+  const retrySceneAnchor = metadata.sceneAnchor as Parameters<typeof detectVisualDrift>[0]["sceneAnchor"] | undefined;
+
+  const preDriftResult = driftCharactersEnriched.length > 0
     ? detectVisualDrift({
         prompt: img.prompt ?? "",
-        characters: driftCharacters,
+        characters: driftCharactersEnriched,
         usedLoras: panelLoras.length > 0,
         usedRefs: referenceImageUrls.length > 0,
         panelCategory: typeof metadata.panelCategory === "string" ? metadata.panelCategory : null,
-        beatEventType: typeof metadata.beatEventType === "string" ? metadata.beatEventType : null,
+        beatEventType: (retryIntentCard as { beatEventType?: string } | undefined)?.beatEventType
+          ?? (typeof metadata.beatEventType === "string" ? metadata.beatEventType : null),
+        chapterLookProfile: retryLookProfile,
+        sceneAnchor: retrySceneAnchor ?? null,
+        intentCard: retryIntentCard ?? null,
       })
     : null;
 
@@ -140,6 +178,10 @@ export async function POST(req: Request, ctx: Ctx) {
     retryMode,
     metadata,
     hasReusableCharacterLock: hasCanonRef,
+    recommendedAction: preDriftResult?.recommendedAction ?? null,
+    hasLookProfile,
+    hasFingerprint,
+    hasSceneAnchor,
   });
 
   // Si le drift pré-reroll recommande un character_reroll mais que le mode est environment,
@@ -390,6 +432,12 @@ export async function POST(req: Request, ctx: Ctx) {
                 recommendedAction: preDriftResult.recommendedAction,
                 continuityRisk: preDriftResult.continuityRisk,
                 reasons: preDriftResult.reasons.slice(0, 4),
+                // Phase 8 : sous-scores drift 2.0
+                styleDriftScore: preDriftResult.styleDriftScore,
+                characterDriftScore: preDriftResult.characterDriftScore,
+                beatAlignmentScore: preDriftResult.beatAlignmentScore,
+                sceneContinuityScore: preDriftResult.sceneContinuityScore,
+                chapterLookMismatch: preDriftResult.chapterLookMismatch,
               }
             : null,
           validationScore,

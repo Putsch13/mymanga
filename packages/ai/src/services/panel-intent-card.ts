@@ -18,7 +18,7 @@ export type PanelRole =
   | "silent_observation"
   | "crowd_reaction";
 
-export type BeatEventType =
+export type PanelBeatEventType =
   | "combat_turning_point"
   | "reveal"
   | "romance_tension"
@@ -35,7 +35,7 @@ export type BeatEventType =
 
 export interface PanelIntentCard {
   panelRole: PanelRole;
-  beatEventType: BeatEventType;
+  beatEventType: PanelBeatEventType;
   emotionalTarget: string;
   /** 0–10 : intensité de l'action */
   actionIntensity: number;
@@ -59,7 +59,7 @@ export interface PanelIntentCard {
 }
 
 /** Règles beat → contraintes visuelles */
-const BEAT_VISUAL_RULES: Record<BeatEventType, {
+const BEAT_VISUAL_RULES: Record<PanelBeatEventType, {
   mustShow: string[];
   mustAvoid: string[];
   beatVisualConstraints: string[];
@@ -198,12 +198,12 @@ const BEAT_VISUAL_RULES: Record<BeatEventType, {
   },
 };
 
-/** Mapper le purpose/mood d'un panel vers un BeatEventType */
+/** Mapper le purpose/mood d'un panel vers un PanelBeatEventType */
 export function inferBeatEventType(
   purpose: string | null | undefined,
   mood: string | null | undefined,
   scenePurpose: string | null | undefined,
-): BeatEventType {
+): PanelBeatEventType {
   const text = `${purpose ?? ""} ${mood ?? ""} ${scenePurpose ?? ""}`.toLowerCase();
 
   if (/(combat.*turn|turning.*point|decisive.*blow|coup.*décisif|tournant)/.test(text)) return "combat_turning_point";
@@ -234,7 +234,7 @@ export function inferBeatEventType(
 /** Mapper le purpose vers un PanelRole */
 export function inferPanelRole(
   purpose: string | null | undefined,
-  beatEventType: BeatEventType,
+  beatEventType: PanelBeatEventType,
 ): PanelRole {
   const text = (purpose ?? "").toLowerCase();
 
@@ -252,7 +252,7 @@ export function inferPanelRole(
   if (/(crowd|foule)/.test(text)) return "crowd_reaction";
 
   // Fallback depuis beatEventType
-  const beatToRole: Record<BeatEventType, PanelRole> = {
+  const beatToRole: Record<PanelBeatEventType, PanelRole> = {
     combat_turning_point: "impact",
     reveal: "reveal",
     romance_tension: "romance_beat",
@@ -308,8 +308,8 @@ export function buildPanelIntentCard(input: {
   };
 }
 
-function deriveEmotionalTarget(beat: BeatEventType): string {
-  const targets: Record<BeatEventType, string> = {
+function deriveEmotionalTarget(beat: PanelBeatEventType): string {
+  const targets: Record<PanelBeatEventType, string> = {
     combat_turning_point: "adrenaline, decisiveness",
     reveal: "shock, understanding",
     romance_tension: "longing, hesitation",
@@ -327,8 +327,8 @@ function deriveEmotionalTarget(beat: BeatEventType): string {
   return targets[beat] ?? "neutral";
 }
 
-function deriveDefaultCamera(beat: BeatEventType): string {
-  const cameras: Record<BeatEventType, string> = {
+function deriveDefaultCamera(beat: PanelBeatEventType): string {
+  const cameras: Record<PanelBeatEventType, string> = {
     combat_turning_point: "wide",
     reveal: "medium",
     romance_tension: "closeup",
@@ -346,8 +346,8 @@ function deriveDefaultCamera(beat: BeatEventType): string {
   return cameras[beat] ?? "medium";
 }
 
-function deriveDefaultFraming(beat: BeatEventType): string {
-  const framings: Record<BeatEventType, string> = {
+function deriveDefaultFraming(beat: PanelBeatEventType): string {
+  const framings: Record<PanelBeatEventType, string> = {
     combat_turning_point: "full body both fighters, space for movement",
     reveal: "focal point centered, reaction visible",
     romance_tension: "intimate, characters close, soft background",
@@ -365,7 +365,7 @@ function deriveDefaultFraming(beat: BeatEventType): string {
   return framings[beat] ?? "balanced composition";
 }
 
-function deriveStagingPriority(beat: BeatEventType): string {
+function deriveStagingPriority(beat: PanelBeatEventType): string {
   if (beat === "combat_turning_point" || beat === "impact") return "action_readability";
   if (beat === "romance_tension") return "emotional_proximity";
   if (beat === "reveal") return "focal_clarity";
@@ -373,7 +373,7 @@ function deriveStagingPriority(beat: BeatEventType): string {
   return "character_expression";
 }
 
-function deriveContinuityPriority(beat: BeatEventType): "high" | "medium" | "low" {
+function deriveContinuityPriority(beat: PanelBeatEventType): "high" | "medium" | "low" {
   if (beat === "combat_turning_point" || beat === "impact" || beat === "romance_tension") return "high";
   if (beat === "establishing" || beat === "crowd_reaction") return "low";
   return "medium";

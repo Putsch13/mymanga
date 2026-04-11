@@ -108,6 +108,22 @@ export async function GET(_req: Request, ctx: Ctx) {
         : Array.isArray(meta.driftIssues)
           ? meta.driftIssues.filter((reason): reason is string => typeof reason === "string")
           : [];
+      // Phase 8/13 : sous-scores drift 2.0
+      const styleDriftScore = typeof meta.styleDriftScore === "number" ? meta.styleDriftScore : null;
+      const characterDriftScore = typeof meta.characterDriftScore === "number" ? meta.characterDriftScore : null;
+      const beatAlignmentScore = typeof meta.beatAlignmentScore === "number" ? meta.beatAlignmentScore : null;
+      const sceneContinuityScore = typeof meta.sceneContinuityScore === "number" ? meta.sceneContinuityScore : null;
+      const chapterLookMismatch = typeof meta.chapterLookMismatch === "boolean" ? meta.chapterLookMismatch : null;
+      const driftRecommendedAction = typeof meta.driftRecommendedAction === "string" ? meta.driftRecommendedAction : null;
+      const continuityRisk = typeof meta.driftConflictingTraits === "object" && Array.isArray(meta.driftConflictingTraits) && meta.driftConflictingTraits.length > 0;
+      const retryDecision = asRecord(meta.retryReferenceDecision);
+      const preservedConstraints = Array.isArray(retryDecision.preservedConstraints)
+        ? retryDecision.preservedConstraints.filter((c): c is string => typeof c === "string")
+        : [];
+      const relaxedConstraints = Array.isArray(retryDecision.relaxedConstraints)
+        ? retryDecision.relaxedConstraints.filter((c): c is string => typeof c === "string")
+        : [];
+      const autoAppliedPatches = Array.isArray(meta.autoAppliedPatches) ? meta.autoAppliedPatches : [];
       const rerollHistory = Array.isArray(meta.rerollHistory) ? meta.rerollHistory : [];
       const latestReroll = rerollHistory.at(-1);
       const latestRerollRecord =
@@ -146,10 +162,22 @@ export async function GET(_req: Request, ctx: Ctx) {
         driftScore,
         driftSeverity,
         driftReasons,
+        // Phase 13 : drift 2.0 scores
+        styleDriftScore,
+        characterDriftScore,
+        beatAlignmentScore,
+        sceneContinuityScore,
+        chapterLookMismatch,
+        recommendedAction: driftRecommendedAction,
+        continuityRisk,
+        preservedConstraints,
+        relaxedConstraints,
+        autoAppliedPatches,
         promptDebug: asRecord(meta.promptDebug),
         prompt: typeof image.prompt === "string" ? image.prompt : null,
         referencePolicy: typeof meta.referencePolicy === "string" ? meta.referencePolicy : null,
         panelCategory: typeof meta.panelCategory === "string" ? meta.panelCategory : null,
+        chapterLookProfileMode: typeof meta.chapterLookProfileMode === "string" ? meta.chapterLookProfileMode : null,
         status: image.status,
         qaWasRequired,
         qaWasExecuted,

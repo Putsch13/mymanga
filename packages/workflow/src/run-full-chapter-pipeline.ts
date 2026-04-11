@@ -21,6 +21,7 @@ import {
   inferGenreMode,
   getGenreDirectorConfig,
   directRomanceDramaScene,
+  runPanelQualityGate,
   type StoryboardPanel,
   type RoutingContext,
   type ProjectContextForChapter,
@@ -33,9 +34,17 @@ import {
   parseApprovedOutline,
   resolveEffectiveProductionSource,
   resolveCharacterImportanceTier,
+  resolveChapterLookProfile,
   type StableImageReference,
   type PanelCharacterPlan,
+  type ChapterLookProfile,
 } from "@manga-ai-studio/core";
+import {
+  buildPanelIntentCard,
+  buildSceneAnchor,
+  type PanelIntentCard,
+  type SceneAnchor,
+} from "@manga-ai-studio/ai";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import {
   buildProjectContext,
@@ -438,6 +447,8 @@ function buildRoutingContext(
   adultEngine?: "realistic" | "fantasy",
   panelCharacterRoles: string[] = [],
   panelCharacterImportanceTiers: Array<"MAIN_HERO" | "SECONDARY_CORE" | "IMPORTANT_SUPPORTING_CHARACTER" | "RECURRING_NPC" | "BACKGROUND_EXTRA"> = [],
+  chapterLookProfileMode?: string | null,
+  beatEventType?: string | null,
 ): RoutingContext {
   const text = `${panel.camera} ${panel.caption} ${panel.prompt}`.toLowerCase();
   const heroPresent = panelCharacterRoles.some((role) => /hero|protagon|main_hero|héros|heros/i.test(role));
@@ -492,6 +503,8 @@ function buildRoutingContext(
     explicitBlocked: intensityLayer === "RESTRICTED_BLOCKED_VISUAL",
     goreStylizedMature:
       intensityLayer === "MATURE_VISUAL" || intensityLayer === "ADULT_EXPLICIT",
+    chapterLookProfileMode: chapterLookProfileMode ?? null,
+    beatEventType: beatEventType ?? null,
   };
 }
 
@@ -1419,6 +1432,30 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     const chapterGenreMode = inferGenreMode(effectiveCreativeControls, selectedPlotLabel);
     const chapterGenreConfig = getGenreDirectorConfig(chapterGenreMode);
 
+    // ── ChapterLookProfile : résoudre depuis le snapshot studio ──────────────
+    const studioLookProfileRaw = studioSnapshot?.data?.chapterLookProfile;
+    const chapterLookProfile: ChapterLookProfile = resolveChapterLookProfile(
+      studioLookProfileRaw?.mode ?? null,
+      studioLookProfileRaw?.mode ?? undefined,
+    );
+    const debugPanel = process.env.MANGA_DEBUG_PANEL === "true";
+
+    // ── SceneAnchor : construire une ancre par scène ──────────────────────────
+    const sceneAnchorByIndex = new Map<number, SceneAnchor>();
+    for (let idx = 0; idx < revisedBundle.script.scenes.length; idx++) {
+      const scene = revisedBundle.script.scenes[idx];
+      if (!scene) continue;
+      const anchor = buildSceneAnchor({
+        sceneId: `scene_${idx + 1}`,
+        castLineup: scene.characters.slice(0, 4),
+        location: scene.location,
+        mood: scene.purpose ?? "dramatic",
+        weather: inferSceneWeather(scene.summary) ?? undefined,
+        timeOfDay: inferSceneTimeOfDay(scene.summary) ?? undefined,
+      });
+      sceneAnchorByIndex.set(idx, anchor);
+    }
+
     // ── Romance director : pré-calculer la direction pour les scènes émotionnelles ──
     const romanceDirectionByScene = new Map<number, ReturnType<typeof directRomanceDramaScene>>();
     if (chapterGenreMode === "romance_shojo" || chapterGenreMode === "quiet_aftermath") {
@@ -1764,12 +1801,25 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 shotType: panelContract.shotType,
                 purpose: panelContract.purpose,
               });
+              // Construire l'intentCard et récupérer le sceneAnchor pour ce panel
+              const panelIntentCard: PanelIntentCard = buildPanelIntentCard({
+                purpose: panelContract.purpose,
+                mood: panel.mood,
+                scenePurpose: scene.purpose,
+                sfx: panel.sfx ? [panel.sfx] : null,
+                dialogueCount: (panel.dialogues?.length ?? 0) + (panel.dialogue ? 1 : 0),
+                cameraShot: panel.camera,
+                cameraAngle: panelContract.cameraAngle,
+              });
+              const panelSceneAnchor = sceneAnchorByIndex.get(index) ?? null;
+
               const combatDirection =
-                panelContract.purpose === "action"
+                (panelContract.purpose === "action" || panelIntentCard.beatEventType === "combat_turning_point" || panelIntentCard.beatEventType === "impact")
                   ? directCombatPanel({
                       beatText: `${panel.caption ?? ""} ${panel.prompt ?? ""}`,
                       scenePurpose: scene.purpose,
                       currentShotType: panelContract.shotType,
+                      characterCount: panel.characters.length,
                       // Enrichissement via genre director : shonen_combat booste la lisibilité
                       combatReadabilityBonus: chapterGenreConfig.combatReadabilityBonus,
                     })
@@ -1859,6 +1909,14 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                             .join(", ")
                         : null;
 
+                    // Extraire hardTraits et softTraits depuis le fingerprint
+                    const hardTraits = Array.isArray(fingerprint?.hardTraits)
+                      ? (fingerprint!.hardTraits as string[]).filter((t): t is string => typeof t === "string")
+                      : null;
+                    const softTraits = Array.isArray(fingerprint?.softTraits)
+                      ? (fingerprint!.softTraits as string[]).filter((t): t is string => typeof t === "string")
+                      : null;
+
                     return {
                       name: c.name,
                       entityKind: c.entityKind,
@@ -1881,6 +1939,9 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                       recurringMemory,
                       bodyDetails: c.bodyDetails,
                       wardrobeDetails: c.wardrobeDetails,
+                      hardTraits,
+                      softTraits,
+                      fingerprint: fingerprint as never,
                       visualSignatureText:
                         c.canonSignatureText ??
                         [promptBundle.visualPrompt, promptBundle.continuityPrompt, promptBundle.canonConstraintLine, fingerprintVisualHints]
@@ -1912,6 +1973,8 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 panelContract.mustShow.length > 0 ? `must show: ${panelContract.mustShow.join(", ")}` : "",
                 panelContract.backgroundExtras.length > 0 ? `background extras: ${panelContract.backgroundExtras.join(", ")}` : "",
                 combatDirection ? `combat framing: ${combatDirection.framing}. ${combatDirection.impactCue}. ${combatDirection.environmentReaction}` : "",
+                // Phase 7 : romance visual grammar
+                romanceDirectionByScene.get(index)?.visualPromptConstraints.slice(0, 2).join(". ") ?? "",
               ].filter(Boolean).join(". "),
               camera: combatDirection ? `${panel.camera}, ${combatDirection.framing}` : panel.camera,
               mood: panel.mood,
@@ -1948,6 +2011,9 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 sceneBlueprint.promptBridge.hardConstraintLine,
                 sceneBlueprint.promptBridge.softConstraintLine,
               ].filter(Boolean).join(", "),
+              chapterLookProfile,
+              sceneAnchor: panelSceneAnchor,
+              intentCard: panelIntentCard,
             });
             composedPositive = [
               composed.positive,
@@ -1980,6 +2046,25 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               sceneBlueprint,
               effectiveCreativeControls,
               visualPriority: panelContract.purpose === "reveal" ? "critical" : panelContract.shotType === "closeup" ? "high" : "medium",
+              // Phase 2 : look profile autoritaire
+              chapterLookProfileMode: chapterLookProfile.mode,
+              // Phase 5 : intent card
+              intentCard: panelIntentCard,
+              // Phase 4 : scene anchor
+              sceneAnchor: panelSceneAnchor,
+              // Phase 1 : debug trace (activé si MANGA_DEBUG_PANEL=true)
+              ...(debugPanel ? {
+                panelDebugTrace: {
+                  sourceBeat: panel.caption ?? scene.summary.slice(0, 80),
+                  panelIntent: panelIntentCard.beatEventType,
+                  promptDigest: composedPositive?.slice(0, 120) ?? "",
+                  refsRequested: [],
+                  refsUsed: [],
+                  refsIgnored: [],
+                  charactersExpected: panel.characters,
+                  styleProfileExpected: chapterLookProfile.styleFamily,
+                },
+              } : {}),
               stylePack: stylePack
                 ? {
                     renderFamily: stylePack.renderFamily,
@@ -2593,6 +2678,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           });
           return "fail";
         }
+        const itemIntentCardMeta = item.baseMetadata.intentCard as { beatEventType?: string } | undefined;
         const routingCtx = buildRoutingContext(
           intensityLayer,
           item.panel,
@@ -2602,6 +2688,8 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           adultEngine,
           panelCharacterRoles,
           panelCharacterTiers,
+          typeof item.baseMetadata.chapterLookProfileMode === "string" ? item.baseMetadata.chapterLookProfileMode : chapterLookProfile.mode,
+          itemIntentCardMeta?.beatEventType ?? null,
         );
         const strategy = computeFalSceneAssessment(routingCtx);
         const panelCriticality = classifyPanelCriticality({
@@ -2760,15 +2848,38 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               },
             },
           });
+          const panelItemLookProfile = typeof (item.baseMetadata.chapterLookProfileMode) === "string"
+            ? resolveChapterLookProfile(item.baseMetadata.chapterLookProfileMode as Parameters<typeof resolveChapterLookProfile>[0])
+            : chapterLookProfile;
+          const panelItemIntentCard = item.baseMetadata.intentCard as Parameters<typeof detectVisualDrift>[0]["intentCard"] | undefined;
+          const panelItemSceneAnchor = item.baseMetadata.sceneAnchor as Parameters<typeof detectVisualDrift>[0]["sceneAnchor"] | undefined;
+          const panelCharDetailsWithTraits = panelCharDetails.map((charDetail) => {
+            const raw = rawCharacters.find((rc) => rc.name === charDetail.name);
+            const fp = raw?.characterFingerprint && typeof raw.characterFingerprint === "object"
+              ? raw.characterFingerprint as Record<string, unknown>
+              : null;
+            return {
+              ...charDetail,
+              hardTraits: Array.isArray(fp?.hardTraits)
+                ? (fp!.hardTraits as string[]).filter((t): t is string => typeof t === "string")
+                : null,
+              softTraits: Array.isArray(fp?.softTraits)
+                ? (fp!.softTraits as string[]).filter((t): t is string => typeof t === "string")
+                : null,
+            };
+          });
           const drift = detectVisualDrift({
             prompt: item.panel.prompt,
-            characters: panelCharDetails,
+            characters: panelCharDetailsWithTraits,
             usedLoras: referencePolicy !== "NONE" && panelLoras.length > 0,
             usedRefs: referencePolicy !== "NONE" && characterRefs.length > 0,
             panelCategory: strategy.panelCategory ?? null,
-            beatEventType: typeof (item.baseMetadata.panelContract as Record<string, unknown> | undefined)?.purpose === "string"
+            beatEventType: panelItemIntentCard?.beatEventType ?? (typeof (item.baseMetadata.panelContract as Record<string, unknown> | undefined)?.purpose === "string"
               ? String((item.baseMetadata.panelContract as Record<string, unknown>).purpose)
-              : null,
+              : null),
+            chapterLookProfile: panelItemLookProfile,
+            sceneAnchor: panelItemSceneAnchor ?? null,
+            intentCard: panelItemIntentCard ?? null,
           });
           return {
             generation,
@@ -2980,6 +3091,28 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               driftReasons: bestAttempt.drift.reasons.slice(0, 8),
               driftMissingTraits: bestAttempt.drift.missingTraits.slice(0, 6),
               driftConflictingTraits: bestAttempt.drift.conflictingTraits.slice(0, 6),
+              // Phase 8 : sous-scores drift 2.0
+              styleDriftScore: bestAttempt.drift.styleDriftScore,
+              characterDriftScore: bestAttempt.drift.characterDriftScore,
+              beatAlignmentScore: bestAttempt.drift.beatAlignmentScore,
+              sceneContinuityScore: bestAttempt.drift.sceneContinuityScore,
+              chapterLookMismatch: bestAttempt.drift.chapterLookMismatch,
+              driftRecommendedAction: bestAttempt.drift.recommendedAction,
+              driftConfidence: bestAttempt.drift.confidence,
+              // Phase 12 : panel quality gate
+              panelQualityGate: (() => {
+                const intentMeta = item.baseMetadata.intentCard as { beatEventType?: string; motionLevel?: number; sfxForbiddenTypes?: string[]; mustShow?: string[] } | undefined;
+                const panelSfxRaw = Array.isArray(item.baseMetadata.sfx) ? item.baseMetadata.sfx as string[] : (typeof item.baseMetadata.sfx === "string" ? [item.baseMetadata.sfx] : null);
+                return runPanelQualityGate({
+                  panelPrompt: item.panel.prompt,
+                  beatEventType: intentMeta?.beatEventType ?? null,
+                  motionLevel: intentMeta?.motionLevel ?? undefined,
+                  sfx: panelSfxRaw,
+                  chapterLookProfileMode: chapterLookProfile.mode,
+                  sfxForbiddenTypes: intentMeta?.sfxForbiddenTypes ?? null,
+                  mustShow: intentMeta?.mustShow ?? null,
+                });
+              })(),
               promptVisualConsistency: visualConsistency,
               validationScore: bestAttempt.validationScore,
               validationDetails: bestAttempt.validationDetails,

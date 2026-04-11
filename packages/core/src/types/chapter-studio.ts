@@ -410,6 +410,35 @@ export const estimateContextSchema = z.object({
 
 export type EstimateContext = z.infer<typeof estimateContextSchema>;
 
+export const chapterLookProfileModeSchema = z.enum([
+  "premium_manga_bw",
+  "premium_manga_color",
+  "anime_cel_shaded_consistent",
+]);
+
+export type ChapterLookProfileMode = z.infer<typeof chapterLookProfileModeSchema>;
+
+export const chapterLookProfileSchema = z.object({
+  mode: chapterLookProfileModeSchema,
+  renderMode: z.string().optional().nullable(),
+  styleFamily: z.string().optional().nullable(),
+  lineStyle: z.string().optional().nullable(),
+  shadingStyle: z.string().optional().nullable(),
+  anatomyStyle: z.string().optional().nullable(),
+  colorDiscipline: z.string().optional().nullable(),
+  backgroundDensity: z.enum(["sparse", "medium", "rich"]).optional().nullable(),
+  textureDiscipline: z.string().optional().nullable(),
+  faceRenderingStyle: z.string().optional().nullable(),
+  sfxStyle: z.string().optional().nullable(),
+  cameraLanguage: z.string().optional().nullable(),
+  actionLanguage: z.string().optional().nullable(),
+  romanceLanguage: z.string().optional().nullable(),
+  incompatibleFamilies: z.array(z.string()).default([]),
+  providerCapabilityRequired: z.array(z.string()).default([]),
+});
+
+export type ChapterLookProfileStudio = z.infer<typeof chapterLookProfileSchema>;
+
 export const chapterStudioDataSchema = z.object({
   intent: chapterIntentSchema.optional(),
   narrativeContract: chapterNarrativeContractSchema.optional(),
@@ -429,6 +458,8 @@ export const chapterStudioDataSchema = z.object({
   autofillMeta: autofillMetaSchema.optional(),
   estimateContext: estimateContextSchema.optional(),
   entityRegistry: chapterEntityRegistrySchema.optional(),
+  /** Profil look visuel autoritaire du chapitre — source de vérité style */
+  chapterLookProfile: chapterLookProfileSchema.optional(),
 });
 
 export type ChapterStudioData = z.infer<typeof chapterStudioDataSchema>;
