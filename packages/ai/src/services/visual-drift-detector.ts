@@ -24,6 +24,10 @@ export interface DriftCheckInput {
   }>;
   usedLoras: boolean;
   usedRefs: boolean;
+  /** Type de beat narratif de la scène — permet de moduler les pénalités (ex: aftermath tolère les silhouettes) */
+  beatEventType?: string | null;
+  /** Catégorie de panel — ESTABLISHING_ENVIRONMENT réduit les pénalités de drift personnage */
+  panelCategory?: string | null;
 }
 
 export type DriftSeverity = "none" | "low" | "medium" | "high" | "critical";
@@ -232,6 +236,30 @@ export function detectVisualDrift(input: DriftCheckInput): DriftCheckResult {
   if (!input.usedLoras && !input.usedRefs) {
     score -= 8;
     reasons.push("Ni LoRA ni ref image utilisés: verrou visuel faible");
+  }
+
+  // Modulation selon le contexte narratif
+  const isEnvironmentPanel = input.panelCategory === "ESTABLISHING_ENVIRONMENT"
+    || input.panelCategory === "SCENE_BASE";
+  const isAftermathBeat = input.beatEventType === "silent_aftermath"
+    || input.beatEventType === "post_impact_silence";
+  const isCrowdScene = input.panelCategory === "CROWD_SCENE"
+    || input.beatEventType === "crowd_reaction";
+
+  if (isEnvironmentPanel) {
+    // Les panels décor ont moins besoin de traits personnage précis
+    score = Math.min(100, score + 15);
+    if (score < 70) reasons.push("Panel décor : pénalités personnage réduites");
+  }
+
+  if (isAftermathBeat) {
+    // Les beats aftermath tolèrent les silhouettes et poses statiques
+    score = Math.min(100, score + 8);
+  }
+
+  if (isCrowdScene) {
+    // Les scènes de foule tolèrent moins de précision individuelle
+    score = Math.min(100, score + 10);
   }
 
   score = Math.max(0, Math.min(100, score));

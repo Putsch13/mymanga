@@ -124,6 +124,13 @@ export async function POST(req: Request, ctx: Ctx) {
   };
   const productionPlan = buildProductionPlanFromOutline(productionOutline);
 
+  const contextDigest = [
+    context.project.title,
+    `ch${targetChapterNumber}`,
+    context.recentChapters?.length ?? 0,
+    context.characters?.length ?? 0,
+  ].join("|");
+
   return NextResponse.json({
     estimateMode,
     targetChapter: {
@@ -134,6 +141,14 @@ export async function POST(req: Request, ctx: Ctx) {
     },
     estimatedTokens,
     creativityControls: body.creativityControls ?? null,
+    estimateContext: {
+      targetChapterId: targetChapter?.id ?? null,
+      targetChapterNumber,
+      contextDigest,
+      creativityControlsUsed: body.creativityControls ?? null,
+      estimateSource: estimateMode,
+      estimatedAt: new Date().toISOString(),
+    },
     contextPreview: {
       recentChapters: context.recentChapters,
       retrievedDocs: context.retrievedDocs,

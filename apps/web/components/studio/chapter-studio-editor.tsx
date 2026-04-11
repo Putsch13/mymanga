@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ChapterReadinessIssue, ChapterStudioData, ChapterStudioSnapshot, ChapterStudioStep } from "@manga-ai-studio/core";
+import type { AutofillMeta, ChapterReadinessIssue, ChapterStudioData, ChapterStudioSnapshot, ChapterStudioStep } from "@manga-ai-studio/core";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { ChapterBriefStep } from "./chapter-brief-step";
 import { ChapterCastCanonStep } from "./chapter-cast-canon-step";
 import { ChapterEditorSidebarSummary } from "./chapter-editor-sidebar-summary";
@@ -38,6 +39,8 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
   const [generationContext, setGenerationContext] = useState<StudioResponse["generationContext"] | null>(null);
   const [activeStudioStep, setActiveStudioStep] = useState<ChapterStudioStep>("intent");
   const [activeFlowStep, setActiveFlowStep] = useState<ChapterFlowStepId>("brief");
+  const [autofilling, setAutofilling] = useState(false);
+  const [autofillResult, setAutofillResult] = useState<{ meta: AutofillMeta; appliedFields: string[]; unresolvedQuestions: string[] } | null>(null);
   const autosaveRef = useRef<number | null>(null);
 
   const loadStudio = useCallback(async () => {
@@ -148,6 +151,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
       editorialOutline: json.editorialOutline,
       productionOutline: json.productionOutline,
       productionPlan: json.productionPlan,
+      ...(json.estimateContext ? { estimateContext: json.estimateContext } : {}),
     };
     setActiveFlowStep("plan");
     setActiveStudioStep("production_plan");
@@ -168,6 +172,41 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
     }
     goToFlowStep(mapStudioStepToFlowStep(issue.step), issue.field, issue.step);
   }, [generateOutlines, goToFlowStep]);
+
+  const runAutofill = useCallback(async (mode: "all_missing" | "repair_readiness") => {
+    if (!draft) return;
+    setAutofilling(true);
+    setAutofillResult(null);
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/chapters/${chapterId}/autofill`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, force: false }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setMessage(json.error ?? "L'autofill a échoué.");
+        return;
+      }
+      if (json.appliedFields?.length > 0 && json.suggestedPatch) {
+        const nextDraft: ChapterStudioData = {
+          ...draft,
+          ...json.suggestedPatch,
+          autofillMeta: json.meta,
+        };
+        await save(nextDraft, activeStudioStep);
+        setAutofillResult({ meta: json.meta, appliedFields: json.appliedFields, unresolvedQuestions: json.unresolvedQuestions ?? [] });
+        setMessage(`L'IA a complété ${json.appliedFields.length} champ(s).`);
+      } else {
+        setMessage("Aucun champ manquant à compléter pour ce mode.");
+      }
+    } catch {
+      setMessage("Erreur réseau lors de l'autofill.");
+    } finally {
+      setAutofilling(false);
+    }
+  }, [activeStudioStep, chapterId, draft, projectId, save]);
 
   if (loading || !draft || !snapshot) {
     return <div className="rounded-2xl border border-border/60 bg-card/30 p-6 text-sm text-muted-foreground">Chargement du studio…</div>;
@@ -223,6 +262,53 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
               <p className="text-sm font-medium">{summary.title}</p>
               <p className="mt-2 text-sm text-muted-foreground">{summary.summary}</p>
             </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                data-testid="autofill-all-missing"
+                size="sm"
+                variant="outline"
+                disabled={autofilling}
+                onClick={() => void runAutofill("all_missing")}
+              >
+                {autofilling ? "Complétion en cours…" : "L'IA complète les infos manquantes"}
+              </Button>
+              {blockerItems.length > 0 ? (
+                <Button
+                  data-testid="autofill-repair-readiness"
+                  size="sm"
+                  variant="ghost"
+                  disabled={autofilling}
+                  onClick={() => void runAutofill("repair_readiness")}
+                >
+                  Réparer ce qui bloque
+                </Button>
+              ) : null}
+            </div>
+
+            {autofillResult ? (
+              <div className="rounded-lg border border-border/40 bg-muted/30 p-3 text-xs space-y-1">
+                <p className="font-medium text-foreground/80">
+                  Autofill IA — confiance : {Math.round(autofillResult.meta.confidence * 100)}%
+                </p>
+                {autofillResult.appliedFields.length > 0 ? (
+                  <p className="text-muted-foreground">
+                    Champs complétés : {autofillResult.appliedFields.join(", ")}
+                  </p>
+                ) : null}
+                {autofillResult.unresolvedQuestions.length > 0 ? (
+                  <div>
+                    <p className="text-amber-600 dark:text-amber-400 font-medium">À valider manuellement :</p>
+                    <ul className="list-disc list-inside text-muted-foreground space-y-0.5">
+                      {autofillResult.unresolvedQuestions.map((q, i) => (
+                        <li key={i}>{q}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             {message ? <p data-testid="studio-message" className="text-sm text-muted-foreground">{message}</p> : null}
           </CardContent>
         </Card>

@@ -40,3 +40,8 @@ export * from "./character-fingerprint-extractor";
 export * from "./panel-validator";
 export * from "./preflight-panel-validation";
 export * from "./beat-advancement-checker";
+export * from "./services/chapter-autofill-engine";
+export * from "./services/story-spine";
+export * from "./services/genre-director";
+export * from "./services/romance-drama-director";
+export * from "./services/story-quality-gate";

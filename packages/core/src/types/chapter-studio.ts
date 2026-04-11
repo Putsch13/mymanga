@@ -352,6 +352,64 @@ export const chapterCreativeControlsSchema = z.object({
 
 export type ChapterCreativeControls = z.infer<typeof chapterCreativeControlsSchema>;
 
+export const chapterEntityKindSchema = z.enum([
+  "named_story_npc",
+  "recurring_supporting",
+  "functional_unnamed",
+  "background_extra",
+  "crowd_group",
+]);
+
+export type ChapterEntityKind = z.infer<typeof chapterEntityKindSchema>;
+
+export const chapterEntityEntrySchema = z.object({
+  name: z.string(),
+  kind: chapterEntityKindSchema,
+  introductionReason: z.string().optional().nullable(),
+  allowedRecurrence: z.enum(["single_chapter", "recurring", "story_locked"]).default("single_chapter"),
+  promotionStatus: z.enum(["temporary", "pending_review", "promoted"]).default("temporary"),
+  dramaticFunction: z.string().optional().nullable(),
+});
+
+export type ChapterEntityEntry = z.infer<typeof chapterEntityEntrySchema>;
+
+export const crowdGroupSchema = z.object({
+  label: z.string(),
+  size: z.enum(["small", "medium", "large"]).default("small"),
+});
+
+export const chapterEntityRegistrySchema = z.object({
+  namedEntities: z.array(chapterEntityEntrySchema).default([]),
+  temporaryEntities: z.array(chapterEntityEntrySchema).default([]),
+  backgroundExtras: z.array(chapterEntityEntrySchema).default([]),
+  crowdGroups: z.array(crowdGroupSchema).default([]),
+});
+
+export type ChapterEntityRegistry = z.infer<typeof chapterEntityRegistrySchema>;
+
+export const autofillMetaSchema = z.object({
+  source: z.literal("ai_autofill"),
+  generatedAt: z.string(),
+  mode: z.enum(["brief", "cast_canon", "plan", "all_missing", "repair_readiness"]),
+  confidence: z.number().min(0).max(1).default(0.5),
+  assumptions: z.array(z.string()).default([]),
+  appliedFields: z.array(z.string()).default([]),
+  unresolvedQuestions: z.array(z.string()).default([]),
+});
+
+export type AutofillMeta = z.infer<typeof autofillMetaSchema>;
+
+export const estimateContextSchema = z.object({
+  targetChapterId: z.string().optional().nullable(),
+  targetChapterNumber: z.number().int().positive().optional().nullable(),
+  contextDigest: z.string().optional().nullable(),
+  creativityControlsUsed: z.record(z.string(), z.unknown()).optional().nullable(),
+  estimateSource: z.enum(["new_chapter", "existing_chapter"]).default("new_chapter"),
+  estimatedAt: z.string(),
+});
+
+export type EstimateContext = z.infer<typeof estimateContextSchema>;
+
 export const chapterStudioDataSchema = z.object({
   intent: chapterIntentSchema.optional(),
   narrativeContract: chapterNarrativeContractSchema.optional(),
@@ -368,6 +426,9 @@ export const chapterStudioDataSchema = z.object({
   readinessReport: chapterReadinessReportSchema.optional(),
   qaReport: chapterQAReportSchema.optional(),
   lastCompletedStep: chapterStudioStepSchema.optional(),
+  autofillMeta: autofillMetaSchema.optional(),
+  estimateContext: estimateContextSchema.optional(),
+  entityRegistry: chapterEntityRegistrySchema.optional(),
 });
 
 export type ChapterStudioData = z.infer<typeof chapterStudioDataSchema>;

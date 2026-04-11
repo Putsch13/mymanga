@@ -6,6 +6,7 @@ import {
   computeChapterQualityReport,
   resolvePersistedChapterStatus,
 } from "./chapter-runtime-helpers";
+import { chapterStudioDataSchema } from "@manga-ai-studio/core";
 
 describe("workflow chapter runtime helpers", () => {
   it("bloque le release si un panel critique n'a pas de QA visuelle", () => {
@@ -100,7 +101,7 @@ describe("workflow chapter runtime helpers", () => {
         currentStep: "production_plan",
         updatedAt: "2026-04-10T10:00:00.000Z",
         autosaveVersion: 3,
-        data: {},
+        data: chapterStudioDataSchema.parse({}),
         history: [],
       },
       chapterId: "ch-1",

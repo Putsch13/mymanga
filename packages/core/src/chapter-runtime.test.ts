@@ -6,6 +6,7 @@ import {
   getCharacterTierPolicy,
   resolveEffectiveCharacterCanon,
 } from "./chapter-runtime";
+import { chapterStudioDataSchema } from "./types/chapter-studio";
 
 describe("chapter-runtime helpers", () => {
   it("classifie un panel héros close-up comme critique", () => {
@@ -43,7 +44,7 @@ describe("chapter-runtime helpers", () => {
         currentStep: "readiness",
         updatedAt: "2026-04-10T10:00:00.000Z",
         autosaveVersion: 2,
-        data: {},
+        data: chapterStudioDataSchema.parse({}),
         history: [],
       },
       counts: {

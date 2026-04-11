@@ -1,6 +1,9 @@
 import OpenAI from "openai";
 import type { GeneratedChapterBundle, ProjectContextForChapter } from "../chapter-pipeline";
 import { buildBundleDigestForNarrative, buildContextDigest } from "./chapter-pass-digests";
+import { buildStorySpine, type ChapterDramaticSpine } from "./story-spine";
+import { inferGenreMode } from "./genre-director";
+import { runStoryQualityGate, type StoryQualityReport } from "./story-quality-gate";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -150,16 +153,39 @@ Réponds en JSON uniquement :
 }
 Utilise scene_1, scene_2, … et les panelNumber existants. Pour retirer une narration ou bulle, mets null.`;
 
+export type NarrativeCoherencePassResult = {
+  bundle: GeneratedChapterBundle;
+  notes: string[];
+  usedOpenAI: boolean;
+  premiumDiagnostic: {
+    spine: ChapterDramaticSpine;
+    qualityReport: StoryQualityReport;
+  } | null;
+};
+
 export async function runChapterNarrativeCoherencePass(input: {
   context: ProjectContextForChapter;
   bundle: GeneratedChapterBundle;
   chapterGoal: string;
   selectedPlotLabel?: "safe" | "bold" | "shock";
-}): Promise<{ bundle: GeneratedChapterBundle; notes: string[]; usedOpenAI: boolean }> {
+  creativityControls?: Record<string, number>;
+}): Promise<NarrativeCoherencePassResult> {
   const baseNotes = ["Passe cohérence narrative (rythme, causalité, cliffhanger)."];
   const apiKey = process.env.OPENAI_API_KEY?.trim();
+
+  // Construire le diagnostic premium (indépendant d'OpenAI)
+  const genreMode = inferGenreMode(input.creativityControls ?? {}, input.selectedPlotLabel);
+  const spine = buildStorySpine(input.bundle, genreMode);
+  const qualityReport = runStoryQualityGate(input.bundle, spine);
+  const premiumDiagnostic = { spine, qualityReport };
+
   if (!apiKey) {
-    return { bundle: input.bundle, notes: [...baseNotes, "OpenAI absent : passe ignorée."], usedOpenAI: false };
+    return {
+      bundle: input.bundle,
+      notes: [...baseNotes, "OpenAI absent : passe ignorée.", `Premium score: ${spine.premiumScore}/100`],
+      usedOpenAI: false,
+      premiumDiagnostic,
+    };
   }
 
   const model = process.env.OPENAI_NARRATIVE_MODEL?.trim() || process.env.OPENAI_CONTINUITY_MODEL?.trim() || process.env.OPENAI_DIALOGUE_MODEL || "gpt-4o-mini";
@@ -169,6 +195,13 @@ export async function runChapterNarrativeCoherencePass(input: {
     selectedPlotLabel: input.selectedPlotLabel ?? "bold",
     context: buildContextDigest(input.context),
     bundle: buildBundleDigestForNarrative(input.bundle),
+    premiumHints: {
+      genreMode,
+      premiumScore: spine.premiumScore,
+      pacingIssues: spine.pacingIssues,
+      payoffWeaknesses: spine.payoffWeaknesses,
+      hookOpportunities: spine.hookOpportunities,
+    },
   };
 
   try {
@@ -190,14 +223,29 @@ export async function runChapterNarrativeCoherencePass(input: {
     const parsed = JSON.parse(raw) as NarrativePayload;
     const fixes = (parsed.panelStoryFixes ?? []).slice(0, 14);
     const nextBundle = applyNarrativeReview(input.bundle, { ...parsed, panelStoryFixes: fixes });
+
+    // Recalculer le diagnostic sur le bundle patché
+    const patchedSpine = buildStorySpine(nextBundle, genreMode);
+    const patchedQuality = runStoryQualityGate(nextBundle, patchedSpine);
+
     return {
       bundle: nextBundle,
-      notes: [...baseNotes, ...(parsed.notes ?? []).slice(0, 12)],
+      notes: [
+        ...baseNotes,
+        ...(parsed.notes ?? []).slice(0, 12),
+        `Premium score: ${patchedSpine.premiumScore}/100`,
+      ],
       usedOpenAI: true,
+      premiumDiagnostic: { spine: patchedSpine, qualityReport: patchedQuality },
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[narrative-coherence-pass] error=${msg}`);
-    return { bundle: input.bundle, notes: [...baseNotes, "Échec OpenAI : narrative pass ignorée."], usedOpenAI: false };
+    return {
+      bundle: input.bundle,
+      notes: [...baseNotes, "Échec OpenAI : narrative pass ignorée.", `Premium score: ${spine.premiumScore}/100`],
+      usedOpenAI: false,
+      premiumDiagnostic,
+    };
   }
 }

@@ -1210,7 +1210,10 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     revisedBundle = integrity.bundle;
     revisedBundle = syncVisualsAfterNarrativePass(revisedBundle);
 
-    // Auto-détection et création des PNJ non-déclarés
+    // Auto-détection et création disciplinée des PNJ non-déclarés
+    // Règle : un nom inconnu n'est promu en Character persistant que s'il est
+    // explicitement autorisé dans le entityRegistry du snapshot studio.
+    // Sinon, il reste une entité locale temporaire (non persistée en DB).
     const knownCharNames = new Set(rawCharacters.map((c) => c.name.toLowerCase()));
     const bundleCharNames = new Set<string>();
     for (const page of revisedBundle.storyboard.pages) {
@@ -1230,9 +1233,48 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       }
     }
 
+    // Lire le registry du snapshot studio pour décider qui peut être promu
+    const entityRegistry = studioSnapshot?.data?.entityRegistry ?? null;
+    const promotedNames = new Set<string>(
+      (entityRegistry?.namedEntities ?? [])
+        .filter((e) => e.promotionStatus === "promoted" || e.allowedRecurrence === "story_locked")
+        .map((e) => e.name.toLowerCase()),
+    );
+    const temporaryNames = new Set<string>(
+      [
+        ...(entityRegistry?.temporaryEntities ?? []),
+        ...(entityRegistry?.backgroundExtras ?? []),
+      ].map((e) => e.name.toLowerCase()),
+    );
+
     if (bundleCharNames.size > 0) {
-      console.log(`[pipeline] auto-creating ${bundleCharNames.size} PNJ: ${[...bundleCharNames].join(", ")}`);
+      const toPromote: string[] = [];
+      const toSkip: string[] = [];
+
       for (const pnjName of bundleCharNames) {
+        const nameLower = pnjName.toLowerCase();
+        if (promotedNames.has(nameLower)) {
+          toPromote.push(pnjName);
+        } else if (temporaryNames.has(nameLower)) {
+          toSkip.push(pnjName);
+        } else if (entityRegistry) {
+          // Registry présent mais nom absent → entité non autorisée, on skip
+          toSkip.push(pnjName);
+        } else {
+          // Pas de registry → comportement legacy : on promeut (compatibilité descendante)
+          toPromote.push(pnjName);
+        }
+      }
+
+      if (toSkip.length > 0) {
+        console.log(`[pipeline] npc_discipline: skipping ${toSkip.length} non-promoted entities: ${toSkip.join(", ")}`);
+      }
+
+      if (toPromote.length > 0) {
+        console.log(`[pipeline] npc_promotion: creating ${toPromote.length} characters: ${toPromote.join(", ")}`);
+      }
+
+      for (const pnjName of toPromote) {
         try {
           const slug = pnjName.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-").slice(0, 40) + `-${Date.now()}`;
           const scenesWithPnj = revisedBundle.script.scenes.filter((s) => (s.characters ?? []).includes(pnjName));
@@ -2679,6 +2721,10 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             characters: panelCharDetails,
             usedLoras: referencePolicy !== "NONE" && panelLoras.length > 0,
             usedRefs: referencePolicy !== "NONE" && characterRefs.length > 0,
+            panelCategory: strategy.panelCategory ?? null,
+            beatEventType: typeof (item.baseMetadata.panelContract as Record<string, unknown> | undefined)?.purpose === "string"
+              ? String((item.baseMetadata.panelContract as Record<string, unknown>).purpose)
+              : null,
           });
           return {
             generation,
