@@ -75,6 +75,8 @@ const outlineResultSchema = z.object({
 
 export type ChapterOutlineResult = z.infer<typeof outlineResultSchema>;
 
+import type { CreativityControls } from "@manga-ai-studio/world";
+
 export type ChapterOutlineContext = {
   projectTitle: string;
   pitch: string | null;
@@ -123,6 +125,7 @@ export type ChapterOutlineContext = {
   chapterTitle: string | null;
   userIntent: string;
   quickTag: string | null;
+  creativityControls?: Partial<CreativityControls> | null;
   previousSummary: string | null;
   previousCliffhanger: string | null;
   seriesSynopsis?: string | null;
@@ -294,6 +297,9 @@ function fallbackOutline(ctx: ChapterOutlineContext): ChapterOutlineResult {
   const intent = ctx.userIntent.slice(0, 400);
   const genre = (ctx.primaryGenre ?? "manga").toLowerCase();
   const quickTag = (ctx.quickTag ?? "bold").toLowerCase();
+  const creativityHint = ctx.creativityControls
+    ? ` Contrôles moteur: novelty ${ctx.creativityControls.noveltyLevel ?? 50}, canon ${ctx.creativityControls.worldStrictness ?? 80}, PNJ ${ctx.creativityControls.npcVariety ?? 55}, décor ${ctx.creativityControls.environmentRichness ?? 70}.`
+    : "";
   const castNames = (ctx.cast ?? []).slice(0, 4).map((item) => item.name);
   const cast = castNames.join(", ");
   const primaryLocation = inferPrimaryLocation();
@@ -332,7 +338,7 @@ function fallbackOutline(ctx: ChapterOutlineContext): ChapterOutlineResult {
 
   return {
     title: ctx.chapterTitle ?? `Chapitre ${ctx.chapterNumber}`,
-    summary: `${previousSummary}. ${previousCliffhanger}. Le chapitre ${ctx.chapterNumber} de « ${ctx.projectTitle} » avance autour de : ${intent}. Cast prioritaire : ${cast || "à préciser"}. Axe narratif ${quickTag}.`,
+    summary: `${previousSummary}. ${previousCliffhanger}. Le chapitre ${ctx.chapterNumber} de « ${ctx.projectTitle} » avance autour de : ${intent}. Cast prioritaire : ${cast || "à préciser"}. Axe narratif ${quickTag}.${creativityHint}`,
     cliffhanger:
       quickTag === "shock"
         ? "La dernière case révèle une vérité qui fracture immédiatement la suite."
@@ -549,6 +555,7 @@ RÈGLES DE COHÉRENCE INTER-CHAPITRES :
     currentTitle: ctx.chapterTitle,
     userIntent: ctx.userIntent,
     quickTag: ctx.quickTag,
+    creativityControls: ctx.creativityControls ?? null,
     previousChapterSummary: ctx.previousSummary,
     previousCliffhanger: ctx.previousCliffhanger,
     seriesSynopsis: ctx.seriesSynopsis ?? null,

@@ -164,6 +164,7 @@ export default function ChapterGeneratorPage() {
         });
       });
   }, [id]);
+  const selectedChapterRecord = chapters.find((chapter) => chapter.id === selectedChapter) ?? null;
 
   useEffect(() => {
     loadChapters();
@@ -272,6 +273,8 @@ export default function ChapterGeneratorPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          chapterId: selectedChapter || undefined,
+          chapterNumber: selectedChapterRecord?.chapterNumber,
           userIntent: buildFocusedIntent(),
           focusCharacterIds: selectedCharacterIds,
           selectedPlotLabel,

@@ -21,18 +21,18 @@ test("autosave studio puis gate de lancement bloque/pret", async ({ page }) => {
   await expect(page.getByTestId("studio-working-title")).toHaveValue("Chapitre bloque e2e modifie");
   await page.getByTestId("blocker-action-missing_narrative_contract").click();
   await expect(page.getByTestId("studio-emotional-goal")).toBeFocused();
-  await page.getByRole("button", { name: /9\. Génération/i }).click();
+  await page.getByRole("button", { name: /4\. Génération & Review/i }).click();
   await expect(page.getByTestId("chapter-launch-button")).toBeDisabled();
   await expect(page.getByText("Corrige d’abord les blocants du studio pour lancer la génération.")).toBeVisible();
 
   await page.goto(`/projects/${projectId}/chapters/${readyChapterId}/edit`);
-  await page.getByRole("button", { name: /9\. Génération/i }).click();
+  await page.getByRole("button", { name: /4\. Génération & Review/i }).click();
   await expect(page.getByTestId("chapter-launch-button")).toBeEnabled();
 });
 
 test("review affiche les compteurs, bloque la cloture et propose la comparaison", async ({ page }) => {
   await page.goto(`/projects/${projectId}/chapters/${reviewChapterId}/edit`);
-  await page.getByRole("button", { name: /10\. QA \/ Review/i }).click();
+  await page.getByRole("button", { name: /4\. Génération & Review/i }).click();
 
   await expect(page.getByTestId("review-minimum-images")).toContainText("55");
   await expect(page.getByTestId("review-accepted-images")).toContainText("1");

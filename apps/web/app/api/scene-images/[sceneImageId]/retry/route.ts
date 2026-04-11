@@ -12,6 +12,9 @@ import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } fro
 import { notFound, unauthorized, validationError } from "@/lib/api-response";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { persistGeneratedImageIfNeeded } from "@/lib/images/persist-generated-image";
+import { resolveRetryReferencePolicy } from "@/lib/images/retry-reference-policy";
+import { collectRetryStableReferences } from "@/lib/images/retry-stable-references";
+import { resolveStableImageReferences } from "@manga-ai-studio/workflow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -94,21 +97,24 @@ export async function POST(req: Request, ctx: Ctx) {
     .filter((l): l is { url: string; triggerWord: string; scale: number } => Boolean(l))
     .slice(0, 2);
 
-  // Reconstruire les refs : savedReferenceIds du panel original, puis ref canon perso
-  // Vérifier l'accessibilité de chaque URL avant de la passer à FAL (évite 422 "Failed to download")
-  const rawRefUrls = savedReferenceIds.filter((url) => typeof url === "string" && url.startsWith("http"));
-  if (rawRefUrls.length === 0 && typeof metadata.canonRefUsed === "string") {
-    rawRefUrls.push(metadata.canonRefUsed as string);
-  }
-  const referenceImageUrls: string[] = [];
-  for (const url of rawRefUrls) {
-    const ok = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(4000) })
-      .then((r) => r.ok)
-      .catch(() => false);
-    if (ok) referenceImageUrls.push(url);
-  }
+  const retryStableReferences = collectRetryStableReferences({
+    metadata,
+    savedReferenceIds,
+  });
+  const retryReferenceResolution = await resolveStableImageReferences(retryStableReferences, {
+    logPrefix: "[retry:refs]",
+  });
+  const referenceImageUrls = retryReferenceResolution.urls;
 
   const hasCanonRef = referenceImageUrls.length > 0 || panelLoras.length > 0;
+  const retryReferenceDecision = resolveRetryReferencePolicy({
+    retryMode,
+    metadata,
+    hasReusableCharacterLock: hasCanonRef,
+  });
+  console.info(
+    `[retry] policy panel=${img.id} mode=${retryMode ?? "default"} refPolicy=${retryReferenceDecision.referencePolicy} importantCharacter=${retryReferenceDecision.importantCharacterPresent} reason=${retryReferenceDecision.reason} refs=${referenceImageUrls.length}/${retryStableReferences.length} loras=${panelLoras.length}`
+  );
   const positiveAugment = retryMode === "environment"
     ? "readable environment, strong background, visible architecture, clear foreground midground background"
     : retryMode === "character"
@@ -131,12 +137,7 @@ export async function POST(req: Request, ctx: Ctx) {
           : retryMode === "composition"
             ? "floating character, poor framing, weak staging"
             : "";
-  const referencePolicy =
-    retryMode === "environment" || retryMode === "composition"
-      ? "NONE"
-      : retryMode === "character"
-        ? "STRONG"
-        : "LIGHT";
+  const referencePolicy = retryReferenceDecision.referencePolicy;
   const rerollKind =
     retryMode === "environment"
       ? "REROLL_ENVIRONMENT"
@@ -187,6 +188,7 @@ export async function POST(req: Request, ctx: Ctx) {
           referencePolicy,
           scenePass: "reroll",
           rerollKind,
+          retryReferenceDecision,
         },
       },
     );
@@ -196,7 +198,17 @@ export async function POST(req: Request, ctx: Ctx) {
         where: { id: img.id },
         data: {
           status: "blocked",
-          metadata: ({ ...metadata, blockedReason: out.reason, generationLog: out.log } as unknown) as Prisma.InputJsonValue,
+          metadata: ({
+            ...metadata,
+            blockedReason: out.reason,
+            generationLog: out.log,
+            retryReferenceDecision: {
+              ...retryReferenceDecision,
+              availableReferenceUrls: referenceImageUrls.length,
+              availableLoras: panelLoras.length,
+            },
+            retryReferenceTrace: retryReferenceResolution.trace,
+          } as unknown) as Prisma.InputJsonValue,
         },
       });
       return validationError(out.reason);
@@ -212,7 +224,17 @@ export async function POST(req: Request, ctx: Ctx) {
         where: { id: img.id },
         data: {
           status: "failed",
-          metadata: ({ ...metadata, error: persisted.error, generationLog: out.log } as unknown) as Prisma.InputJsonValue,
+          metadata: ({
+            ...metadata,
+            error: persisted.error,
+            generationLog: out.log,
+            retryReferenceDecision: {
+              ...retryReferenceDecision,
+              availableReferenceUrls: referenceImageUrls.length,
+              availableLoras: panelLoras.length,
+            },
+            retryReferenceTrace: retryReferenceResolution.trace,
+          } as unknown) as Prisma.InputJsonValue,
         },
       });
       return NextResponse.json({ ok: false, error: persisted.error }, { status: 502 });
@@ -308,6 +330,13 @@ export async function POST(req: Request, ctx: Ctx) {
           persisted: persisted.persisted,
           retryUsedLoras: panelLoras.length,
           retryUsedRefs: referenceImageUrls.length,
+          retryReferenceDecision: {
+            ...retryReferenceDecision,
+            availableReferenceUrls: referenceImageUrls.length,
+            availableLoras: panelLoras.length,
+            appliedReferencePolicy: referencePolicy,
+          },
+          retryReferenceTrace: retryReferenceResolution.trace,
           validationScore,
           validationDetails: {
             panelCriticality: validation.panelCriticality,
@@ -335,7 +364,19 @@ export async function POST(req: Request, ctx: Ctx) {
     const msg = e instanceof Error ? e.message : "retry_failed";
     await prisma.sceneImage.update({
       where: { id: img.id },
-      data: { status: "failed", metadata: ({ ...metadata, error: msg } as unknown) as Prisma.InputJsonValue },
+      data: {
+        status: "failed",
+        metadata: ({
+          ...metadata,
+          error: msg,
+          retryReferenceDecision: {
+            ...retryReferenceDecision,
+            availableReferenceUrls: referenceImageUrls.length,
+            availableLoras: panelLoras.length,
+          },
+          retryReferenceTrace: retryReferenceResolution.trace,
+        } as unknown) as Prisma.InputJsonValue,
+      },
     });
     return NextResponse.json({ ok: false, error: msg }, { status: 502 });
   }

@@ -252,8 +252,11 @@ export async function buildProjectContext(
   userIntent?: string | null,
   options?: {
     focusCharacterIds?: string[];
+    targetChapterId?: string | null;
+    targetChapterNumber?: number | null;
   },
 ) {
+  const targetChapterNumber = options?.targetChapterNumber ?? null;
   const project = await prisma.project.findUnique({
     where: { id: projectId },
     include: {
@@ -263,9 +266,36 @@ export async function buildProjectContext(
       characters: { orderBy: { createdAt: "asc" } },
       relationships: true,
       arcs: { orderBy: [{ startChapterNumber: "asc" }, { name: "asc" }] },
-      chapters: { orderBy: { chapterNumber: "desc" }, take: 10 },
-      memorySnapshots: { orderBy: { createdAt: "desc" }, take: 5 },
+      chapters: targetChapterNumber
+        ? {
+            where: { chapterNumber: { lt: targetChapterNumber } },
+            orderBy: { chapterNumber: "desc" },
+            take: 10,
+          }
+        : { orderBy: { chapterNumber: "desc" }, take: 10 },
+      memorySnapshots: targetChapterNumber
+        ? {
+            where: {
+              OR: [
+                { chapterId: null },
+                { chapter: { chapterNumber: { lt: targetChapterNumber } } },
+              ],
+            },
+            orderBy: { createdAt: "desc" },
+            take: 5,
+          }
+        : { orderBy: { createdAt: "desc" }, take: 5 },
       continuityEvents: {
+        ...(targetChapterNumber
+          ? {
+              where: {
+                OR: [
+                  { chapterId: null },
+                  { chapter: { chapterNumber: { lt: targetChapterNumber } } },
+                ],
+              },
+            }
+          : {}),
         orderBy: { timelineOrder: "desc" },
         take: 12,
       },

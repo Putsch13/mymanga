@@ -31,6 +31,42 @@ export interface MediaAssetDescriptor {
   metadata?: Record<string, unknown>;
 }
 
+export type StableImageReferenceSourceType =
+  | "media_asset"
+  | "character_visual_ref"
+  | "scene_keyframe"
+  | "legacy_url";
+
+export interface StableImageReference {
+  assetId?: string | null;
+  storageProvider?: string | null;
+  bucket?: string | null;
+  storageKey?: string | null;
+  publicUrl?: string | null;
+  signedUrl?: string | null;
+  falCdnUrl?: string | null;
+  sourceUrl?: string | null;
+  sourceType: StableImageReferenceSourceType;
+  checksum?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface StableImageReferenceTraceEntry {
+  assetId?: string | null;
+  storageKey?: string | null;
+  sourceType: StableImageReferenceSourceType;
+  sourceUrl?: string | null;
+  resolvedUrl?: string | null;
+  checksum?: string | null;
+  ignoredReason?: string | null;
+}
+
+export interface StableImageReferenceTrace {
+  requested: StableImageReferenceTraceEntry[];
+  used: StableImageReferenceTraceEntry[];
+  ignored: StableImageReferenceTraceEntry[];
+}
+
 export interface CharacterVisualLock {
   id: string;
   characterId: string;

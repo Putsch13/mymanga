@@ -67,3 +67,15 @@
 - `Chapter.outline/script/storyboard` restent les blobs JSON de compatibilité pour le snapshot studio complet, l’historique détaillé et les structures panel/page encore non normalisées.
 - Le reader legacy `read` reste branché pour la lecture finale et les rerolls panel.
 - Une suite Playwright minimale existe désormais sur les pages réelles `edit/generate/review`, avec fixture DB et interaction navigateur.
+
+## Note projet après les 5 dernières passes
+
+- Le studio principal `/edit` est désormais le tunnel par défaut en 4 étapes:
+  - `Brief`
+  - `Casting & Canon`
+  - `Plan du chapitre`
+  - `Génération & Review`
+- Le reroll panel ne dépend plus uniquement d'URLs encore vivantes: il tente d'abord de reconstruire les refs stables depuis `referenceTrace`, `requestedCanonicalRef` et `canonRefUsed`.
+- Le routage image distingue maintenant retry transitoire local et failover cross-provider compatible, avec logs de `initialProvider`, `fallbackProvider`, `failoverReason` et historique des tentatives.
+- Le drift detector reste symbolique tant qu'aucune vraie analyse image n'est branchée, mais il renvoie désormais un diagnostic exploitable: `driftScore`, `severity`, `reasons`, `missingTraits`, `conflictingTraits`.
+- Les routes legacy `generate` et `review` restent compatibles, mais la surface produit recommandée est le studio `/edit`.

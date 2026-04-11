@@ -84,6 +84,19 @@
 - Intégration `apps/web`: draft, patch studio, readiness, launch, qa-report, review/complete
 - E2E Playwright: `edit` (save + reload), `generate` (readiness gate bloqué/prêt), `review` (compteurs, compare mode, complete review bloqué)
 
+## Note de lot supplémentaire
+
+- Les 5 dernières passes ont ajouté:
+  - estimate chapter cohérent `new chapter` / `existing chapter`
+  - persistance et résolution stables des refs image
+  - failover provider compatible + lock léger conservé sur reroll décor/cadrage
+  - drift detector enrichi et branché dans la review
+  - studio `/edit` simplifié en flow 4 étapes avec sidebar sticky
+- Risques encore assumés après ce lot:
+  - pas encore de vraie vision/embedding pour le drift
+  - le pipeline central reste volumineux malgré les extractions déjà faites
+  - la normalisation relationnelle complète panel/page/history reste future
+
 ## Endpoints studio ajoutés
 
 - `GET/PATCH /api/projects/[id]/chapters/[chapterId]/studio`

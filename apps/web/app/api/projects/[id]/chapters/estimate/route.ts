@@ -13,6 +13,8 @@ type Ctx = { params: Promise<{ id: string }> };
 
 const schema = z.object({
   userIntent: z.string().min(3),
+  chapterId: z.string().optional(),
+  chapterNumber: z.number().int().positive().optional(),
   focusCharacterIds: z.array(z.string()).optional(),
   selectedPlotLabel: z.enum(["safe", "bold", "shock"]).optional(),
   creativityControls: z.object({
@@ -33,19 +35,41 @@ export async function POST(req: Request, ctx: Ctx) {
 
   const body = schema.parse(await req.json());
   const estimatedTokens = await estimateChapterTextTokensFromRules();
+  const targetChapter = body.chapterId
+    ? await prisma.chapter.findFirst({
+        where: { id: body.chapterId, projectId },
+        select: {
+          id: true,
+          chapterNumber: true,
+          title: true,
+          status: true,
+        },
+      })
+    : null;
+  if (body.chapterId && !targetChapter) return notFound();
+
+  const nextChapter = !targetChapter
+    ? await prisma.chapter.findFirst({
+        where: { projectId },
+        orderBy: { chapterNumber: "desc" },
+        select: { chapterNumber: true },
+      })
+    : null;
+  const targetChapterNumber = targetChapter?.chapterNumber ?? ((nextChapter?.chapterNumber ?? 0) + 1);
+  const estimateMode = targetChapter ? "existing_chapter" : "new_chapter";
   const context = await buildProjectContext(prisma, projectId, body.userIntent, {
     focusCharacterIds: body.focusCharacterIds,
+    targetChapterId: targetChapter?.id ?? null,
+    targetChapterNumber,
   });
   if (!context) return notFound();
-
-  const nextChapter = await prisma.chapter.findFirst({
-    where: { projectId },
-    orderBy: { chapterNumber: "desc" },
-  });
   const bundle = await generateChapterBundle({
-    chapterNumber: (nextChapter?.chapterNumber ?? 0) + 1,
+    chapterId: targetChapter?.id,
+    chapterNumber: targetChapterNumber,
+    chapterTitle: targetChapter?.title ?? null,
     userIntent: body.userIntent,
     selectedPlotLabel: body.selectedPlotLabel,
+    creativityControls: body.creativityControls,
     context,
   });
   const previewBeats = bundle.outline.beats.slice(0, 5).map((beat) => ({
@@ -101,6 +125,13 @@ export async function POST(req: Request, ctx: Ctx) {
   const productionPlan = buildProductionPlanFromOutline(productionOutline);
 
   return NextResponse.json({
+    estimateMode,
+    targetChapter: {
+      id: targetChapter?.id ?? null,
+      chapterNumber: targetChapterNumber,
+      requestedChapterNumber: body.chapterNumber ?? null,
+      status: targetChapter?.status ?? null,
+    },
     estimatedTokens,
     creativityControls: body.creativityControls ?? null,
     contextPreview: {

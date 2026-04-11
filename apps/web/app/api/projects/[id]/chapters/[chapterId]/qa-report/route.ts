@@ -95,6 +95,19 @@ export async function GET(_req: Request, ctx: Ctx) {
           : typeof meta.qaFailureReason === "string"
             ? meta.qaFailureReason
             : null;
+      const driftSeverity =
+        typeof meta.driftSeverity === "string"
+          ? meta.driftSeverity
+          : null;
+      const driftScore =
+        typeof meta.driftScore === "number"
+          ? meta.driftScore
+          : null;
+      const driftReasons = Array.isArray(meta.driftReasons)
+        ? meta.driftReasons.filter((reason): reason is string => typeof reason === "string")
+        : Array.isArray(meta.driftIssues)
+          ? meta.driftIssues.filter((reason): reason is string => typeof reason === "string")
+          : [];
       const rerollHistory = Array.isArray(meta.rerollHistory) ? meta.rerollHistory : [];
       const latestReroll = rerollHistory.at(-1);
       const latestRerollRecord =
@@ -122,7 +135,7 @@ export async function GET(_req: Request, ctx: Ctx) {
           compositionReadability: typeof qualityScores.shotComplianceScore === "number" ? qualityScores.shotComplianceScore : releaseScore,
           environmentConsistency: typeof qualityScores.environmentReadabilityScore === "number" ? qualityScores.environmentReadabilityScore : releaseScore,
         },
-        rejectionReasons: issues.map((issue) => issue.message ?? issue.type ?? "quality_issue"),
+        rejectionReasons: [...issues.map((issue) => issue.message ?? issue.type ?? "quality_issue"), ...driftReasons].slice(0, 8),
         repairSuggestions: issues.map((issue) => `Réparer ${issue.type ?? "quality_issue"}`),
         rerollCount:
           typeof meta.rerollCount === "number"
@@ -130,6 +143,9 @@ export async function GET(_req: Request, ctx: Ctx) {
             : typeof asRecord(meta.generationLog).rerollCount === "number"
               ? Number(asRecord(meta.generationLog).rerollCount)
               : 0,
+        driftScore,
+        driftSeverity,
+        driftReasons,
         promptDebug: asRecord(meta.promptDebug),
         prompt: typeof image.prompt === "string" ? image.prompt : null,
         referencePolicy: typeof meta.referencePolicy === "string" ? meta.referencePolicy : null,

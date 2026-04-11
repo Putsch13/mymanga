@@ -5,6 +5,7 @@ import { writeDialogueForScene } from "./services/dialogue-writer";
 import { planPanelText, type PanelTextPlan } from "./services/panel-text-planner";
 import { analyzeBeatsForRepetition } from "./beat-advancement-checker";
 import type { ApprovedChapterOutline, SceneContinuityPayload, StructuredBeatPayload } from "@manga-ai-studio/core";
+import { creativityControlsSchema, type CreativityControls } from "@manga-ai-studio/world";
 import type { ChapterOutlineGenerationResult } from "./chapter-outline";
 
 export type ProjectContextForChapter = {
@@ -169,6 +170,18 @@ type PanelBlueprint = {
   mood: PanelMood;
   characters: string[];
 };
+
+function normalizeCreativityControls(input: Partial<CreativityControls> | undefined): CreativityControls {
+  return creativityControlsSchema.parse(input ?? {});
+}
+
+function describeCreativityProfile(input: CreativityControls) {
+  const novelty = input.noveltyLevel >= 70 ? "variations plus audacieuses" : input.noveltyLevel <= 35 ? "variations très maîtrisées" : "variations équilibrées";
+  const canon = input.worldStrictness >= 85 ? "canon verrouillé" : input.worldStrictness <= 45 ? "canon plus souple" : "canon surveillé";
+  const environment = input.environmentRichness >= 75 ? "décors plus riches" : "décors plus fonctionnels";
+  const npc = input.npcVariety >= 70 ? "présence PNJ plus variée" : "présence PNJ contenue";
+  return `${novelty}, ${canon}, ${environment}, ${npc}`;
+}
 
 export type GeneratedChapterBundle = {
   generationDiagnostics: {
@@ -415,6 +428,7 @@ function buildDynamicPlotOptions(input: {
   mainCast: string[];
   previousSummary: string | null;
   previousCliffhanger: string | null;
+  creativityControls: CreativityControls;
   outline: {
     summary: string;
     cliffhanger: string;
@@ -426,25 +440,28 @@ function buildDynamicPlotOptions(input: {
   const middleBeat = input.outline.beats.find((b) => b.pageRole === "confrontation" || b.pageRole === "revelation") ?? input.outline.beats[1];
   const lastBeat = input.outline.beats[input.outline.beats.length - 1];
   const previousAnchor = input.previousCliffhanger ?? input.previousSummary ?? "les événements récents";
+  const environmentHint = input.creativityControls.environmentRichness >= 70 ? "avec un décor plus incarné" : "dans un cadre lisible";
+  const npcHint = input.creativityControls.npcVariety >= 70 ? "et une pression de foule plus variée" : "en gardant les présences secondaires sous contrôle";
+  const canonHint = input.creativityControls.worldStrictness >= 85 ? "sans dévier du canon établi" : "avec un peu plus de latitude sur l'ambiance";
 
   return [
     {
       id: "safe",
       title: "Progression logique",
       label: "safe" as const,
-      summary: `Après ${previousAnchor}, ${hero} suit ${firstBeat?.turn?.toLowerCase() ?? "une piste concrète"} à ${firstBeat?.location ?? "un lieu clé"} pour faire avancer ${input.userIntent.slice(0, 80)}.`,
+      summary: `Après ${previousAnchor}, ${hero} suit ${firstBeat?.turn?.toLowerCase() ?? "une piste concrète"} à ${firstBeat?.location ?? "un lieu clé"} ${environmentHint} pour faire avancer ${input.userIntent.slice(0, 80)} ${canonHint}.`,
     },
     {
       id: "bold",
       title: "Accélération émotionnelle",
       label: "bold" as const,
-      summary: `${hero} et ${second} se heurtent autour de ${middleBeat?.summary?.slice(0, 90) ?? input.userIntent.slice(0, 90)}, ce qui force une décision risquée et plus intime.`,
+      summary: `${hero} et ${second} se heurtent autour de ${middleBeat?.summary?.slice(0, 90) ?? input.userIntent.slice(0, 90)}, ce qui force une décision risquée et plus intime, ${npcHint}.`,
     },
     {
       id: "shock",
       title: "Rupture dramatique",
       label: "shock" as const,
-      summary: `Le chapitre pousse vers ${lastBeat?.turn?.toLowerCase() ?? input.outline.cliffhanger.toLowerCase()} et transforme ${input.outline.cliffhanger.toLowerCase()} en vraie ouverture de saga.`,
+      summary: `Le chapitre pousse vers ${lastBeat?.turn?.toLowerCase() ?? input.outline.cliffhanger.toLowerCase()} et transforme ${input.outline.cliffhanger.toLowerCase()} en vraie ouverture de saga, avec ${input.creativityControls.noveltyLevel >= 70 ? "une rupture plus inattendue" : "une montée plus contrôlée"}.`,
     },
   ];
 }
@@ -839,13 +856,16 @@ function buildRegeneratedBlueprints(
 }
 
 export async function generateChapterBundle(input: {
+  chapterId?: string;
   chapterNumber: number;
   chapterTitle?: string | null;
   userIntent: string;
   selectedPlotLabel?: "safe" | "bold" | "shock";
+  creativityControls?: Partial<CreativityControls>;
   context: ProjectContextForChapter;
   approvedOutline?: ApprovedChapterOutline | null;
 }): Promise<GeneratedChapterBundle> {
+  const effectiveCreativeControls = normalizeCreativityControls(input.creativityControls);
   const cast = takeNames(input.context, 6);
   const mainCast = cast.length > 0 ? cast : ["Le protagoniste", "L'antagoniste"];
   const intentEntityHints = parseIntentEntities(
@@ -948,6 +968,7 @@ export async function generateChapterBundle(input: {
         chapterTitle: input.chapterTitle ?? null,
         userIntent: input.userIntent,
         quickTag: input.selectedPlotLabel ?? null,
+        creativityControls: effectiveCreativeControls,
         previousSummary: previous?.summary ?? null,
         previousCliffhanger: previous?.cliffhanger ?? null,
         seriesSynopsis: input.context.seriesSynopsis ?? null,
@@ -1062,6 +1083,7 @@ export async function generateChapterBundle(input: {
     mainCast,
     previousSummary: previous?.summary ?? null,
     previousCliffhanger: previous?.cliffhanger ?? null,
+    creativityControls: effectiveCreativeControls,
     outline: {
       summary: outlineResult.outline.summary,
       cliffhanger: outlineResult.outline.cliffhanger,
@@ -1287,7 +1309,7 @@ export async function generateChapterBundle(input: {
     creativeDirection: {
       chapterGoal,
       tone,
-      whyNow: `Le chapitre capitalise sur les récents événements pour faire progresser ${input.context.project.title} sans casser la continuité.`,
+      whyNow: `Le chapitre capitalise sur les récents événements pour faire progresser ${input.context.project.title} sans casser la continuité, avec ${describeCreativityProfile(effectiveCreativeControls)}.`,
     },
     plotOptions: dynamicPlotOptions,
     outline: {
@@ -1316,6 +1338,7 @@ export async function generateChapterBundle(input: {
         involvedCharacters: mainCast,
         focusCharacterIds: input.context.focusCharacterIds ?? [],
         selectedPlotLabel: input.selectedPlotLabel ?? "bold",
+        creativityControls: effectiveCreativeControls,
         location: locD ?? locC,
         outlineBeatPayloads: beats.map((beat) => ({
           beatId: beat.id,

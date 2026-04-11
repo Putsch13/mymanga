@@ -29,6 +29,9 @@ type QAReportResponse = {
       rejectionReasons: string[];
       repairSuggestions: string[];
       rerollCount: number;
+      driftScore: number | null;
+      driftSeverity: string | null;
+      driftReasons: string[];
       promptDebug: { finalPrompt?: string; promptWarnings?: string[] };
       prompt: string | null;
       referencePolicy: string | null;
@@ -235,6 +238,12 @@ export function ChapterReviewBoard(input: {
               <p className={panel.qaWasRequired && !panel.qaWasExecuted ? "text-red-500" : "text-muted-foreground"}>
                 QA visuelle: {panel.qaWasExecuted ? "exécutée" : panel.qaWasRequired ? `manquante (${panel.qaFailureReason ?? "indisponible"})` : `non requise (${panel.qaBypassReason ?? "panel non critique"})`}
               </p>
+              {panel.driftSeverity ? (
+                <p className={panel.driftSeverity === "high" || panel.driftSeverity === "critical" ? "text-amber-500" : "text-muted-foreground"}>
+                  Drift visuel: {panel.driftSeverity} {panel.driftScore !== null ? `(${Math.round(panel.driftScore)}%)` : ""}
+                  {panel.driftReasons.length ? ` · ${panel.driftReasons.slice(0, 2).join(", ")}` : ""}
+                </p>
+              ) : null}
               <p>{panel.prompt ?? "Aucun prompt."}</p>
               {panel.promptDebug?.finalPrompt ? (
                 <p className="rounded-lg bg-background/50 p-2 text-xs text-muted-foreground">{panel.promptDebug.finalPrompt}</p>

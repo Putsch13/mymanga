@@ -30,6 +30,7 @@ import {
   parseApprovedOutline,
   resolveEffectiveProductionSource,
   resolveCharacterImportanceTier,
+  type StableImageReference,
   type PanelCharacterPlan,
 } from "@manga-ai-studio/core";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
@@ -66,6 +67,7 @@ import {
   buildValidationDetails as buildSharedValidationDetails,
   computeChapterQualityReport as computeChapterQualityReportShared,
 } from "./chapter-runtime-helpers";
+import { buildStableImageReference, resolveStableImageReferences } from "./stable-image-refs";
 
 type JobStep = {
   key: string;
@@ -252,31 +254,6 @@ function isAlreadyStableStorageUrl(url: string) {
   const supabaseBase = process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (supabaseBase && url.startsWith(supabaseBase)) return true;
   return false;
-}
-
-function parseSupabasePublicObjectUrl(url: string): { bucket: string; path: string } | null {
-  try {
-    const parsed = new URL(url);
-    const marker = "/storage/v1/object/public/";
-    const idx = parsed.pathname.indexOf(marker);
-    if (idx < 0) return null;
-    const rest = parsed.pathname.slice(idx + marker.length); // bucket/path...
-    const [bucket, ...pathParts] = rest.split("/");
-    if (!bucket || pathParts.length === 0) return null;
-    return { bucket, path: decodeURIComponent(pathParts.join("/")) };
-  } catch {
-    return null;
-  }
-}
-
-async function signIfSupabaseStorageUrl(originalUrl: string): Promise<string> {
-  const ref = parseSupabasePublicObjectUrl(originalUrl);
-  if (!ref) return originalUrl;
-  const client = getStorageClient();
-  if (!client) return originalUrl;
-  const signed = await client.storage.from(ref.bucket).createSignedUrl(ref.path, 60 * 30); // 30 minutes
-  if (signed.error || !signed.data?.signedUrl) return originalUrl;
-  return signed.data.signedUrl;
 }
 
 function isDataUrl(url: string) {
@@ -883,17 +860,53 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         visualRefs: {
           orderBy: [{ isPrimary: "desc" }, { createdAt: "desc" }],
           take: 20,
-          select: { imageUrl: true, isPrimary: true },
+          select: {
+            id: true,
+            imageUrl: true,
+            isPrimary: true,
+            metadata: true,
+            mediaAssetId: true,
+            mediaAsset: {
+              select: {
+                id: true,
+                storageProvider: true,
+                bucket: true,
+                storageKey: true,
+                publicUrl: true,
+                signedUrl: true,
+                falCdnUrl: true,
+                sha256: true,
+                metadata: true,
+              },
+            },
+          },
         },
       },
     }).then(async (chars) => {
-      // Ref canon par personnage : prendre CharacterVisualRef.isPrimary (ou la plus récente)
-      const canonUrls: Record<string, string> = {};
+      const canonRefs: Record<string, StableImageReference> = {};
       for (const c of chars) {
-        const primaryRef = c.visualRefs.find((v) => v.isPrimary && v.imageUrl);
-        const bestRef = primaryRef ?? c.visualRefs.find((v) => v.imageUrl);
-        if (bestRef?.imageUrl) {
-          canonUrls[c.id] = bestRef.imageUrl;
+        const primaryRef = c.visualRefs.find((v) => v.isPrimary && (v.imageUrl || v.mediaAssetId || v.mediaAsset?.storageKey));
+        const bestRef = primaryRef ?? c.visualRefs.find((v) => v.imageUrl || v.mediaAssetId || v.mediaAsset?.storageKey);
+        if (bestRef) {
+          const stableRef = buildStableImageReference({
+            assetId: bestRef.mediaAsset?.id ?? bestRef.mediaAssetId ?? null,
+            storageProvider: bestRef.mediaAsset?.storageProvider ?? null,
+            bucket: bestRef.mediaAsset?.bucket ?? null,
+            storageKey: bestRef.mediaAsset?.storageKey ?? null,
+            publicUrl: bestRef.mediaAsset?.publicUrl ?? bestRef.imageUrl,
+            signedUrl: bestRef.mediaAsset?.signedUrl ?? null,
+            falCdnUrl: bestRef.mediaAsset?.falCdnUrl ?? null,
+            sourceUrl: bestRef.imageUrl,
+            sourceType: bestRef.mediaAssetId ? "media_asset" : "character_visual_ref",
+            checksum: bestRef.mediaAsset?.sha256 ?? null,
+            metadata:
+              bestRef.metadata && typeof bestRef.metadata === "object"
+                ? (bestRef.metadata as Record<string, unknown>)
+                : {},
+          });
+          if (stableRef) {
+            canonRefs[c.id] = stableRef;
+          }
         }
       }
       return chars.map((c) => {
@@ -936,7 +949,8 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           hairColor: typeof raw.hairColor === "string" ? raw.hairColor : null,
           eyeColor: typeof raw.eyeColor === "string" ? raw.eyeColor : null,
           outfitDefault: typeof raw.outfitDefault === "string" ? raw.outfitDefault : null,
-          canonicalImageUrl: canonUrls[c.id] ?? null,
+          canonicalImageUrl: canonRefs[c.id]?.sourceUrl ?? canonRefs[c.id]?.publicUrl ?? null,
+          canonicalReference: canonRefs[c.id] ?? null,
           canonSignatureText: c.canonPack?.visualSignatureText ?? null,
           forbiddenVisualDrift: c.canonPack?.forbiddenVisualDrift ?? null,
           bodyDetails,
@@ -2049,9 +2063,18 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     // ── Étape 3b : Index refs canon et LoRA par personnage ────────────────
     // (les keyframes images ont été supprimées : elles polluaient la fidélité des persos)
     // La cohérence décor est assurée par composeEnvironment dans les prompts de panels.
-    const canonRefByName = new Map<string, string>();
+    const canonRefByName = new Map<string, StableImageReference>();
     for (const c of rawCharacters) {
-      if (c.canonicalImageUrl) canonRefByName.set(c.name, c.canonicalImageUrl);
+      const ref =
+        (c as { canonicalReference?: StableImageReference | null }).canonicalReference
+        ?? ((c.canonicalImageUrl
+          ? buildStableImageReference({
+              publicUrl: c.canonicalImageUrl,
+              sourceUrl: c.canonicalImageUrl,
+              sourceType: "legacy_url",
+            })
+          : null));
+      if (ref) canonRefByName.set(c.name, ref);
     }
     const loraByCharId = new Map<string, { url: string; triggerWord: string; scale: number }>();
     for (const att of loraAttachments) {
@@ -2133,10 +2156,40 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       const promise = (async () => {
         const keyframe = await prisma.sceneKeyframe.findUnique({
           where: { id: sceneKeyframeId },
+          include: {
+            imageAsset: {
+              select: {
+                id: true,
+                storageProvider: true,
+                bucket: true,
+                storageKey: true,
+                publicUrl: true,
+                signedUrl: true,
+                falCdnUrl: true,
+                sha256: true,
+              },
+            },
+          },
         });
         if (!keyframe) return null;
         if (keyframe.imageUrl) {
-          return signIfSupabaseStorageUrl(keyframe.imageUrl);
+          const existingKeyframeRef = buildStableImageReference({
+            assetId: keyframe.imageAsset?.id ?? keyframe.imageAssetId ?? null,
+            storageProvider: keyframe.imageAsset?.storageProvider ?? null,
+            bucket: keyframe.imageAsset?.bucket ?? null,
+            storageKey: keyframe.imageAsset?.storageKey ?? null,
+            publicUrl: keyframe.imageAsset?.publicUrl ?? keyframe.imageUrl,
+            signedUrl: keyframe.imageAsset?.signedUrl ?? null,
+            falCdnUrl: keyframe.imageAsset?.falCdnUrl ?? null,
+            sourceUrl: keyframe.imageUrl,
+            sourceType: keyframe.imageAssetId ? "media_asset" : "scene_keyframe",
+            checksum: keyframe.imageAsset?.sha256 ?? null,
+          });
+          if (!existingKeyframeRef) return keyframe.imageUrl;
+          const existingResolution = await resolveStableImageReferences([existingKeyframeRef], {
+            logPrefix: "[pipeline:keyframe-existing]",
+          });
+          return existingResolution.urls[0] ?? keyframe.imageUrl;
         }
 
         const metadata =
@@ -2146,13 +2199,14 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         const sceneCharacterNames = Array.isArray(metadata.involvedCharacterNames)
           ? metadata.involvedCharacterNames.filter((value): value is string => typeof value === "string")
           : [];
-        const keyframeRefs = await Promise.all(
+        const keyframeReferenceResolution = await resolveStableImageReferences(
           sceneCharacterNames
             .map((name) => canonRefByName.get(name))
-            .filter((value): value is string => Boolean(value))
-            .slice(0, 2)
-            .map((url) => signIfSupabaseStorageUrl(url)),
+            .filter((value): value is StableImageReference => Boolean(value))
+            .slice(0, 2),
+          { logPrefix: "[pipeline:keyframe-ref]" },
         );
+        const keyframeRefs = keyframeReferenceResolution.urls;
         const keyframeLoras = sceneCharacterNames
           .map((name) => loraByCharName.get(name))
           .filter((value): value is { url: string; triggerWord: string; scale: number } => Boolean(value))
@@ -2212,6 +2266,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               negativePrompt: typeof metadata.negativePrompt === "string" ? metadata.negativePrompt : STD_NEGATIVE,
               width: size.width,
               height: size.height,
+              referenceTrace: keyframeReferenceResolution.trace,
             },
             responsePayload: generation.log,
             refsUsed: keyframeRefs,
@@ -2234,6 +2289,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             negativePrompt: typeof metadata.negativePrompt === "string" ? metadata.negativePrompt : STD_NEGATIVE,
             width: size.width,
             height: size.height,
+            referenceTrace: keyframeReferenceResolution.trace,
           },
           responsePayload: generation.result.raw ?? generation.log,
           refsUsed: keyframeRefs,
@@ -2261,6 +2317,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             ownerType: "scene_keyframe",
             ownerId: sceneKeyframeId,
             storageProvider: persisted.persisted ? "supabase" : "fal",
+            bucket: persisted.persisted ? (process.env.STORAGE_BUCKET ?? "mymanga-images") : null,
             publicUrl: persisted.url,
             storageKey: `scene-keyframes/${sceneKeyframeId}`,
             metadata: ({
@@ -2300,16 +2357,38 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         .slice(0, 2);
 
       const sceneRefs: string[] = sceneKeyframeUrl ? [sceneKeyframeUrl] : [];
-      const characterRefs: string[] = [];
-      if (canonRef) {
-        const signedCanonRef = await signIfSupabaseStorageUrl(canonRef);
-        const isAccessible = await fetch(signedCanonRef, { method: "HEAD", signal: AbortSignal.timeout(4000) })
-          .then((r) => r.ok)
-          .catch(() => false);
-        if (isAccessible) characterRefs.push(signedCanonRef);
-        else console.warn(`[pipeline] canonRef URL inaccessible (expirée ?), ignorée pour ce panel: ${canonRef.slice(0, 80)}`);
-      }
-
+      const sceneReferenceTrace = sceneKeyframeUrl
+        ? {
+            requested: [{
+              assetId: null,
+              storageKey: null,
+              sourceType: "scene_keyframe" as const,
+              sourceUrl: sceneKeyframeUrl,
+              resolvedUrl: sceneKeyframeUrl,
+              checksum: null,
+              ignoredReason: null,
+            }],
+            used: [{
+              assetId: null,
+              storageKey: null,
+              sourceType: "scene_keyframe" as const,
+              sourceUrl: sceneKeyframeUrl,
+              resolvedUrl: sceneKeyframeUrl,
+              checksum: null,
+              ignoredReason: null,
+            }],
+            ignored: [],
+          }
+        : { requested: [], used: [], ignored: [] };
+      const characterReferenceResolution = canonRef
+        ? await resolveStableImageReferences([canonRef], { logPrefix: "[pipeline:canon-ref]" })
+        : { urls: [], trace: { requested: [], used: [], ignored: [] } };
+      const characterRefs = characterReferenceResolution.urls;
+      const panelReferenceTrace = {
+        requested: [...sceneReferenceTrace.requested, ...characterReferenceResolution.trace.requested],
+        used: [...sceneReferenceTrace.used, ...characterReferenceResolution.trace.used],
+        ignored: [...sceneReferenceTrace.ignored, ...characterReferenceResolution.trace.ignored],
+      };
       const refs = [...sceneRefs, ...characterRefs];
       const hasCanonRef = characterRefs.length > 0 || panelLoras.length > 0;
       const panelContractMeta = item.baseMetadata.panelContract as {
@@ -2340,6 +2419,22 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           eyeColor: c?.eyeColor ?? null,
           bodyDetails: c?.bodyDetails ?? null,
           appearance: c?.appearance ?? null,
+          outfitDefault: c?.outfitDefault ?? null,
+          wardrobeDetails: c?.wardrobeDetails ?? null,
+          canonSignatureText: c?.canonSignatureText ?? null,
+          forbiddenVisualDrift:
+            Array.isArray(c?.forbiddenVisualDrift)
+              ? c.forbiddenVisualDrift.filter((item): item is string => typeof item === "string")
+              : null,
+          canonicalReferenceAvailable: Boolean(c?.canonicalReference || c?.canonicalImageUrl),
+          paletteSignature:
+            c?.visualProfile && typeof c.visualProfile === "object" && "paletteSignature" in c.visualProfile
+              ? String(c.visualProfile.paletteSignature ?? "")
+              : null,
+          accessorySignature:
+            c?.wardrobeProfile && typeof c.wardrobeProfile === "object" && "accessories" in c.wardrobeProfile
+              ? String(c.wardrobeProfile.accessories ?? "")
+              : null,
         };
       });
       const charactersWithFingerprints = panelCharacterNames
@@ -2406,6 +2501,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 ...item.baseMetadata,
                 preflight,
                 blockedReason: preflight.reasons.join(","),
+                referenceTrace: panelReferenceTrace,
               } as unknown) as Prisma.InputJsonValue,
             },
           });
@@ -2500,6 +2596,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               params.referencePolicy === "NONE"
                 ? sceneRefs
                 : refs,
+            referenceTrace: panelReferenceTrace,
             providerParams: {
               contentIntensityLayer: intensityLayer,
               mode: "PANEL_DRAFT",
@@ -2613,6 +2710,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               metadata: ({
                 ...item.baseMetadata,
                 blockedReason: "initial_generation_failed",
+                referenceTrace: panelReferenceTrace,
               } as unknown) as Prisma.InputJsonValue,
             },
           });
@@ -2731,6 +2829,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 error: persisted.error,
                 sourceUrl: bestAttempt.generation.result.imageUrl,
                 generationLog: bestAttempt.generation.log,
+                referenceTrace: panelReferenceTrace,
               } as unknown) as Prisma.InputJsonValue,
             },
           });
@@ -2781,10 +2880,16 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               temporary: "temporary" in persisted ? (persisted.temporary as boolean) : undefined,
               storageWarning: "warning" in persisted ? (persisted.warning as string) : undefined,
               sourceUrl: bestAttempt.generation.result.imageUrl,
-              canonRefUsed: canonRef ?? null,
+              requestedCanonicalRef: canonRef?.sourceUrl ?? canonRef?.publicUrl ?? canonRef?.signedUrl ?? canonRef?.falCdnUrl ?? null,
+              canonRefUsed: characterReferenceResolution.trace.used[0]?.resolvedUrl ?? null,
+              referenceTrace: panelReferenceTrace,
               driftScore: bestAttempt.drift.score,
               driftPass: bestAttempt.drift.pass,
+              driftSeverity: bestAttempt.drift.severity,
               driftIssues: bestAttempt.drift.issues.slice(0, 5),
+              driftReasons: bestAttempt.drift.reasons.slice(0, 8),
+              driftMissingTraits: bestAttempt.drift.missingTraits.slice(0, 6),
+              driftConflictingTraits: bestAttempt.drift.conflictingTraits.slice(0, 6),
               promptVisualConsistency: visualConsistency,
               validationScore: bestAttempt.validationScore,
               validationDetails: bestAttempt.validationDetails,
@@ -2810,7 +2915,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           where: { id: item.sceneImageId },
           data: {
             status: "failed",
-            metadata: ({ ...item.baseMetadata, error: msg } as unknown) as Prisma.InputJsonValue,
+            metadata: ({ ...item.baseMetadata, error: msg, referenceTrace: panelReferenceTrace } as unknown) as Prisma.InputJsonValue,
           },
         });
         return "fail";
