@@ -1,8 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
-
 /**
  * Conteneur repliable pour le mode expert.
  * Masqué par défaut — l'utilisateur peut finir un chapitre sans l'ouvrir.
