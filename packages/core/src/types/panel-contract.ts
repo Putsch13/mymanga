@@ -3,6 +3,8 @@
  * Le panel n'est plus un prompt libre, c'est une spec visuelle stricte.
  */
 
+import type { CharacterFingerprint } from "./character-fingerprint";
+
 export interface PanelContract {
   panelId: string;
   pageNumber: number;
@@ -45,6 +47,35 @@ export interface PanelContract {
   continuityFromPanelId?: string;
   /** IDs des visuels d'ancrage (keyframes, refs canoniques) */
   visualAnchorIds: string[];
+  /** Fingerprints des personnages présents — clé = nom du personnage */
+  characterFingerprints?: Record<string, CharacterFingerprint>;
+  /** Carte d'intention visuelle du panel (beat, motionLevel, mustShow...) */
+  intentCard?: {
+    panelRole: string;
+    beatEventType: string;
+    emotionalTarget: string;
+    actionIntensity: number;
+    motionLevel: number;
+    mustShow: string[];
+    mustAvoid: string[];
+    beatVisualConstraints: string[];
+    sfxForbiddenTypes?: string[];
+    continuityPriority: "high" | "medium" | "low";
+    sfxIntent: string | null;
+  };
+  /** Ancre spatiale de la scène (positions, layout, décor établi) */
+  sceneAnchor?: {
+    sceneId: string;
+    anchorImageId?: string;
+    castLineup: string[];
+    spatialLayout: string;
+    dominantLocation: string;
+    characterPositions: Record<string, "left" | "center" | "right" | "background">;
+    dominantMood: string;
+    weather?: string;
+    timeOfDay?: string;
+    persistentProps?: string[];
+  };
   /** Plan de placement du texte */
   textBoxPlan: {
     narration?: boolean;
@@ -57,6 +88,25 @@ export interface PanelContract {
     targetAspectRatio: string;
     cropMode: "contain" | "cover";
     focalPoint?: { x: number; y: number };
+  };
+  /** Trace de debug panel — activée si MANGA_DEBUG_PANEL=true */
+  panelDebugTrace?: {
+    sourceBeat: string;
+    panelIntent: string;
+    promptDigest: string;
+    refsRequested: string[];
+    refsUsed: string[];
+    refsIgnored: string[];
+    charactersExpected: string[];
+    styleProfileExpected: string;
+    driftResult?: {
+      score: number;
+      severity: string;
+      recommendedAction: string;
+      styleDriftScore?: number;
+      characterDriftScore?: number;
+      beatAlignmentScore?: number;
+    };
   };
 }
 

@@ -6,6 +6,27 @@ export interface CombatPanelDirectionInput {
   characterCount?: number;
   /** Bonus de lisibilité combat issu du genre director (ex: +20 pour shonen_combat) */
   combatReadabilityBonus?: number;
+  /** Continuité de combat depuis le panel précédent */
+  previousCombatState?: CombatContinuityState | null;
+}
+
+export interface CombatContinuityState {
+  /** Direction du mouvement du panel précédent */
+  movementDirection: "left_to_right" | "right_to_left" | "upward" | "downward" | "inward";
+  /** Positions relatives attaquant/défenseur */
+  attackerPosition: "left" | "right" | "center";
+  defenderPosition: "left" | "right" | "center";
+  /** Escalade ou rupture du rythme */
+  rhythmState: "escalating" | "breaking" | "recovering" | "steady";
+  /** Preset du panel précédent */
+  previousPreset: CombatPreset;
+}
+
+export interface CombatContinuityOutput {
+  /** Continuité à passer au panel suivant */
+  nextState: CombatContinuityState;
+  /** Contraintes de continuité pour le prompt */
+  continuityConstraints: string[];
 }
 
 export type CombatPreset =
@@ -35,6 +56,8 @@ export interface CombatPanelDirection {
   actionReadabilityScore: number;
   crowdReactionHint: string | null;
   environmentDestructionLevel: "none" | "minor" | "moderate" | "major";
+  /** Continuité de combat */
+  combatContinuity?: CombatContinuityOutput;
 }
 
 type PresetDefinition = Omit<CombatPanelDirection, "preset">;
@@ -212,7 +235,59 @@ function selectPreset(text: string, currentShotType: string | null | undefined):
   if (/(dialogue|parle|dit|répond|tension verbale)/.test(text)) return "dialogue_tension";
   if (/(établit|décor|lieu|arena|champ de bataille)/.test(text)) return "establishing_location";
 
+  // Utiliser le shot type courant pour affiner si aucun texte ne matche
+  if (currentShotType === "closeup" || currentShotType === "extreme_closeup") return "rage_closeup";
+  if (currentShotType === "wide") return "combat_clash";
+
   return "combat_clash";
+}
+
+function buildCombatContinuity(
+  preset: CombatPreset,
+  previous: CombatContinuityState | null | undefined,
+  characterCount: number,
+): CombatContinuityOutput {
+  const constraints: string[] = [];
+
+  if (previous) {
+    // Maintenir la cohérence directionnelle
+    const sameDirection = previous.movementDirection;
+    constraints.push(`maintain movement direction: ${sameDirection}`);
+
+    // Attaquant et défenseur gardent leurs positions sauf si preset change les rôles
+    if (preset !== "feint_and_counter") {
+      constraints.push(`attacker stays ${previous.attackerPosition}, defender stays ${previous.defenderPosition}`);
+    } else {
+      constraints.push("roles reversed: previous defender now attacks");
+    }
+
+    // Escalade ou rupture
+    if (previous.rhythmState === "escalating" && (preset === "combat_aftermath" || preset === "post_impact_silence")) {
+      constraints.push("rhythm break: sudden stillness after escalation");
+    }
+  }
+
+  // Lisibilité selon le nombre de personnages
+  if (characterCount >= 3) {
+    constraints.push("keep main fighters in foreground, others in background");
+  }
+
+  const nextRhythm: CombatContinuityState["rhythmState"] =
+    preset === "combat_aftermath" || preset === "post_impact_silence" ? "recovering"
+    : preset === "fast_exchange" || preset === "arena_shockwave" ? "escalating"
+    : preset === "feint_and_counter" ? "breaking"
+    : "steady";
+
+  return {
+    nextState: {
+      movementDirection: previous?.movementDirection ?? "left_to_right",
+      attackerPosition: preset === "feint_and_counter" ? (previous?.defenderPosition ?? "right") : (previous?.attackerPosition ?? "left"),
+      defenderPosition: preset === "feint_and_counter" ? (previous?.attackerPosition ?? "left") : (previous?.defenderPosition ?? "right"),
+      rhythmState: nextRhythm,
+      previousPreset: preset,
+    },
+    continuityConstraints: constraints,
+  };
 }
 
 export function directCombatPanel(input: CombatPanelDirectionInput): CombatPanelDirection {
@@ -220,10 +295,18 @@ export function directCombatPanel(input: CombatPanelDirectionInput): CombatPanel
   const preset = selectPreset(text, input.currentShotType);
   const definition = PRESET_DEFINITIONS[preset];
 
-  // Ajuster le shotType selon le contexte
+  // Ajuster le shotType selon le contexte et le nombre de personnages
   let shotType = definition.shotType;
   if (preset === "combat_clash" && input.currentShotType === "closeup") {
     shotType = "medium";
+  }
+  // Avec 3+ personnages, préférer wide pour la lisibilité
+  const characterCount = input.characterCount ?? 1;
+  if (characterCount >= 3 && shotType === "closeup") {
+    shotType = "medium";
+  }
+  if (characterCount >= 4 && shotType !== "wide") {
+    shotType = "wide";
   }
 
   // Ajuster le momentum selon l'input
@@ -235,11 +318,15 @@ export function directCombatPanel(input: CombatPanelDirectionInput): CombatPanel
   const readabilityBonus = input.combatReadabilityBonus ?? 0;
   const actionReadabilityScore = Math.min(100, definition.actionReadabilityScore + readabilityBonus);
 
+  // Construire la continuité de combat
+  const combatContinuity = buildCombatContinuity(preset, input.previousCombatState, characterCount);
+
   return {
     preset,
     ...definition,
     shotType,
     momentum,
     actionReadabilityScore,
+    combatContinuity,
   };
 }

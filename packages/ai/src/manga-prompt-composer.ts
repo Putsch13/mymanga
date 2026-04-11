@@ -1,5 +1,13 @@
 import type { PanelMood } from "./chapter-pipeline";
 import type { SceneBlueprint } from "@manga-ai-studio/world";
+import type { ChapterLookProfile } from "@manga-ai-studio/core";
+import { buildLookProfilePromptBlock, buildLookProfileNegativeBlock } from "@manga-ai-studio/core";
+import type { CharacterFingerprint } from "@manga-ai-studio/core";
+import { compileHardTraitsPromptBlock, compileHardTraitsNegativeBlock } from "@manga-ai-studio/core";
+import type { SceneAnchor } from "./services/scene-anchor";
+import { buildSceneAnchorPromptBlock } from "./services/scene-anchor";
+import type { PanelIntentCard } from "./services/panel-intent-card";
+import { buildPanelIntentPromptBlock, buildPanelIntentNegativeBlock } from "./services/panel-intent-card";
 
 export interface CharacterRef {
   name: string;
@@ -21,6 +29,12 @@ export interface CharacterRef {
   lockStrength?: "HARD_LOCK" | "STRONG" | "MEDIUM" | "LIGHT" | "NONE" | null;
   continuityBudget?: "strict" | "light" | "none" | null;
   recurringMemory?: string | null;
+  /** Traits durs non négociables (hard lock) */
+  hardTraits?: string[] | null;
+  /** Traits souples */
+  softTraits?: string[] | null;
+  /** Fingerprint structuré complet si disponible */
+  fingerprint?: CharacterFingerprint | null;
 }
 
 export interface StylePackRef {
@@ -54,6 +68,12 @@ export interface PanelPromptInput {
   narrativeObjective?: string | null;
   /** Contraintes canon actives pour le panel */
   canonConstraints?: string[] | null;
+  /** Profil look chapitre autoritaire — source de vérité style */
+  chapterLookProfile?: ChapterLookProfile | null;
+  /** Ancre spatiale de la scène */
+  sceneAnchor?: SceneAnchor | null;
+  /** Carte d'intention visuelle du panel */
+  intentCard?: PanelIntentCard | null;
 }
 
 export interface ComposedPrompt {
@@ -68,6 +88,9 @@ export interface ComposedPrompt {
       hasCharacterLock: boolean;
       hasNarrativeObjective: boolean;
       hasEnvironmentLock: boolean;
+      hasLookProfile?: boolean;
+      hasSceneAnchor?: boolean;
+      hasIntentCard?: boolean;
     };
     promptWarnings: string[];
   };
@@ -165,6 +188,13 @@ function describeCharacter(c: CharacterRef): string {
   if (c.wardrobeDetails) parts.push(c.wardrobeDetails);
   if (c.recurringMemory) parts.push(c.recurringMemory);
 
+  // Hard traits — non négociables
+  if (c.hardTraits && c.hardTraits.length > 0) {
+    parts.push(`HARD LOCK: ${c.hardTraits.slice(0, 5).join(", ")}`);
+  } else if (c.fingerprint?.hardTraits && c.fingerprint.hardTraits.length > 0) {
+    parts.push(`HARD LOCK: ${c.fingerprint.hardTraits.slice(0, 5).join(", ")}`);
+  }
+
   return parts.join(", ");
 }
 
@@ -247,7 +277,34 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     promptSections.push({ key, label, content: sanitizeSectionText(content) });
   };
 
+  // ChapterLookProfile — source de vérité style
+  if (input.chapterLookProfile) {
+    addSection("chapterLookProfile", "Chapter Look Profile", buildLookProfilePromptBlock(input.chapterLookProfile));
+  }
+
   addSection("characterCanonLock", "Character Canon Lock", charDescs ? `Subject lock: ${charDescs}.` : "");
+
+  // Hard traits depuis fingerprints
+  if (input.characters && input.characters.length > 0) {
+    const hardTraitBlocks = input.characters
+      .filter((c) => c.fingerprint?.hardTraits && c.fingerprint.hardTraits.length > 0)
+      .map((c) => compileHardTraitsPromptBlock(c.fingerprint!))
+      .filter(Boolean);
+    if (hardTraitBlocks.length > 0) {
+      addSection("hardTraitsLock", "Hard Traits Lock", hardTraitBlocks.join(" | "));
+    }
+  }
+
+  // PanelIntentCard — beat visuel autoritaire
+  if (input.intentCard) {
+    addSection("panelIntent", "Panel Intent / Beat", buildPanelIntentPromptBlock(input.intentCard));
+  }
+
+  // SceneAnchor — continuité spatiale
+  if (input.sceneAnchor) {
+    addSection("sceneAnchor", "Scene Spatial Anchor", buildSceneAnchorPromptBlock(input.sceneAnchor));
+  }
+
   addSection(
     "narrativeObjective",
     "Narrative Objective",
@@ -333,6 +390,29 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     negative += ", nudity, violence, blood, gore, suggestive poses";
   }
 
+  // ChapterLookProfile — familles visuelles incompatibles
+  if (input.chapterLookProfile) {
+    const lookNeg = buildLookProfileNegativeBlock(input.chapterLookProfile);
+    if (lookNeg) negative += `, ${lookNeg}`;
+  }
+
+  // Hard traits forbidden drift depuis fingerprints
+  if (input.characters && input.characters.length > 0) {
+    const hardNegBlocks = input.characters
+      .filter((c) => c.fingerprint)
+      .map((c) => compileHardTraitsNegativeBlock(c.fingerprint!))
+      .filter(Boolean);
+    if (hardNegBlocks.length > 0) {
+      negative += `, ${hardNegBlocks.join(", ")}`;
+    }
+  }
+
+  // PanelIntentCard — éléments à éviter selon le beat
+  if (input.intentCard) {
+    const intentNeg = buildPanelIntentNegativeBlock(input.intentCard);
+    if (intentNeg) negative += `, ${intentNeg}`;
+  }
+
   return {
     positive,
     negative,
@@ -352,6 +432,9 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
         hasCharacterLock: Boolean(charDescs),
         hasNarrativeObjective: Boolean(input.narrativeObjective || input.sceneContext),
         hasEnvironmentLock: Boolean(environmentLock),
+        hasLookProfile: Boolean(input.chapterLookProfile),
+        hasSceneAnchor: Boolean(input.sceneAnchor),
+        hasIntentCard: Boolean(input.intentCard),
       },
       promptWarnings,
     },

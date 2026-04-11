@@ -17,6 +17,9 @@ export function ChapterEditorSidebarSummary({
   minimumImages,
   generatedImages,
   estimateContext,
+  chapterLookProfileMode,
+  genreMode,
+  qualityScore,
   onSelectStep,
   onSave,
 }: {
@@ -36,6 +39,12 @@ export function ChapterEditorSidebarSummary({
   minimumImages: number;
   generatedImages: number;
   estimateContext?: EstimateContext | null;
+  /** Profil look chapitre actif */
+  chapterLookProfileMode?: string | null;
+  /** Mode genre actif */
+  genreMode?: string | null;
+  /** Score qualité narratif (0–100) */
+  qualityScore?: number | null;
   onSelectStep: (step: ChapterFlowStepId) => void;
   onSave: () => void;
 }) {
@@ -95,6 +104,29 @@ export function ChapterEditorSidebarSummary({
               <p className="text-xs font-medium text-green-600 dark:text-green-400">Aucun blocant</p>
             </div>
           )}
+
+          {/* Look Profile + Genre Mode + Quality Score */}
+          {(chapterLookProfileMode || genreMode || qualityScore !== null && qualityScore !== undefined) ? (
+            <div className="rounded-xl border border-border/40 bg-muted/20 p-3 space-y-1" data-testid="chapter-look-profile-summary">
+              <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Profil visuel</p>
+              {chapterLookProfileMode ? (
+                <p className="text-xs font-medium">
+                  {chapterLookProfileMode === "premium_manga_bw" ? "Manga BW Premium"
+                    : chapterLookProfileMode === "premium_manga_color" ? "Manga Couleur Premium"
+                    : chapterLookProfileMode === "anime_cel_shaded_consistent" ? "Anime Cel Shaded"
+                    : chapterLookProfileMode}
+                </p>
+              ) : null}
+              {genreMode ? (
+                <p className="text-xs text-muted-foreground">Genre: {genreMode}</p>
+              ) : null}
+              {qualityScore !== null && qualityScore !== undefined ? (
+                <p className={`text-xs font-medium ${qualityScore >= 80 ? "text-green-600 dark:text-green-400" : qualityScore >= 50 ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400"}`}>
+                  Qualité narrative: {qualityScore}/100
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           {estimateContext ? (
             <div className="rounded-xl border border-border/40 bg-muted/20 p-3 space-y-1" data-testid="estimate-context-summary">

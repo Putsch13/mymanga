@@ -1,11 +1,76 @@
 import { moderationOutcomeForImage } from "@manga-ai-studio/moderation";
 import type { ContentIntensityLayer } from "@manga-ai-studio/moderation";
 import { computeFalSceneAssessment } from "./fal-scene-strategy";
-import type { ImageRoutingDecision, ImageWorkflow, RoutingContext } from "./types";
+import type { ImageProviderId, ImageRoutingDecision, ImageWorkflow, RoutingContext } from "./types";
 
 const DEFAULT_FLUX_MODEL = "fal-ai/flux/dev";
 const DEFAULT_STABILITY_MODEL = "stable-image-ultra";
 const DEFAULT_RUNWARE_MODEL = "runware-custom-stack";
+
+/** Capacités visuelles déclarées par provider */
+interface ProviderCapabilities {
+  /** Modes look profile supportés */
+  supportedLookModes: string[];
+  /** Force du support de refs */
+  refStrength: "none" | "weak" | "medium" | "strong";
+  /** Support style manga BW */
+  supportsMangaBw: boolean;
+  /** Support anime cel shaded */
+  supportsAnimeCel: boolean;
+  /** Support action readability */
+  supportsActionReadability: boolean;
+  /** Support style persistence */
+  supportsStylePersistence: boolean;
+}
+
+const PROVIDER_CAPABILITIES: Record<ImageProviderId, ProviderCapabilities> = {
+  fal: {
+    supportedLookModes: ["premium_manga_bw", "premium_manga_color", "anime_cel_shaded_consistent"],
+    refStrength: "strong",
+    supportsMangaBw: true,
+    supportsAnimeCel: true,
+    supportsActionReadability: true,
+    supportsStylePersistence: true,
+  },
+  runware: {
+    supportedLookModes: ["premium_manga_color", "anime_cel_shaded_consistent"],
+    refStrength: "medium",
+    supportsMangaBw: false,
+    supportsAnimeCel: true,
+    supportsActionReadability: true,
+    supportsStylePersistence: false,
+  },
+  stability: {
+    supportedLookModes: ["premium_manga_color"],
+    refStrength: "medium",
+    supportsMangaBw: false,
+    supportsAnimeCel: false,
+    supportsActionReadability: false,
+    supportsStylePersistence: false,
+  },
+  bfl: {
+    supportedLookModes: ["premium_manga_color"],
+    refStrength: "weak",
+    supportsMangaBw: false,
+    supportsAnimeCel: false,
+    supportsActionReadability: false,
+    supportsStylePersistence: false,
+  },
+};
+
+/** Vérifier si un provider supporte le look profile demandé */
+function providerSupportsLookMode(provider: ImageProviderId, lookMode: string | null | undefined): boolean {
+  if (!lookMode) return true;
+  return PROVIDER_CAPABILITIES[provider]?.supportedLookModes.includes(lookMode) ?? false;
+}
+
+/** Filtrer les providers compatibles avec le look mode */
+function filterByLookMode(providers: ImageProviderId[], lookMode: string | null | undefined): ImageProviderId[] {
+  if (!lookMode) return providers;
+  const compatible = providers.filter((p) => providerSupportsLookMode(p, lookMode));
+  // Si aucun compatible, retourner la liste originale (fallback gracieux)
+  return compatible.length > 0 ? compatible : providers;
+}
 
 function isProviderConfigured(provider: "fal" | "bfl" | "runware" | "stability") {
   if (provider === "fal") return Boolean(process.env.FAL_KEY);
@@ -17,11 +82,17 @@ function isProviderConfigured(provider: "fal" | "bfl" | "runware" | "stability")
 
 function pickBestAvailable(
   preferred: Array<"fal" | "runware" | "stability" | "bfl">,
+  lookMode?: string | null,
 ): "fal" | "runware" | "stability" | "bfl" {
+  // Filtrer par look mode d'abord si spécifié
+  const filtered = lookMode ? filterByLookMode(preferred, lookMode) : preferred;
+  for (const p of filtered) {
+    if (isProviderConfigured(p)) return p;
+  }
+  // Fallback : essayer la liste originale si aucun compatible configuré
   for (const p of preferred) {
     if (isProviderConfigured(p)) return p;
   }
-  // Si rien n'est configuré, on garde le premier pour produire une erreur explicite côté provider.
   return preferred[0] ?? "fal";
 }
 
@@ -143,7 +214,7 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
   }
 
   if (ctx.hasCanonReferences && (ctx.mode === "PANEL_FINAL" || ctx.mode === "PANEL_DRAFT")) {
-    const provider = pickBestAvailable(["fal", "runware", "stability", "bfl"]);
+    const provider = pickBestAvailable(["fal", "runware", "stability", "bfl"], ctx.chapterLookProfileMode);
     const gate = assertProviderAllowed(provider, layer);
     if ("blocked" in gate) return { blocked: true, reason: gate.reason, textOnlyFallback: true };
     return {
@@ -220,7 +291,7 @@ export function decideImageRoute(ctx: RoutingContext): RoutingResult {
     };
   }
 
-  const provider = pickBestAvailable(["fal", "runware", "stability", "bfl"]);
+  const provider = pickBestAvailable(["fal", "runware", "stability", "bfl"], ctx.chapterLookProfileMode);
   const preferFalForComplexScene =
     ctx.mode !== "COVER_ART"
     && sceneComplexity >= 5

@@ -32,7 +32,20 @@ type QAReportResponse = {
       driftScore: number | null;
       driftSeverity: string | null;
       driftReasons: string[];
-      promptDebug: { finalPrompt?: string; promptWarnings?: string[] };
+      /** Nouveaux champs drift 2.0 */
+      styleDriftScore?: number | null;
+      characterDriftScore?: number | null;
+      beatAlignmentScore?: number | null;
+      sceneContinuityScore?: number | null;
+      chapterLookMismatch?: boolean | null;
+      recommendedAction?: string | null;
+      continuityRisk?: boolean | null;
+      /** Contraintes préservées/relâchées au reroll */
+      preservedConstraints?: string[];
+      relaxedConstraints?: string[];
+      /** Patches auto-appliqués */
+      autoAppliedPatches?: Array<{ type: string; description: string }>;
+      promptDebug: { finalPrompt?: string; promptWarnings?: string[]; resolvedPolicy?: Record<string, boolean> };
       prompt: string | null;
       referencePolicy: string | null;
       panelCategory: string | null;
@@ -117,12 +130,20 @@ export function ChapterReviewBoard(input: {
     });
   }, [filters, report?.panelResults]);
 
-  async function rerollPanel(panelId: string) {
+  async function rerollPanel(panelId: string, mode: string = "character") {
     setActionMessage(null);
-    const response = await fetch(`/api/scene-images/${panelId}/retry?mode=character`, { method: "POST" });
+    const response = await fetch(`/api/scene-images/${panelId}/retry?mode=${mode}`, { method: "POST" });
     const data = (await response.json().catch(() => ({}))) as { error?: string; message?: string; ok?: boolean };
-    setActionMessage(response.ok ? `Reroll lancé pour ${panelId}.` : data.message ?? data.error ?? "Le reroll a échoué.");
+    setActionMessage(response.ok ? `Reroll ${mode} lancé pour ${panelId}.` : data.message ?? data.error ?? "Le reroll a échoué.");
     await refresh();
+  }
+
+  function getRerollModeFromAction(recommendedAction: string | null | undefined): string {
+    if (recommendedAction === "style_reroll") return "style";
+    if (recommendedAction === "character_reroll") return "character";
+    if (recommendedAction === "soft_reroll") return "composition";
+    if (recommendedAction === "full_reroll") return "character";
+    return "character";
   }
 
   async function completeReview() {
@@ -239,10 +260,46 @@ export function ChapterReviewBoard(input: {
                 QA visuelle: {panel.qaWasExecuted ? "exécutée" : panel.qaWasRequired ? `manquante (${panel.qaFailureReason ?? "indisponible"})` : `non requise (${panel.qaBypassReason ?? "panel non critique"})`}
               </p>
               {panel.driftSeverity ? (
-                <p className={panel.driftSeverity === "high" || panel.driftSeverity === "critical" ? "text-amber-500" : "text-muted-foreground"}>
-                  Drift visuel: {panel.driftSeverity} {panel.driftScore !== null ? `(${Math.round(panel.driftScore)}%)` : ""}
-                  {panel.driftReasons.length ? ` · ${panel.driftReasons.slice(0, 2).join(", ")}` : ""}
-                </p>
+                <div className={`rounded-lg border p-2 text-xs space-y-1 ${panel.driftSeverity === "high" || panel.driftSeverity === "critical" ? "border-amber-500/40 bg-amber-500/5 text-amber-600" : "border-border/40 text-muted-foreground"}`}>
+                  <p className="font-medium">
+                    Drift visuel: {panel.driftSeverity} {panel.driftScore !== null ? `(${Math.round(panel.driftScore)}%)` : ""}
+                    {panel.chapterLookMismatch ? " · LOOK MISMATCH" : ""}
+                    {panel.continuityRisk ? " · RISQUE CONTINUITÉ" : ""}
+                  </p>
+                  {(panel.styleDriftScore !== null && panel.styleDriftScore !== undefined) || (panel.characterDriftScore !== null && panel.characterDriftScore !== undefined) || (panel.beatAlignmentScore !== null && panel.beatAlignmentScore !== undefined) ? (
+                    <div className="grid grid-cols-3 gap-2">
+                      {panel.styleDriftScore !== null && panel.styleDriftScore !== undefined ? (
+                        <span>Style: {Math.round(panel.styleDriftScore)}%</span>
+                      ) : null}
+                      {panel.characterDriftScore !== null && panel.characterDriftScore !== undefined ? (
+                        <span>Perso: {Math.round(panel.characterDriftScore)}%</span>
+                      ) : null}
+                      {panel.beatAlignmentScore !== null && panel.beatAlignmentScore !== undefined ? (
+                        <span>Beat: {Math.round(panel.beatAlignmentScore)}%</span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {panel.recommendedAction && panel.recommendedAction !== "keep" ? (
+                    <p>Action recommandée: <strong>{panel.recommendedAction}</strong></p>
+                  ) : null}
+                  {panel.driftReasons.length ? (
+                    <p>{panel.driftReasons.slice(0, 2).join(", ")}</p>
+                  ) : null}
+                  {panel.preservedConstraints && panel.preservedConstraints.length > 0 ? (
+                    <p className="text-green-600">Préservé au reroll: {panel.preservedConstraints.join(", ")}</p>
+                  ) : null}
+                  {panel.relaxedConstraints && panel.relaxedConstraints.length > 0 ? (
+                    <p className="text-muted-foreground">Relâché: {panel.relaxedConstraints.join(", ")}</p>
+                  ) : null}
+                </div>
+              ) : null}
+              {panel.autoAppliedPatches && panel.autoAppliedPatches.length > 0 ? (
+                <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-2 text-xs space-y-1">
+                  <p className="font-medium text-blue-600">Patches auto-appliqués ({panel.autoAppliedPatches.length})</p>
+                  {panel.autoAppliedPatches.map((patch, index) => (
+                    <p key={index} className="text-muted-foreground">· {patch.type}: {patch.description}</p>
+                  ))}
+                </div>
               ) : null}
               <p>{panel.prompt ?? "Aucun prompt."}</p>
               {panel.promptDebug?.finalPrompt ? (
@@ -270,11 +327,12 @@ export function ChapterReviewBoard(input: {
                   <li key={`${panel.panelId}-${index}`}>- {issue}</li>
                 )) : <li>- Aucun problème majeur détecté</li>}
               </ul>
-              <div className="flex justify-end gap-2">
+              <div className="flex flex-wrap justify-end gap-2">
                 {panel.previousImageUrl ? (
                   <Button
                     data-testid={`compare-panel-${panel.panelId}`}
                     variant="secondary"
+                    size="sm"
                     onClick={() =>
                       setComparePanels((value) => ({
                         ...value,
@@ -282,11 +340,27 @@ export function ChapterReviewBoard(input: {
                       }))
                     }
                   >
-                    {comparePanels[panel.panelId] ? "Masquer comparaison" : "Comparer avec la version précédente"}
+                    {comparePanels[panel.panelId] ? "Masquer" : "Comparer"}
                   </Button>
                 ) : null}
-                <Button variant="outline" onClick={() => rerollPanel(panel.panelId)}>
-                  Reroll panel
+                {panel.recommendedAction && panel.recommendedAction !== "keep" ? (
+                  <Button
+                    data-testid={`reroll-recommended-${panel.panelId}`}
+                    variant="default"
+                    size="sm"
+                    onClick={() => rerollPanel(panel.panelId, getRerollModeFromAction(panel.recommendedAction))}
+                  >
+                    Reroll {panel.recommendedAction === "style_reroll" ? "style" : panel.recommendedAction === "character_reroll" ? "personnage" : "ciblé"}
+                  </Button>
+                ) : null}
+                <Button variant="outline" size="sm" onClick={() => rerollPanel(panel.panelId, "environment")}>
+                  Reroll décor
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => rerollPanel(panel.panelId, "character")}>
+                  Reroll perso
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => rerollPanel(panel.panelId, "style")}>
+                  Reroll style
                 </Button>
               </div>
             </CardContent>

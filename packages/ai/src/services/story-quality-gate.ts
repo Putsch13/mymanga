@@ -482,3 +482,265 @@ export function runStoryQualityGate(
 
   return { report, patchedBundle };
 }
+
+// ============================================================
+// PANEL QUALITY GATE
+// ============================================================
+
+export interface PanelQualityIssue {
+  code: string;
+  severity: "info" | "warning" | "error";
+  message: string;
+  autoFixable: boolean;
+}
+
+export interface PanelQualityReport {
+  passed: boolean;
+  score: number;
+  issues: PanelQualityIssue[];
+  reviewFlags: string[];
+  blockReasons: string[];
+  sfxCoherenceOk: boolean;
+  beatAlignmentOk: boolean;
+  lookConsistencyOk: boolean;
+}
+
+/**
+ * Quality gate au niveau panel.
+ * Vérifie : look consistency, beat-image alignment, SFX coherence.
+ */
+export function runPanelQualityGate(input: {
+  panelPrompt: string;
+  beatEventType?: string | null;
+  motionLevel?: number;
+  sfx?: string[] | null;
+  chapterLookProfileMode?: string | null;
+  sfxForbiddenTypes?: string[] | null;
+  mustShow?: string[] | null;
+}): PanelQualityReport {
+  const issues: PanelQualityIssue[] = [];
+  const reviewFlags: string[] = [];
+  const blockReasons: string[] = [];
+  const promptLower = input.panelPrompt.toLowerCase();
+
+  let score = 100;
+
+  // SFX coherence gate
+  let sfxCoherenceOk = true;
+  const sfxList = input.sfx ?? [];
+  const forbiddenSfxTypes = input.sfxForbiddenTypes ?? [];
+
+  for (const sfx of sfxList) {
+    const sfxLower = sfx.toLowerCase();
+    for (const forbidden of forbiddenSfxTypes) {
+      if (sfxLower.includes(forbidden.toLowerCase()) || forbidden.toLowerCase().includes(sfxLower)) {
+        issues.push({
+          code: "sfx_beat_mismatch",
+          severity: "warning",
+          message: `SFX "${sfx}" incohérent avec le beat "${input.beatEventType}" (type interdit: ${forbidden})`,
+          autoFixable: true,
+        });
+        reviewFlags.push(`sfx_mismatch:${sfx}`);
+        sfxCoherenceOk = false;
+        score -= 15;
+      }
+    }
+  }
+
+  // SFX impact sur romance/silence
+  const isRomanceBeat = input.beatEventType === "romance_tension" || input.beatEventType === "silent_beat";
+  if (isRomanceBeat && sfxList.some((s) => /(smash|boom|crash|impact|bang)/i.test(s))) {
+    issues.push({
+      code: "impact_sfx_on_romance_beat",
+      severity: "error",
+      message: `SFX d'impact sur un beat romance/silence — incohérence majeure`,
+      autoFixable: true,
+    });
+    reviewFlags.push("impact_sfx_on_romance");
+    sfxCoherenceOk = false;
+    score -= 25;
+  }
+
+  // Beat alignment gate
+  let beatAlignmentOk = true;
+  const motionLevel = input.motionLevel ?? 5;
+
+  if (input.beatEventType === "combat_turning_point" && motionLevel < 7) {
+    const hasMotion = /(speed lines|motion blur|dynamic|explosive|burst|impact)/.test(promptLower);
+    if (!hasMotion) {
+      issues.push({
+        code: "combat_turning_point_no_motion",
+        severity: "warning",
+        message: "Panel combat_turning_point sans mouvement lisible dans le prompt",
+        autoFixable: false,
+      });
+      reviewFlags.push("combat_no_motion");
+      beatAlignmentOk = false;
+      score -= 20;
+    }
+  }
+
+  if (input.beatEventType === "silent_beat") {
+    const hasSfx = sfxList.length > 0;
+    if (hasSfx) {
+      issues.push({
+        code: "sfx_on_silent_beat",
+        severity: "warning",
+        message: "SFX présents sur un beat silencieux",
+        autoFixable: true,
+      });
+      reviewFlags.push("sfx_on_silence");
+      score -= 10;
+    }
+  }
+
+  // Look consistency gate
+  let lookConsistencyOk = true;
+  if (input.chapterLookProfileMode) {
+    const incompatiblePatterns: Record<string, string[]> = {
+      premium_manga_bw: ["photorealistic", "semi-realistic", "cyberpunk neon", "anime tv"],
+      premium_manga_color: ["photorealistic", "semi-realistic", "manga bw"],
+      anime_cel_shaded_consistent: ["photorealistic", "semi-realistic", "manga bw"],
+    };
+    const forbidden = incompatiblePatterns[input.chapterLookProfileMode] ?? [];
+    for (const pattern of forbidden) {
+      if (promptLower.includes(pattern.toLowerCase())) {
+        issues.push({
+          code: "look_profile_mismatch",
+          severity: "warning",
+          message: `Style "${pattern}" incompatible avec le look profile "${input.chapterLookProfileMode}"`,
+          autoFixable: false,
+        });
+        reviewFlags.push(`look_mismatch:${pattern}`);
+        lookConsistencyOk = false;
+        score -= 20;
+      }
+    }
+  }
+
+  score = Math.max(0, Math.min(100, score));
+  const passed = score >= 60 && blockReasons.length === 0;
+
+  return {
+    passed,
+    score,
+    issues,
+    reviewFlags,
+    blockReasons,
+    sfxCoherenceOk,
+    beatAlignmentOk,
+    lookConsistencyOk,
+  };
+}
+
+// ============================================================
+// SCENE QUALITY GATE
+// ============================================================
+
+export interface SceneQualityReport {
+  passed: boolean;
+  score: number;
+  issues: PanelQualityIssue[];
+  reviewFlags: string[];
+  lookConsistencyScore: number;
+  castConsistencyScore: number;
+  sceneContinuityScore: number;
+}
+
+/**
+ * Quality gate au niveau scène.
+ * Vérifie : look consistency inter-panels, cast consistency, continuité spatiale.
+ */
+export function runSceneQualityGate(input: {
+  sceneId: string;
+  panelPrompts: string[];
+  castLineup: string[];
+  chapterLookProfileMode?: string | null;
+  anchorLocation?: string | null;
+}): SceneQualityReport {
+  const issues: PanelQualityIssue[] = [];
+  const reviewFlags: string[] = [];
+
+  let lookConsistencyScore = 100;
+  let castConsistencyScore = 100;
+  let sceneContinuityScore = 100;
+
+  // Vérifier la cohérence du look entre panels
+  if (input.chapterLookProfileMode && input.panelPrompts.length > 1) {
+    const incompatiblePatterns: Record<string, string[]> = {
+      premium_manga_bw: ["photorealistic", "semi-realistic", "color"],
+      premium_manga_color: ["photorealistic", "semi-realistic", "black and white only"],
+      anime_cel_shaded_consistent: ["photorealistic", "semi-realistic"],
+    };
+    const forbidden = incompatiblePatterns[input.chapterLookProfileMode] ?? [];
+
+    let mismatchCount = 0;
+    for (const prompt of input.panelPrompts) {
+      const lower = prompt.toLowerCase();
+      if (forbidden.some((f) => lower.includes(f.toLowerCase()))) {
+        mismatchCount++;
+      }
+    }
+
+    if (mismatchCount > 0) {
+      lookConsistencyScore = Math.max(0, 100 - mismatchCount * 25);
+      issues.push({
+        code: "scene_look_inconsistency",
+        severity: "warning",
+        message: `${mismatchCount} panel(s) avec un style incompatible dans la scène`,
+        autoFixable: false,
+      });
+      reviewFlags.push("scene_look_inconsistency");
+    }
+  }
+
+  // Vérifier la présence du cast dans les panels
+  for (const character of input.castLineup.slice(0, 3)) {
+    const charLower = character.toLowerCase();
+    const presentInPanels = input.panelPrompts.filter((p) => p.toLowerCase().includes(charLower)).length;
+    const presenceRatio = input.panelPrompts.length > 0 ? presentInPanels / input.panelPrompts.length : 1;
+
+    if (presenceRatio < 0.5) {
+      castConsistencyScore -= 20;
+      issues.push({
+        code: "character_missing_from_scene",
+        severity: "info",
+        message: `${character} absent de ${Math.round((1 - presenceRatio) * 100)}% des panels de la scène`,
+        autoFixable: false,
+      });
+    }
+  }
+
+  castConsistencyScore = Math.max(0, castConsistencyScore);
+
+  // Vérifier la continuité du lieu
+  if (input.anchorLocation && input.panelPrompts.length > 1) {
+    const locationLower = input.anchorLocation.toLowerCase();
+    const presentInPanels = input.panelPrompts.filter((p) => p.toLowerCase().includes(locationLower)).length;
+    const presenceRatio = presentInPanels / input.panelPrompts.length;
+
+    if (presenceRatio < 0.6) {
+      sceneContinuityScore = Math.max(0, Math.round(presenceRatio * 100));
+      issues.push({
+        code: "location_continuity_weak",
+        severity: "info",
+        message: `Lieu "${input.anchorLocation}" absent de certains panels`,
+        autoFixable: false,
+      });
+      reviewFlags.push("location_continuity_weak");
+    }
+  }
+
+  const overallScore = Math.round((lookConsistencyScore + castConsistencyScore + sceneContinuityScore) / 3);
+  const passed = overallScore >= 60;
+
+  return {
+    passed,
+    score: overallScore,
+    issues,
+    reviewFlags,
+    lookConsistencyScore,
+    castConsistencyScore,
+    sceneContinuityScore,
+  };
+}

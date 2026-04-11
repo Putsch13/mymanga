@@ -118,6 +118,23 @@ export interface ImageGenerationLog {
   referencePolicy?: string;
   panelCategory?: string;
   imageSize?: string;
+  /** Observabilité étendue — activée si MANGA_DEBUG_PANEL=true */
+  chapterId?: string;
+  targetChapterNumber?: number;
+  genreMode?: string;
+  chapterLookProfileId?: string;
+  sceneAnchorUsed?: boolean;
+  refsRequested?: string[];
+  refsUsed?: string[];
+  refsIgnored?: string[];
+  refsIgnoredReason?: string;
+  driftScore?: number;
+  styleDriftScore?: number;
+  characterDriftScore?: number;
+  beatAlignmentScore?: number;
+  recommendedAction?: string;
+  qualityGateScore?: number;
+  autoAppliedPatchesCount?: number;
 }
 
 type RunGenerationOptions = {

@@ -110,4 +110,8 @@ export interface RoutingContext {
   preferPhotorealCover: boolean;
   explicitBlocked: boolean;
   goreStylizedMature: boolean;
+  /** Profil look chapitre — utilisé pour filtrer les providers incompatibles */
+  chapterLookProfileMode?: string | null;
+  /** Type de beat — influence le routing */
+  beatEventType?: string | null;
 }

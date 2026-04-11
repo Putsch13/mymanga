@@ -8,3 +8,4 @@ export * from "./outline-structures";
 export * from "./approved-outline";
 export * from "./visual-persistence";
 export * from "./chapter-studio";
+export * from "./chapter-look-profile";
