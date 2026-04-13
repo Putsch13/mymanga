@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { buildChapterReadinessReport } from "@manga-ai-studio/core";
+import { computeShotVarietyBudget } from "@manga-ai-studio/ai";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
+import { isUnlimitedAdminEmail } from "@/lib/auth/get-app-user";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { runFullChapterPipelineFromJob, sendChapterGenerateRequested } from "@manga-ai-studio/workflow";
 import { getAppUser } from "@/lib/auth/get-app-user";
@@ -97,6 +99,30 @@ export async function POST(_req: Request, ctx: Ctx) {
     );
   }
 
+  // B3-3 : Shot Variety Enforcer — vérifier la variété des plans avant lancement
+  const blueprintsForVariety = snapshot.data.productionPlan?.panelBlueprints;
+  if (Array.isArray(blueprintsForVariety) && blueprintsForVariety.length > 0) {
+    try {
+      const shotVariety = computeShotVarietyBudget(blueprintsForVariety as Parameters<typeof computeShotVarietyBudget>[0]);
+      if (shotVariety.varietyScore < 0.4) {
+        console.warn(
+          `[launch] shot_monotony chapterId=${chapterId} varietyScore=${shotVariety.varietyScore.toFixed(2)} missingShots=${JSON.stringify(shotVariety.missingShots ?? [])}`,
+        );
+        return NextResponse.json(
+          {
+            error: "Variété de plans insuffisante pour lancer la génération.",
+            code: "SHOT_MONOTONY",
+            varietyScore: shotVariety.varietyScore,
+            missingShots: shotVariety.missingShots ?? [],
+          },
+          { status: 422 },
+        );
+      }
+    } catch (varietyErr) {
+      console.warn(`[launch] shot_variety_check_failed (non-blocking): ${varietyErr instanceof Error ? varietyErr.message : varietyErr}`);
+    }
+  }
+
   // Traçabilité estimate → launch
   const estimateContext = snapshot.data.estimateContext;
   if (estimateContext?.targetChapterId && estimateContext.targetChapterId !== chapterId) {
@@ -191,6 +217,27 @@ export async function POST(_req: Request, ctx: Ctx) {
   });
 
   const estimatedCost = await estimateChapterTextTokensFromRules();
+
+  // F1 : Vérification du solde wallet avant lancement (non-bloquant pour les admins)
+  if (!isUnlimitedAdminEmail(user.email)) {
+    const wallet = await prisma.wallet.findUnique({ where: { userId: user.id } });
+    if (wallet && wallet.balance < estimatedCost) {
+      console.warn(
+        `[launch] insufficient_balance userId=${user.id} required=${estimatedCost} available=${wallet.balance} shortfall=${estimatedCost - wallet.balance}`,
+      );
+      return NextResponse.json(
+        {
+          error: "Solde insuffisant pour lancer la génération.",
+          code: "INSUFFICIENT_BALANCE",
+          required: estimatedCost,
+          available: wallet.balance,
+          shortfall: estimatedCost - wallet.balance,
+        },
+        { status: 402 },
+      );
+    }
+  }
+
   const job = await prisma.job.create({
     data: {
       userId: user.id,

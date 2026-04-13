@@ -43,3 +43,27 @@ export async function sendChapterOutlineJobRequested(
   });
   return { ok: true };
 }
+
+// E1 — LoRA auto-training
+export type CharacterLoraTrainingPayload = {
+  characterId: string;
+  projectId: string;
+  imageUrl: string;
+};
+
+/**
+ * Déclenche le training LoRA automatique pour un personnage clé.
+ * Appelé après generate-visual si roleType === "HERO" | "SECONDARY_CORE".
+ */
+export async function sendCharacterLoraTrainingRequested(
+  payload: CharacterLoraTrainingPayload,
+): Promise<{ ok: boolean; skipped?: string }> {
+  if (!process.env.INNGEST_EVENT_KEY) {
+    return { ok: false, skipped: "INNGEST_EVENT_KEY manquant" };
+  }
+  await inngest.send({
+    name: "character/lora.training.requested",
+    data: payload,
+  });
+  return { ok: true };
+}

@@ -1,5 +1,6 @@
 import { inngest } from "./inngest-client";
 import { prisma } from "@manga-ai-studio/db";
+import { trainCharacterLora } from "@manga-ai-studio/ai";
 import { runFullChapterPipelineFromJob } from "./run-full-chapter-pipeline";
 import { runChapterOutlineFromJob } from "./run-outline-for-chapter";
 
@@ -68,4 +69,62 @@ export const cleanupStaleImages = inngest.createFunction(
   },
 );
 
-export const functions = [generateChapterPipeline, processChapterOutlineJob, cleanupStaleImages];
+/**
+ * E1 — Training LoRA automatique pour les personnages clés.
+ * Déclenché après generate-visual si roleType === "HERO" | "SECONDARY_CORE".
+ * Retry exponentiel : 3 tentatives, backoff 30s / 2min / 10min.
+ */
+export const trainCharacterLoraJob = inngest.createFunction(
+  {
+    id: "train-character-lora",
+    name: "Train character LoRA (auto)",
+    retries: 3,
+    triggers: { event: "character/lora.training.requested" },
+  },
+  async ({ event, step }) => {
+    const { characterId, projectId, imageUrl } = event.data as {
+      characterId: string;
+      projectId: string;
+      imageUrl: string;
+    };
+
+    const result = await step.run("train-lora", async () => {
+      const character = await prisma.character.findUnique({
+        where: { id: characterId },
+        select: { id: true, name: true, slug: true, roleType: true },
+      });
+      if (!character) return { ok: false, error: "character_not_found" };
+
+      try {
+        await trainCharacterLora({
+          prisma,
+          characterId,
+          projectId,
+          characterName: character.name,
+          triggerWord: character.slug,
+          imageUrls: [imageUrl],
+        });
+
+        await prisma.character.update({
+          where: { id: characterId },
+          data: { loraStatus: "ready", loraReadyAt: new Date() },
+        });
+
+        console.log(`[train-character-lora] LoRA ready for ${character.name} (${characterId})`);
+        return { ok: true };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "lora_training_failed";
+        console.error(`[train-character-lora] Failed for ${character.name}: ${msg}`);
+        await prisma.character.update({
+          where: { id: characterId },
+          data: { loraStatus: "failed" },
+        });
+        return { ok: false, error: msg };
+      }
+    });
+
+    return { characterId, projectId, ...result };
+  },
+);
+
+export const functions = [generateChapterPipeline, processChapterOutlineJob, cleanupStaleImages, trainCharacterLoraJob];

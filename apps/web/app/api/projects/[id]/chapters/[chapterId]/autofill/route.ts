@@ -7,6 +7,7 @@ import { chapterStudioDataSchema, chapterStudioSnapshotSchema } from "@manga-ai-
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
 import { getOwnedProject } from "@/lib/ownership";
+import { repairGhostCharacters } from "@manga-ai-studio/core";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -137,6 +138,32 @@ export async function POST(req: Request, ctx: Ctx) {
         contextRecentChapters: context.recentChapters?.length ?? 0,
       },
     });
+  }
+
+  // A1 : Réparer les personnages fantômes dans le patch avant sauvegarde
+  if (result.suggestedPatch && typeof result.suggestedPatch === "object") {
+    try {
+      const knownCharacters = await prisma.character.findMany({
+        where: { projectId },
+        select: { id: true, name: true, roleType: true },
+      });
+      const knownCharacterIds = knownCharacters.map((c) => c.id);
+      const patchOutline = result.suggestedPatch as { beats?: Array<Record<string, unknown>> };
+      if (Array.isArray(patchOutline.beats) && patchOutline.beats.length > 0) {
+        const repairResult = repairGhostCharacters(
+          { beats: patchOutline.beats },
+          knownCharacterIds,
+          knownCharacters,
+        );
+        if (repairResult.ghostsFound > 0) {
+          console.warn(
+            `[autofill] ghost_repair chapterId=${chapterId} found=${repairResult.ghostsFound} resolved=${repairResult.ghostsResolved}`,
+          );
+        }
+      }
+    } catch (ghostErr) {
+      console.error(`[autofill] ghost_repair_failed (non-blocking): ${ghostErr instanceof Error ? ghostErr.message : ghostErr}`);
+    }
   }
 
   console.log(

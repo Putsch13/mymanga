@@ -1,4 +1,5 @@
 import { generateChapterOutline } from "@manga-ai-studio/ai";
+import { repairGhostCharacters } from "@manga-ai-studio/core";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 
 export type OutlineJobInput = {
@@ -58,14 +59,33 @@ export async function runOutlineForChapterId(
     previousCliffhanger: prevCliff,
   });
 
+  // A3 : Réparer les personnages fantômes avant persistance
+  const knownCharacters = await prisma.character.findMany({
+    where: { projectId: chapter.projectId },
+    select: { id: true, name: true, roleType: true },
+  });
+  const knownCharacterIds = knownCharacters.map((c) => c.id);
+  const repairedBeats = outline.beats as Array<Record<string, unknown>>;
+  const ghostRepair = repairGhostCharacters(
+    { beats: repairedBeats },
+    knownCharacterIds,
+    knownCharacters,
+  );
+  if (ghostRepair.ghostsFound > 0) {
+    console.warn(
+      `[outline] ghost_repair chapterId=${chapterId} found=${ghostRepair.ghostsFound} resolved=${ghostRepair.ghostsResolved}`,
+    );
+  }
+
   const outlineJson: Prisma.InputJsonValue = {
-    beats: outline.beats,
+    beats: repairedBeats as unknown as Prisma.InputJsonValue,
     _meta: {
       generatedAt: new Date().toISOString(),
       ...(model ? { model } : {}),
       source: usedOpenAI ? "openai" : "fallback",
+      ...(ghostRepair.ghostsFound > 0 ? { ghostRepair: { found: ghostRepair.ghostsFound, resolved: ghostRepair.ghostsResolved } } : {}),
     },
-  };
+  } as Prisma.InputJsonValue;
 
   await prisma.chapter.update({
     where: { id: chapterId },

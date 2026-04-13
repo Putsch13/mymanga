@@ -1,5 +1,6 @@
 import { validateOutlineProgression } from "./outline-progression-guard";
-export { repairGhostCharacters } from "./outline-ghost-repair";
+// Re-export depuis @manga-ai-studio/core pour usage depuis les routes web
+export { repairGhostCharacters } from "@manga-ai-studio/core";
 
 type EditorialBeat = {
   beatId?: string;

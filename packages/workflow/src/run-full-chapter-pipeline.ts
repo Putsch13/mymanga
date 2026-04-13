@@ -2219,7 +2219,19 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               dialogues: panel.dialogues,
               narration: panel.narration,
               layout: storyboardPage.layout,
-              panelContract,
+              // A2 : enrichir panelContract avec les fingerprints des personnages du panel
+              panelContract: (() => {
+                const panelFingerprintMap: Record<string, unknown> = {};
+                for (const charName of panel.characters ?? []) {
+                  const raw = rawCharacters.find((rc) => rc.name === charName);
+                  if (raw?.id && raw.characterFingerprint && typeof raw.characterFingerprint === "object" && Object.keys(raw.characterFingerprint as object).length > 0) {
+                    panelFingerprintMap[raw.id] = raw.characterFingerprint;
+                  }
+                }
+                return Object.keys(panelFingerprintMap).length > 0
+                  ? { ...panelContract, characterFingerprints: panelFingerprintMap }
+                  : panelContract;
+              })(),
               panelCharacterPlan,
               sceneBlueprint,
               effectiveCreativeControls,

@@ -283,6 +283,8 @@ model Project {
   sceneStates     SceneState[]
   canonTimelineEvents CanonTimelineEvent[]
   canonChangeRequests CanonChangeRequest[]
+  npcCanonPacks       NpcCanonPack[]
+  characterPropInventories CharacterPropInventory[]
 }
 
 model ProjectSettings {
@@ -424,6 +426,7 @@ model Character {
   ownedItems      Item[]
   loraAttachments LoraAttachment[] @relation("CharacterLoras")
   canonChangeRequests CanonChangeRequest[]
+  propInventory       CharacterPropInventory[]
 
   @@unique([projectId, slug])
 }
@@ -1173,4 +1176,44 @@ model CanonChangeRequest {
 
   @@index([projectId, status])
   @@index([characterId, status])
+}
+
+// D1 — NPC Canon Pack : cohérence visuelle des PNJ récurrents entre chapitres
+model NpcCanonPack {
+  id                  String   @id @default(cuid())
+  projectId           String
+  project             Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  npcSlug             String
+  npcDisplayName      String
+  visualSignatureText String?
+  hairColor           String?
+  eyeColor            String?
+  outfitDefault       String?
+  speciesLabel        String?
+  firstSeenChapterId  String?
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([projectId, npcSlug])
+  @@index([projectId])
+}
+
+// D2 — Character Prop Inventory : props acquis par les personnages (persistance cross-chapitres)
+model CharacterPropInventory {
+  id                  String    @id @default(cuid())
+  characterId         String
+  character           Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  projectId           String
+  project             Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  propCanonicalName   String
+  propCategory        String
+  propNarrativeRole   String?
+  visualDescription   String?
+  acquiredAtChapterId String?
+  isActive            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+
+  @@index([characterId, isActive])
+  @@index([projectId])
 }

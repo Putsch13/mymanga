@@ -54,3 +54,4 @@ export * from "./services/panel-blueprint-builder";
 export * from "./services/premium-chapter-contract-builder";
 export * from "./services/panel-retry-policy";
 export * from "./services/ensure-character-fingerprints";
+export * from "./services/prop-visual-library";

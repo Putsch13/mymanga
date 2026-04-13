@@ -23,6 +23,7 @@ import { persistGeneratedImageIfNeeded } from "@/lib/images/persist-generated-im
 import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
 import { notFound, paymentRequired, unauthorized } from "@/lib/api-response";
 import { getOwnedCharacter } from "@/lib/ownership";
+import { sendCharacterLoraTrainingRequested } from "@manga-ai-studio/workflow";
 
 type Ctx = { params: Promise<{ characterId: string }> };
 
@@ -397,7 +398,34 @@ export async function POST(_req: Request, ctx: Ctx) {
       console.log(`[generate-visual] CharacterFingerprint extracted and persisted for ${character.name}`);
     } catch (fpError) {
       console.error(`[generate-visual] Failed to extract fingerprint:`, fpError instanceof Error ? fpError.message : fpError);
-      // Non-blocking: fingerprint extraction failure ne doit pas fail la génération
+    }
+
+    // E1 : Trigger LoRA auto-training pour les personnages clés (HERO ou SECONDARY_CORE)
+    const isKeyCharacter = character.roleType === "HERO" || character.roleType === "SECONDARY_CORE";
+    if (isKeyCharacter) {
+      try {
+        await prisma.character.update({
+          where: { id: character.id },
+          data: { loraStatus: "training" },
+        });
+        const loraSent = await sendCharacterLoraTrainingRequested({
+          characterId: character.id,
+          projectId: character.project.id,
+          imageUrl: visualRef.imageUrl,
+        });
+        if (loraSent.ok) {
+          console.log(`[generate-visual] LoRA training triggered for ${character.name} (${character.roleType})`);
+        } else {
+          console.warn(`[generate-visual] LoRA training skipped: ${loraSent.skipped}`);
+          await prisma.character.update({
+            where: { id: character.id },
+            data: { loraStatus: "none" },
+          });
+        }
+      } catch (loraErr) {
+        console.error(`[generate-visual] LoRA trigger failed (non-blocking): ${loraErr instanceof Error ? loraErr.message : loraErr}`);
+        await prisma.character.update({ where: { id: character.id }, data: { loraStatus: "none" } }).catch(() => null);
+      }
     }
 
     // Signer puis proxifier l'URL pour affichage immédiat (évite CORS/ITP Safari)
