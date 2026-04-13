@@ -182,6 +182,7 @@ export async function POST(req: Request, ctx: Ctx) {
     source: "estimated" as const,
     chapterGoal: bundle.outline.chapter_goal,
     cliffhanger: bundle.outline.cliffhanger,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     beats: enrichedBeats.map(({ _blueprints: _b, ...beat }) => beat),
   };
 

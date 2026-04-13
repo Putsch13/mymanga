@@ -311,3 +311,177 @@ describe("qa-report route — scores premium", () => {
     expect(panel.rejectionReasons).toContain("Cutaway remplacé par portrait héros");
   });
 });
+
+describe("qa-report route — repairSuggestions premium", () => {
+  it("génère une suggestion dédiée pour missing_prop", async () => {
+    prismaMock.chapter.findFirst.mockResolvedValue({
+      id: "chapter-1",
+      projectId: "project-1",
+      chapterNumber: 3,
+      title: "Chapitre 3",
+      summary: "Résumé",
+      cliffhanger: "Fin",
+      userIntent: "Préparer le duel",
+      outline: {},
+      studioStatus: "READY_FOR_GENERATION",
+      studioCurrentStep: "production_plan",
+      studioUpdatedAt: new Date(),
+      studioAutosaveVersion: 1,
+      minimumImages: 20,
+      generatedImages: 1,
+      acceptedImages: 0,
+      rejectedImages: 1,
+      missingImages: 20,
+      criticalPanelsCount: 0,
+      criticalPanelsBlocked: 0,
+      criticalPanelsMissingQa: 0,
+      reviewBlockedReason: null,
+      scenes: [{
+        id: "scene-1",
+        sceneNumber: 1,
+        images: [makeImageWithPremiumScores({
+          propComplianceScore: 0.1,
+          issues: [{ type: "missing_prop", message: "Katana absent", severity: "critical" }],
+        })],
+      }],
+    });
+
+    const mod = await import("../app/api/projects/[id]/chapters/[chapterId]/qa-report/route");
+    const response = await mod.GET(new Request("http://localhost"), ctx);
+    const payload = await response.json();
+    const panel = payload.report.panelResults[0];
+
+    expect(panel.repairSuggestions).toEqual(
+      expect.arrayContaining([expect.stringContaining("mode: prop")])
+    );
+  });
+
+  it("génère une suggestion dédiée pour missing_enemy_presence", async () => {
+    prismaMock.chapter.findFirst.mockResolvedValue({
+      id: "chapter-1",
+      projectId: "project-1",
+      chapterNumber: 3,
+      title: "Chapitre 3",
+      summary: "Résumé",
+      cliffhanger: "Fin",
+      userIntent: "Préparer le duel",
+      outline: {},
+      studioStatus: "READY_FOR_GENERATION",
+      studioCurrentStep: "production_plan",
+      studioUpdatedAt: new Date(),
+      studioAutosaveVersion: 1,
+      minimumImages: 20,
+      generatedImages: 1,
+      acceptedImages: 0,
+      rejectedImages: 1,
+      missingImages: 20,
+      criticalPanelsCount: 0,
+      criticalPanelsBlocked: 0,
+      criticalPanelsMissingQa: 0,
+      reviewBlockedReason: null,
+      scenes: [{
+        id: "scene-1",
+        sceneNumber: 1,
+        images: [makeImageWithPremiumScores({
+          enemyPresenceScore: 0.1,
+          issues: [{ type: "missing_enemy_presence", message: "Ennemi absent", severity: "critical" }],
+        })],
+      }],
+    });
+
+    const mod = await import("../app/api/projects/[id]/chapters/[chapterId]/qa-report/route");
+    const response = await mod.GET(new Request("http://localhost"), ctx);
+    const payload = await response.json();
+    const panel = payload.report.panelResults[0];
+
+    expect(panel.repairSuggestions).toEqual(
+      expect.arrayContaining([expect.stringContaining("mode: enemy_presence")])
+    );
+  });
+
+  it("génère une suggestion dédiée pour cutaway_collapsed_to_hero", async () => {
+    prismaMock.chapter.findFirst.mockResolvedValue({
+      id: "chapter-1",
+      projectId: "project-1",
+      chapterNumber: 3,
+      title: "Chapitre 3",
+      summary: "Résumé",
+      cliffhanger: "Fin",
+      userIntent: "Préparer le duel",
+      outline: {},
+      studioStatus: "READY_FOR_GENERATION",
+      studioCurrentStep: "production_plan",
+      studioUpdatedAt: new Date(),
+      studioAutosaveVersion: 1,
+      minimumImages: 20,
+      generatedImages: 1,
+      acceptedImages: 0,
+      rejectedImages: 1,
+      missingImages: 20,
+      criticalPanelsCount: 0,
+      criticalPanelsBlocked: 0,
+      criticalPanelsMissingQa: 0,
+      reviewBlockedReason: null,
+      scenes: [{
+        id: "scene-1",
+        sceneNumber: 1,
+        images: [makeImageWithPremiumScores({
+          cutawayComplianceScore: 0.1,
+          issues: [{ type: "cutaway_collapsed_to_hero", message: "Cutaway remplacé par héros", severity: "major" }],
+        })],
+      }],
+    });
+
+    const mod = await import("../app/api/projects/[id]/chapters/[chapterId]/qa-report/route");
+    const response = await mod.GET(new Request("http://localhost"), ctx);
+    const payload = await response.json();
+    const panel = payload.report.panelResults[0];
+
+    expect(panel.repairSuggestions).toEqual(
+      expect.arrayContaining([expect.stringContaining("mode: cutaway")])
+    );
+  });
+
+  it("génère une suggestion dédiée pour missing_dialogue_anchor", async () => {
+    prismaMock.chapter.findFirst.mockResolvedValue({
+      id: "chapter-1",
+      projectId: "project-1",
+      chapterNumber: 3,
+      title: "Chapitre 3",
+      summary: "Résumé",
+      cliffhanger: "Fin",
+      userIntent: "Préparer le duel",
+      outline: {},
+      studioStatus: "READY_FOR_GENERATION",
+      studioCurrentStep: "production_plan",
+      studioUpdatedAt: new Date(),
+      studioAutosaveVersion: 1,
+      minimumImages: 20,
+      generatedImages: 1,
+      acceptedImages: 0,
+      rejectedImages: 1,
+      missingImages: 20,
+      criticalPanelsCount: 0,
+      criticalPanelsBlocked: 0,
+      criticalPanelsMissingQa: 0,
+      reviewBlockedReason: null,
+      scenes: [{
+        id: "scene-1",
+        sceneNumber: 1,
+        images: [makeImageWithPremiumScores({
+          dialogueAnchorScore: 0.1,
+          issues: [{ type: "missing_dialogue_anchor", message: "Locuteur non visible", severity: "major" }],
+        })],
+      }],
+    });
+
+    const mod = await import("../app/api/projects/[id]/chapters/[chapterId]/qa-report/route");
+    const response = await mod.GET(new Request("http://localhost"), ctx);
+    const payload = await response.json();
+    const panel = payload.report.panelResults[0];
+
+    expect(panel.repairSuggestions).toEqual(
+      expect.arrayContaining([expect.stringContaining("mode: speaker")])
+    );
+  });
+});

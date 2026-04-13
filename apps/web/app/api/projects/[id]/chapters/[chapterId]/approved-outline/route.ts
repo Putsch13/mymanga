@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { approvedOutlineSchema, productionOutlineSchema, productionPlanSchema } from "@manga-ai-studio/core";
-import { buildPremiumChapterContractAsync } from "@manga-ai-studio/ai";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { notFound, unauthorized } from "@/lib/api-response";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { getOwnedChapter } from "@/lib/ownership";
 import { buildChapterStructuredRuntimePrismaFields, patchChapterStudioSnapshot } from "@/lib/chapter-studio";
+import { buildPremiumChapterContractFromApprovedOutline } from "@/lib/premium-chapter-contract";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -60,8 +60,8 @@ export async function PATCH(req: Request, ctx: Ctx) {
         panelBlueprintsCount: parsedPlan.data.panelBlueprints?.length ?? 0,
       };
     } else {
-      // Fallback si les données fournies sont invalides
-      const premiumContract = await buildPremiumChapterContractAsync({
+      // Fallback si les données fournies sont invalides — reconstruire via le service partagé
+      const premiumContract = await buildPremiumChapterContractFromApprovedOutline({
         approvedOutline,
         heroCharacterId,
         projectGenre: project?.primaryGenre ?? null,
@@ -69,11 +69,15 @@ export async function PATCH(req: Request, ctx: Ctx) {
       });
       resolvedProductionOutline = premiumContract.productionOutline;
       resolvedProductionPlan = premiumContract.productionPlan;
-      premiumMeta = premiumContract.premiumMeta;
+      premiumMeta = {
+        source: premiumContract.productionOutline.source,
+        premiumReadinessScore: premiumContract.coverage.premiumReadinessScore,
+        panelBlueprintsCount: premiumContract.panelBlueprints.length,
+      };
     }
   } else {
-    // Reconstruire le contrat premium complet avec enrichissement LLM
-    const premiumContract = await buildPremiumChapterContractAsync({
+    // Reconstruire le contrat premium complet via le service partagé (avec enrichissement LLM)
+    const premiumContract = await buildPremiumChapterContractFromApprovedOutline({
       approvedOutline,
       heroCharacterId,
       projectGenre: project?.primaryGenre ?? null,
@@ -81,7 +85,18 @@ export async function PATCH(req: Request, ctx: Ctx) {
     });
     resolvedProductionOutline = premiumContract.productionOutline;
     resolvedProductionPlan = premiumContract.productionPlan;
-    premiumMeta = premiumContract.premiumMeta;
+    premiumMeta = {
+      source: premiumContract.productionOutline.source,
+      premiumReadinessScore: premiumContract.coverage.premiumReadinessScore,
+      panelBlueprintsCount: premiumContract.panelBlueprints.length,
+      heroCenterRatio: premiumContract.coverage.heroCenterRatio,
+      focusDistribution: premiumContract.coverage.focusDistribution,
+      propCoverage: premiumContract.coverage.propCoverage,
+      enemyCoverage: premiumContract.coverage.enemyCoverage,
+      npcCoverage: premiumContract.coverage.npcCoverage,
+      cutawayCoverage: premiumContract.coverage.cutawayCoverage,
+      dialogueAnchorCoverage: premiumContract.coverage.dialogueAnchorCoverage,
+    };
   }
 
   const studioSnapshot = patchChapterStudioSnapshot(

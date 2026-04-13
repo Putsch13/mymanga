@@ -191,7 +191,30 @@ export async function GET(_req: Request, ctx: Ctx) {
         ].slice(0, 12),
         repairSuggestions: [
           ...issues.map((issue) => `Réparer ${issue.type ?? "quality_issue"}`),
-          ...premiumIssues.map((issue) => `Corriger ${issue.type ?? "premium_issue"}`),
+          ...premiumIssues.map((issue) => {
+            switch (issue.type) {
+              case "missing_prop":
+              case "missing_weapon":
+              case "missing_device":
+                return `Reroll prop — ajouter l'objet obligatoire manquant (mode: prop)`;
+              case "wrong_subject_focus":
+                return `Reroll focus sujet — recadrer sur le personnage principal (mode: subject_focus)`;
+              case "missing_dialogue_anchor":
+                return `Reroll ancrage dialogue — repositionner le locuteur visible (mode: speaker)`;
+              case "missing_enemy_presence":
+                return `Reroll présence ennemi — l'antagoniste doit être visible dans ce panel (mode: enemy_presence)`;
+              case "npc_population_missing":
+                return `Reroll population NPC — ajouter la foule ou les personnages secondaires (mode: npc_population)`;
+              case "cutaway_not_respected":
+              case "cutaway_collapsed_to_hero":
+              case "wrong_cutaway_target":
+                return `Reroll cutaway — le plan de coupe doit montrer le sujet contractuel, pas le héros (mode: cutaway)`;
+              case "object_used_but_not_visible":
+                return `Reroll prop — l'objet utilisé dans la scène doit être visible (mode: prop)`;
+              default:
+                return `Corriger ${issue.type ?? "premium_issue"}`;
+            }
+          }),
         ],
         rerollCount:
           typeof meta.rerollCount === "number"
@@ -246,6 +269,31 @@ export async function GET(_req: Request, ctx: Ctx) {
     panelResults.length > 0
       ? panelResults.reduce((acc, panel) => acc + panel.score, 0) / panelResults.length
       : 0;
+
+  const premiumRejections = panelResults.flatMap((p) =>
+    p.rejectionReasons.filter((r) =>
+      ["missing_prop", "missing_weapon", "missing_device", "wrong_subject_focus",
+       "missing_dialogue_anchor", "missing_enemy_presence", "npc_population_missing",
+       "cutaway_not_respected", "cutaway_collapsed_to_hero", "wrong_cutaway_target",
+       "object_used_but_not_visible"].some((t) => r.includes(t))
+    )
+  );
+  const approvedOutlineRecord = asRecord(asRecord(chapter.outline).approvedOutline);
+  const approvedOutlineVersion = typeof approvedOutlineRecord.version === "number"
+    ? approvedOutlineRecord.version
+    : typeof approvedOutlineRecord.version === "string"
+      ? approvedOutlineRecord.version
+      : null;
+  const studioDataRecord = asRecord(asRecord(asRecord(chapter.outline).studio).data);
+  const productionOutlineRecord = asRecord(studioDataRecord.productionOutline);
+  const productionPlanRecord = asRecord(studioDataRecord.productionPlan);
+  console.info(
+    `[qa-report] chapterId=${chapterId} approvedOutlineVersion=${approvedOutlineVersion ?? "n/a"} ` +
+    `productionOutlineBeatCount=${Array.isArray(productionOutlineRecord.beats) ? productionOutlineRecord.beats.length : "n/a"} ` +
+    `productionPlanPageCount=${Array.isArray(productionPlanRecord.pages) ? productionPlanRecord.pages.length : "n/a"} ` +
+    `panelCount=${panelResults.length} chapterScore=${chapterScore.toFixed(2)} ` +
+    `premiumRejections=${premiumRejections.length} rejectedPanels=${rejectedPanelCount}`
+  );
 
   return NextResponse.json({
     ok: true,

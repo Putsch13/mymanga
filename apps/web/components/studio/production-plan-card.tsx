@@ -186,6 +186,20 @@ export function ProductionPlanCard({ plan, productionOutlineSource }: {
                 </div>
               </div>
             )}
+
+            {/* Panel blueprints count */}
+            {Array.isArray(plan?.panelBlueprints) && (
+              <div>
+                <p className="text-muted-foreground">Blueprints de panels</p>
+                <p className="font-semibold">
+                  {plan.panelBlueprints.length > 0 ? (
+                    <span className="text-green-600">{plan.panelBlueprints.length} panels planifiés</span>
+                  ) : (
+                    <span className="text-yellow-500">0 — aucun blueprint généré</span>
+                  )}
+                </p>
+              </div>
+            )}
           </>
         )}
 

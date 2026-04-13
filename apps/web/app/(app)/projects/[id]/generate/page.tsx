@@ -326,20 +326,24 @@ export default function ChapterGeneratorPage() {
   function buildApprovedOutlinePayload(): ApprovedChapterOutline | null {
     if (!previewData?.outlinePreview) return null;
     // Use the full productionOutline beats if available (avoids 5-beat preview truncation)
-    const fullBeats = (previewData.productionOutline as any)?.beats ?? previewData.outlinePreview.beats;
+    const productionOutlineRecord = previewData.productionOutline as Record<string, unknown> | undefined;
+    const fullBeats = (Array.isArray(productionOutlineRecord?.beats) ? productionOutlineRecord.beats : null) ?? previewData.outlinePreview.beats;
     return {
       summary: previewData.outlinePreview.summary,
       cliffhanger: previewData.outlinePreview.cliffhanger,
-      beats: fullBeats.map((beat: any) => ({
-        id: beat.id ?? beat.beatId,
-        summary: beatSummaries[beat.id ?? beat.beatId] ?? beat.summary,
-        characters: beat.characters ?? beat.involvedCharacters ?? [],
-        location: beat.location ?? (beat.environmentContext?.[0] ?? ""),
-        pageRole: beat.pageRole ?? beat.narrativeFunction ?? "escalation",
-        turn: beat.turn ?? beat.dramaticChange ?? "",
-        emotionalDelta: beat.emotionalDelta ?? 0,
-        structuredBeat: beat.structuredBeat ?? null,
-      })),
+      beats: fullBeats.map((beat: Record<string, unknown>) => {
+        const beatId = (beat.id ?? beat.beatId) as string;
+        return {
+          id: beatId,
+          summary: beatSummaries[beatId] ?? (beat.summary as string),
+          characters: (beat.characters ?? beat.involvedCharacters ?? []) as string[],
+          location: (beat.location ?? (Array.isArray(beat.environmentContext) ? beat.environmentContext[0] : undefined) ?? "") as string,
+          pageRole: (beat.pageRole ?? beat.narrativeFunction ?? "escalation") as string,
+          turn: (beat.turn ?? beat.dramaticChange ?? "") as string,
+          emotionalDelta: (beat.emotionalDelta ?? 0) as number,
+          structuredBeat: (beat.structuredBeat ?? null) as never,
+        };
+      }),
       approvedAt: new Date().toISOString(),
       approvalVersion: previewData.outlinePreview.approvalVersion,
       source: "user_approved",

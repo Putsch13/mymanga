@@ -206,9 +206,28 @@ export async function POST(req: Request, ctx: Ctx) {
     return base;
   })();
 
-  console.info(
-    `[retry] policy panel=${img.id} mode=${retryMode ?? "default"} refPolicy=${effectiveReferencePolicy} (base=${retryReferenceDecision.referencePolicy}) importantCharacter=${retryReferenceDecision.importantCharacterPresent} reason=${retryReferenceDecision.reason} refs=${referenceImageUrls.length}/${retryStableReferences.length} loras=${panelLoras.length} driftAction=${preDriftResult?.recommendedAction ?? "n/a"} driftScore=${preDriftResult?.score ?? "n/a"}`
-  );
+  const chapterId = img.scene.chapter.id;
+  const chapterOutlineRecord = ((img.scene.chapter as unknown as Record<string, unknown>).outline ?? {}) as Record<string, unknown>;
+  const approvedOutlineRecord = (chapterOutlineRecord.approvedOutline ?? {}) as Record<string, unknown>;
+  const approvedOutlineVersion = typeof approvedOutlineRecord.version === "number"
+    ? approvedOutlineRecord.version
+    : typeof approvedOutlineRecord.version === "string"
+      ? approvedOutlineRecord.version
+      : null;
+  const studioData = ((chapterOutlineRecord.studio ?? {}) as Record<string, unknown>).data as Record<string, unknown> | undefined;
+  const productionOutlineBeats = Array.isArray(studioData?.productionOutline && (studioData.productionOutline as Record<string, unknown>).beats)
+    ? ((studioData!.productionOutline as Record<string, unknown>).beats as unknown[]).length
+    : null;
+  const productionPlanPages = Array.isArray(studioData?.productionPlan && (studioData.productionPlan as Record<string, unknown>).pages)
+    ? ((studioData!.productionPlan as Record<string, unknown>).pages as unknown[]).length
+    : null;
+  const panelBlueprintCount = Array.isArray(studioData?.productionPlan && (studioData.productionPlan as Record<string, unknown>).panelBlueprints)
+    ? ((studioData!.productionPlan as Record<string, unknown>).panelBlueprints as unknown[]).length
+    : null;
+  const premiumReadinessScore = typeof (studioData?.productionPlan as Record<string, unknown> | undefined)?.premiumReadinessScore === "number"
+    ? (studioData!.productionPlan as Record<string, unknown>).premiumReadinessScore
+    : null;
+
   // Legacy hints for the 5 original modes
   const legacyPositiveAugment = retryMode === "environment"
     ? "readable environment, strong background, visible architecture, clear foreground midground background"
@@ -267,6 +286,19 @@ export async function POST(req: Request, ctx: Ctx) {
                         : retryMode === "npc_population"
                           ? "REROLL_NPC_POPULATION"
                           : undefined;
+
+  console.info(
+    `[retry] chapterId=${chapterId} approvedOutlineVersion=${approvedOutlineVersion ?? "n/a"} ` +
+    `productionOutlineBeatCount=${productionOutlineBeats ?? "n/a"} productionPlanPageCount=${productionPlanPages ?? "n/a"} ` +
+    `panelBlueprintCount=${panelBlueprintCount ?? "n/a"} premiumReadinessScore=${premiumReadinessScore ?? "n/a"} ` +
+    `panel=${img.id} mode=${retryMode ?? "default"} rerollKind=${rerollKind ?? "n/a"} ` +
+    `refPolicy=${effectiveReferencePolicy} (base=${retryReferenceDecision.referencePolicy}) ` +
+    `importantCharacter=${retryReferenceDecision.importantCharacterPresent} reason=${retryReferenceDecision.reason} ` +
+    `refs=${referenceImageUrls.length}/${retryStableReferences.length} loras=${panelLoras.length} ` +
+    `driftAction=${preDriftResult?.recommendedAction ?? "n/a"} driftScore=${preDriftResult?.score ?? "n/a"} ` +
+    `positivePromptHint=${retryReferenceDecision.positivePromptHint ? "yes" : "no"} ` +
+    `negativePromptHint=${retryReferenceDecision.negativePromptHint ? "yes" : "no"}`
+  );
 
   await prisma.sceneImage.update({
     where: { id: img.id },
@@ -447,6 +479,9 @@ export async function POST(req: Request, ctx: Ctx) {
           persisted: persisted.persisted,
           retryUsedLoras: panelLoras.length,
           retryUsedRefs: referenceImageUrls.length,
+          rerollKind,
+          positivePromptHint: retryReferenceDecision.positivePromptHint ?? null,
+          negativePromptHint: retryReferenceDecision.negativePromptHint ?? null,
           retryReferenceDecision: {
             ...retryReferenceDecision,
             availableReferenceUrls: referenceImageUrls.length,
