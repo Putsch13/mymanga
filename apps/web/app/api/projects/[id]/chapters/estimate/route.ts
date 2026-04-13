@@ -201,6 +201,7 @@ export async function POST(req: Request, ctx: Ctx) {
   const focusBudget = computeChapterFocusBudget(allBlueprints);
   const premiumReadinessScore = computePremiumReadinessScore(allBlueprints);
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const rawProductionBeats = enrichedBeats.map(({ _blueprints: _b, ...beat }) => beat);
 
   // Validation anti-répétition narrative
