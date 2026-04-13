@@ -31,7 +31,7 @@ function primaryStudioStepForFlowStep(flowStep: ChapterFlowStepId): ChapterStudi
   if (flowStep === "brief") return "intent";
   if (flowStep === "cast_canon") return "characters";
   if (flowStep === "plan") return "production_plan";
-  return "readiness";
+  return "generation";
 }
 
 export function ChapterStudioEditor({ projectId, chapterId }: { projectId: string; chapterId: string }) {

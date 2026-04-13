@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { Check, ChevronDown, X } from "lucide-react";
 
@@ -46,6 +46,26 @@ export function CharacterPicker({
 }: CharacterPickerProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setSearch("");
+      }
+    }
+    function handleEscape(e: KeyboardEvent) {
+      if (e.key === "Escape") { setOpen(false); setSearch(""); }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [open]);
 
   const selectedIds = multiple
     ? Array.isArray(value) ? value : (value ? [value] : [])
@@ -65,9 +85,13 @@ export function CharacterPicker({
       } else {
         onChange([...current, id]);
       }
+      // En mode multiple, ferme après chaque sélection pour libérer l'espace
+      setOpen(false);
+      setSearch("");
     } else {
       onChange(value === id ? null : id);
       setOpen(false);
+      setSearch("");
     }
   }
 
@@ -81,7 +105,7 @@ export function CharacterPicker({
   }
 
   return (
-    <div className="space-y-1.5" data-studio-field={dataStudioField}>
+    <div ref={containerRef} className="space-y-1.5" data-studio-field={dataStudioField}>
       <p className="text-sm font-medium leading-none">{label}</p>
 
       {/* Badges des personnages sélectionnés */}

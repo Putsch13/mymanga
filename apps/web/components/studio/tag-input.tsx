@@ -1,5 +1,6 @@
 "use client";
 
+import type { ClipboardEvent, KeyboardEvent } from "react";
 import { useRef, useState } from "react";
 import { X } from "lucide-react";
 
@@ -37,7 +38,7 @@ export function TagInput({
     onChange(values.filter((_, i) => i !== index));
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+  function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter" || e.key === ";") {
       e.preventDefault();
       addTag(inputValue);
@@ -46,7 +47,7 @@ export function TagInput({
     }
   }
 
-  function handlePaste(e: React.ClipboardEvent<HTMLInputElement>) {
+  function handlePaste(e: ClipboardEvent<HTMLInputElement>) {
     const text = e.clipboardData.getData("text");
     if (text.includes("\n") || text.includes(";")) {
       e.preventDefault();
