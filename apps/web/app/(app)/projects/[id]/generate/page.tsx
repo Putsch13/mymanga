@@ -107,6 +107,7 @@ export default function ChapterGeneratorPage() {
     error?: { message?: string };
   } | null>(null);
   const [pipelineMsg, setPipelineMsg] = useState<string | null>(null);
+  const [premiumContractMissing, setPremiumContractMissing] = useState<string[] | null>(null);
   const [startingPipeline, setStartingPipeline] = useState(false);
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [userIntent, setUserIntent] = useState("");
@@ -374,11 +375,12 @@ export default function ChapterGeneratorPage() {
   async function runPipeline() {
     if (!selectedChapter) return;
     if (!planApproved) {
-      setPipelineMsg("Valide d'abord l'aperçu éditorial avant de lancer la génération.");
+      setPipelineMsg("Valide d'abord le découpage détaillé du chapitre.");
       return;
     }
     setStartingPipeline(true);
     setPipelineMsg(null);
+    setPremiumContractMissing(null);
     try {
       await saveApprovedOutline(selectedChapter);
       const res = await fetch(`/api/projects/${id}/pipeline`, {
@@ -392,7 +394,15 @@ export default function ChapterGeneratorPage() {
         }),
       });
       const j = await res.json();
+      // Contrat premium incomplet — afficher les champs manquants
+      if (!res.ok && j.missing && Array.isArray(j.missing)) {
+        setPremiumContractMissing(j.missing as string[]);
+        setPipelineMsg(j.message ?? "Le contrat premium est incomplet.");
+        setJobState(null);
+        return;
+      }
       if (j.jobId) {
+        setPremiumContractMissing(null);
         setSelectedJobId(j.jobId);
         setJobState({
           id: j.jobId,
@@ -419,7 +429,7 @@ export default function ChapterGeneratorPage() {
 
   async function createAndGenerate() {
     if (!planApproved) {
-      setPipelineMsg("Valide d'abord l'aperçu éditorial avant de lancer la génération.");
+      setPipelineMsg("Valide d'abord le découpage détaillé du chapitre.");
       return;
     }
     setCreatingDraft(true);
@@ -874,7 +884,36 @@ export default function ChapterGeneratorPage() {
           </Card>
         )}
 
-        {pipelineMsg && !isGenerating && !isDone && (
+        {premiumContractMissing && premiumContractMissing.length > 0 && !isGenerating && (
+          <Card className="border-amber-500/40 bg-amber-950/20">
+            <CardContent className="pt-5 space-y-3">
+              <p className="text-sm font-semibold text-amber-300">Le découpage détaillé est incomplet</p>
+              <p className="text-xs text-amber-400/80">Les éléments suivants sont manquants pour lancer la génération :</p>
+              <ul className="list-disc list-inside text-xs text-amber-400 space-y-0.5">
+                {premiumContractMissing.map((field) => (
+                  <li key={field}>{field}</li>
+                ))}
+              </ul>
+              <div className="flex gap-2 flex-wrap pt-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setPremiumContractMissing(null);
+                    setPipelineMsg(null);
+                    setPreviewData(null);
+                    setPlanApproved(false);
+                  }}
+                >
+                  Régénérer le plan
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {pipelineMsg && !isGenerating && !isDone && !premiumContractMissing && (
           <p className="text-sm text-muted-foreground">{pipelineMsg}</p>
         )}
       </div>

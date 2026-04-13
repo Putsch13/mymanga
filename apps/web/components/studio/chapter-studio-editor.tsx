@@ -204,7 +204,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
     if (!draft) return;
     setAutofilling(true);
     setAutofillResult(null);
-    setMessage(null);
+    setMessage("Complétion IA en cours…");
     try {
       const res = await fetch(`/api/projects/${projectId}/chapters/${chapterId}/autofill`, {
         method: "POST",
@@ -213,7 +213,12 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
       });
       const json = await res.json();
       if (!res.ok) {
-        setMessage(json.error ?? "L'autofill a échoué.");
+        setMessage(json.error ?? "La complétion IA a échoué.");
+        return;
+      }
+      // Autofill bloqué côté serveur (ex: pitch trop court)
+      if (json.blocked) {
+        setMessage(json.blockedMessage ?? "Complétion IA impossible pour le moment.");
         return;
       }
       if (json.appliedFields?.length > 0 && json.suggestedPatch) {
@@ -224,12 +229,14 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
         };
         await save(nextDraft, activeStudioStep);
         setAutofillResult({ meta: json.meta, appliedFields: json.appliedFields, unresolvedQuestions: json.unresolvedQuestions ?? [] });
-        setMessage(`L'IA a complété ${json.appliedFields.length} champ(s).`);
+        setMessage(`L'IA a complété ${json.appliedFields.length} champ(s). À vérifier : ${json.appliedFields.join(", ")}.`);
       } else {
-        setMessage("Aucun champ manquant à compléter pour ce mode.");
+        // Patch vide : afficher la raison explicite
+        const reason = json.emptyPatchReason ?? "Aucun champ vide détecté";
+        setMessage(reason);
       }
     } catch {
-      setMessage("Erreur réseau lors de l'autofill.");
+      setMessage("Erreur réseau lors de la complétion IA.");
     } finally {
       setAutofilling(false);
     }
@@ -304,7 +311,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
               disabled={autofilling}
               onClick={() => void runAutofill("all_missing")}
             >
-              {autofilling ? "Complétion en cours…" : "L'IA complète les infos manquantes"}
+              {autofilling ? "Complétion IA en cours…" : "Complétion IA des champs manquants"}
             </Button>
             {blockerItems.length > 0 ? (
               <Button
@@ -322,11 +329,11 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
           {autofillResult ? (
             <div className="rounded-lg border border-border/40 bg-muted/30 p-3 text-xs space-y-1" data-testid="autofill-result">
               <p className="font-medium text-foreground/80">
-                Autofill IA — confiance : {Math.round(autofillResult.meta.confidence * 100)}%
+                Complétion IA — confiance : {Math.round(autofillResult.meta.confidence * 100)}%
               </p>
               {autofillResult.appliedFields.length > 0 ? (
                 <p className="text-muted-foreground">
-                  Champs complétés : {autofillResult.appliedFields.join(", ")}
+                  L&apos;IA a complété {autofillResult.appliedFields.length} champ(s) : {autofillResult.appliedFields.join(", ")}
                 </p>
               ) : null}
               {autofillResult.unresolvedQuestions.length > 0 ? (

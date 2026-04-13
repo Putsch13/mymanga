@@ -200,7 +200,7 @@ export function ChapterCastCanonStep({
 
       <Card className="border-border/60 bg-card/40">
         <CardHeader>
-          <CardTitle className="text-base">Canon du chapitre</CardTitle>
+          <CardTitle className="text-base">Cohérence du chapitre</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid gap-4 lg:grid-cols-2">

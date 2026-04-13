@@ -17,6 +17,11 @@ import { buildProjectContext } from "@manga-ai-studio/memory";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
 import { getOwnedProject } from "@/lib/ownership";
+import {
+  validateNarrativeProgression,
+  selectEditorialPreviewBeats,
+  type ProductionBeatLike,
+} from "@/lib/outline-dedup";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -66,6 +71,10 @@ export async function POST(req: Request, ctx: Ctx) {
     : null;
   const targetChapterNumber = targetChapter?.chapterNumber ?? ((nextChapter?.chapterNumber ?? 0) + 1);
   const estimateMode = targetChapter ? "existing_chapter" : "new_chapter";
+  console.log(
+    `[estimate] estimate_started projectId=${projectId} chapterId=${targetChapter?.id ?? "new"} ` +
+    `chapterNumber=${targetChapterNumber} estimateMode=${estimateMode}`,
+  );
   const context = await buildProjectContext(prisma, projectId, body.userIntent, {
     focusCharacterIds: body.focusCharacterIds,
     targetChapterId: targetChapter?.id ?? null,
@@ -81,7 +90,8 @@ export async function POST(req: Request, ctx: Ctx) {
     creativityControls: body.creativityControls,
     context,
   });
-  const previewBeats = bundle.outline.beats.slice(0, 5).map((beat) => ({
+  // Sélectionner les 5 tournants narratifs représentatifs (pas slice(0,5))
+  const allBundleBeats = bundle.outline.beats.map((beat) => ({
     id: beat.id,
     summary: beat.summary,
     characters: beat.characters,
@@ -90,6 +100,19 @@ export async function POST(req: Request, ctx: Ctx) {
     turn: beat.turn ?? beat.purpose,
     emotionalDelta: beat.emotionalDelta ?? 0,
     structuredBeat: beat.structuredBeat ?? null,
+  }));
+  const editorialPreviewBeats = selectEditorialPreviewBeats(
+    allBundleBeats as ProductionBeatLike[],
+  );
+  const previewBeats = editorialPreviewBeats.map((b) => ({
+    id: (b as typeof allBundleBeats[number]).id,
+    summary: b.summary,
+    characters: (b as typeof allBundleBeats[number]).characters,
+    location: (b as typeof allBundleBeats[number]).location,
+    pageRole: (b as typeof allBundleBeats[number]).pageRole,
+    turn: (b as typeof allBundleBeats[number]).turn,
+    emotionalDelta: (b as typeof allBundleBeats[number]).emotionalDelta,
+    structuredBeat: (b as typeof allBundleBeats[number]).structuredBeat,
   }));
   const previewVersion = buildApprovedOutlineVersion({
     summary: bundle.outline.chapter_goal,
@@ -178,12 +201,22 @@ export async function POST(req: Request, ctx: Ctx) {
   const focusBudget = computeChapterFocusBudget(allBlueprints);
   const premiumReadinessScore = computePremiumReadinessScore(allBlueprints);
 
+  const rawProductionBeats = enrichedBeats.map(({ _blueprints: _b, ...beat }) => beat);
+
+  // Validation anti-répétition narrative
+  const progressionCheck = validateNarrativeProgression(rawProductionBeats as ProductionBeatLike[]);
+  if (!progressionCheck.ok) {
+    console.warn(
+      `[estimate] plan_dedup_applied chapterId=${targetChapter?.id ?? "new"} ` +
+      `issues=${progressionCheck.issues.length} score=${progressionCheck.progressionScore.toFixed(2)}`,
+    );
+  }
+
   const productionOutline = {
     source: "estimated" as const,
     chapterGoal: bundle.outline.chapter_goal,
     cliffhanger: bundle.outline.cliffhanger,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    beats: enrichedBeats.map(({ _blueprints: _b, ...beat }) => beat),
+    beats: rawProductionBeats,
   };
 
   const productionPlan = {
@@ -232,6 +265,14 @@ export async function POST(req: Request, ctx: Ctx) {
     context.recentChapters?.length ?? 0,
     context.characters?.length ?? 0,
   ].join("|");
+
+  console.log(
+    `[estimate] estimate_generated projectId=${projectId} chapterId=${targetChapter?.id ?? "new"} ` +
+    `chapterNumber=${targetChapterNumber} estimateMode=${estimateMode} ` +
+    `beatsCount=${productionOutline.beats.length} ` +
+    `productionPlanPages=${Array.isArray((productionPlan as Record<string, unknown>).pages) ? ((productionPlan as Record<string, unknown>).pages as unknown[]).length : 0} ` +
+    `progressionOk=${progressionCheck.ok} progressionScore=${progressionCheck.progressionScore.toFixed(2)}`,
+  );
 
   return NextResponse.json({
     estimateMode,
@@ -286,5 +327,9 @@ export async function POST(req: Request, ctx: Ctx) {
       productionBeatCount: productionOutline.beats.length,
       explanation: "Le résumé macro sert à valider l'histoire. Le découpage détaillé sert à générer les panels.",
     },
+    planWarnings: progressionCheck.ok ? [] : progressionCheck.issues,
+    repairApplied: !progressionCheck.ok,
+    repairReasons: progressionCheck.ok ? [] : progressionCheck.issues,
+    progressionScore: progressionCheck.progressionScore,
   });
 }

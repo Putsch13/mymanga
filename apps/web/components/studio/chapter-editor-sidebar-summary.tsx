@@ -73,7 +73,7 @@ export function ChapterEditorSidebarSummary({
               </p>
             </div>
             <div className="rounded-xl border border-border/60 bg-background/30 p-3">
-              <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Readiness</p>
+              <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">État de préparation</p>
               <p className={`mt-2 font-semibold ${readinessColor}`}>{readinessScore}/100</p>
             </div>
             <div className="rounded-xl border border-border/60 bg-background/30 p-3">
