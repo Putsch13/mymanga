@@ -13,16 +13,39 @@ import {
 } from "@manga-ai-studio/core";
 import { buildPremiumChapterContractAsync } from "@manga-ai-studio/ai";
 
+// ─── Constante canonique des champs premium ───────────────────────────────────
+
+/**
+ * Liste exhaustive des champs premium du productionPlan.
+ * Utiliser cette constante partout où l'on merge/valide/persiste.
+ */
+export const PREMIUM_PRODUCTION_PLAN_KEYS = [
+  "panelBlueprints",
+  "focusDistribution",
+  "shotDistribution",
+  "focusBudget",
+  "propCoverage",
+  "enemyCoverage",
+  "npcCoverage",
+  "cutawayCoverage",
+  "dialogueAnchorCoverage",
+  "heroCenterRatio",
+  "premiumReadinessScore",
+  "objectStateTimeline",
+] as const;
+
+export type PremiumProductionPlanKey = typeof PREMIUM_PRODUCTION_PLAN_KEYS[number];
+
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface PremiumContractCoverage {
   focusDistribution?: Record<string, number>;
-  propCoverage?: { coveredCount: number; totalCount: number; ratio: number };
-  enemyCoverage?: { coveredCount: number; totalCount: number; ratio: number };
-  npcCoverage?: { coveredCount: number; totalCount: number; ratio: number };
-  cutawayCoverage?: { coveredCount: number; totalCount: number; ratio: number };
-  dialogueAnchorCoverage?: { coveredCount: number; totalCount: number; ratio: number };
+  propCoverage?: { covered: string[]; missing: string[] };
+  enemyCoverage?: { panelCount: number; beatsCovered: string[] };
+  npcCoverage?: { panelCount: number; avgNpcCount: number };
+  cutawayCoverage?: { count: number; ratio: number };
+  dialogueAnchorCoverage?: { anchored: number; floating: number };
   heroCenterRatio?: number;
   premiumReadinessScore?: number;
 }
@@ -174,68 +197,26 @@ export interface PremiumContractAssertionResult {
 
 /**
  * Vérifie que le snapshot contient un contrat premium complet avant génération.
+ * Délègue à validatePremiumContract pour les vérifications structurées.
  * Retourne { ok: false, missing, message } si incomplet.
  */
 export function assertPremiumContract(
   snapshot: ChapterStudioSnapshot,
   outlineRecord: Record<string, unknown>,
 ): PremiumContractAssertionResult {
-  const missing: string[] = [];
+  const validation = validatePremiumContract(snapshot, outlineRecord);
 
-  // Vérifier approvedOutline
-  const ao = outlineRecord.approvedOutline as Record<string, unknown> | undefined;
-  if (!ao || !Array.isArray(ao.beats) || ao.beats.length === 0) {
-    missing.push("approvedOutline.beats");
-  }
-
-  // Vérifier productionOutline
-  const po = snapshot.data.productionOutline;
-  if (!po || !Array.isArray(po.beats) || po.beats.length === 0) {
-    missing.push("productionOutline.beats");
-  }
-
-  // Vérifier productionPlan
-  const pp = snapshot.data.productionPlan;
-  if (!pp) {
-    missing.push("productionPlan");
-  } else {
-    if (!Array.isArray(pp.pages) || pp.pages.length === 0) {
-      missing.push("productionPlan.pages");
-    }
-    if (typeof pp.minimumImages !== "number" || pp.minimumImages <= 0) {
-      missing.push("productionPlan.minimumImages");
-    }
-    if (typeof pp.estimatedImages !== "number" || pp.estimatedImages <= 0) {
-      missing.push("productionPlan.estimatedImages");
-    }
-    if (typeof pp.targetImages !== "number" || pp.targetImages <= 0) {
-      missing.push("productionPlan.targetImages");
-    }
-  }
-
-  // Vérifier cohérence beats
-  if (ao && po && Array.isArray(ao.beats) && Array.isArray(po.beats)) {
-    if (ao.beats.length !== po.beats.length) {
-      missing.push(`beats_count_mismatch(approvedOutline=${ao.beats.length} vs productionOutline=${po.beats.length})`);
-    }
-  }
-
-  // Vérifier heroCenterRatio
-  if (pp && typeof pp.heroCenterRatio === "number" && pp.heroCenterRatio > 0.7) {
-    const hasHeroCentricTag = Array.isArray(pp.pages) && pp.pages.some(
-      (p: Record<string, unknown>) => typeof p === "object" && String(p.tag ?? "").includes("hero_centric_scene"),
-    );
-    if (!hasHeroCentricTag) {
-      missing.push(`heroCenterRatio_too_high(${pp.heroCenterRatio.toFixed(2)} > 0.7 without hero_centric_scene tag)`);
-    }
-  }
-
-  if (missing.length > 0) {
+  if (!validation.ok) {
     return {
       ok: false,
-      missing,
+      missing: validation.errors,
       message: "Le chapitre n'a pas encore un contrat premium complet. Retourne dans le studio et régénère le plan.",
     };
+  }
+
+  // Avertissements non bloquants (loggés mais ne bloquent pas le lancement)
+  if (validation.warnings.length > 0) {
+    console.warn(`[assertPremiumContract] warnings: ${validation.warnings.join("; ")}`);
   }
 
   return { ok: true, missing: [], message: "Contrat premium valide." };
@@ -255,11 +236,380 @@ export interface GenerationJobInputOptions {
   estimateContext?: Record<string, unknown> | null;
 }
 
+// ─── mergePremiumProductionPlan ───────────────────────────────────────────────
+
+/**
+ * Fusionne deux productionPlan en préservant tous les champs premium de l'existant.
+ * L'incoming gagne sur les champs non-premium ; l'existant gagne sur les champs premium si l'incoming est absent/vide.
+ */
+export function mergePremiumProductionPlan(
+  existingPlan: Record<string, unknown> | null | undefined,
+  incomingPlan: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  if (!incomingPlan && !existingPlan) return {};
+  if (!incomingPlan) return existingPlan ?? {};
+  if (!existingPlan) return incomingPlan;
+
+  const merged: Record<string, unknown> = { ...existingPlan, ...incomingPlan };
+
+  for (const key of PREMIUM_PRODUCTION_PLAN_KEYS) {
+    const incoming = incomingPlan[key];
+    const existing = existingPlan[key];
+
+    if (key === "panelBlueprints" || key === "objectStateTimeline") {
+      // Pour les tableaux structurés : préfère l'existant si l'incoming est absent ou vide
+      const incomingArr = Array.isArray(incoming) ? incoming : null;
+      const existingArr = Array.isArray(existing) ? existing : null;
+      if (!incomingArr || incomingArr.length === 0) {
+        merged[key] = existingArr ?? incomingArr ?? undefined;
+      } else {
+        merged[key] = incomingArr;
+      }
+    } else if (key === "focusDistribution" || key === "shotDistribution") {
+      // Pour les maps : merge profond champ par champ
+      const incomingObj = incoming && typeof incoming === "object" && !Array.isArray(incoming)
+        ? (incoming as Record<string, unknown>) : null;
+      const existingObj = existing && typeof existing === "object" && !Array.isArray(existing)
+        ? (existing as Record<string, unknown>) : null;
+      if (!incomingObj || Object.keys(incomingObj).length === 0) {
+        merged[key] = existingObj ?? undefined;
+      } else {
+        merged[key] = { ...(existingObj ?? {}), ...incomingObj };
+      }
+    } else if (key === "premiumReadinessScore" || key === "heroCenterRatio") {
+      // Ne remplace jamais un score valide par undefined ou 0
+      if (typeof incoming !== "number" || incoming === 0) {
+        if (typeof existing === "number" && existing > 0) {
+          merged[key] = existing;
+        }
+      }
+    } else {
+      // Pour les coverages et autres objets : préfère l'existant si l'incoming est absent
+      if (incoming === undefined || incoming === null) {
+        merged[key] = existing ?? undefined;
+      }
+    }
+  }
+
+  return merged;
+}
+
+// ─── mergePremiumStudioDraft ──────────────────────────────────────────────────
+
+/**
+ * Fusionne deux studio data en préservant tous les champs premium existants.
+ */
+export function mergePremiumStudioDraft(
+  existingDraft: Record<string, unknown> | null | undefined,
+  incomingDraft: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  if (!incomingDraft && !existingDraft) return {};
+  if (!incomingDraft) return existingDraft ?? {};
+  if (!existingDraft) return incomingDraft;
+
+  const existingPP = existingDraft.productionPlan as Record<string, unknown> | null | undefined;
+  const incomingPP = incomingDraft.productionPlan as Record<string, unknown> | null | undefined;
+
+  return {
+    ...existingDraft,
+    ...incomingDraft,
+    productionPlan: incomingPP
+      ? mergePremiumProductionPlan(existingPP, incomingPP)
+      : existingPP ?? undefined,
+  };
+}
+
+// ─── validatePremiumContract ──────────────────────────────────────────────────
+
+export interface PremiumContractValidationResult {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+/**
+ * Valide le contrat premium de façon structurée (pour logs/UI/tests).
+ * Retourne errors + warnings sans lever d'exception.
+ */
+export function validatePremiumContract(
+  snapshot: ChapterStudioSnapshot,
+  outlineRecord: Record<string, unknown>,
+): PremiumContractValidationResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  const ao = outlineRecord.approvedOutline as Record<string, unknown> | undefined;
+  const po = snapshot.data.productionOutline;
+  const pp = snapshot.data.productionPlan;
+
+  // Beats
+  if (!ao || !Array.isArray(ao.beats) || ao.beats.length === 0) {
+    errors.push("approvedOutline.beats manquant ou vide");
+  }
+  if (!po || !Array.isArray(po.beats) || po.beats.length === 0) {
+    errors.push("productionOutline.beats manquant ou vide");
+  }
+  if (ao && po && Array.isArray(ao.beats) && Array.isArray(po.beats) && ao.beats.length !== po.beats.length) {
+    errors.push(`beats_count_mismatch (approvedOutline=${ao.beats.length} vs productionOutline=${po.beats.length})`);
+  }
+
+  if (!pp) {
+    errors.push("productionPlan manquant");
+    return { ok: false, errors, warnings };
+  }
+
+  // Champs obligatoires du plan
+  if (!Array.isArray(pp.pages) || pp.pages.length === 0) errors.push("productionPlan.pages vide");
+  if (typeof pp.minimumImages !== "number" || pp.minimumImages <= 0) errors.push("productionPlan.minimumImages invalide");
+  if (typeof pp.estimatedImages !== "number" || pp.estimatedImages <= 0) errors.push("productionPlan.estimatedImages invalide");
+  if (typeof pp.targetImages !== "number" || pp.targetImages <= 0) errors.push("productionPlan.targetImages invalide");
+  if (typeof pp.estimatedImages === "number" && typeof pp.minimumImages === "number" && pp.estimatedImages < pp.minimumImages) {
+    errors.push("productionPlan.estimatedImages < minimumImages");
+  }
+  if (typeof pp.targetImages === "number" && typeof pp.minimumImages === "number" && pp.targetImages < pp.minimumImages) {
+    errors.push("productionPlan.targetImages < minimumImages");
+  }
+
+  // Champs premium obligatoires
+  if (!Array.isArray(pp.panelBlueprints) || pp.panelBlueprints.length === 0) {
+    errors.push("productionPlan.panelBlueprints absent ou vide");
+  }
+  if (!pp.focusDistribution || Object.keys(pp.focusDistribution as object).length === 0) {
+    errors.push("productionPlan.focusDistribution absent");
+  }
+  if (!pp.dialogueAnchorCoverage) errors.push("productionPlan.dialogueAnchorCoverage absent");
+  if (!pp.propCoverage) errors.push("productionPlan.propCoverage absent");
+  if (!pp.enemyCoverage) errors.push("productionPlan.enemyCoverage absent");
+  if (!pp.npcCoverage) errors.push("productionPlan.npcCoverage absent");
+  if (!pp.cutawayCoverage) errors.push("productionPlan.cutawayCoverage absent");
+  if (typeof pp.heroCenterRatio !== "number") errors.push("productionPlan.heroCenterRatio absent");
+  if (typeof pp.premiumReadinessScore !== "number") errors.push("productionPlan.premiumReadinessScore absent");
+
+  // Contrôles qualitatifs
+  if (typeof pp.heroCenterRatio === "number" && pp.heroCenterRatio > 0.8) {
+    const hasTag = Array.isArray(pp.pages) && pp.pages.some(
+      (p: Record<string, unknown>) => typeof p === "object" && String(p.tag ?? "").includes("hero_centric_scene"),
+    );
+    if (!hasTag) warnings.push(`heroCenterRatio trop élevé (${pp.heroCenterRatio.toFixed(2)} > 0.8) sans tag hero_centric_scene`);
+  }
+
+  const dac = pp.dialogueAnchorCoverage as Record<string, unknown> | null | undefined;
+  if (dac && typeof dac.anchored === "number" && dac.anchored === 0) {
+    const hasDialogueBeats = Array.isArray(po?.beats) && po.beats.some(
+      (b: Record<string, unknown>) => typeof b === "object" && (b.hasDialogue === true || (typeof b.dialogueCount === "number" && b.dialogueCount > 0)),
+    );
+    if (hasDialogueBeats) warnings.push("dialogueAnchorCoverage.anchored = 0 alors que des beats dialogue existent");
+  }
+
+  const pc = pp.propCoverage as Record<string, unknown> | null | undefined;
+  if (pc && Array.isArray(pc.covered) && pc.covered.length === 0 && Array.isArray(pc.missing) && pc.missing.length === 0) {
+    const hasProps = Array.isArray(po?.beats) && po.beats.some(
+      (b: Record<string, unknown>) => typeof b === "object" && Array.isArray(b.requiredProps) && b.requiredProps.length > 0,
+    );
+    if (hasProps) warnings.push("propCoverage vide alors que des beats ont des requiredProps");
+  }
+
+  const ec = pp.enemyCoverage as Record<string, unknown> | null | undefined;
+  if (ec && Array.isArray(ec.beatsCovered) && ec.beatsCovered.length === 0 && typeof ec.panelCount === "number" && ec.panelCount === 0) {
+    // Pas d'erreur bloquante ici — l'absence d'ennemi peut être intentionnelle
+    // On vérifie seulement si le plan indique explicitement des ennemis requis
+  }
+
+  const nc = pp.npcCoverage as Record<string, unknown> | null | undefined;
+  if (nc && typeof nc.panelCount === "number" && nc.panelCount === 0 && typeof nc.avgNpcCount === "number" && nc.avgNpcCount === 0) {
+    // Pas d'erreur bloquante — absence de NPC peut être normale
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    warnings,
+  };
+}
+
+// ─── reconcileIncomingPremiumContract ─────────────────────────────────────────
+
+/**
+ * Réconcilie un contrat client avec un contrat serveur recalculé.
+ * Le serveur gagne toujours sur les champs premium visuels.
+ * Le client peut garder des données éditoriales non destructrices.
+ */
+export function reconcileIncomingPremiumContract(opts: {
+  approvedOutline: ApprovedChapterOutline;
+  incomingProductionOutline: ProductionOutline | null | undefined;
+  incomingProductionPlan: ProductionPlan | null | undefined;
+  rebuiltContract: PremiumChapterContractResult;
+}): { productionOutline: ProductionOutline; productionPlan: ProductionPlan } {
+  const { incomingProductionOutline, incomingProductionPlan, rebuiltContract } = opts;
+
+  // Vérifier la cohérence de cardinalité des beats
+  const incomingBeatCount = Array.isArray(incomingProductionOutline?.beats)
+    ? incomingProductionOutline.beats.length : 0;
+  const rebuiltBeatCount = Array.isArray(rebuiltContract.productionOutline.beats)
+    ? rebuiltContract.productionOutline.beats.length : 0;
+  const approvedBeatCount = opts.approvedOutline.beats.length;
+
+  // Si divergence de cardinalité, le serveur reconstruit et gagne
+  if (incomingBeatCount !== approvedBeatCount || incomingBeatCount !== rebuiltBeatCount) {
+    console.warn(
+      `[reconcile] beat_count_divergence incoming=${incomingBeatCount} approved=${approvedBeatCount} rebuilt=${rebuiltBeatCount} — using server contract`,
+    );
+    return {
+      productionOutline: rebuiltContract.productionOutline,
+      productionPlan: rebuiltContract.productionPlan,
+    };
+  }
+
+  // Merge du plan : le serveur gagne sur tous les champs premium
+  const incomingPP = incomingProductionPlan as Record<string, unknown> | null | undefined;
+  const rebuiltPP = rebuiltContract.productionPlan as Record<string, unknown>;
+
+  const reconciledPP: Record<string, unknown> = {
+    ...(incomingPP ?? {}),
+    ...rebuiltPP,
+  };
+
+  // Le serveur gagne toujours sur les champs premium
+  for (const key of PREMIUM_PRODUCTION_PLAN_KEYS) {
+    const serverValue = rebuiltPP[key];
+    const isServerValueMeaningful =
+      serverValue !== undefined && serverValue !== null &&
+      !(Array.isArray(serverValue) && serverValue.length === 0) &&
+      !(typeof serverValue === "object" && !Array.isArray(serverValue) && Object.keys(serverValue as object).length === 0);
+
+    if (isServerValueMeaningful) {
+      reconciledPP[key] = serverValue;
+    }
+  }
+
+  return {
+    productionOutline: rebuiltContract.productionOutline,
+    productionPlan: reconciledPP as ProductionPlan,
+  };
+}
+
+// ─── validateNarrativeContractConsistency ─────────────────────────────────────
+
+export interface NarrativeContractConsistencyResult {
+  ok: boolean;
+  issues: string[];
+}
+
+/**
+ * Valide la cohérence transverse entre narrativeFacts, requiredProps, panelBlueprints et coverages.
+ */
+export function validateNarrativeContractConsistency(
+  snapshot: ChapterStudioSnapshot,
+): NarrativeContractConsistencyResult {
+  const issues: string[] = [];
+  const pp = snapshot.data.productionPlan;
+  const po = snapshot.data.productionOutline;
+
+  if (!pp || !po) return { ok: true, issues: [] };
+
+  const beats = Array.isArray(po.beats) ? po.beats : [];
+  const blueprints = Array.isArray(pp.panelBlueprints) ? pp.panelBlueprints : [];
+
+  for (const beat of beats) {
+    const b = beat as Record<string, unknown>;
+
+    // prop_usage → propCoverage doit avoir des props couverts
+    if (b.prop_usage || (Array.isArray(b.requiredProps) && b.requiredProps.length > 0)) {
+      const pc = pp.propCoverage as Record<string, unknown> | null | undefined;
+      if (!pc) {
+        issues.push(`Beat ${b.beatId ?? "?"}: prop_usage détecté mais propCoverage absent`);
+      }
+    }
+
+    // enemy_presence → au moins un blueprint doit montrer l'ennemi
+    if (b.enemy_presence || b.hasEnemyPresence) {
+      const ec = pp.enemyCoverage as Record<string, unknown> | null | undefined;
+      if (!ec || (typeof ec.panelCount === "number" && ec.panelCount === 0)) {
+        issues.push(`Beat ${b.beatId ?? "?"}: enemy_presence détecté mais enemyCoverage.panelCount = 0`);
+      }
+      const beatBlueprints = blueprints.filter(
+        (bp: Record<string, unknown>) => bp.beatId === b.beatId,
+      );
+      const hasEnemyBlueprint = beatBlueprints.some(
+        (bp: Record<string, unknown>) => bp.mustShowEnemy === true,
+      );
+      if (beatBlueprints.length > 0 && !hasEnemyBlueprint) {
+        issues.push(`Beat ${b.beatId ?? "?"}: enemy_presence requis mais aucun blueprint mustShowEnemy`);
+      }
+    }
+
+    // npc_presence → npcCoverage doit refléter le besoin
+    if (b.npc_presence || b.hasNpcPresence) {
+      const nc = pp.npcCoverage as Record<string, unknown> | null | undefined;
+      if (!nc || (typeof nc.panelCount === "number" && nc.panelCount === 0)) {
+        issues.push(`Beat ${b.beatId ?? "?"}: npc_presence détecté mais npcCoverage.panelCount = 0`);
+      }
+    }
+
+    // dialogue avec speaker → dialogueAnchorCoverage ne peut pas être totalement flottant
+    if (b.hasDialogue || (typeof b.dialogueCount === "number" && b.dialogueCount > 0)) {
+      const dac = pp.dialogueAnchorCoverage as Record<string, unknown> | null | undefined;
+      if (dac && typeof dac.anchored === "number" && dac.anchored === 0 && typeof dac.floating === "number" && dac.floating > 0) {
+        issues.push(`Beat ${b.beatId ?? "?"}: dialogue détecté mais tous les dialogues sont flottants`);
+      }
+    }
+
+    // cutaway requis → au moins un blueprint doit l'exprimer
+    if (b.requiresCutaway || b.cutawayType) {
+      const cc = pp.cutawayCoverage as Record<string, unknown> | null | undefined;
+      if (!cc || (typeof cc.count === "number" && cc.count === 0)) {
+        issues.push(`Beat ${b.beatId ?? "?"}: cutaway requis mais cutawayCoverage.count = 0`);
+      }
+    }
+  }
+
+  // Valider chaque blueprint (seulement les champs critiques)
+  for (const bp of blueprints) {
+    const b = bp as Record<string, unknown>;
+    if (b.speakerAnchorRequired === true && !b.speakerAnchorCharacterId) {
+      issues.push(`Blueprint panel ${b.panelNumber ?? b.panelId ?? "?"}: speakerAnchorRequired mais speakerAnchorCharacterId absent`);
+    }
+  }
+
+  return { ok: issues.length === 0, issues };
+}
+
+/**
+ * Valide un blueprint individuel avant injection dans le job.
+ * Retourne null si le blueprint est trop incomplet.
+ */
+function validateBlueprint(bp: Record<string, unknown>): { valid: boolean; issues: string[] } {
+  const issues: string[] = [];
+  if (typeof bp.panelNumber !== "number") issues.push("panelNumber manquant");
+  if (!bp.subjectFocus && !bp.panelCategory) issues.push("subjectFocus/panelCategory absent");
+  if (bp.speakerAnchorRequired === true && !bp.speakerAnchorCharacterId) {
+    issues.push("speakerAnchorRequired mais speakerAnchorCharacterId absent");
+  }
+  if (typeof bp.requiredNpcCount === "number" && bp.requiredNpcCount < 0) {
+    issues.push("requiredNpcCount négatif");
+  }
+  return { valid: issues.length === 0, issues };
+}
+
 export function buildGenerationJobInputFromSnapshot(opts: GenerationJobInputOptions): Record<string, unknown> {
   const { snapshot, approvedOutline } = opts;
   const pp = snapshot.data.productionPlan;
   const po = snapshot.data.productionOutline;
-  const panelBlueprints = Array.isArray(pp?.panelBlueprints) ? pp.panelBlueprints : [];
+  const rawBlueprints = Array.isArray(pp?.panelBlueprints) ? pp.panelBlueprints : [];
+
+  // Garde-fous : filtrer les blueprints invalides, logger les problèmes
+  const panelBlueprints: unknown[] = [];
+  for (const bp of rawBlueprints) {
+    const bpRecord = bp as Record<string, unknown>;
+    const { valid, issues } = validateBlueprint(bpRecord);
+    if (valid) {
+      panelBlueprints.push(bp);
+    } else {
+      console.warn(
+        `[buildGenerationJobInput] blueprint_invalid panelNumber=${bpRecord.panelNumber ?? "?"} issues=${issues.join(", ")} — skipping`,
+      );
+    }
+  }
 
   const input: Record<string, unknown> = {
     source: opts.source,

@@ -1,33 +1,60 @@
 "use client";
 
 import type { ChapterReadinessIssue, ChapterStudioData } from "@manga-ai-studio/core";
+import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import type { OutlineProgressionIssue } from "@/lib/outline-progression-guard";
 import { NarrativeContractCard } from "./narrative-contract-card";
 import { ProductionPlanCard } from "./production-plan-card";
 import { StudioInlineIssues } from "./studio-inline-issues";
 
 function BeatList({
   title,
+  subtitle,
   emptyLabel,
   beats,
+  defaultCollapsed,
 }: {
   title: string;
+  subtitle?: string;
   emptyLabel: string;
   beats: Array<{ beatId?: string; label?: string; summary: string }> | undefined;
+  defaultCollapsed?: boolean;
 }) {
+  if (defaultCollapsed && (beats ?? []).length > 0) {
+    return (
+      <details className="rounded-xl border border-border/60 bg-card/40">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-medium flex items-center justify-between">
+          <span>{title}</span>
+          <span className="text-xs text-muted-foreground">{(beats ?? []).length} temps · cliquer pour voir</span>
+        </summary>
+        <div className="px-4 pb-4 space-y-3 text-sm">
+          {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
+          {beats?.map((beat, index) => (
+            <div key={beat.beatId ?? `${title}-${index}`} className="rounded-xl border border-border/60 bg-background/40 p-3">
+              <p className="font-medium">{beat.label ?? `Temps ${index + 1}`}</p>
+              <p className="mt-1 text-muted-foreground">{beat.summary}</p>
+            </div>
+          ))}
+        </div>
+      </details>
+    );
+  }
+
   return (
     <Card className="border-border/60 bg-card/40">
       <CardHeader>
         <CardTitle className="text-base">{title}</CardTitle>
+        {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         {(beats ?? []).length > 0 ? (
           beats?.map((beat, index) => (
             <div key={beat.beatId ?? `${title}-${index}`} className="rounded-xl border border-border/60 bg-background/40 p-3">
-              <p className="font-medium">{beat.label ?? beat.beatId ?? `Bloc ${index + 1}`}</p>
+              <p className="font-medium">{beat.label ?? `Temps ${index + 1}`}</p>
               <p className="mt-1 text-muted-foreground">{beat.summary}</p>
             </div>
           ))
@@ -46,6 +73,7 @@ export function ChapterPlanStep({
   warningItems,
   generatingOutline,
   imageCounts,
+  progressionIssues,
   onIssueAction,
   onUpdateDraft,
   onGenerateOutlines,
@@ -62,6 +90,7 @@ export function ChapterPlanStep({
     minimumImages: number;
     missingImages: number;
   };
+  progressionIssues?: OutlineProgressionIssue[];
   onIssueAction: (issue: ChapterReadinessIssue) => void | Promise<void>;
   onUpdateDraft: (next: ChapterStudioData, step?: "narrative_contract") => void;
   onGenerateOutlines: () => void | Promise<void>;
@@ -71,7 +100,7 @@ export function ChapterPlanStep({
     <div data-studio-section="plan" className="space-y-6">
       <Card className="border-border/60 bg-card/40">
         <CardHeader>
-          <CardTitle className="text-base">Contrat narratif proposé</CardTitle>
+          <CardTitle className="text-base">Direction narrative du chapitre</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 lg:grid-cols-2">
           <div className="space-y-2">
@@ -132,9 +161,56 @@ export function ChapterPlanStep({
         </CardContent>
       </Card>
 
+      {/* Warning progression répétitive */}
+      {progressionIssues && progressionIssues.length > 0 && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-3">
+          <div className="flex items-center gap-2 text-amber-200">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <p className="text-sm font-medium">Le plan détaillé semble répétitif</p>
+          </div>
+          <ul className="space-y-1 text-xs text-amber-300/90 pl-6">
+            {progressionIssues.slice(0, 3).map((issue, i) => (
+              <li key={i}>· {issue.message}</li>
+            ))}
+          </ul>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="border-amber-500/30 text-amber-200 hover:bg-amber-500/20"
+            onClick={() => void onGenerateOutlines()}
+            disabled={generatingOutline}
+          >
+            {generatingOutline ? "Régénération…" : "Régénérer la seconde moitié"}
+          </Button>
+        </div>
+      )}
+
+      {/* Encart explicatif */}
+      {(draft.editorialOutline?.beats?.length ?? 0) > 0 || (draft.productionOutline?.beats?.length ?? 0) > 0 ? (
+        <div className="rounded-xl border border-border/40 bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">Résumé macro</span> — valide le déroulé global du chapitre.{" "}
+          <span className="font-medium text-foreground">Découpage détaillé</span> — utilisé par l&apos;IA pour générer les pages, les panels et les dialogues.
+        </div>
+      ) : null}
+
       <div className="grid gap-6 xl:grid-cols-2">
-        <BeatList title="Outline éditorial" emptyLabel="Aucun outline éditorial généré." beats={draft.editorialOutline?.beats} />
-        <BeatList title="Plan de production" emptyLabel="Aucun outline de production généré." beats={draft.productionOutline?.beats} />
+        {/* Résumé macro : replié par défaut si le plan détaillé est plus riche */}
+        <BeatList
+          title="Résumé du chapitre (5 grands temps)"
+          subtitle="Version courte pour valider le déroulé global."
+          emptyLabel="Aucun résumé généré."
+          beats={draft.editorialOutline?.beats}
+          defaultCollapsed={
+            (draft.productionOutline?.beats?.length ?? 0) > (draft.editorialOutline?.beats?.length ?? 0)
+          }
+        />
+        <BeatList
+          title="Découpage détaillé pour la génération"
+          subtitle="Version complète utilisée par l'IA pour produire les images."
+          emptyLabel="Aucun plan détaillé généré."
+          beats={draft.productionOutline?.beats}
+        />
       </div>
 
       <ProductionPlanCard plan={draft.productionPlan} />
@@ -191,14 +267,14 @@ export function ChapterPlanStep({
 
       <Card className="border-border/60 bg-card/40">
         <CardHeader>
-          <CardTitle className="text-base">Readiness du plan</CardTitle>
+          <CardTitle className="text-base">État du chapitre avant génération</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
           <div className="grid gap-4 md:grid-cols-5">
             <div><p className="text-muted-foreground">Préparation</p><p>{preparationScore}/100</p></div>
-            <div><p className="text-muted-foreground">Estimées</p><p>{imageCounts.estimatedImages}</p></div>
-            <div><p className="text-muted-foreground">Cibles</p><p>{imageCounts.targetImages}</p></div>
-            <div><p className="text-muted-foreground">Minimum</p><p>{imageCounts.minimumImages}</p></div>
+            <div><p className="text-muted-foreground">Images estimées</p><p>{imageCounts.estimatedImages}</p></div>
+            <div><p className="text-muted-foreground">Images cibles</p><p>{imageCounts.targetImages}</p></div>
+            <div><p className="text-muted-foreground">Minimum requis</p><p>{imageCounts.minimumImages}</p></div>
             <div><p className="text-muted-foreground">Manquantes</p><p>{imageCounts.missingImages}</p></div>
           </div>
 
@@ -213,8 +289,8 @@ export function ChapterPlanStep({
         </CardContent>
       </Card>
 
-      <StudioInlineIssues title="Blocants du plan" issues={issues} emptyLabel="Aucun blocant: le plan peut partir en génération." testIdPrefix={null} onAction={onIssueAction} />
-      <StudioInlineIssues title="Warnings du plan" issues={warningItems} tone="neutral" testIdPrefix={null} onAction={onIssueAction} />
+      <StudioInlineIssues title="Points à corriger" issues={issues} emptyLabel="Aucun blocant : le plan peut partir en génération." testIdPrefix={null} onAction={onIssueAction} />
+      <StudioInlineIssues title="Points à surveiller" issues={warningItems} tone="neutral" testIdPrefix={null} onAction={onIssueAction} />
     </div>
   );
 }

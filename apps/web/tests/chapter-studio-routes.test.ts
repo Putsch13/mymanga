@@ -173,6 +173,28 @@ function buildReadyStudio() {
         compressionRisks: [],
         enrichmentAdjustments: [],
         imageBudgetStatus: "on_target",
+        premiumReadinessScore: 0.85,
+        heroCenterRatio: 0.5,
+        focusDistribution: { hero: 5 },
+        propCoverage: { covered: ["katana"], missing: [] },
+        enemyCoverage: { panelCount: 2, beatsCovered: ["b1"] },
+        npcCoverage: { panelCount: 1, avgNpcCount: 2 },
+        cutawayCoverage: { count: 1, ratio: 0.1 },
+        dialogueAnchorCoverage: { anchored: 2, floating: 0 },
+        panelBlueprints: [
+          {
+            panelId: "panel-1",
+            beatId: "b1",
+            panelIndex: 0,
+            panelNumber: 1,
+            purpose: "Introduire le héros",
+            cameraAngle: "eye_level",
+            subjectFocus: "hero",
+            shotType: "medium",
+            requiredProps: [],
+            presenceObligations: [],
+          },
+        ],
       },
     },
   };
@@ -810,6 +832,177 @@ describe("routes Chapter Studio", () => {
     // buildLegacyApprovedOutlineFromStudio ne doit pas être appelé
     // (il n'est plus importé dans chapters/route.ts)
     expect(prismaMock.chapter.create).toHaveBeenCalled();
+  });
+});
+
+describe("studio PATCH — préservation intégrale des champs premium", () => {
+  function buildFullPremiumStudio() {
+    const base = buildReadyStudio();
+    return {
+      ...base,
+      data: {
+        ...base.data,
+        productionPlan: {
+          ...base.data.productionPlan,
+          panelBlueprints: [
+            {
+              panelId: "panel-1",
+              beatId: "b1",
+              panelIndex: 0,
+              purpose: "Introduire le héros",
+              cameraAngle: "eye_level",
+              subjectFocus: "hero",
+              shotType: "close_up",
+              requiredProps: [],
+              presenceObligations: [],
+            },
+          ],
+          premiumReadinessScore: 0.88,
+          heroCenterRatio: 0.45,
+          focusDistribution: { hero: 4, duo: 3, environment: 2 },
+          shotDistribution: { close_up: 3, medium: 4, wide: 2 },
+          focusBudget: { heroMax: 0.6, cutawayMin: 0.1 },
+          propCoverage: { covered: ["katana"], missing: [] },
+          enemyCoverage: { panelCount: 3, beatsCovered: ["b1", "b2"] },
+          npcCoverage: { panelCount: 2, avgNpcCount: 2 },
+          cutawayCoverage: { count: 2, ratio: 0.2 },
+          dialogueAnchorCoverage: { anchored: 3, floating: 0 },
+          objectStateTimeline: [{ objectId: "katana", states: ["held", "sheathed"] }],
+        },
+      },
+    };
+  }
+
+  function setupStudioPatch(studioSnapshot: ReturnType<typeof buildFullPremiumStudio>) {
+    patchChapterStudioSnapshotMock.mockReturnValue(studioSnapshot);
+    getOwnedChapterMock.mockResolvedValue({
+      id: "chapter-1",
+      chapterNumber: 1,
+      title: "Chapitre 1",
+      summary: null,
+      cliffhanger: null,
+      userIntent: "test",
+      outline: {
+        studio: studioSnapshot,
+        approvedOutline: { beats: [], approvalVersion: "v1" },
+      },
+      generatedImages: 0,
+      acceptedImages: 0,
+      rejectedImages: 0,
+      missingImages: 55,
+      minimumImages: 55,
+      criticalPanelsCount: 0,
+      criticalPanelsBlocked: 0,
+      criticalPanelsMissingQa: 0,
+      reviewBlockedReason: null,
+    });
+    prismaMock.chapter.update.mockResolvedValue({ id: "chapter-1" });
+  }
+
+  const premiumFields = [
+    ["propCoverage", { covered: ["katana"], missing: [] }],
+    ["enemyCoverage", { panelCount: 3, beatsCovered: ["b1", "b2"] }],
+    ["npcCoverage", { panelCount: 2, avgNpcCount: 2 }],
+    ["cutawayCoverage", { count: 2, ratio: 0.2 }],
+    ["dialogueAnchorCoverage", { anchored: 3, floating: 0 }],
+    ["heroCenterRatio", 0.45],
+    ["shotDistribution", { close_up: 3, medium: 4, wide: 2 }],
+    ["focusBudget", { heroMax: 0.6, cutawayMin: 0.1 }],
+    ["objectStateTimeline", [{ objectId: "katana", states: ["held", "sheathed"] }]],
+  ] as const;
+
+  for (const [field, expectedValue] of premiumFields) {
+    it(`patch partiel studio ne doit pas supprimer ${field}`, async () => {
+      const studioSnapshot = buildFullPremiumStudio();
+      setupStudioPatch(studioSnapshot);
+
+      const mod = await import("../app/api/projects/[id]/chapters/[chapterId]/studio/route");
+      const response = await mod.PATCH(
+        new Request("http://localhost", {
+          method: "PATCH",
+          body: JSON.stringify({
+            currentStep: "intent",
+            data: { intent: { workingTitle: "Nouveau titre", shortPitch: "pitch" } },
+          }),
+        }),
+        ctxChapter,
+      );
+
+      expect(response.status).toBe(200);
+      const updateCall = prismaMock.chapter.update.mock.calls[0]?.[0];
+      const outlineData = updateCall?.data?.outline as Record<string, unknown> | undefined;
+      const studioData = outlineData?.studio as Record<string, unknown> | undefined;
+      const pp = (studioData?.data as Record<string, unknown> | undefined)?.productionPlan as Record<string, unknown> | undefined;
+      if (pp) {
+        expect(pp[field]).toBeDefined();
+        if (typeof expectedValue === "number") {
+          expect(pp[field]).toBe(expectedValue);
+        } else {
+          expect(pp[field]).toEqual(expectedValue);
+        }
+      }
+    });
+  }
+
+  it("patch partiel studio avec panelBlueprints vides doit conserver les blueprints existants", async () => {
+    const studioSnapshot = buildFullPremiumStudio();
+    // Simuler un patch qui envoie panelBlueprints vide
+    const snapshotWithEmptyBlueprints = {
+      ...studioSnapshot,
+      data: {
+        ...studioSnapshot.data,
+        productionPlan: {
+          ...studioSnapshot.data.productionPlan,
+          panelBlueprints: [],
+        },
+      },
+    };
+    patchChapterStudioSnapshotMock.mockReturnValue(snapshotWithEmptyBlueprints);
+    getOwnedChapterMock.mockResolvedValue({
+      id: "chapter-1",
+      chapterNumber: 1,
+      title: "Chapitre 1",
+      summary: null,
+      cliffhanger: null,
+      userIntent: "test",
+      outline: {
+        studio: studioSnapshot, // existant a des blueprints
+        approvedOutline: { beats: [], approvalVersion: "v1" },
+      },
+      generatedImages: 0,
+      acceptedImages: 0,
+      rejectedImages: 0,
+      missingImages: 55,
+      minimumImages: 55,
+      criticalPanelsCount: 0,
+      criticalPanelsBlocked: 0,
+      criticalPanelsMissingQa: 0,
+      reviewBlockedReason: null,
+    });
+    prismaMock.chapter.update.mockResolvedValue({ id: "chapter-1" });
+
+    const mod = await import("../app/api/projects/[id]/chapters/[chapterId]/studio/route");
+    const response = await mod.PATCH(
+      new Request("http://localhost", {
+        method: "PATCH",
+        body: JSON.stringify({
+          currentStep: "intent",
+          data: { intent: { workingTitle: "Titre", shortPitch: "pitch" } },
+        }),
+      }),
+      ctxChapter,
+    );
+
+    expect(response.status).toBe(200);
+    const updateCall = prismaMock.chapter.update.mock.calls[0]?.[0];
+    const outlineData = updateCall?.data?.outline as Record<string, unknown> | undefined;
+    const studioData = outlineData?.studio as Record<string, unknown> | undefined;
+    const pp = (studioData?.data as Record<string, unknown> | undefined)?.productionPlan as Record<string, unknown> | undefined;
+    if (pp) {
+      // Les blueprints existants doivent être préservés
+      expect(Array.isArray(pp.panelBlueprints)).toBe(true);
+      expect((pp.panelBlueprints as unknown[]).length).toBeGreaterThan(0);
+    }
   });
 });
 

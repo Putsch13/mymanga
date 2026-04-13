@@ -120,11 +120,40 @@ export default function NewProjectPage() {
         settings: { violenceLevel, romanceLevel, sensualityLevel, darknessLevel, mysteryLevel, dialogueDensity, canonStrictness },
       }),
     });
-    setLoading(false);
-    if (!res.ok) { setError("Création impossible"); return; }
+    if (!res.ok) { setLoading(false); setError("Création impossible"); return; }
     const data = await res.json();
-    // Rediriger vers la création du premier personnage — un chapitre sans personnage est pauvre
-    router.push(`/projects/${data.project.id}/characters/new?onboarding=1`);
+    const projectId = data.project.id as string;
+
+    // Créer automatiquement le chapitre 1 et rediriger vers le studio
+    const chapterRes = await fetch(`/api/projects/${projectId}/chapters`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Chapitre 1",
+        userIntent: pitch || undefined,
+        studioDraft: {
+          intent: {
+            chapterNumber: 1,
+            workingTitle: "Chapitre 1",
+            shortPitch: pitch || "",
+            arcPosition: "",
+            emotionalGoal: "",
+            mainConflict: "",
+            endingMode: null,
+            arcImportance: null,
+          },
+        },
+      }),
+    });
+    setLoading(false);
+    if (!chapterRes.ok) {
+      // Si la création du chapitre échoue, rediriger quand même vers le projet
+      router.push(`/projects/${projectId}`);
+      return;
+    }
+    const chapterData = await chapterRes.json();
+    const chapterId = chapterData.chapter.id as string;
+    router.push(`/projects/${projectId}/chapters/${chapterId}/edit?onboarding=1&firstChapter=1`);
   }
 
   const canContinue = title.trim().length > 0;

@@ -170,10 +170,28 @@ function buildPremiumChapterOutline(beatCount = 10) {
             compressionRisks: [],
             enrichmentAdjustments: [],
             imageBudgetStatus: "on_target",
-            panelBlueprints: [],
+            panelBlueprints: [
+              {
+                panelId: "panel-1",
+                beatId: "beat-1",
+                panelIndex: 0,
+                panelNumber: 1,
+                purpose: "Introduire le héros",
+                cameraAngle: "eye_level",
+                subjectFocus: "hero",
+                shotType: "medium",
+                requiredProps: [],
+                presenceObligations: [],
+              },
+            ],
             premiumReadinessScore: 0.85,
             heroCenterRatio: 0.5,
             focusDistribution: { hero: 5 },
+            propCoverage: { covered: ["katana"], missing: [] },
+            enemyCoverage: { panelCount: 2, beatsCovered: ["beat-1"] },
+            npcCoverage: { panelCount: 1, avgNpcCount: 2 },
+            cutawayCoverage: { count: 1, ratio: 0.1 },
+            dialogueAnchorCoverage: { anchored: 2, floating: 0 },
           },
           readinessReport: {
             status: "ready",
@@ -255,8 +273,8 @@ describe("/pipeline — contrat premium", () => {
     // Vérifier que les champs premium sont présents
     expect(jobInput?.productionOutline).toBeDefined();
     expect(jobInput?.productionPlan).toBeDefined();
-    // panelBlueprints est undefined si vide (comportement attendu de buildGenerationJobInputFromSnapshot)
-    expect(jobInput?.panelBlueprints).toBeUndefined();
+    // panelBlueprints est défini car le snapshot contient des blueprints
+    expect(jobInput?.panelBlueprints).toBeDefined();
   });
 
   it("envoie premiumReadinessScore dans job.input", async () => {

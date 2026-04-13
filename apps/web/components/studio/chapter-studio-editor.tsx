@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AutofillMeta, ChapterReadinessIssue, ChapterStudioData, ChapterStudioSnapshot, ChapterStudioStep } from "@manga-ai-studio/core";
 import { Button } from "@/components/ui/button";
+import type { OutlineProgressionIssue } from "@/lib/outline-progression-guard";
 import { ChapterBriefStep } from "./chapter-brief-step";
 import { ChapterCastCanonStep } from "./chapter-cast-canon-step";
 import { ChapterEditorSidebarSummary } from "./chapter-editor-sidebar-summary";
 import { ChapterGenerationReviewStep } from "./chapter-generation-review-step";
+import { ChapterOnboardingBanner } from "./chapter-onboarding-banner";
 import { ChapterPlanStep } from "./chapter-plan-step";
 import {
   computeChapterSummary,
@@ -17,6 +19,13 @@ import {
   type ChapterFlowStepId,
   type StudioResponse,
 } from "./chapter-studio-flow";
+
+type CharacterCatalogEntry = {
+  id: string;
+  name: string;
+  roleType?: string | null;
+  imageUrl?: string | null;
+};
 
 function primaryStudioStepForFlowStep(flowStep: ChapterFlowStepId): ChapterStudioStep {
   if (flowStep === "brief") return "intent";
@@ -39,16 +48,19 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
   const [activeFlowStep, setActiveFlowStep] = useState<ChapterFlowStepId>("brief");
   const [autofilling, setAutofilling] = useState(false);
   const [autofillResult, setAutofillResult] = useState<{ meta: AutofillMeta; appliedFields: string[]; unresolvedQuestions: string[] } | null>(null);
+  const [characterCatalog, setCharacterCatalog] = useState<CharacterCatalogEntry[]>([]);
+  const [progressionIssues, setProgressionIssues] = useState<OutlineProgressionIssue[]>([]);
   const autosaveRef = useRef<number | null>(null);
 
   const loadStudio = useCallback(async () => {
     setLoading(true);
     const response = await fetch(`/api/projects/${projectId}/chapters/${chapterId}/studio`, { cache: "no-store" });
-    const json = (await response.json()) as StudioResponse;
+    const json = (await response.json()) as StudioResponse & { characterCatalog?: CharacterCatalogEntry[] };
     setProjectTitle(json.project.title);
     setChapterTitle(json.chapter.title ?? `Chapitre ${json.chapter.chapterNumber}`);
     setSnapshot(json.snapshot);
     setGenerationContext(json.generationContext);
+    setCharacterCatalog(json.characterCatalog ?? []);
     setDraft({
       ...json.snapshot.data,
       selectedPlotLabel: json.snapshot.data.selectedPlotLabel ?? "bold",
@@ -151,6 +163,23 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
       productionPlan: json.productionPlan,
       ...(json.estimateContext ? { estimateContext: json.estimateContext } : {}),
     };
+
+    // Vérification de progression narrative côté client
+    if (json.productionOutline?.beats?.length > 0) {
+      try {
+        const { validateOutlineProgression } = await import("@/lib/outline-progression-guard");
+        const result = validateOutlineProgression({
+          editorialOutline: json.editorialOutline,
+          productionOutline: json.productionOutline,
+        });
+        setProgressionIssues(result.issues);
+      } catch {
+        setProgressionIssues([]);
+      }
+    } else {
+      setProgressionIssues([]);
+    }
+
     setActiveFlowStep("plan");
     setActiveStudioStep("production_plan");
     await save(nextDraft, "production_plan");
@@ -252,6 +281,12 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
       />
 
       <div className="space-y-6">
+        {/* Bandeau onboarding si premier chapitre sans personnages */}
+        <ChapterOnboardingBanner
+          projectId={projectId}
+          hasCharacters={characterCatalog.length > 0}
+        />
+
         {/* Résumé chapitre + CTA autofill natif au flow */}
         <div className="rounded-xl border border-border/60 bg-card/40 p-4 space-y-3">
           <div>
@@ -329,6 +364,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
             draft={draft}
             issues={castCanonIssues}
             warningItems={castCanonWarnings}
+            characterCatalog={characterCatalog}
             onIssueAction={handleIssueAction}
             onUpdateDraft={updateDraft}
             onContinue={() => goToFlowStep("plan")}
@@ -348,6 +384,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
               minimumImages,
               missingImages: readiness?.imageCounts.missingImages ?? 0,
             }}
+            progressionIssues={progressionIssues}
             onIssueAction={handleIssueAction}
             onUpdateDraft={updateDraft}
             onGenerateOutlines={generateOutlines}
@@ -371,7 +408,6 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
             blockerItems={blockerItems}
             warningItems={warningItems}
             generatedImages={generatedImages}
-            acceptedImages={acceptedImages}
             minimumImages={minimumImages}
             stackReady={stackReady}
             stackBlockers={generationContext?.stack.blockers ?? []}

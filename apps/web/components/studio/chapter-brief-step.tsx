@@ -143,33 +143,33 @@ export function ChapterBriefStep({
               </div>
 
               <SliderField
-                label="Novelty"
+                label="Originalité contrôlée"
                 value={creativityControls.noveltyLevel}
-                helper="Plus haut = plus de variation contrôlée."
+                helper="Plus haut = l'IA introduit plus de variations et de surprises dans le chapitre."
                 onChange={(value) => onUpdateDraft({ ...draft, creativityControls: { ...creativityControls, noveltyLevel: value } }, "intent")}
               />
               <SliderField
-                label="World strictness"
+                label="Respect du canon"
                 value={creativityControls.worldStrictness}
-                helper="Plus haut = plus collé au canon."
+                helper="Plus haut = l'IA reste très proche de l'univers et des règles établies."
                 onChange={(value) => onUpdateDraft({ ...draft, creativityControls: { ...creativityControls, worldStrictness: value } }, "intent")}
               />
               <SliderField
-                label="Visual exoticism"
+                label="Audace visuelle"
                 value={creativityControls.visualExoticism}
-                helper="Plus haut = silhouettes et détails plus atypiques."
+                helper="Plus haut = silhouettes, tenues et détails visuels plus atypiques et originaux."
                 onChange={(value) => onUpdateDraft({ ...draft, creativityControls: { ...creativityControls, visualExoticism: value } }, "intent")}
               />
               <SliderField
-                label="NPC variety"
+                label="Variété des figurants"
                 value={creativityControls.npcVariety}
-                helper="Plus haut = PNJ plus variés."
+                helper="Plus haut = les personnages secondaires et la foule sont plus variés et distinctifs."
                 onChange={(value) => onUpdateDraft({ ...draft, creativityControls: { ...creativityControls, npcVariety: value } }, "intent")}
               />
               <SliderField
-                label="Environment richness"
+                label="Richesse des décors"
                 value={creativityControls.environmentRichness}
-                helper="Plus haut = décors plus denses."
+                helper="Plus haut = les environnements sont plus détaillés et immersifs."
                 onChange={(value) => onUpdateDraft({ ...draft, creativityControls: { ...creativityControls, environmentRichness: value } }, "intent")}
               />
             </div>

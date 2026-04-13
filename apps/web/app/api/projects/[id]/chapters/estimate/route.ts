@@ -279,5 +279,12 @@ export async function POST(req: Request, ctx: Ctx) {
     },
     productionOutline,
     productionPlan,
+    planPresentation: {
+      editorialLabel: "Résumé du chapitre (5 grands temps)",
+      productionLabel: "Découpage détaillé pour la génération",
+      editorialBeatCount: previewBeats.length,
+      productionBeatCount: productionOutline.beats.length,
+      explanation: "Le résumé macro sert à valider l'histoire. Le découpage détaillé sert à générer les panels.",
+    },
   });
 }

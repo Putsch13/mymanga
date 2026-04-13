@@ -110,8 +110,23 @@ export async function POST(_req: Request, ctx: Ctx) {
     );
   }
 
-  // Logs premium
-  console.log(`[launch] premium_launch chapterId=${chapterId} approvedOutlineVersion=${approvedOutline.approvalVersion} productionOutlineBeatCount=${snapshot.data.productionOutline?.beats?.length ?? 0} productionPlanPageCount=${Array.isArray(snapshot.data.productionPlan?.pages) ? snapshot.data.productionPlan.pages.length : 0} panelBlueprintCount=${Array.isArray(snapshot.data.productionPlan?.panelBlueprints) ? snapshot.data.productionPlan.panelBlueprints.length : 0} heroCenterRatio=${snapshot.data.productionPlan?.heroCenterRatio ?? "n/a"} premiumReadinessScore=${snapshot.data.productionPlan?.premiumReadinessScore ?? "n/a"}`);
+  // Logs premium structurés
+  const _pp = snapshot.data.productionPlan;
+  console.log(
+    `[launch] premium_launch projectId=${projectId} chapterId=${chapterId} ` +
+    `approvedOutlineVersion=${approvedOutline.approvalVersion} ` +
+    `beatCount=${approvedOutline.beats.length} ` +
+    `productionOutlineBeatCount=${snapshot.data.productionOutline?.beats?.length ?? 0} ` +
+    `productionPlanPageCount=${Array.isArray(_pp?.pages) ? _pp.pages.length : 0} ` +
+    `panelBlueprintCount=${Array.isArray(_pp?.panelBlueprints) ? _pp.panelBlueprints.length : 0} ` +
+    `heroCenterRatio=${_pp?.heroCenterRatio ?? "n/a"} ` +
+    `premiumReadinessScore=${_pp?.premiumReadinessScore ?? "n/a"} ` +
+    `propCoverage=${JSON.stringify(_pp?.propCoverage ?? null)} ` +
+    `enemyCoverage=${JSON.stringify(_pp?.enemyCoverage ?? null)} ` +
+    `npcCoverage=${JSON.stringify(_pp?.npcCoverage ?? null)} ` +
+    `cutawayCoverage=${JSON.stringify(_pp?.cutawayCoverage ?? null)} ` +
+    `dialogueAnchorCoverage=${JSON.stringify(_pp?.dialogueAnchorCoverage ?? null)}`,
+  );
 
   const nextSnapshot = {
     ...snapshot,

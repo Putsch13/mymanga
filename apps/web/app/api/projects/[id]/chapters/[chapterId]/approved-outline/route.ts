@@ -5,7 +5,10 @@ import { notFound, unauthorized } from "@/lib/api-response";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { getOwnedChapter } from "@/lib/ownership";
 import { buildChapterStructuredRuntimePrismaFields, patchChapterStudioSnapshot } from "@/lib/chapter-studio";
-import { buildPremiumChapterContractFromApprovedOutline } from "@/lib/premium-chapter-contract";
+import {
+  buildPremiumChapterContractFromApprovedOutline,
+  reconcileIncomingPremiumContract,
+} from "@/lib/premium-chapter-contract";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -47,57 +50,92 @@ export async function PATCH(req: Request, ctx: Ctx) {
   const providedProductionOutline = body.productionOutline;
   const providedProductionPlan = body.productionPlan;
 
+  // Toujours reconstruire le contrat premium côté serveur pour validation
+  const rebuiltContract = await buildPremiumChapterContractFromApprovedOutline({
+    approvedOutline,
+    heroCharacterId,
+    projectGenre: project?.primaryGenre ?? null,
+    projectTone: project?.tone ?? null,
+  });
+
   if (providedProductionOutline && providedProductionPlan) {
-    // Contrat premium fourni par le client — valider et persister sans reconstruction
+    // Contrat fourni par le client — valider les schémas puis réconcilier avec le serveur
     const parsedOutline = productionOutlineSchema.safeParse(providedProductionOutline);
     const parsedPlan = productionPlanSchema.safeParse(providedProductionPlan);
+
     if (parsedOutline.success && parsedPlan.success) {
-      resolvedProductionOutline = parsedOutline.data;
-      resolvedProductionPlan = parsedPlan.data;
-      premiumMeta = {
-        source: parsedOutline.data.source,
-        premiumReadinessScore: parsedPlan.data.premiumReadinessScore,
-        panelBlueprintsCount: parsedPlan.data.panelBlueprints?.length ?? 0,
-      };
-    } else {
-      // Fallback si les données fournies sont invalides — reconstruire via le service partagé
-      const premiumContract = await buildPremiumChapterContractFromApprovedOutline({
+      // Réconcilier : le serveur gagne sur les champs premium visuels
+      const reconciled = reconcileIncomingPremiumContract({
         approvedOutline,
-        heroCharacterId,
-        projectGenre: project?.primaryGenre ?? null,
-        projectTone: project?.tone ?? null,
+        incomingProductionOutline: parsedOutline.data,
+        incomingProductionPlan: parsedPlan.data,
+        rebuiltContract,
       });
-      resolvedProductionOutline = premiumContract.productionOutline;
-      resolvedProductionPlan = premiumContract.productionPlan;
+      resolvedProductionOutline = reconciled.productionOutline;
+      resolvedProductionPlan = reconciled.productionPlan;
+      const reconciledPP = reconciled.productionPlan as Record<string, unknown>;
       premiumMeta = {
-        source: premiumContract.productionOutline.source,
-        premiumReadinessScore: premiumContract.coverage.premiumReadinessScore,
-        panelBlueprintsCount: premiumContract.panelBlueprints.length,
+        source: reconciled.productionOutline.source,
+        premiumReadinessScore: reconciledPP.premiumReadinessScore,
+        panelBlueprintsCount: Array.isArray(reconciledPP.panelBlueprints) ? reconciledPP.panelBlueprints.length : 0,
+        heroCenterRatio: reconciledPP.heroCenterRatio,
+        focusDistribution: reconciledPP.focusDistribution,
+        propCoverage: reconciledPP.propCoverage,
+        enemyCoverage: reconciledPP.enemyCoverage,
+        npcCoverage: reconciledPP.npcCoverage,
+        cutawayCoverage: reconciledPP.cutawayCoverage,
+        dialogueAnchorCoverage: reconciledPP.dialogueAnchorCoverage,
+        reconciled: true,
+      };
+      console.info(
+        `[approved-outline] reconciled chapterId=${chapterId} ` +
+        `incomingBeats=${parsedOutline.data.beats.length} rebuiltBeats=${rebuiltContract.productionOutline.beats.length} ` +
+        `panelBlueprintsCount=${Array.isArray(reconciledPP.panelBlueprints) ? reconciledPP.panelBlueprints.length : 0} ` +
+        `premiumReadinessScore=${reconciledPP.premiumReadinessScore ?? "n/a"}`,
+      );
+    } else {
+      // Payload client invalide — utiliser directement le contrat serveur
+      resolvedProductionOutline = rebuiltContract.productionOutline;
+      resolvedProductionPlan = rebuiltContract.productionPlan;
+      premiumMeta = {
+        source: rebuiltContract.productionOutline.source,
+        premiumReadinessScore: rebuiltContract.coverage.premiumReadinessScore,
+        panelBlueprintsCount: rebuiltContract.panelBlueprints.length,
+        heroCenterRatio: rebuiltContract.coverage.heroCenterRatio,
+        focusDistribution: rebuiltContract.coverage.focusDistribution,
+        propCoverage: rebuiltContract.coverage.propCoverage,
+        enemyCoverage: rebuiltContract.coverage.enemyCoverage,
+        npcCoverage: rebuiltContract.coverage.npcCoverage,
+        cutawayCoverage: rebuiltContract.coverage.cutawayCoverage,
+        dialogueAnchorCoverage: rebuiltContract.coverage.dialogueAnchorCoverage,
+        fallback: "server_rebuilt_invalid_client",
       };
     }
   } else {
-    // Reconstruire le contrat premium complet via le service partagé (avec enrichissement LLM)
-    const premiumContract = await buildPremiumChapterContractFromApprovedOutline({
-      approvedOutline,
-      heroCharacterId,
-      projectGenre: project?.primaryGenre ?? null,
-      projectTone: project?.tone ?? null,
-    });
-    resolvedProductionOutline = premiumContract.productionOutline;
-    resolvedProductionPlan = premiumContract.productionPlan;
+    // Pas de contrat client — utiliser directement le contrat serveur
+    resolvedProductionOutline = rebuiltContract.productionOutline;
+    resolvedProductionPlan = rebuiltContract.productionPlan;
     premiumMeta = {
-      source: premiumContract.productionOutline.source,
-      premiumReadinessScore: premiumContract.coverage.premiumReadinessScore,
-      panelBlueprintsCount: premiumContract.panelBlueprints.length,
-      heroCenterRatio: premiumContract.coverage.heroCenterRatio,
-      focusDistribution: premiumContract.coverage.focusDistribution,
-      propCoverage: premiumContract.coverage.propCoverage,
-      enemyCoverage: premiumContract.coverage.enemyCoverage,
-      npcCoverage: premiumContract.coverage.npcCoverage,
-      cutawayCoverage: premiumContract.coverage.cutawayCoverage,
-      dialogueAnchorCoverage: premiumContract.coverage.dialogueAnchorCoverage,
+      source: rebuiltContract.productionOutline.source,
+      premiumReadinessScore: rebuiltContract.coverage.premiumReadinessScore,
+      panelBlueprintsCount: rebuiltContract.panelBlueprints.length,
+      heroCenterRatio: rebuiltContract.coverage.heroCenterRatio,
+      focusDistribution: rebuiltContract.coverage.focusDistribution,
+      propCoverage: rebuiltContract.coverage.propCoverage,
+      enemyCoverage: rebuiltContract.coverage.enemyCoverage,
+      npcCoverage: rebuiltContract.coverage.npcCoverage,
+      cutawayCoverage: rebuiltContract.coverage.cutawayCoverage,
+      dialogueAnchorCoverage: rebuiltContract.coverage.dialogueAnchorCoverage,
     };
   }
+
+  console.info(
+    `[approved-outline] PATCH chapterId=${chapterId} projectId=${projectId} ` +
+    `beatCount=${approvedOutline.beats.length} ` +
+    `panelBlueprintsCount=${(premiumMeta as Record<string, unknown>).panelBlueprintsCount ?? 0} ` +
+    `premiumReadinessScore=${(premiumMeta as Record<string, unknown>).premiumReadinessScore ?? "n/a"} ` +
+    `heroCenterRatio=${(premiumMeta as Record<string, unknown>).heroCenterRatio ?? "n/a"}`,
+  );
 
   const studioSnapshot = patchChapterStudioSnapshot(
     chapter.outline,

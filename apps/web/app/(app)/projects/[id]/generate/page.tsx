@@ -325,7 +325,7 @@ export default function ChapterGeneratorPage() {
 
   function buildApprovedOutlinePayload(): ApprovedChapterOutline | null {
     if (!previewData?.outlinePreview) return null;
-    // Use the full productionOutline beats if available (avoids 5-beat preview truncation)
+    // Utilise les beats complets du productionOutline (le plan de chapitre complet est la source de vérité)
     const productionOutlineRecord = previewData.productionOutline as Record<string, unknown> | undefined;
     const fullBeats = (Array.isArray(productionOutlineRecord?.beats) ? productionOutlineRecord.beats : null) ?? previewData.outlinePreview.beats;
     return {

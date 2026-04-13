@@ -18,6 +18,7 @@ import {
   patchChapterStudioSnapshot,
   readChapterStudioSnapshotFromOutline,
 } from "@/lib/chapter-studio";
+import { mergePremiumProductionPlan } from "@/lib/premium-chapter-contract";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -195,6 +196,12 @@ export async function GET(_req: Request, ctx: Ctx) {
         pending: allImages.filter((image) => image.status === "pending" || image.status === "planned").length,
       },
     },
+    characterCatalog: chapter.project.characters.map((c) => ({
+      id: c.id,
+      name: c.name,
+      roleType: c.roleType,
+      imageUrl: c.visualRefs?.[0]?.mediaAsset?.publicUrl ?? null,
+    })),
   });
 }
 
@@ -223,28 +230,20 @@ export async function PATCH(req: Request, ctx: Ctx) {
   // via /approved-outline lors de la prochaine validation explicite.
   const existingApprovedOutline = outlineRecord.approvedOutline;
 
-  // Garantir que panelBlueprints, focusDistribution et autres métriques premium
-  // ne disparaissent pas lors d'un patch UI simple.
+  // Fusionner le productionPlan en préservant intégralement tous les champs premium.
+  // Utilise mergePremiumProductionPlan qui applique PREMIUM_PRODUCTION_PLAN_KEYS.
   const existingStudio = asRecord(outlineRecord.studio);
   const existingStudioData = asRecord(existingStudio.data);
-  const existingPP = asRecord(existingStudioData.productionPlan);
+  const existingPP = existingStudioData.productionPlan as Record<string, unknown> | null | undefined;
+  const incomingPP = snapshot.data.productionPlan as Record<string, unknown> | null | undefined;
 
-  const mergedProductionPlan = snapshot.data.productionPlan
-    ? {
-        ...snapshot.data.productionPlan,
-        // Préserver les blueprints et métriques premium si le patch ne les touche pas
-        panelBlueprints: snapshot.data.productionPlan.panelBlueprints ?? (existingPP.panelBlueprints as never),
-        focusDistribution: snapshot.data.productionPlan.focusDistribution ?? (existingPP.focusDistribution as never),
-        premiumReadinessScore: snapshot.data.productionPlan.premiumReadinessScore
-          ?? (typeof existingPP.premiumReadinessScore === "number" ? existingPP.premiumReadinessScore : undefined),
-      }
-    : snapshot.data.productionPlan;
+  const mergedProductionPlan = mergePremiumProductionPlan(existingPP, incomingPP);
 
   const mergedSnapshot = {
     ...snapshot,
     data: {
       ...snapshot.data,
-      productionPlan: mergedProductionPlan,
+      productionPlan: mergedProductionPlan as never,
     },
   };
 

@@ -7,6 +7,50 @@ import { QAResultCard } from "./qa-result-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
+// ─── Types premium ────────────────────────────────────────────────────────────
+
+type PremiumReviewAction =
+  | "prop_repair"
+  | "speaker_anchor_repair"
+  | "enemy_presence_repair"
+  | "subject_focus_repair"
+  | "cutaway_repair"
+  | "npc_population_repair";
+
+type LegacyReviewAction =
+  | "style_reroll"
+  | "character_reroll"
+  | "soft_reroll"
+  | "full_reroll";
+
+type ReviewAction = PremiumReviewAction | LegacyReviewAction | string;
+
+type PremiumRetryMode =
+  | "prop"
+  | "speaker"
+  | "enemy_presence"
+  | "subject_focus"
+  | "cutaway"
+  | "npc_population";
+
+type LegacyRetryMode = "style" | "character" | "composition" | "environment";
+
+type RetryMode = PremiumRetryMode | LegacyRetryMode | string;
+
+// Table de mapping premium — source de vérité unique
+const REROLL_MODE_MAP: Record<ReviewAction, RetryMode> = {
+  style_reroll: "style",
+  character_reroll: "character",
+  soft_reroll: "composition",
+  full_reroll: "character",
+  prop_repair: "prop",
+  speaker_anchor_repair: "speaker",
+  enemy_presence_repair: "enemy_presence",
+  subject_focus_repair: "subject_focus",
+  cutaway_repair: "cutaway",
+  npc_population_repair: "npc_population",
+};
+
 type QAReportResponse = {
   ok: boolean;
   report: {
@@ -145,20 +189,7 @@ export function ChapterReviewBoard(input: {
     await refresh();
   }
 
-  function getRerollModeFromAction(recommendedAction: string | null | undefined): string {
-    // Table de mapping premium — doit correspondre exactement aux RetryMode de retry-reference-policy.ts
-    const REROLL_MODE_MAP: Record<string, string> = {
-      style_reroll: "style",
-      character_reroll: "character",
-      soft_reroll: "composition",
-      full_reroll: "character",
-      prop_repair: "prop",
-      speaker_anchor_repair: "speaker",
-      enemy_presence_repair: "enemy_presence",
-      subject_focus_repair: "subject_focus",
-      cutaway_repair: "cutaway",
-      npc_population_repair: "npc_population",
-    };
+  function getRerollModeFromAction(recommendedAction: string | null | undefined): RetryMode {
     return REROLL_MODE_MAP[recommendedAction ?? ""] ?? "character";
   }
 
@@ -314,6 +345,20 @@ export function ChapterReviewBoard(input: {
                       <p className="text-muted-foreground">PNJ</p>
                       <p className={panel.axisScores.populationScore < 0.7 ? "text-yellow-500 font-semibold" : "text-green-500"}>
                         {Math.round(panel.axisScores.populationScore * 100)}%
+                      </p>
+                    </div>
+                  )}
+                  {panel.axisScores.cutawayComplianceScore !== undefined && (
+                    <div>
+                      <p className="text-muted-foreground">Cutaway</p>
+                      <p className={
+                        panel.axisScores.cutawayComplianceScore < 0.7
+                          ? "text-red-500 font-semibold"
+                          : panel.axisScores.cutawayComplianceScore < 0.85
+                            ? "text-yellow-500"
+                            : "text-green-500"
+                      }>
+                        {Math.round(panel.axisScores.cutawayComplianceScore * 100)}%
                       </p>
                     </div>
                   )}
