@@ -240,8 +240,33 @@ export function MangaPanel({
               alt={caption ?? `Panel ${(panelIndex ?? 0) + 1}`}
               className={`h-full w-full ${effectiveCropMode === "contain" ? "object-contain" : "object-cover"} ${isWebtoon ? "bg-stone-950" : ""}`}
               style={{ objectPosition: effectiveObjectPosition }}
+              onError={(e) => {
+                // B1-3 : si l'URL fal.ai a expiré, afficher le skeleton plutôt qu'une image brisée
+                const target = e.currentTarget;
+                target.style.display = "none";
+                const parent = target.parentElement;
+                if (parent && !parent.querySelector("[data-broken-skeleton]")) {
+                  const sk = document.createElement("div");
+                  sk.setAttribute("data-broken-skeleton", "1");
+                  sk.className = "absolute inset-0 flex flex-col items-center justify-center gap-2 bg-stone-900/80";
+                  sk.innerHTML = `<div class="h-8 w-8 rounded-full border-2 border-stone-600 border-t-stone-300 animate-spin"></div><p class="text-[10px] text-stone-500">Image expirée</p>`;
+                  parent.appendChild(sk);
+                }
+              }}
             />
           </>
+        ) : isPending ? (
+          // B1-3 : skeleton animé pour les images en cours de génération
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-stone-900">
+            <div className="h-8 w-8 rounded-full border-2 border-stone-600 border-t-stone-300 animate-spin" />
+            <p className="text-[10px] text-stone-500">Génération en cours…</p>
+          </div>
+        ) : isFailed ? (
+          // B1-3 : placeholder d'erreur explicite au lieu d'une image brisée
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-stone-900">
+            <div className="text-2xl opacity-40">✕</div>
+            <p className="text-[10px] text-stone-500">Image non disponible</p>
+          </div>
         ) : (
           <div className="absolute inset-0">{overlay}</div>
         )}

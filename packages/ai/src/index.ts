@@ -52,3 +52,5 @@ export * from "./services/narrative-fact-llm-enricher";
 export * from "./services/prop-inference-engine";
 export * from "./services/panel-blueprint-builder";
 export * from "./services/premium-chapter-contract-builder";
+export * from "./services/panel-retry-policy";
+export * from "./services/ensure-character-fingerprints";

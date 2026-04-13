@@ -402,7 +402,11 @@ model Character {
   
   // CharacterFingerprint : identité visuelle/comportementale stricte (Bloc 2)
   characterFingerprint  Json @default("{}")  // CharacterFingerprint complet
-  
+
+  // B7-1 : statut LoRA training automatique
+  loraStatus        String?  @default("none")  // "none"|"training"|"ready"|"failed"
+  loraReadyAt       DateTime?
+
   status          String    @default("alive")
   emotionalState  String?
   canonLocked     Boolean   @default(false)
@@ -592,6 +596,8 @@ model Chapter {
   criticalPanelsBlocked Int?
   criticalPanelsMissingQa Int?
   reviewBlockedReason String?
+  // B6-3 : flag qualité outline faible
+  qualityGateWarning Boolean @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -656,6 +662,13 @@ model SceneImage {
   consistencyScore   Float?
   referenceImageIds  Json            @default("[]")
   metadata           Json            @default("{}")
+  // B1-1 : raison d'échec explicite (au lieu de swallowed dans metadata)
+  failureReason      String?
+  // B1-2 : retry automatique par criticité
+  retryCount         Int             @default(0)
+  maxRetries         Int             @default(2)
+  // B1-3 : URL persistée dans Supabase (stable, pas temporaire fal.ai)
+  persistedUrl       String?
   falTraces          FalTrace[]
 }
 

@@ -22,6 +22,7 @@ import {
   getGenreDirectorConfig,
   directRomanceDramaScene,
   runPanelQualityGate,
+  getMaxRerolls,
   type StoryboardPanel,
   type RoutingContext,
   type ProjectContextForChapter,
@@ -1552,6 +1553,82 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       `[pipeline] genre_director mode=${chapterGenreMode} rhythm=${chapterGenreConfig.beatRhythm} panelDensity=${chapterGenreConfig.panelDensity} romance_scenes=${romanceDirectionByScene.size}`,
     );
 
+    // B3-1 + B4-1 : Générer dynamiquement les blueprints si non fournis depuis le studio
+    // (Panel Blueprint Builder + Prop Inference Engine branchés dans le pipeline)
+    let finalPanelBlueprints = effectivePanelBlueprints;
+    if (finalPanelBlueprints.length === 0 && revisedBundle.outline.beats.length > 0) {
+      console.log(`[pipeline] b3-1 generating panel blueprints dynamically for ${revisedBundle.outline.beats.length} beats`);
+      try {
+        const { buildPanelBlueprintsFromBeat, inferNarrativeFactsFromBeat, inferRequiredPropsFromBeat } = await import("@manga-ai-studio/ai");
+        const heroCharacterId = rawCharacters.find((c) => /hero|protagon|main/i.test(c.roleType ?? ""))?.id ?? null;
+        const blueprintContext = {
+          heroCharacterId: heroCharacterId ?? undefined,
+          chapterNumber,
+          projectGenre: context.project.primaryGenre ?? undefined,
+          projectTone: context.project.tone ?? undefined,
+        };
+        const narrativeCtx = {
+          projectGenre: context.project.primaryGenre ?? null,
+          projectTone: context.project.tone ?? null,
+          heroCharacterId,
+        };
+        let pageCounter = 1;
+        let panelCounter = 1;
+        const allDynamicBlueprints: typeof finalPanelBlueprints = [];
+        for (const beat of revisedBundle.outline.beats) {
+          const productionBeat = {
+            beatId: beat.id,
+            summary: beat.summary,
+            narrativeFunction: beat.pageRole ?? beat.purpose,
+            whyThisBeatExists: beat.summary,
+            dramaticChange: beat.turn ?? beat.purpose,
+            involvedCharacters: beat.characters,
+            activeCanonConstraints: [] as string[],
+            environmentContext: [beat.location],
+            visualPriority: "high" as const,
+            estimatedPanels: 4,
+            criticality: (beat.pageRole === "cliffhanger" || beat.pageRole === "revelation" ? "critical" : "medium") as "critical" | "medium",
+            continuityDependencies: [] as string[],
+            infoGained: null,
+            emotionProduced: null,
+            indispensabilityScore: 72,
+            redundancyRisk: 18,
+          };
+          const facts = inferNarrativeFactsFromBeat(productionBeat, narrativeCtx);
+          const knownUniverseTypes = ["ninja","cyberpunk","post_apo","school_life","mecha","fantasy","military","medical","urban","generic"] as const;
+          type UniverseType = typeof knownUniverseTypes[number];
+          const rawGenre = context.project.primaryGenre ?? "";
+          const universeType: UniverseType | undefined = (knownUniverseTypes as readonly string[]).includes(rawGenre)
+            ? rawGenre as UniverseType
+            : undefined;
+          const props = inferRequiredPropsFromBeat(productionBeat, facts, {
+            universeType,
+            projectGenre: context.project.primaryGenre ?? undefined,
+            projectTone: context.project.tone ?? undefined,
+            heroCharacterId: heroCharacterId ?? undefined,
+          });
+          const beatBlueprints = buildPanelBlueprintsFromBeat(
+            productionBeat,
+            facts,
+            props,
+            blueprintContext,
+            pageCounter,
+            panelCounter,
+          );
+          allDynamicBlueprints.push(...beatBlueprints);
+          pageCounter += Math.ceil(beatBlueprints.length / 3);
+          panelCounter += beatBlueprints.length;
+        }
+        if (allDynamicBlueprints.length > 0) {
+          finalPanelBlueprints = allDynamicBlueprints;
+          console.log(`[pipeline] b3-1 generated ${finalPanelBlueprints.length} blueprints dynamically`);
+        }
+      } catch (blueprintErr) {
+        const bpMsg = blueprintErr instanceof Error ? blueprintErr.message : "blueprint_error";
+        console.warn(`[pipeline] b3-1 blueprint generation failed (non-blocking): ${bpMsg}`);
+      }
+    }
+
     // Map sceneId → list of planned SceneImage ids (for image generation step)
     const plannedImages: PlannedImage[] = [];
     const sceneBlueprintsByScene = new Map<number, SceneBlueprint[]>();
@@ -1727,8 +1804,9 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 .map((name) => rawCharacters.find((c) => c.name === name)?.canonicalImageUrl)
                 .filter((url): url is string => Boolean(url));
               // Résoudre le blueprint premium pour ce panel spécifique
-              const panelPremiumBlueprint = effectivePanelBlueprints.length > 0
-                ? findPanelBlueprint(effectivePanelBlueprints, index, panel.panelNumber)
+              // B3-1 : utiliser finalPanelBlueprints (générés dynamiquement si non fournis)
+              const panelPremiumBlueprint = finalPanelBlueprints.length > 0
+                ? findPanelBlueprint(finalPanelBlueprints, index, panel.panelNumber)
                 : undefined;
 
               const panelContractBase = await buildPanelContract({
@@ -3030,6 +3108,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             where: { id: item.sceneImageId },
             data: {
               status: "blocked",
+              failureReason: "initial_generation_failed",
               metadata: ({
                 ...item.baseMetadata,
                 blockedReason: "initial_generation_failed",
@@ -3071,7 +3150,8 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           }
         }
 
-        const MAX_REROLL = strategy.retryPolicy === "robust" ? 3 : 2;
+        // B1-2 : MAX_REROLL basé sur la criticité du panel (pas hardcodé)
+        const MAX_REROLL = getMaxRerolls(panelCriticality.level, strategy.retryPolicy);
         const shouldReroll =
           bestAttempt.validation.requiredReroll
           || !bestAttempt.drift.pass
@@ -3143,13 +3223,15 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         });
 
         if (!persisted.ok) {
+          const persistError = (persisted as { error?: string }).error ?? "persist_failed";
           await prisma.sceneImage.update({
             where: { id: item.sceneImageId },
             data: {
               status: "failed",
+              failureReason: `persist_failed: ${persistError}`,
               metadata: ({
                 ...item.baseMetadata,
-                error: persisted.error,
+                error: persistError,
                 sourceUrl: bestAttempt.generation.result.imageUrl,
                 generationLog: bestAttempt.generation.log,
                 referenceTrace: panelReferenceTrace,
@@ -3190,6 +3272,8 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           where: { id: item.sceneImageId },
           data: {
             imageUrl: persisted.url,
+            // B1-3 : stocker l'URL persistée (Supabase) séparément de l'URL temporaire fal.ai
+            persistedUrl: persisted.persisted ? persisted.url : null,
             provider: finalProvider,
             model: finalModel,
             status: shouldBlockForReview ? "blocked" : "completed",
@@ -3260,7 +3344,12 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           where: { id: item.sceneImageId },
           data: {
             status: "failed",
-            metadata: ({ ...item.baseMetadata, error: msg, referenceTrace: panelReferenceTrace } as unknown) as Prisma.InputJsonValue,
+            failureReason: msg,
+            retryCount: { increment: 1 },
+            metadata: ({
+              ...item.baseMetadata,
+              error: msg,
+            } as unknown) as Prisma.InputJsonValue,
           },
         });
         return "fail";

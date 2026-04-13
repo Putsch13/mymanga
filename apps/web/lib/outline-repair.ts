@@ -1,4 +1,5 @@
 import { validateOutlineProgression } from "./outline-progression-guard";
+export { repairGhostCharacters } from "./outline-ghost-repair";
 
 type EditorialBeat = {
   beatId?: string;
