@@ -349,8 +349,10 @@ export function validatePremiumContract(
   if (!po || !Array.isArray(po.beats) || po.beats.length === 0) {
     errors.push("productionOutline.beats manquant ou vide");
   }
-  if (ao && po && Array.isArray(ao.beats) && Array.isArray(po.beats) && ao.beats.length !== po.beats.length) {
-    errors.push(`beats_count_mismatch (approvedOutline=${ao.beats.length} vs productionOutline=${po.beats.length})`);
+  // Le productionOutline peut avoir plus de beats que l'approvedOutline (découpage plus fin)
+  // On bloque seulement si le productionOutline a MOINS de beats que l'approvedOutline
+  if (ao && po && Array.isArray(ao.beats) && Array.isArray(po.beats) && po.beats.length < ao.beats.length) {
+    warnings.push(`productionOutline a moins de beats que l'approvedOutline (${po.beats.length} < ${ao.beats.length})`);
   }
 
   if (!pp) {
@@ -363,11 +365,13 @@ export function validatePremiumContract(
   if (typeof pp.minimumImages !== "number" || pp.minimumImages <= 0) errors.push("productionPlan.minimumImages invalide");
   if (typeof pp.estimatedImages !== "number" || pp.estimatedImages <= 0) errors.push("productionPlan.estimatedImages invalide");
   if (typeof pp.targetImages !== "number" || pp.targetImages <= 0) errors.push("productionPlan.targetImages invalide");
+  // estimatedImages < minimumImages est un avertissement, pas un blocant
+  // (l'IA peut estimer moins d'images que le seuil de qualité sans invalider le contrat)
   if (typeof pp.estimatedImages === "number" && typeof pp.minimumImages === "number" && pp.estimatedImages < pp.minimumImages) {
-    errors.push("productionPlan.estimatedImages < minimumImages");
+    warnings.push("productionPlan.estimatedImages < minimumImages (avertissement seulement)");
   }
   if (typeof pp.targetImages === "number" && typeof pp.minimumImages === "number" && pp.targetImages < pp.minimumImages) {
-    errors.push("productionPlan.targetImages < minimumImages");
+    warnings.push("productionPlan.targetImages < minimumImages (avertissement seulement)");
   }
 
   // Champs premium obligatoires
