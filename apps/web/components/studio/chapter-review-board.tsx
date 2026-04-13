@@ -25,6 +25,13 @@ type QAReportResponse = {
         narrativeRelevance: number;
         compositionReadability: number;
         environmentConsistency: number;
+        // Premium contractual scores
+        propComplianceScore?: number;
+        subjectFocusScore?: number;
+        dialogueAnchorScore?: number;
+        enemyPresenceScore?: number;
+        populationScore?: number;
+        cutawayComplianceScore?: number;
       };
       rejectionReasons: string[];
       repairSuggestions: string[];
@@ -139,11 +146,20 @@ export function ChapterReviewBoard(input: {
   }
 
   function getRerollModeFromAction(recommendedAction: string | null | undefined): string {
-    if (recommendedAction === "style_reroll") return "style";
-    if (recommendedAction === "character_reroll") return "character";
-    if (recommendedAction === "soft_reroll") return "composition";
-    if (recommendedAction === "full_reroll") return "character";
-    return "character";
+    // Table de mapping premium — doit correspondre exactement aux RetryMode de retry-reference-policy.ts
+    const REROLL_MODE_MAP: Record<string, string> = {
+      style_reroll: "style",
+      character_reroll: "character",
+      soft_reroll: "composition",
+      full_reroll: "character",
+      prop_repair: "prop",
+      speaker_anchor_repair: "speaker",
+      enemy_presence_repair: "enemy_presence",
+      subject_focus_repair: "subject_focus",
+      cutaway_repair: "cutaway",
+      npc_population_repair: "npc_population",
+    };
+    return REROLL_MODE_MAP[recommendedAction ?? ""] ?? "character";
   }
 
   async function completeReview() {
@@ -253,6 +269,56 @@ export function ChapterReviewBoard(input: {
                 <div><p className="text-muted-foreground">Composition</p><p>{Math.round(panel.axisScores.compositionReadability * 100)}%</p></div>
                 <div><p className="text-muted-foreground">Décor</p><p>{Math.round(panel.axisScores.environmentConsistency * 100)}%</p></div>
               </div>
+              {/* Premium contractual scores */}
+              {(panel.axisScores.propComplianceScore !== undefined ||
+                panel.axisScores.subjectFocusScore !== undefined ||
+                panel.axisScores.enemyPresenceScore !== undefined ||
+                panel.axisScores.dialogueAnchorScore !== undefined ||
+                panel.axisScores.populationScore !== undefined ||
+                panel.axisScores.cutawayComplianceScore !== undefined) && (
+                <div className="grid gap-2 sm:grid-cols-5 rounded-lg border border-border/40 bg-muted/20 p-2 text-xs">
+                  {panel.axisScores.propComplianceScore !== undefined && (
+                    <div>
+                      <p className="text-muted-foreground">Props</p>
+                      <p className={panel.axisScores.propComplianceScore < 0.7 ? "text-red-500 font-semibold" : "text-green-500"}>
+                        {Math.round(panel.axisScores.propComplianceScore * 100)}%
+                      </p>
+                    </div>
+                  )}
+                  {panel.axisScores.subjectFocusScore !== undefined && (
+                    <div>
+                      <p className="text-muted-foreground">Focus</p>
+                      <p className={panel.axisScores.subjectFocusScore < 0.7 ? "text-red-500 font-semibold" : "text-green-500"}>
+                        {Math.round(panel.axisScores.subjectFocusScore * 100)}%
+                      </p>
+                    </div>
+                  )}
+                  {panel.axisScores.enemyPresenceScore !== undefined && (
+                    <div>
+                      <p className="text-muted-foreground">Ennemi</p>
+                      <p className={panel.axisScores.enemyPresenceScore < 0.7 ? "text-red-500 font-semibold" : "text-green-500"}>
+                        {Math.round(panel.axisScores.enemyPresenceScore * 100)}%
+                      </p>
+                    </div>
+                  )}
+                  {panel.axisScores.dialogueAnchorScore !== undefined && (
+                    <div>
+                      <p className="text-muted-foreground">Dialogue</p>
+                      <p className={panel.axisScores.dialogueAnchorScore < 0.7 ? "text-yellow-500 font-semibold" : "text-green-500"}>
+                        {Math.round(panel.axisScores.dialogueAnchorScore * 100)}%
+                      </p>
+                    </div>
+                  )}
+                  {panel.axisScores.populationScore !== undefined && (
+                    <div>
+                      <p className="text-muted-foreground">PNJ</p>
+                      <p className={panel.axisScores.populationScore < 0.7 ? "text-yellow-500 font-semibold" : "text-green-500"}>
+                        {Math.round(panel.axisScores.populationScore * 100)}%
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
               <p className="text-muted-foreground">
                 Catégorie {panel.panelCategory ?? "?"} · refs {panel.referencePolicy ?? "?"} · raisons critiques {panel.criticalityReasons.join(", ") || "aucune"}
               </p>
@@ -362,6 +428,73 @@ export function ChapterReviewBoard(input: {
                 <Button variant="ghost" size="sm" onClick={() => rerollPanel(panel.panelId, "style")}>
                   Reroll style
                 </Button>
+                {/* Premium specialized reroll buttons */}
+                {panel.axisScores.propComplianceScore !== undefined && panel.axisScores.propComplianceScore < 0.7 && (
+                  <Button
+                    data-testid={`reroll-prop-${panel.panelId}`}
+                    variant="outline"
+                    size="sm"
+                    className="border-orange-500/40 text-orange-600 hover:bg-orange-500/10"
+                    onClick={() => rerollPanel(panel.panelId, "prop")}
+                  >
+                    Reroll prop
+                  </Button>
+                )}
+                {panel.axisScores.enemyPresenceScore !== undefined && panel.axisScores.enemyPresenceScore < 0.7 && (
+                  <Button
+                    data-testid={`reroll-enemy-${panel.panelId}`}
+                    variant="outline"
+                    size="sm"
+                    className="border-red-500/40 text-red-600 hover:bg-red-500/10"
+                    onClick={() => rerollPanel(panel.panelId, "enemy_presence")}
+                  >
+                    Reroll ennemi
+                  </Button>
+                )}
+                {panel.axisScores.dialogueAnchorScore !== undefined && panel.axisScores.dialogueAnchorScore < 0.7 && (
+                  <Button
+                    data-testid={`reroll-speaker-${panel.panelId}`}
+                    variant="outline"
+                    size="sm"
+                    className="border-blue-500/40 text-blue-600 hover:bg-blue-500/10"
+                    onClick={() => rerollPanel(panel.panelId, "speaker")}
+                  >
+                    Reroll speaker
+                  </Button>
+                )}
+                {panel.axisScores.subjectFocusScore !== undefined && panel.axisScores.subjectFocusScore < 0.7 && (
+                  <Button
+                    data-testid={`reroll-focus-${panel.panelId}`}
+                    variant="outline"
+                    size="sm"
+                    className="border-purple-500/40 text-purple-600 hover:bg-purple-500/10"
+                    onClick={() => rerollPanel(panel.panelId, "subject_focus")}
+                  >
+                    Reroll focus
+                  </Button>
+                )}
+                {panel.axisScores.populationScore !== undefined && panel.axisScores.populationScore < 0.7 && (
+                  <Button
+                    data-testid={`reroll-population-${panel.panelId}`}
+                    variant="outline"
+                    size="sm"
+                    className="border-teal-500/40 text-teal-600 hover:bg-teal-500/10"
+                    onClick={() => rerollPanel(panel.panelId, "npc_population")}
+                  >
+                    Reroll PNJ
+                  </Button>
+                )}
+                {panel.axisScores.cutawayComplianceScore !== undefined && panel.axisScores.cutawayComplianceScore < 0.7 && (
+                  <Button
+                    data-testid={`reroll-cutaway-${panel.panelId}`}
+                    variant="outline"
+                    size="sm"
+                    className="border-slate-500/40 text-slate-400 hover:bg-slate-500/10"
+                    onClick={() => rerollPanel(panel.panelId, "cutaway")}
+                  >
+                    Reroll cutaway
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>

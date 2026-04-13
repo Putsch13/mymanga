@@ -341,6 +341,23 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     if (blueprint.constraints.hard.length > 0) {
       positiveParts.push(sanitizeSectionText(`Mandatory constraints: ${blueprint.constraints.hard.join(", ")}.`));
     }
+    // ── Premium hard constraints from panel blueprint ──────────────────────
+    const pb = blueprint.promptBridge;
+    if (pb.focusLine) {
+      positiveParts.push(sanitizeSectionText(pb.focusLine));
+    }
+    if (pb.requiredPropLine) {
+      positiveParts.push(sanitizeSectionText(pb.requiredPropLine));
+    }
+    if (pb.requiredEnemyLine) {
+      positiveParts.push(sanitizeSectionText(pb.requiredEnemyLine));
+    }
+    if (pb.speakerAnchorLine) {
+      positiveParts.push(sanitizeSectionText(pb.speakerAnchorLine));
+    }
+    if (pb.cutawayLine) {
+      positiveParts.push(sanitizeSectionText(pb.cutawayLine));
+    }
   }
   if (input.dialogueHint) positiveParts.push(sanitizeSectionText(`Subtext: ${input.dialogueHint.slice(0, 120)}.`));
   positiveParts.push("Readable background, strong environment, coherent manga composition, clear spatial relation between characters and place.");
@@ -388,6 +405,11 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
   }
   if (layer === "GENERAL_SAFE" || layer === "TEEN") {
     negative += ", nudity, violence, blood, gore, suggestive poses";
+  }
+
+  // Anti-collapse premium constraint dans le négatif
+  if (blueprint?.promptBridge.antiCollapseLine) {
+    negative += `, ${blueprint.promptBridge.antiCollapseLine}`;
   }
 
   // ChapterLookProfile — familles visuelles incompatibles

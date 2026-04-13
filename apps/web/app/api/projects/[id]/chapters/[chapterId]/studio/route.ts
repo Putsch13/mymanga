@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
   buildChapterReadinessReport,
-  buildLegacyApprovedOutlineFromStudio,
   chapterStudioDataSchema,
   chapterStudioStepSchema,
 } from "@manga-ai-studio/core";
@@ -218,17 +217,47 @@ export async function PATCH(req: Request, ctx: Ctx) {
   });
 
   const outlineRecord = asRecord(chapter.outline);
-  const approvedOutline = buildLegacyApprovedOutlineFromStudio(snapshot);
+
+  // Préserver l'approvedOutline existant — ne jamais le régénérer via un builder legacy
+  // Si le patch touche des champs premium structurants, le contrat sera recalculé
+  // via /approved-outline lors de la prochaine validation explicite.
+  const existingApprovedOutline = outlineRecord.approvedOutline;
+
+  // Garantir que panelBlueprints, focusDistribution et autres métriques premium
+  // ne disparaissent pas lors d'un patch UI simple.
+  const existingStudio = asRecord(outlineRecord.studio);
+  const existingStudioData = asRecord(existingStudio.data);
+  const existingPP = asRecord(existingStudioData.productionPlan);
+
+  const mergedProductionPlan = snapshot.data.productionPlan
+    ? {
+        ...snapshot.data.productionPlan,
+        // Préserver les blueprints et métriques premium si le patch ne les touche pas
+        panelBlueprints: snapshot.data.productionPlan.panelBlueprints ?? (existingPP.panelBlueprints as never),
+        focusDistribution: snapshot.data.productionPlan.focusDistribution ?? (existingPP.focusDistribution as never),
+        premiumReadinessScore: snapshot.data.productionPlan.premiumReadinessScore
+          ?? (typeof existingPP.premiumReadinessScore === "number" ? existingPP.premiumReadinessScore : undefined),
+      }
+    : snapshot.data.productionPlan;
+
+  const mergedSnapshot = {
+    ...snapshot,
+    data: {
+      ...snapshot.data,
+      productionPlan: mergedProductionPlan,
+    },
+  };
+
   const updated = await prisma.chapter.update({
     where: { id: chapterId },
     data: {
       ...buildChapterStructuredRuntimePrismaFields({
-        snapshot,
-        minimumImages: snapshot.data.readinessReport?.imageCounts.minimumImages,
-        generatedImages: chapter.generatedImages ?? snapshot.data.readinessReport?.imageCounts.generatedImages ?? 0,
-        acceptedImages: chapter.acceptedImages ?? snapshot.data.readinessReport?.imageCounts.acceptedImages ?? 0,
-        rejectedImages: chapter.rejectedImages ?? snapshot.data.readinessReport?.imageCounts.rejectedImages ?? 0,
-        missingImages: chapter.missingImages ?? snapshot.data.readinessReport?.imageCounts.missingImages ?? null,
+        snapshot: mergedSnapshot,
+        minimumImages: mergedSnapshot.data.readinessReport?.imageCounts.minimumImages,
+        generatedImages: chapter.generatedImages ?? mergedSnapshot.data.readinessReport?.imageCounts.generatedImages ?? 0,
+        acceptedImages: chapter.acceptedImages ?? mergedSnapshot.data.readinessReport?.imageCounts.acceptedImages ?? 0,
+        rejectedImages: chapter.rejectedImages ?? mergedSnapshot.data.readinessReport?.imageCounts.rejectedImages ?? 0,
+        missingImages: chapter.missingImages ?? mergedSnapshot.data.readinessReport?.imageCounts.missingImages ?? null,
         criticalPanelsCount: chapter.criticalPanelsCount ?? 0,
         criticalPanelsBlocked: chapter.criticalPanelsBlocked ?? 0,
         criticalPanelsMissingQa: chapter.criticalPanelsMissingQa ?? 0,
@@ -238,8 +267,8 @@ export async function PATCH(req: Request, ctx: Ctx) {
       userIntent: body.data.intent?.shortPitch ?? chapter.userIntent,
       outline: ({
         ...outlineRecord,
-        studio: snapshot,
-        ...(approvedOutline ? { approvedOutline } : {}),
+        studio: mergedSnapshot,
+        ...(existingApprovedOutline ? { approvedOutline: existingApprovedOutline } : {}),
       } as unknown) as Prisma.InputJsonValue,
       summary:
         body.data.editorialOutline?.summary
@@ -252,7 +281,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
   return NextResponse.json({
     ok: true,
     chapterId: updated.id,
-    snapshot,
-    approvedOutline,
+    snapshot: mergedSnapshot,
+    approvedOutline: existingApprovedOutline ?? null,
   });
 }

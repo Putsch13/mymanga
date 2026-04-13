@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { generateChapterBundle } from "@manga-ai-studio/ai";
+import {
+  generateChapterBundle,
+  inferNarrativeFactsFromBeat,
+  inferRequiredPropsFromBeat,
+  buildPanelBlueprintsFromBeat,
+  computeChapterFocusBudget,
+  computePremiumReadinessScore,
+  enrichNarrativeFactsWithLLM,
+  mergeNarrativeFacts,
+} from "@manga-ai-studio/ai";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { buildApprovedOutlineVersion, buildProductionPlanFromOutline } from "@manga-ai-studio/core";
 import { prisma } from "@manga-ai-studio/db";
@@ -97,32 +106,124 @@ export async function POST(req: Request, ctx: Ctx) {
     })),
     source: "estimate_preview",
   });
-  const productionOutline = {
-    source: "estimated" as const,
-    chapterGoal: bundle.outline.chapter_goal,
-    cliffhanger: bundle.outline.cliffhanger,
-    beats: bundle.outline.beats.map((beat) => ({
+  const heroCharacterId = context.characters?.find((c) => c.roleType === "MAIN_CHARACTER")?.id ?? null;
+  const universeContext = {
+    projectGenre: context.project.primaryGenre ?? null,
+    projectTone: context.project.tone ?? null,
+    heroCharacterId,
+  };
+  const narrativeContext = {
+    projectGenre: context.project.primaryGenre ?? null,
+    projectTone: context.project.tone ?? null,
+    heroCharacterId,
+    recentContinuityEvents: context.recentContinuityEvents?.map((e) => ({
+      eventType: e.eventType,
+      summary: e.summary,
+      entities: (e.entities && typeof e.entities === "object" && !Array.isArray(e.entities))
+        ? (e.entities as { objectsGained?: string[]; objectsLost?: string[]; locationChange?: string })
+        : undefined,
+    })),
+  };
+
+  // Build production beats with narrative intelligence (3-layer pipeline)
+  const enrichedBeats = await Promise.all(bundle.outline.beats.map(async (beat) => {
+    const productionBeat = {
       beatId: beat.id,
       summary: beat.summary,
       narrativeFunction: beat.pageRole ?? beat.purpose,
       whyThisBeatExists: beat.summary,
       dramaticChange: beat.turn ?? beat.purpose,
       involvedCharacters: beat.characters,
-      activeCanonConstraints: [],
+      activeCanonConstraints: [] as string[],
       environmentContext: [beat.location],
       visualPriority: "high" as const,
       estimatedPanels: 4,
       criticality: (beat.pageRole === "cliffhanger" || beat.pageRole === "revelation" ? "critical" : "medium") as
         | "critical"
         | "medium",
-      continuityDependencies: [],
+      continuityDependencies: [] as string[],
       infoGained: null,
       emotionProduced: null,
       indispensabilityScore: 72,
       redundancyRisk: 18,
-    })),
+    };
+
+    // Couche 1+2 : heuristiques + analyse sémantique (synchrone)
+    const heuristicFacts = inferNarrativeFactsFromBeat(productionBeat, narrativeContext);
+
+    // Couche 3 : enrichissement LLM async (si OPENAI_API_KEY disponible)
+    // Enrichit les faits manqués par les patterns (formes passives, idiomes, etc.)
+    const llmFacts = await enrichNarrativeFactsWithLLM(productionBeat, heuristicFacts, narrativeContext);
+    const narrativeFacts = mergeNarrativeFacts(heuristicFacts, llmFacts);
+
+    const requiredProps = inferRequiredPropsFromBeat(productionBeat, narrativeFacts, universeContext);
+
+    // Build panel blueprints to get real panel count
+    const blueprints = buildPanelBlueprintsFromBeat(productionBeat, narrativeFacts, requiredProps, {
+      heroCharacterId,
+      projectGenre: context.project.primaryGenre ?? null,
+      projectTone: context.project.tone ?? null,
+    });
+
+    return {
+      ...productionBeat,
+      estimatedPanels: blueprints.length > 0 ? blueprints.length : 4,
+      narrativeFacts,
+      requiredProps,
+      _blueprints: blueprints,
+    };
+  }));
+
+  const allBlueprints = enrichedBeats.flatMap((b) => b._blueprints);
+  const focusBudget = computeChapterFocusBudget(allBlueprints);
+  const premiumReadinessScore = computePremiumReadinessScore(allBlueprints);
+
+  const productionOutline = {
+    source: "estimated" as const,
+    chapterGoal: bundle.outline.chapter_goal,
+    cliffhanger: bundle.outline.cliffhanger,
+    beats: enrichedBeats.map(({ _blueprints: _b, ...beat }) => beat),
   };
-  const productionPlan = buildProductionPlanFromOutline(productionOutline);
+
+  const productionPlan = {
+    ...buildProductionPlanFromOutline(productionOutline),
+    panelBlueprints: allBlueprints,
+    focusDistribution: focusBudget.focusDistribution,
+    shotDistribution: focusBudget.shotDistribution,
+    propCoverage: {
+      covered: allBlueprints.flatMap((bp) => bp.requiredProps.map((p) => p.canonicalName)),
+      missing: focusBudget.violations
+        .filter((v) => v.type === "missing_prop_insert")
+        .map((v) => v.message),
+    },
+    enemyCoverage: {
+      panelCount: focusBudget.enemyFocusPanels,
+      beatsCovered: enrichedBeats
+        .filter((b) => b.narrativeFacts?.some((f) => f.type === "enemy_presence"))
+        .map((b) => b.beatId),
+    },
+    npcCoverage: {
+      panelCount: focusBudget.npcPanels,
+      avgNpcCount:
+        allBlueprints.length > 0
+          ? allBlueprints.reduce((sum, bp) => sum + bp.requiredNpcCount, 0) / allBlueprints.length
+          : 0,
+    },
+    cutawayCoverage: {
+      count: focusBudget.cutawayCount,
+      ratio: focusBudget.cutawayRatio,
+    },
+    dialogueAnchorCoverage: {
+      anchored: allBlueprints.filter(
+        (bp) => bp.dialogueCarrier === "speaker_visible" && bp.speakerAnchorCharacterId
+      ).length,
+      floating: allBlueprints.filter(
+        (bp) => bp.dialogueCarrier === "speaker_visible" && !bp.speakerAnchorCharacterId
+      ).length,
+    },
+    heroCenterRatio: focusBudget.heroCenterRatio,
+    premiumReadinessScore,
+  };
 
   const contextDigest = [
     context.project.title,

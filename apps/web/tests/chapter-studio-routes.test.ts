@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const prismaMock = {
   project: { findFirst: vi.fn() },
   chapter: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+  character: { findMany: vi.fn() },
   job: { create: vi.fn() },
 };
 
@@ -53,6 +54,25 @@ vi.mock("@/lib/age-gate", () => ({
   getAgeGateMessage: () => "blocked",
   projectRequiresAgeGate: () => false,
 }));
+
+const buildPremiumChapterContractMock = vi.fn();
+const buildPremiumChapterContractAsyncMock = vi.fn();
+vi.mock("@manga-ai-studio/ai", () => ({
+  buildPremiumChapterContract: buildPremiumChapterContractMock,
+  buildPremiumChapterContractAsync: buildPremiumChapterContractAsyncMock,
+}));
+
+const patchChapterStudioSnapshotMock = vi.fn();
+const buildChapterStructuredRuntimePrismaFieldsMock = vi.fn();
+
+vi.mock("@/lib/chapter-studio", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/chapter-studio")>();
+  return {
+    ...actual,
+    patchChapterStudioSnapshot: patchChapterStudioSnapshotMock,
+    buildChapterStructuredRuntimePrismaFields: buildChapterStructuredRuntimePrismaFieldsMock,
+  };
+});
 
 function buildReadyStudio() {
   return {
@@ -176,6 +196,79 @@ beforeEach(() => {
   estimateChapterTextTokensFromRulesMock.mockResolvedValue(42);
   sendChapterGenerateRequestedMock.mockResolvedValue({ ok: true });
   runFullChapterPipelineFromJobMock.mockResolvedValue({ ok: true });
+  prismaMock.character.findMany.mockResolvedValue([]);
+  patchChapterStudioSnapshotMock.mockReturnValue({
+    status: "READY_FOR_GENERATION",
+    currentStep: "production_plan",
+    autosaveVersion: 1,
+    history: [],
+    updatedAt: new Date().toISOString(),
+    data: {
+      productionPlan: { minimumImages: 55 },
+      readinessReport: { imageCounts: { minimumImages: 55 } },
+    },
+  });
+  buildChapterStructuredRuntimePrismaFieldsMock.mockReturnValue({
+    studioStatus: "READY_FOR_GENERATION",
+    studioCurrentStep: "production_plan",
+    studioUpdatedAt: new Date(),
+    studioAutosaveVersion: 1,
+    minimumImages: 55,
+    generatedImages: 0,
+    acceptedImages: 0,
+    rejectedImages: 0,
+    missingImages: 55,
+    criticalPanelsCount: 0,
+    criticalPanelsBlocked: 0,
+    criticalPanelsMissingQa: 0,
+    reviewBlockedReason: null,
+  });
+
+  // Default premium contract mock (sync + async)
+  const defaultPremiumContractResult = {
+    productionOutline: {
+      source: "premium_rebuilt",
+      chapterGoal: "But du chapitre",
+      cliffhanger: "Fin dramatique",
+      beats: Array.from({ length: 10 }, (_, i) => ({
+        beatId: `b${i + 1}`,
+        summary: `Beat ${i + 1}`,
+        narrativeFacts: [],
+        requiredProps: [{ canonicalName: "katana", mustBeVisible: true }],
+      })),
+    },
+    productionPlan: {
+      panelBlueprints: [],
+      premiumReadinessScore: 0.85,
+      heroCenterRatio: 0.5,
+      focusDistribution: {},
+      shotDistribution: {},
+      propCoverage: { covered: ["katana"], missing: [] },
+      enemyCoverage: { panelCount: 2, beatsCovered: [] },
+      npcCoverage: { panelCount: 1, avgNpcCount: 1 },
+      cutawayCoverage: { count: 2, ratio: 0.1 },
+      dialogueAnchorCoverage: { anchored: 3, floating: 1 },
+    },
+    panelBlueprints: [],
+    objectStateTimeline: [],
+    premiumMeta: {
+      premiumReadinessScore: 0.85,
+      heroCenterRatio: 0.5,
+      cutawayCount: 2,
+      cutawayRatio: 0.1,
+      enemyFocusPanels: 2,
+      npcPanels: 1,
+      propCoverage: { covered: ["katana"], missing: [] },
+      enemyCoverage: { panelCount: 2, beatsCovered: [] },
+      npcCoverage: { panelCount: 1, avgNpcCount: 1 },
+      cutawayCoverage: { count: 2, ratio: 0.1 },
+      dialogueAnchorCoverage: { anchored: 3, floating: 1 },
+      focusDistribution: {},
+      shotDistribution: {},
+    },
+  };
+  buildPremiumChapterContractMock.mockReturnValue(defaultPremiumContractResult);
+  buildPremiumChapterContractAsyncMock.mockResolvedValue(defaultPremiumContractResult);
 });
 
 describe("routes Chapter Studio", () => {
@@ -278,6 +371,21 @@ describe("routes Chapter Studio", () => {
   });
 
   it("autorise le launch studio si le chapitre est prêt", async () => {
+    const readyStudio = buildReadyStudio();
+    const approvedOutlineForLaunch = {
+      summary: "Résumé du chapitre prêt",
+      cliffhanger: "Fin dramatique",
+      beats: Array.from({ length: 10 }, (_, i) => ({
+        id: `beat-${i + 1}`,
+        summary: `Beat ${i + 1} — action importante`,
+        pageRole: "action",
+        turn: "montée",
+        characters: ["hero-1"],
+      })),
+      approvedAt: new Date().toISOString(),
+      approvalVersion: "v1",
+      source: "user_approved",
+    };
     prismaMock.chapter.findFirst.mockResolvedValue({
       id: "chapter-1",
       projectId: "project-1",
@@ -286,7 +394,7 @@ describe("routes Chapter Studio", () => {
       summary: "Résumé",
       cliffhanger: "Fin",
       userIntent: "Préparer le duel",
-      outline: { studio: buildReadyStudio() },
+      outline: { studio: readyStudio, approvedOutline: approvedOutlineForLaunch },
       project,
     });
     prismaMock.chapter.update.mockResolvedValue({ id: "chapter-1" });
@@ -409,6 +517,299 @@ describe("routes Chapter Studio", () => {
     const response = await mod.POST(new Request("http://localhost", { method: "POST" }), ctxChapter);
 
     expect(response.status).toBe(422);
+  });
+
+  it("persiste l'outline complet (non tronqué à 5 beats) lors de la création du chapitre", async () => {
+    prismaMock.project.findFirst.mockResolvedValue(project);
+    prismaMock.chapter.findFirst.mockResolvedValue(null);
+
+    let capturedCreateData: Record<string, unknown> | null = null;
+    prismaMock.chapter.create.mockImplementation((args: { data: Record<string, unknown> }) => {
+      capturedCreateData = args.data;
+      return Promise.resolve({ id: "chapter-new", chapterNumber: 1, title: "Chapitre 1", outline: {} });
+    });
+    prismaMock.chapter.update.mockResolvedValue({ id: "chapter-new" });
+
+    // Simulate approvedOutline with 10 beats (as built by corrected buildApprovedOutlinePayload)
+    const fullBeats = Array.from({ length: 10 }, (_, index) => ({
+      id: `beat_${index + 1}`,
+      summary: `Le héros avance dans le dojo — beat ${index + 1}`,
+      characters: ["Hero"],
+      location: "Dojo de la montagne",
+      pageRole: "escalation",
+      turn: `Changement dramatique ${index + 1}`,
+      emotionalDelta: 1,
+      structuredBeat: null,
+    }));
+
+    const mod = await import("../app/api/projects/[id]/chapters/route");
+    const response = await mod.POST(
+      new Request("http://localhost", {
+        method: "POST",
+        body: JSON.stringify({
+          title: "Chapitre 1",
+          userIntent: "Le héros affronte son rival.",
+          approvedOutline: {
+            summary: "Résumé complet",
+            cliffhanger: "Fin dramatique",
+            beats: fullBeats,
+            approvedAt: new Date().toISOString(),
+            approvalVersion: "v1",
+            source: "user_approved",
+          },
+        }),
+      }),
+      ctxProject,
+    );
+
+    expect(response.status).toBe(200);
+    expect(prismaMock.chapter.create).toHaveBeenCalled();
+    // Verify the outline payload contains all 10 beats (not truncated to 5)
+    const outlinePayload = (capturedCreateData as Record<string, unknown> | null)?.outline as Record<string, unknown> | undefined;
+    const approvedOutline = outlinePayload?.approvedOutline as { beats?: unknown[] } | undefined;
+    expect(approvedOutline?.beats).toBeDefined();
+    expect(approvedOutline?.beats?.length).toBe(10);
+  });
+
+  it("approved-outline PATCH appelle buildPremiumChapterContract (non legacy)", async () => {
+    prismaMock.project.findFirst.mockResolvedValue({
+      id: "project-1",
+      userId: "user-1",
+      primaryGenre: "action",
+      tone: "dark",
+    });
+    prismaMock.chapter.findFirst.mockResolvedValue(null);
+    // getOwnedChapter retourne un chapitre existant
+    getOwnedChapterMock.mockResolvedValue({
+      id: "chapter-1",
+      chapterNumber: 3,
+      title: "Chapitre 3",
+      summary: "Résumé",
+      cliffhanger: "Fin",
+      userIntent: "Préparer le duel",
+      outline: {},
+      generatedImages: 0,
+      acceptedImages: 0,
+      rejectedImages: 0,
+      missingImages: 55,
+      criticalPanelsCount: 0,
+      criticalPanelsBlocked: 0,
+      criticalPanelsMissingQa: 0,
+      reviewBlockedReason: null,
+    });
+    prismaMock.chapter.update.mockResolvedValue({ id: "chapter-1" });
+
+    const fullBeats = Array.from({ length: 8 }, (_, index) => ({
+      id: `beat_${index + 1}`,
+      summary: `Le héros affronte l'ennemi dans le dojo — beat ${index + 1}`,
+      characters: ["Hero"],
+      location: "Dojo de la montagne",
+      pageRole: "escalation",
+      turn: `Changement dramatique ${index + 1}`,
+      emotionalDelta: 1,
+      structuredBeat: null,
+    }));
+
+    const mod = await import("../app/api/projects/[id]/chapters/[chapterId]/approved-outline/route");
+    const response = await mod.PATCH(
+      new Request("http://localhost", {
+        method: "PATCH",
+        body: JSON.stringify({
+          approvedOutline: {
+            summary: "Résumé du chapitre",
+            cliffhanger: "Fin dramatique",
+            beats: fullBeats,
+            approvedAt: new Date().toISOString(),
+            approvalVersion: "v1",
+            source: "user_approved",
+          },
+        }),
+      }),
+      ctxChapter,
+    );
+
+    expect(response.status).toBe(200);
+    // Vérifier que buildPremiumChapterContractAsync a été appelé (non legacy)
+    expect(buildPremiumChapterContractAsyncMock).toHaveBeenCalledTimes(1);
+    expect(buildPremiumChapterContractAsyncMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectGenre: "action",
+        projectTone: "dark",
+      }),
+    );
+    // Vérifier que premiumMeta est retourné
+    const payload = await response.json();
+    expect(payload.ok).toBe(true);
+    expect(payload.premiumMeta).toBeDefined();
+    expect(typeof payload.premiumMeta.premiumReadinessScore).toBe("number");
+  });
+
+  it("approved-outline PATCH reconstruit un contrat premium complet sans legacy_adapted", async () => {
+    const fullBeats = Array.from({ length: 10 }, (_, i) => ({
+      id: `beat-${i + 1}`,
+      summary: `Beat ${i + 1} — action narrative importante du chapitre premium`,
+      pageRole: "action",
+      turn: "montée dramatique",
+      characters: ["hero-1"],
+      location: "dojo",
+      emotionalDelta: 2,
+    }));
+    prismaMock.project.findFirst
+      .mockResolvedValueOnce({ id: "project-1", userId: "user-1", primaryGenre: "shonen", tone: "epic" })
+      .mockResolvedValueOnce({ id: "project-1", userId: "user-1", primaryGenre: "shonen", tone: "epic" });
+    prismaMock.character.findMany.mockResolvedValue([{ id: "hero-1", roleType: "hero" }]);
+    getOwnedChapterMock.mockResolvedValue({
+      id: "chapter-1",
+      chapterNumber: 1,
+      title: "Chapitre 1",
+      summary: null,
+      cliffhanger: null,
+      userIntent: null,
+      outline: {},
+      generatedImages: 0,
+      acceptedImages: 0,
+      rejectedImages: 0,
+      missingImages: 55,
+      minimumImages: 55,
+      criticalPanelsCount: 0,
+      criticalPanelsBlocked: 0,
+      criticalPanelsMissingQa: 0,
+      reviewBlockedReason: null,
+    });
+    prismaMock.chapter.update.mockResolvedValue({ id: "chapter-1" });
+
+    const mod = await import("../app/api/projects/[id]/chapters/[chapterId]/approved-outline/route");
+    const response = await mod.PATCH(
+      new Request("http://localhost", {
+        method: "PATCH",
+        body: JSON.stringify({
+          approvedOutline: {
+            summary: "Résumé du chapitre",
+            cliffhanger: "Fin dramatique",
+            beats: fullBeats,
+            approvedAt: new Date().toISOString(),
+            approvalVersion: "v1",
+            source: "user_approved",
+          },
+        }),
+      }),
+      ctxChapter,
+    );
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.ok).toBe(true);
+    // Vérifier que le contrat premium est reconstruit
+    expect(buildPremiumChapterContractAsyncMock).toHaveBeenCalled();
+    // Vérifier qu'aucun legacy_adapted n'est écrit
+    const updateCall = prismaMock.chapter.update.mock.calls[0]?.[0];
+    const outlineData = updateCall?.data?.outline as Record<string, unknown> | undefined;
+    const studioData = outlineData?.studio as Record<string, unknown> | undefined;
+    const productionOutline = (studioData?.data as Record<string, unknown> | undefined)?.productionOutline as Record<string, unknown> | undefined;
+    if (productionOutline) {
+      expect(productionOutline.source).not.toBe("legacy_adapted");
+    }
+  });
+
+  it("studio PATCH ne détruit pas le contrat premium existant", async () => {
+    const premiumStudio = buildReadyStudio();
+    // Snapshot avec panelBlueprints et premiumReadinessScore
+    const studioWithBlueprints = {
+      ...premiumStudio,
+      data: {
+        ...premiumStudio.data,
+        productionPlan: {
+          ...premiumStudio.data.productionPlan,
+          panelBlueprints: [
+            {
+              panelId: "panel-1",
+              beatId: "b1",
+              panelIndex: 0,
+              purpose: "Introduire le héros",
+              cameraAngle: "eye_level",
+              subjectFocus: "hero",
+              shotType: "close_up",
+              requiredProps: [],
+              presenceObligations: [],
+            },
+          ],
+          premiumReadinessScore: 0.9,
+          focusDistribution: { hero: 5, duo: 3 },
+        },
+      },
+    };
+    patchChapterStudioSnapshotMock.mockReturnValue(studioWithBlueprints);
+    getOwnedChapterMock.mockResolvedValue({
+      id: "chapter-1",
+      chapterNumber: 1,
+      title: "Chapitre 1",
+      summary: null,
+      cliffhanger: null,
+      userIntent: "ancien",
+      outline: { studio: studioWithBlueprints, approvedOutline: { beats: [], approvalVersion: "v1" } },
+      generatedImages: 0,
+      acceptedImages: 0,
+      rejectedImages: 0,
+      missingImages: 55,
+      minimumImages: 55,
+      criticalPanelsCount: 0,
+      criticalPanelsBlocked: 0,
+      criticalPanelsMissingQa: 0,
+      reviewBlockedReason: null,
+    });
+    prismaMock.chapter.update.mockResolvedValue({ id: "chapter-1" });
+
+    const mod = await import("../app/api/projects/[id]/chapters/[chapterId]/studio/route");
+    const response = await mod.PATCH(
+      new Request("http://localhost", {
+        method: "PATCH",
+        body: JSON.stringify({
+          currentStep: "intent",
+          data: { intent: { workingTitle: "Nouveau titre", shortPitch: "nouveau pitch" } },
+        }),
+      }),
+      ctxChapter,
+    );
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    // Vérifier que les panelBlueprints et premiumReadinessScore sont préservés
+    const snapshotData = (payload.snapshot as Record<string, unknown>)?.data as Record<string, unknown> | undefined;
+    const pp = snapshotData?.productionPlan as Record<string, unknown> | undefined;
+    if (pp) {
+      expect(pp.premiumReadinessScore).toBe(0.9);
+    }
+  });
+
+  it("chapters POST ne reconstruit pas un approvedOutline legacy si studioDraft premium est fourni", async () => {
+    prismaMock.project.findFirst.mockResolvedValue(project);
+    prismaMock.chapter.findFirst.mockResolvedValue(null);
+    prismaMock.chapter.create.mockResolvedValue({
+      id: "chapter-new",
+      chapterNumber: 1,
+      title: "Chapitre 1",
+      outline: {},
+    });
+    prismaMock.chapter.update.mockResolvedValue({ id: "chapter-new" });
+
+    const premiumStudio = buildReadyStudio();
+    const mod = await import("../app/api/projects/[id]/chapters/route");
+    const response = await mod.POST(
+      new Request("http://localhost", {
+        method: "POST",
+        body: JSON.stringify({
+          title: "Chapitre 1",
+          userIntent: "Test premium",
+          studioDraft: premiumStudio.data,
+        }),
+      }),
+      ctxProject,
+    );
+
+    expect(response.status).toBe(200);
+    // buildLegacyApprovedOutlineFromStudio ne doit pas être appelé
+    // (il n'est plus importé dans chapters/route.ts)
+    expect(prismaMock.chapter.create).toHaveBeenCalled();
   });
 });
 

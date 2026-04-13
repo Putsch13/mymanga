@@ -1,9 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  buildChapterReadinessReport,
-  buildLegacyApprovedOutlineFromStudio,
-  parseApprovedOutline,
-} from "@manga-ai-studio/core";
+import { buildChapterReadinessReport } from "@manga-ai-studio/core";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { runFullChapterPipelineFromJob, sendChapterGenerateRequested } from "@manga-ai-studio/workflow";
@@ -13,6 +9,11 @@ import { badRequest, notFound, unauthorized, validationError } from "@/lib/api-r
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { buildChapterStructuredRuntimePrismaFields, readChapterStudioSnapshotFromOutline } from "@/lib/chapter-studio";
+import {
+  assertPremiumContract,
+  buildGenerationJobInputFromSnapshot,
+  resolveApprovedOutlineFromSnapshot,
+} from "@/lib/premium-chapter-contract";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -68,31 +69,49 @@ export async function POST(_req: Request, ctx: Ctx) {
     criticalPanelsMissingQa: chapter.criticalPanelsMissingQa,
     reviewBlockedReason: chapter.reviewBlockedReason,
   });
+
   const readiness = snapshot.data.readinessReport ?? buildChapterReadinessReport(snapshot);
   if (readiness.status === "blocked") {
     return validationError("Le chapitre n'est pas prêt pour la génération.", readiness);
   }
 
-  const approvedOutline = buildLegacyApprovedOutlineFromStudio(snapshot) ?? parseApprovedOutline(asRecord(chapter.outline).approvedOutline);
+  const chapterOutlineRecord = asRecord(chapter.outline);
+
+  // Résoudre l'approvedOutline depuis le contrat premium persisté — jamais de builder legacy
+  const approvedOutline = resolveApprovedOutlineFromSnapshot(snapshot, chapterOutlineRecord);
   if (!approvedOutline) {
     return badRequest("Aucun outline validé n'est disponible pour lancer la génération.");
   }
 
-  // ── Vérification authoritative estimate → launch ──────────────────────────
-  // Si un estimateContext est présent dans le snapshot, vérifier qu'il cible bien ce chapitre.
+  // Vérifier le contrat premium complet avant lancement
+  const contractCheck = assertPremiumContract(snapshot, chapterOutlineRecord);
+  if (!contractCheck.ok) {
+    console.warn(`[launch] premium_contract_incomplete chapterId=${chapterId} missing=${contractCheck.missing.join(", ")}`);
+    return NextResponse.json(
+      {
+        error: "premium_contract_incomplete",
+        missing: contractCheck.missing,
+        message: contractCheck.message,
+      },
+      { status: 422 },
+    );
+  }
+
+  // Traçabilité estimate → launch
   const estimateContext = snapshot.data.estimateContext;
   if (estimateContext?.targetChapterId && estimateContext.targetChapterId !== chapterId) {
     console.warn(
       `[launch] estimate_context_mismatch chapterId=${chapterId} estimateTargetChapterId=${estimateContext.targetChapterId} — invalidating context`,
     );
-    // On ne bloque pas le launch mais on invalide le contexte divergent et on le trace
-    // Le pipeline utilisera le chapterId réel (celui de la route)
   }
   if (estimateContext) {
     console.log(
       `[launch] estimate_context chapterId=${chapterId} targetChapterId=${estimateContext.targetChapterId ?? "none"} estimateSource=${estimateContext.estimateSource ?? "unknown"} estimatedAt=${estimateContext.estimatedAt ?? "unknown"} divergence=${estimateContext.targetChapterId && estimateContext.targetChapterId !== chapterId ? "YES" : "NO"}`,
     );
   }
+
+  // Logs premium
+  console.log(`[launch] premium_launch chapterId=${chapterId} approvedOutlineVersion=${approvedOutline.approvalVersion} productionOutlineBeatCount=${snapshot.data.productionOutline?.beats?.length ?? 0} productionPlanPageCount=${Array.isArray(snapshot.data.productionPlan?.pages) ? snapshot.data.productionPlan.pages.length : 0} panelBlueprintCount=${Array.isArray(snapshot.data.productionPlan?.panelBlueprints) ? snapshot.data.productionPlan.panelBlueprints.length : 0} heroCenterRatio=${snapshot.data.productionPlan?.heroCenterRatio ?? "n/a"} premiumReadinessScore=${snapshot.data.productionPlan?.premiumReadinessScore ?? "n/a"}`);
 
   const nextSnapshot = {
     ...snapshot,
@@ -109,6 +128,7 @@ export async function POST(_req: Request, ctx: Ctx) {
       },
     },
   };
+
   const structuredRuntime = buildChapterStructuredRuntimePrismaFields({
     snapshot: nextSnapshot,
     minimumImages: nextSnapshot.data.readinessReport?.imageCounts.minimumImages,
@@ -128,11 +148,31 @@ export async function POST(_req: Request, ctx: Ctx) {
       status: "ready_for_render",
       ...structuredRuntime,
       outline: ({
-        ...asRecord(chapter.outline),
+        ...chapterOutlineRecord,
         studio: nextSnapshot,
         approvedOutline,
       } as unknown) as Prisma.InputJsonValue,
     },
+  });
+
+  // Construire le job input premium — même helper que /pipeline
+  const jobInput = buildGenerationJobInputFromSnapshot({
+    chapterId,
+    source: "chapter_studio_launch",
+    snapshot,
+    approvedOutline,
+    selectedPlotLabel: snapshot.data.selectedPlotLabel ?? "bold",
+    creativityControls: snapshot.data.creativityControls as Record<string, unknown> | null ?? null,
+    focusCharacterIds: [],
+    estimateContext: estimateContext
+      ? {
+          targetChapterId: estimateContext.targetChapterId ?? null,
+          targetChapterNumber: estimateContext.targetChapterNumber ?? null,
+          estimateSource: estimateContext.estimateSource,
+          estimatedAt: estimateContext.estimatedAt,
+          divergenceDetected: !!(estimateContext.targetChapterId && estimateContext.targetChapterId !== chapterId),
+        }
+      : null,
   });
 
   const estimatedCost = await estimateChapterTextTokensFromRules();
@@ -144,23 +184,7 @@ export async function POST(_req: Request, ctx: Ctx) {
       type: "GENERATE_CHAPTER_SCRIPT",
       status: "queued",
       estimatedTokenCost: estimatedCost,
-      input: ({
-        source: "chapter_studio_launch",
-        chapterId,
-        approvedOutlineVersion: approvedOutline.approvalVersion,
-        selectedPlotLabel: snapshot.data.selectedPlotLabel ?? "bold",
-        creativityControls: snapshot.data.creativityControls ?? undefined,
-        // Traçabilité estimate → launch
-        estimateContext: estimateContext
-          ? {
-              targetChapterId: estimateContext.targetChapterId ?? null,
-              targetChapterNumber: estimateContext.targetChapterNumber ?? null,
-              estimateSource: estimateContext.estimateSource,
-              estimatedAt: estimateContext.estimatedAt,
-              divergenceDetected: !!(estimateContext.targetChapterId && estimateContext.targetChapterId !== chapterId),
-            }
-          : null,
-      } as unknown) as Prisma.InputJsonValue,
+      input: jobInput as unknown as Prisma.InputJsonValue,
       output: {
         currentStep: "queued",
         steps: [],

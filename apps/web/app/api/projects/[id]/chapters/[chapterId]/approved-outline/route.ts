@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { approvedOutlineSchema } from "@manga-ai-studio/core";
+import { approvedOutlineSchema, productionOutlineSchema, productionPlanSchema } from "@manga-ai-studio/core";
+import { buildPremiumChapterContractAsync } from "@manga-ai-studio/ai";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { notFound, unauthorized } from "@/lib/api-response";
 import { getAppUser } from "@/lib/auth/get-app-user";
@@ -21,15 +22,76 @@ export async function PATCH(req: Request, ctx: Ctx) {
   const chapter = await getOwnedChapter(user.id, projectId, chapterId);
   if (!chapter) return notFound();
 
-  const approvedOutline = approvedOutlineSchema.parse((await req.json()).approvedOutline);
+  // Charger le projet pour les métadonnées premium (genre, tone, hero)
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, userId: user.id },
+    select: { primaryGenre: true, tone: true },
+  });
+  const projectCharacters = await prisma.character.findMany({
+    where: { projectId },
+    select: { id: true, roleType: true },
+  });
+  const heroCharacterId =
+    projectCharacters.find((c) => /hero|protagon|main/i.test(c.roleType ?? ""))?.id ?? null;
+
+  const body = await req.json();
+  const approvedOutline = approvedOutlineSchema.parse(body.approvedOutline);
   const existingOutline = asRecord(chapter.outline);
+
+  // Si productionOutline + productionPlan sont fournis (depuis generate/page.tsx), les persister tels quels
+  // Sinon, reconstruire le contrat premium complet depuis l'approvedOutline
+  let resolvedProductionOutline: unknown;
+  let resolvedProductionPlan: unknown;
+  let premiumMeta: unknown;
+
+  const providedProductionOutline = body.productionOutline;
+  const providedProductionPlan = body.productionPlan;
+
+  if (providedProductionOutline && providedProductionPlan) {
+    // Contrat premium fourni par le client — valider et persister sans reconstruction
+    const parsedOutline = productionOutlineSchema.safeParse(providedProductionOutline);
+    const parsedPlan = productionPlanSchema.safeParse(providedProductionPlan);
+    if (parsedOutline.success && parsedPlan.success) {
+      resolvedProductionOutline = parsedOutline.data;
+      resolvedProductionPlan = parsedPlan.data;
+      premiumMeta = {
+        source: parsedOutline.data.source,
+        premiumReadinessScore: parsedPlan.data.premiumReadinessScore,
+        panelBlueprintsCount: parsedPlan.data.panelBlueprints?.length ?? 0,
+      };
+    } else {
+      // Fallback si les données fournies sont invalides
+      const premiumContract = await buildPremiumChapterContractAsync({
+        approvedOutline,
+        heroCharacterId,
+        projectGenre: project?.primaryGenre ?? null,
+        projectTone: project?.tone ?? null,
+      });
+      resolvedProductionOutline = premiumContract.productionOutline;
+      resolvedProductionPlan = premiumContract.productionPlan;
+      premiumMeta = premiumContract.premiumMeta;
+    }
+  } else {
+    // Reconstruire le contrat premium complet avec enrichissement LLM
+    const premiumContract = await buildPremiumChapterContractAsync({
+      approvedOutline,
+      heroCharacterId,
+      projectGenre: project?.primaryGenre ?? null,
+      projectTone: project?.tone ?? null,
+    });
+    resolvedProductionOutline = premiumContract.productionOutline;
+    resolvedProductionPlan = premiumContract.productionPlan;
+    premiumMeta = premiumContract.premiumMeta;
+  }
+
   const studioSnapshot = patchChapterStudioSnapshot(
     chapter.outline,
     {
       editorialOutline: {
         summary: approvedOutline.summary,
         validationNotes: [],
-        beats: approvedOutline.beats.slice(0, 5).map((beat, index) => ({
+        // Tous les beats — plus de slice(0, 5)
+        beats: approvedOutline.beats.map((beat, index) => ({
           beatId: beat.id,
           label: `Bloc ${index + 1}`,
           summary: beat.summary,
@@ -38,29 +100,8 @@ export async function PATCH(req: Request, ctx: Ctx) {
           involvedCharacters: beat.characters,
         })),
       },
-      productionOutline: {
-        source: "legacy_adapted",
-        chapterGoal: approvedOutline.summary,
-        cliffhanger: approvedOutline.cliffhanger,
-        beats: approvedOutline.beats.map((beat) => ({
-          beatId: beat.id,
-          summary: beat.summary,
-          narrativeFunction: beat.pageRole,
-          whyThisBeatExists: beat.summary,
-          dramaticChange: beat.turn,
-          involvedCharacters: beat.characters,
-          activeCanonConstraints: [],
-          environmentContext: [beat.location],
-          visualPriority: "high",
-          estimatedPanels: 4,
-          criticality: "medium",
-          continuityDependencies: [],
-          indispensabilityScore: 70,
-          redundancyRisk: 20,
-          infoGained: null,
-          emotionProduced: null,
-        })),
-      },
+      productionOutline: resolvedProductionOutline as never,
+      productionPlan: resolvedProductionPlan as never,
     },
     {
       chapterNumber: chapter.chapterNumber,
@@ -68,8 +109,8 @@ export async function PATCH(req: Request, ctx: Ctx) {
       chapterSummary: chapter.summary,
       cliffhanger: chapter.cliffhanger,
       userIntent: chapter.userIntent,
-      currentStep: "production_outline",
-      transitionReason: "legacy_approved_outline_saved",
+      currentStep: "production_plan",
+      transitionReason: "premium_approved_outline_saved",
     },
   );
 
@@ -100,5 +141,6 @@ export async function PATCH(req: Request, ctx: Ctx) {
     ok: true,
     chapterId: updated.id,
     approvedOutline,
+    premiumMeta,
   });
 }

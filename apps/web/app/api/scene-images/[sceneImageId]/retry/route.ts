@@ -13,7 +13,7 @@ import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } fro
 import { notFound, unauthorized, validationError } from "@/lib/api-response";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { persistGeneratedImageIfNeeded } from "@/lib/images/persist-generated-image";
-import { resolveRetryReferencePolicy } from "@/lib/images/retry-reference-policy";
+import { resolveRetryReferencePolicy, type RetryMode } from "@/lib/images/retry-reference-policy";
 import { collectRetryStableReferences } from "@/lib/images/retry-stable-references";
 import { resolveStableImageReferences } from "@manga-ai-studio/workflow";
 
@@ -21,7 +21,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ sceneImageId: string }> };
-type RetryMode = "environment" | "character" | "interaction" | "style" | "composition";
 
 export async function POST(req: Request, ctx: Ctx) {
   const user = await getAppUser();
@@ -174,6 +173,13 @@ export async function POST(req: Request, ctx: Ctx) {
       })
     : null;
 
+  // Détecter si le panel a des props obligatoires (ne jamais les relâcher)
+  const panelContractMeta = metadata.panelContract as Record<string, unknown> | undefined;
+  const requiredPropsTyped = Array.isArray(panelContractMeta?.requiredPropsTyped)
+    ? panelContractMeta.requiredPropsTyped as Array<{ mustBeVisible: boolean }>
+    : [];
+  const hasMandatoryProps = requiredPropsTyped.some((p) => p.mustBeVisible);
+
   const retryReferenceDecision = resolveRetryReferencePolicy({
     retryMode,
     metadata,
@@ -182,6 +188,7 @@ export async function POST(req: Request, ctx: Ctx) {
     hasLookProfile,
     hasFingerprint,
     hasSceneAnchor,
+    hasMandatoryProps,
   });
 
   // Si le drift pré-reroll recommande un character_reroll mais que le mode est environment,
@@ -202,7 +209,8 @@ export async function POST(req: Request, ctx: Ctx) {
   console.info(
     `[retry] policy panel=${img.id} mode=${retryMode ?? "default"} refPolicy=${effectiveReferencePolicy} (base=${retryReferenceDecision.referencePolicy}) importantCharacter=${retryReferenceDecision.importantCharacterPresent} reason=${retryReferenceDecision.reason} refs=${referenceImageUrls.length}/${retryStableReferences.length} loras=${panelLoras.length} driftAction=${preDriftResult?.recommendedAction ?? "n/a"} driftScore=${preDriftResult?.score ?? "n/a"}`
   );
-  const positiveAugment = retryMode === "environment"
+  // Legacy hints for the 5 original modes
+  const legacyPositiveAugment = retryMode === "environment"
     ? "readable environment, strong background, visible architecture, clear foreground midground background"
     : retryMode === "character"
       ? "same hero face, same hair, same outfit, preserve continuity"
@@ -213,7 +221,7 @@ export async function POST(req: Request, ctx: Ctx) {
           : retryMode === "composition"
             ? "balanced manga composition, spatial clarity, dynamic framing"
             : "";
-  const negativeAugment = retryMode === "environment"
+  const legacyNegativeAugment = retryMode === "environment"
     ? "empty background, studio backdrop, flat grey backdrop, blurry environment"
     : retryMode === "character"
       ? "wrong hair color, wrong outfit, inconsistent face"
@@ -224,6 +232,15 @@ export async function POST(req: Request, ctx: Ctx) {
           : retryMode === "composition"
             ? "floating character, poor framing, weak staging"
             : "";
+
+  // Premium specialized hints override legacy hints when available
+  const positiveAugment = retryReferenceDecision.positivePromptHint
+    ? retryReferenceDecision.positivePromptHint
+    : legacyPositiveAugment;
+  const negativeAugment = retryReferenceDecision.negativePromptHint
+    ? retryReferenceDecision.negativePromptHint
+    : legacyNegativeAugment;
+
   const referencePolicy = effectiveReferencePolicy;
   const rerollKind =
     retryMode === "environment"
@@ -236,7 +253,20 @@ export async function POST(req: Request, ctx: Ctx) {
             ? "REROLL_STYLE"
             : retryMode === "composition"
               ? "REROLL_COMPOSITION"
-              : undefined;
+              // Premium modes
+              : retryMode === "prop"
+                ? "REROLL_PROP"
+                : retryMode === "speaker"
+                  ? "REROLL_SPEAKER_ANCHOR"
+                  : retryMode === "enemy_presence"
+                    ? "REROLL_ENEMY_PRESENCE"
+                    : retryMode === "subject_focus"
+                      ? "REROLL_SUBJECT_FOCUS"
+                      : retryMode === "cutaway"
+                        ? "REROLL_CUTAWAY"
+                        : retryMode === "npc_population"
+                          ? "REROLL_NPC_POPULATION"
+                          : undefined;
 
   await prisma.sceneImage.update({
     where: { id: img.id },

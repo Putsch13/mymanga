@@ -131,6 +131,9 @@ export default function ChapterGeneratorPage() {
       beats: OutlinePreviewBeat[];
     };
     creativityControls?: CreativityControls | null;
+    // Premium intelligence fields
+    productionOutline?: unknown;
+    productionPlan?: unknown;
   } | null>(null);
 
   const loadChapters = useCallback(() => {
@@ -283,7 +286,11 @@ export default function ChapterGeneratorPage() {
       });
       const j = await res.json();
       if (res.ok && j.plotOptions) {
-        setPreviewData(j);
+        setPreviewData({
+          ...j,
+          productionOutline: j.productionOutline ?? null,
+          productionPlan: j.productionPlan ?? null,
+        });
         const beats = Array.isArray(j.outlinePreview?.beats) ? (j.outlinePreview.beats as OutlinePreviewBeat[]) : [];
         setBeatSummaries(Object.fromEntries(beats.map((beat) => [beat.id, beat.summary])));
         setEditingBeatId(null);
@@ -318,17 +325,19 @@ export default function ChapterGeneratorPage() {
 
   function buildApprovedOutlinePayload(): ApprovedChapterOutline | null {
     if (!previewData?.outlinePreview) return null;
+    // Use the full productionOutline beats if available (avoids 5-beat preview truncation)
+    const fullBeats = (previewData.productionOutline as any)?.beats ?? previewData.outlinePreview.beats;
     return {
       summary: previewData.outlinePreview.summary,
       cliffhanger: previewData.outlinePreview.cliffhanger,
-      beats: previewData.outlinePreview.beats.map((beat) => ({
-        id: beat.id,
-        summary: beatSummaries[beat.id] ?? beat.summary,
-        characters: beat.characters,
-        location: beat.location,
-        pageRole: beat.pageRole,
-        turn: beat.turn,
-        emotionalDelta: beat.emotionalDelta,
+      beats: fullBeats.map((beat: any) => ({
+        id: beat.id ?? beat.beatId,
+        summary: beatSummaries[beat.id ?? beat.beatId] ?? beat.summary,
+        characters: beat.characters ?? beat.involvedCharacters ?? [],
+        location: beat.location ?? (beat.environmentContext?.[0] ?? ""),
+        pageRole: beat.pageRole ?? beat.narrativeFunction ?? "escalation",
+        turn: beat.turn ?? beat.dramaticChange ?? "",
+        emotionalDelta: beat.emotionalDelta ?? 0,
         structuredBeat: beat.structuredBeat ?? null,
       })),
       approvedAt: new Date().toISOString(),
@@ -345,7 +354,12 @@ export default function ChapterGeneratorPage() {
     const res = await fetch(`/api/projects/${id}/chapters/${chapterId}/approved-outline`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ approvedOutline }),
+      body: JSON.stringify({
+        approvedOutline,
+        // Persister le contrat premium complet si disponible
+        productionOutline: previewData?.productionOutline ?? undefined,
+        productionPlan: previewData?.productionPlan ?? undefined,
+      }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -356,7 +370,7 @@ export default function ChapterGeneratorPage() {
   async function runPipeline() {
     if (!selectedChapter) return;
     if (!planApproved) {
-      setPipelineMsg("Valide d'abord le plan détaillé en 5 blocs.");
+      setPipelineMsg("Valide d'abord l'aperçu éditorial avant de lancer la génération.");
       return;
     }
     setStartingPipeline(true);
@@ -401,7 +415,7 @@ export default function ChapterGeneratorPage() {
 
   async function createAndGenerate() {
     if (!planApproved) {
-      setPipelineMsg("Valide d'abord le plan détaillé en 5 blocs.");
+      setPipelineMsg("Valide d'abord l'aperçu éditorial avant de lancer la génération.");
       return;
     }
     setCreatingDraft(true);
@@ -418,6 +432,10 @@ export default function ChapterGeneratorPage() {
           selectedPlotLabel,
           creativityControls,
           approvedOutline,
+          studioDraft: previewData?.productionPlan ? {
+            productionOutline: previewData.productionOutline,
+            productionPlan: previewData.productionPlan,
+          } : undefined,
         }),
       });
       const j = await res.json();
@@ -719,8 +737,8 @@ export default function ChapterGeneratorPage() {
             </div>
             <div className={`rounded-lg border px-3 py-2 text-sm ${planApproved ? "border-emerald-500/30 bg-emerald-950/20 text-emerald-200" : "border-amber-500/30 bg-amber-950/20 text-amber-200"}`}>
               {planApproved
-                ? "Plan validé. Le pipeline utilisera exactement ces 5 blocs comme source de vérité."
-                : "Étape obligatoire : valide le plan détaillé avant de lancer la génération."}
+                ? "Aperçu éditorial validé. Le pipeline utilisera le contrat de production complet comme source de vérité."
+                : "Étape obligatoire : valide l'aperçu éditorial avant de lancer la génération."}
             </div>
             <div className="flex gap-2">
               <Button

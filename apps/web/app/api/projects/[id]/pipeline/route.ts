@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  buildChapterReadinessReport,
-  buildLegacyApprovedOutlineFromStudio,
-  parseApprovedOutline,
-} from "@manga-ai-studio/core";
+import { buildChapterReadinessReport } from "@manga-ai-studio/core";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { prisma } from "@manga-ai-studio/db";
 import { runFullChapterPipelineFromJob, sendChapterGenerateRequested } from "@manga-ai-studio/workflow";
@@ -14,6 +10,12 @@ import { notFound, unauthorized, badRequest, validationError } from "@/lib/api-r
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { readChapterStudioSnapshotFromOutline } from "@/lib/chapter-studio";
+import {
+  assertPremiumContract,
+  buildGenerationJobInputFromSnapshot,
+  resolveApprovedOutlineFromSnapshot,
+} from "@/lib/premium-chapter-contract";
+import type { Prisma } from "@manga-ai-studio/db";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -42,8 +44,15 @@ const draftSetupSchema = z.object({
   }).optional(),
 });
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 /**
  * Enfile le pipeline Inngest manga-first (texte + DA découpée).
+ * Utilise exclusivement le contrat premium persisté — aucun fallback legacy.
  */
 export async function POST(req: Request, ctx: Ctx) {
   const user = await getAppUser();
@@ -73,10 +82,9 @@ export async function POST(req: Request, ctx: Ctx) {
     where: { id: body.chapterId, projectId },
   });
   if (!chapter) return badRequest("Chapitre introuvable");
-  const chapterOutlineRecord =
-    chapter.outline && typeof chapter.outline === "object" && !Array.isArray(chapter.outline)
-      ? (chapter.outline as Record<string, unknown>)
-      : {};
+
+  const chapterOutlineRecord = asRecord(chapter.outline);
+
   const snapshot = readChapterStudioSnapshotFromOutline({
     outline: chapter.outline,
     chapterNumber: chapter.chapterNumber,
@@ -98,13 +106,30 @@ export async function POST(req: Request, ctx: Ctx) {
     criticalPanelsMissingQa: chapter.criticalPanelsMissingQa,
     reviewBlockedReason: chapter.reviewBlockedReason,
   });
+
   const readiness = snapshot.data.readinessReport ?? buildChapterReadinessReport(snapshot);
   if (readiness.status === "blocked") {
     return validationError("Le chapitre n'est pas prêt pour la génération.", readiness);
   }
-  const approvedOutline = buildLegacyApprovedOutlineFromStudio(snapshot) ?? parseApprovedOutline(chapterOutlineRecord.approvedOutline);
+
+  // Résoudre l'approvedOutline depuis le contrat premium — jamais de builder legacy
+  const approvedOutline = resolveApprovedOutlineFromSnapshot(snapshot, chapterOutlineRecord);
   if (!approvedOutline) {
     return validationError("Valide d'abord le plan détaillé du chapitre avant de lancer la génération.");
+  }
+
+  // Vérifier le contrat premium complet avant lancement
+  const contractCheck = assertPremiumContract(snapshot, chapterOutlineRecord);
+  if (!contractCheck.ok) {
+    console.warn(`[pipeline] premium_contract_incomplete chapterId=${body.chapterId} missing=${contractCheck.missing.join(", ")}`);
+    return NextResponse.json(
+      {
+        error: "premium_contract_incomplete",
+        missing: contractCheck.missing,
+        message: contractCheck.message,
+      },
+      { status: 422 },
+    );
   }
 
   const draftSetup = draftSetupSchema.safeParse(chapterOutlineRecord.draftSetup);
@@ -119,6 +144,21 @@ export async function POST(req: Request, ctx: Ctx) {
   const creativityControls =
     body.creativityControls ?? (draftSetup.success ? draftSetup.data.creativityControls ?? undefined : undefined);
 
+  // Logs premium
+  console.log(`[pipeline] premium_launch chapterId=${body.chapterId} approvedOutlineVersion=${approvedOutline.approvalVersion} productionOutlineBeatCount=${snapshot.data.productionOutline?.beats?.length ?? 0} productionPlanPageCount=${Array.isArray(snapshot.data.productionPlan?.pages) ? snapshot.data.productionPlan.pages.length : 0} panelBlueprintCount=${Array.isArray(snapshot.data.productionPlan?.panelBlueprints) ? snapshot.data.productionPlan.panelBlueprints.length : 0} heroCenterRatio=${snapshot.data.productionPlan?.heroCenterRatio ?? "n/a"} premiumReadinessScore=${snapshot.data.productionPlan?.premiumReadinessScore ?? "n/a"}`);
+
+  // Construire le job input premium — même helper que /launch
+  const jobInput = buildGenerationJobInputFromSnapshot({
+    chapterId: body.chapterId,
+    source: "pipeline_route",
+    snapshot,
+    approvedOutline,
+    selectedPlotLabel: selectedPlotLabel ?? "bold",
+    creativityControls: (creativityControls ?? null) as Record<string, unknown> | null,
+    focusCharacterIds,
+    estimateContext: null,
+  });
+
   const estimatedCost = await estimateChapterTextTokensFromRules();
   const job = await prisma.job.create({
     data: {
@@ -128,14 +168,7 @@ export async function POST(req: Request, ctx: Ctx) {
       type: "GENERATE_CHAPTER_SCRIPT",
       status: "queued",
       estimatedTokenCost: estimatedCost,
-      input: {
-        source: "pipeline_route",
-        chapterId: chapter.id,
-        focusCharacterIds,
-        selectedPlotLabel,
-        creativityControls,
-        approvedOutlineVersion: approvedOutline.approvalVersion,
-      },
+      input: jobInput as unknown as Prisma.InputJsonValue,
       output: {
         currentStep: "queued",
         steps: [],

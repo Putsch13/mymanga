@@ -47,3 +47,8 @@ export * from "./services/romance-drama-director";
 export * from "./services/story-quality-gate";
 export * from "./services/panel-intent-card";
 export * from "./services/scene-anchor";
+export * from "./services/narrative-fact-extractor";
+export * from "./services/narrative-fact-llm-enricher";
+export * from "./services/prop-inference-engine";
+export * from "./services/panel-blueprint-builder";
+export * from "./services/premium-chapter-contract-builder";

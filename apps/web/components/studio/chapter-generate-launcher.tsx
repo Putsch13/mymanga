@@ -62,8 +62,10 @@ export function ChapterGenerateLauncher({
     setLaunching(true);
     setMessage(null);
     setDetails(null);
-    const res = await fetch(`/api/projects/${projectId}/chapters/${chapterId}/launch`, {
+    const res = await fetch(`/api/projects/${projectId}/pipeline`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chapterId }),
     });
     const json = await res.json();
     setLaunching(false);

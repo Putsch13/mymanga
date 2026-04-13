@@ -31,6 +31,15 @@ export interface GeneratedPanelData {
       purpose?: string;
       mustShow?: string[];
       backgroundExtras?: string[];
+      // Premium contractual fields
+      subjectFocus?: string;
+      mustShowEnemy?: boolean;
+      requiredNpcCount?: number;
+      speakerAnchorCharacterId?: string | null;
+      dialogueCarrier?: string;
+      cutawayType?: string;
+      heroCenterAllowed?: boolean;
+      requiredPropsTyped?: Array<{ canonicalName: string; mustBeVisible: boolean; visibilityMode: string; narrativeRole: string; category?: string }>;
     };
     stylePack?: {
       renderFamily?: string | null;
@@ -297,7 +306,22 @@ export async function validateGeneratedPanel(
     stylePack: panel.metadata?.stylePack,
     sceneBlueprint: panel.metadata?.sceneBlueprint,
   });
-  const qualityScores = {
+  const qualityScores: {
+    characterConsistencyScore: number;
+    backgroundPresenceScore: number;
+    environmentReadabilityScore: number;
+    interactionScore: number;
+    shotComplianceScore: number;
+    styleConsistencyScore: number;
+    releaseScore: number;
+    visionScore: number | null;
+    propComplianceScore?: number;
+    subjectFocusScore?: number;
+    dialogueAnchorScore?: number;
+    enemyPresenceScore?: number;
+    populationScore?: number;
+    cutawayComplianceScore?: number;
+  } = {
     characterConsistencyScore: blendScores(
       heuristicScores.characterConsistencyScore,
       visionAnalysis?.characterConsistencyScore,
@@ -419,20 +443,187 @@ export async function validateGeneratedPanel(
     }
   }
 
+  // ─── Premium contractual QA checks ──────────────────────────────────────────
+  const contract = panel.metadata?.panelContract;
+  let propComplianceScore = 1.0;
+  let subjectFocusScore = 1.0;
+  let dialogueAnchorScore = 1.0;
+  let enemyPresenceScore = 1.0;
+  let populationScore = 1.0;
+  let cutawayComplianceScore = 1.0;
+
+  // Check required props
+  if (contract?.requiredPropsTyped && contract.requiredPropsTyped.length > 0) {
+    const visibleProps = contract.requiredPropsTyped.filter((p) =>
+      p.mustBeVisible && prompt.includes(p.canonicalName.toLowerCase()),
+    );
+    const missingProps = contract.requiredPropsTyped.filter(
+      (p) => p.mustBeVisible && !prompt.includes(p.canonicalName.toLowerCase()),
+    );
+    const mustBeVisibleCount = contract.requiredPropsTyped.filter((p) => p.mustBeVisible).length;
+    propComplianceScore = mustBeVisibleCount > 0
+      ? visibleProps.length / mustBeVisibleCount
+      : 1.0;
+
+    for (const missingProp of missingProps) {
+      const issueType =
+        missingProp.narrativeRole === "threat" ? "missing_weapon" as const
+        : missingProp.category === "device" ? "missing_device" as const
+        : "missing_prop" as const;
+      issues.push({
+        severity: missingProp.narrativeRole === "action_tool" || missingProp.narrativeRole === "threat" ? "critical" : "major",
+        type: issueType,
+        message: `Prop obligatoire absent du prompt: "${missingProp.canonicalName}". Ce prop doit être clairement visible.`,
+        autoFixable: true,
+      });
+      score -= 0.15;
+    }
+
+    // Check "object used but not visible"
+    const usedButNotVisible = contract.requiredPropsTyped.filter(
+      (p) => (p.visibilityMode === "used_in_action" || p.visibilityMode === "in_hand") && !prompt.includes(p.canonicalName.toLowerCase()),
+    );
+    for (const prop of usedButNotVisible) {
+      issues.push({
+        severity: "major",
+        type: "object_used_but_not_visible",
+        message: `Objet utilisé dans l'action mais absent visuellement: "${prop.canonicalName}"`,
+        autoFixable: true,
+      });
+    }
+  }
+
+  // Check subject focus
+  if (contract?.subjectFocus) {
+    const focusKeywords: Record<string, string[]> = {
+      enemy: ["enemy", "adversary", "villain", "opponent", "ennemi", "adversaire"],
+      environment: ["environment", "location", "landscape", "décor", "lieu", "paysage"],
+      prop: ["object", "prop", "item", "objet", "accessoire"],
+      npc: ["crowd", "npc", "people", "foule", "passants"],
+      aftermath: ["aftermath", "damage", "destruction", "aftermath", "conséquence"],
+    };
+    const expectedKeywords = focusKeywords[contract.subjectFocus];
+    if (expectedKeywords && !expectedKeywords.some((kw) => prompt.includes(kw))) {
+      if (contract.subjectFocus !== "hero" && contract.subjectFocus !== "reaction" && contract.subjectFocus !== "group" && contract.subjectFocus !== "ally") {
+        subjectFocusScore = 0.4;
+        issues.push({
+          severity: "major",
+          type: "wrong_subject_focus",
+          message: `Le focus sujet attendu "${contract.subjectFocus}" n'est pas reflété dans le prompt.`,
+          autoFixable: true,
+        });
+        score -= 0.1;
+      }
+    }
+  }
+
+  // Check cutaway compliance (score dédié + issues spécialisées)
+  if (contract?.cutawayType && contract.cutawayType !== "none") {
+    const isHeroCentric = !contract.heroCenterAllowed &&
+      (prompt.includes("hero portrait") || prompt.includes("character portrait") || prompt.includes("close-up face"));
+    if (isHeroCentric) {
+      cutawayComplianceScore = 0.2;
+      issues.push({
+        severity: "major",
+        type: "cutaway_collapsed_to_hero",
+        message: `Ce panel est un cutaway "${contract.cutawayType}" mais le prompt est un portrait héros. Le sujet du cutaway doit être au premier plan.`,
+        autoFixable: true,
+      });
+      score -= 0.1;
+    }
+    // Vérifier que le sujet attendu du cutaway est présent dans le prompt
+    const cutawayTargetKeywords: Record<string, string[]> = {
+      environment_establishing: ["environment", "location", "landscape", "décor", "exterior", "building", "street"],
+      enemy_reveal: ["enemy", "villain", "adversary", "silhouette", "shadow", "figure"],
+      object_insert: ["object", "prop", "item", "objet", "accessoire", "weapon", "artifact"],
+      reaction_insert: ["reaction", "expression", "face", "eyes", "shock", "surprise"],
+      location_transition: ["location", "transition", "exterior", "interior", "establishing"],
+      threat_insert: ["threat", "danger", "weapon", "blade", "gun", "menace"],
+    };
+    const expectedKws = cutawayTargetKeywords[contract.cutawayType] ?? [];
+    if (expectedKws.length > 0 && !expectedKws.some((kw) => prompt.includes(kw))) {
+      cutawayComplianceScore = Math.min(cutawayComplianceScore, 0.4);
+      issues.push({
+        severity: "major",
+        type: "wrong_cutaway_target",
+        message: `Cutaway "${contract.cutawayType}" attendu mais le sujet cible n'est pas détecté dans le prompt.`,
+        autoFixable: true,
+      });
+      score -= 0.05;
+    }
+  }
+
+  // Check enemy presence
+  if (contract?.mustShowEnemy) {
+    const enemyKeywords = ["enemy", "adversary", "villain", "opponent", "ennemi", "adversaire", "attacker", "attaquant"];
+    const enemyVisible = enemyKeywords.some((kw) => prompt.includes(kw));
+    if (!enemyVisible) {
+      enemyPresenceScore = 0.2;
+      issues.push({
+        severity: "critical",
+        type: "missing_enemy_presence",
+        message: "L'ennemi/adversaire doit être visible dans ce panel mais est absent du prompt.",
+        autoFixable: true,
+      });
+      score -= 0.2;
+    }
+  }
+
+  // Check dialogue anchor
+  if (contract?.speakerAnchorCharacterId && contract?.dialogueCarrier === "speaker_visible") {
+    const speakerName = contract.speakerAnchorCharacterId.toLowerCase();
+    const speakerVisible = prompt.includes(speakerName) || prompt.includes("speaker") || prompt.includes("dialogue");
+    if (!speakerVisible) {
+      dialogueAnchorScore = 0.3;
+      issues.push({
+        severity: "major",
+        type: "missing_dialogue_anchor",
+        message: `Le speaker du dialogue doit être visible mais n'est pas ancré dans le prompt (ID: ${contract.speakerAnchorCharacterId}).`,
+        autoFixable: true,
+      });
+      score -= 0.1;
+    }
+  }
+
+  // Check NPC population
+  if (contract?.requiredNpcCount && contract.requiredNpcCount > 0) {
+    const crowdKeywords = ["crowd", "people", "group", "foule", "passants", "students", "spectators", "bystanders"];
+    const hasCrowd = crowdKeywords.some((kw) => prompt.includes(kw));
+    if (!hasCrowd) {
+      populationScore = 0.3;
+      issues.push({
+        severity: "minor",
+        type: "npc_population_missing",
+        message: `Ce panel requiert ${contract.requiredNpcCount} PNJ minimum mais aucune présence de foule n'est détectée.`,
+        autoFixable: true,
+      });
+    }
+  }
+
+  // Merge premium scores into qualityScores
+  qualityScores.propComplianceScore = clamp01(propComplianceScore);
+  qualityScores.subjectFocusScore = clamp01(subjectFocusScore);
+  qualityScores.dialogueAnchorScore = clamp01(dialogueAnchorScore);
+  qualityScores.enemyPresenceScore = clamp01(enemyPresenceScore);
+  qualityScores.populationScore = clamp01(populationScore);
+  qualityScores.cutawayComplianceScore = clamp01(cutawayComplianceScore);
+
   // Borner le score entre 0 et 1
   score = clamp01(Math.min(score, qualityScores.releaseScore));
 
   // Déterminer si reroll requis
   const requiredReroll =
     Boolean(qaFailureReason)
-    || !qaWasExecuted && qaWasRequired
+    || (!qaWasExecuted && qaWasRequired)
     || issues.some((i) => i.type === "missing_visual_qa")
-    ||
-    score < 0.78
+    || score < 0.78
     || qualityScores.releaseScore < 0.72
     || qualityScores.backgroundPresenceScore < 0.55
     || qualityScores.interactionScore < 0.5
-    || issues.some((i) => i.severity === "critical");
+    || issues.some((i) => i.severity === "critical")
+    // Premium contractual failures
+    || issues.some((i) => i.type === "missing_enemy_presence")
+    || issues.some((i) => i.type === "missing_prop" || i.type === "missing_weapon" || i.type === "missing_device");
 
   return {
     panelId: panel.panelId,

@@ -281,6 +281,108 @@ export function buildSceneBlueprint(input: SceneBlueprintInput): SceneBlueprint 
       ]).join(" · "),
       hardConstraintLine: hard.join(" | "),
       softConstraintLine: soft.slice(0, 5).join(" | "),
+      // Premium hard constraints derived from panel blueprint
+      ...buildPremiumPromptBridgeLines(input),
     },
   };
+}
+
+function buildPremiumPromptBridgeLines(input: import("./types").SceneBlueprintInput): {
+  requiredPropLine?: string;
+  requiredEnemyLine?: string;
+  speakerAnchorLine?: string;
+  focusLine?: string;
+  antiCollapseLine?: string;
+  cutawayLine?: string;
+} {
+  const contract = input.premiumContract;
+  if (!contract) return {};
+
+  const lines: {
+    requiredPropLine?: string;
+    requiredEnemyLine?: string;
+    speakerAnchorLine?: string;
+    focusLine?: string;
+    antiCollapseLine?: string;
+    cutawayLine?: string;
+  } = {};
+
+  // Required props hard constraint
+  if (contract.requiredPropNames && contract.requiredPropNames.length > 0) {
+    const propList = contract.requiredPropNames.join(", ");
+    lines.requiredPropLine = `REQUIRED PROPS (must be clearly visible): ${propList}. Do not omit or replace with generic clutter.`;
+  }
+
+  // Enemy presence hard constraint
+  if (contract.mustShowEnemy) {
+    lines.requiredEnemyLine = "REQUIRED: enemy/adversary must be clearly present and readable in this panel. Do not replace with hero portrait.";
+  }
+
+  // Speaker anchor hard constraint
+  if (contract.speakerAnchorCharacterId && contract.dialogueCarrier === "speaker_visible") {
+    lines.speakerAnchorLine = `REQUIRED: dialogue speaker must be visibly framed and face readable. Speaker ID: ${contract.speakerAnchorCharacterId}.`;
+  } else if (contract.dialogueCarrier === "offscreen_allowed") {
+    lines.speakerAnchorLine = "Speaker may be offscreen; dialogue bubble placement must be coherent.";
+  }
+
+  // Subject focus hard constraint
+  if (contract.subjectFocus) {
+    const focusMap: Record<string, string> = {
+      hero: "primary subject: hero character",
+      enemy: "primary subject: enemy/adversary — do not center the hero",
+      ally: "primary subject: ally character",
+      npc: "primary subject: NPC / crowd presence",
+      group: "primary subject: group interaction",
+      environment: "primary subject: environment / location — this is an environment cutaway, not a character portrait",
+      prop: "primary subject: prop/object insert — object must be legible and foreground",
+      reaction: "primary subject: reaction shot — emotional expression is the focus",
+      aftermath: "primary subject: aftermath — show consequences, not action",
+    };
+    lines.focusLine = focusMap[contract.subjectFocus] ?? `primary subject: ${contract.subjectFocus}`;
+  }
+
+  // Anti-collapse constraint
+  if (contract.cutawayType && contract.cutawayType !== "none") {
+    const antiMap: Record<string, string> = {
+      environment: "do not collapse this into a hero portrait; this panel must show the environment",
+      enemy: "do not center the hero; enemy must be the dominant subject",
+      prop_insert: "do not replace the prop with generic background; object must be foreground and readable",
+      reaction: "do not omit the emotional expression; reaction must be the panel's core",
+      movement_trace: "do not freeze the action; movement and trajectory must be readable",
+      crowd: "do not empty the background; crowd presence is mandatory",
+      aftermath: "do not show active combat; show aftermath/consequences only",
+    };
+    const antiLine = antiMap[contract.cutawayType];
+    if (antiLine) {
+      lines.antiCollapseLine = antiLine;
+      if (contract.antiCollapseReason) {
+        lines.antiCollapseLine += ` (reason: ${contract.antiCollapseReason})`;
+      }
+    }
+  } else if (!contract.heroCenterAllowed) {
+    lines.antiCollapseLine = "do not center the hero; this panel has a different primary subject";
+  }
+
+  // Cutaway type explicit line
+  if (contract.cutawayType && contract.cutawayType !== "none") {
+    const cutawayDescriptions: Record<string, string> = {
+      environment_establishing: "CUTAWAY: environment establishing shot — show the location, not the characters",
+      enemy_reveal: "CUTAWAY: enemy reveal — show the adversary/threat, not the hero",
+      object_insert: "CUTAWAY: object insert — show the prop/object in detail, foreground readable",
+      reaction_insert: "CUTAWAY: reaction insert — show emotional expression/reaction, face readable",
+      location_transition: "CUTAWAY: location transition — show the new location establishing",
+      threat_insert: "CUTAWAY: threat insert — show the weapon/danger, not the character holding it",
+      environment: "CUTAWAY: environment — show the environment, not a character portrait",
+      enemy: "CUTAWAY: enemy — show the enemy/adversary as primary subject",
+      prop_insert: "CUTAWAY: prop insert — show the object/prop as primary subject",
+      reaction: "CUTAWAY: reaction — show the emotional reaction as primary subject",
+      npc_group: "CUTAWAY: NPC group — show the crowd/group, not the protagonist",
+      surveillance: "CUTAWAY: surveillance — show the watching/observing element",
+      aftermath: "CUTAWAY: aftermath — show the consequences/damage, not the action",
+    };
+    lines.cutawayLine = cutawayDescriptions[contract.cutawayType]
+      ?? `CUTAWAY: ${contract.cutawayType} — this is a cutaway panel, not a hero portrait`;
+  }
+
+  return lines;
 }

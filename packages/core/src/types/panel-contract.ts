@@ -4,6 +4,7 @@
  */
 
 import type { CharacterFingerprint } from "./character-fingerprint";
+import type { SubjectFocus, CutawayType, RequiredProp } from "./narrative-facts";
 
 export interface PanelContract {
   panelId: string;
@@ -89,6 +90,29 @@ export interface PanelContract {
     cropMode: "contain" | "cover";
     focalPoint?: { x: number; y: number };
   };
+  // ─── Premium contractual fields ──────────────────────────────────────────
+  /** Focus sujet principal du panel */
+  subjectFocus?: SubjectFocus;
+  /** Focus sujet secondaire */
+  secondaryFocus?: SubjectFocus | null;
+  /** L'ennemi/adversaire doit être visible dans ce panel */
+  mustShowEnemy?: boolean;
+  /** Nombre minimum de PNJ requis */
+  requiredNpcCount?: number;
+  /** ID du personnage porteur du dialogue (doit être visible) */
+  speakerAnchorCharacterId?: string | null;
+  /** Mode de portage du dialogue */
+  dialogueCarrier?: "speaker_visible" | "offscreen_allowed" | "narration";
+  /** Type de plan de coupe */
+  cutawayType?: CutawayType;
+  /** Le héros peut être centré dans ce panel */
+  heroCenterAllowed?: boolean;
+  /** Criticité du panel */
+  panelCriticalityLevel?: "low" | "medium" | "high" | "critical";
+  /** Props obligatoires typés */
+  requiredPropsTyped?: RequiredProp[];
+  /** Props optionnels typés */
+  optionalPropsTyped?: RequiredProp[];
   /** Trace de debug panel — activée si MANGA_DEBUG_PANEL=true */
   panelDebugTrace?: {
     sourceBeat: string;
@@ -129,6 +153,13 @@ export interface PanelValidationResult {
     styleConsistencyScore: number;
     releaseScore: number;
     visionScore?: number | null;
+    // Premium contractual scores
+    propComplianceScore?: number;
+    subjectFocusScore?: number;
+    dialogueAnchorScore?: number;
+    enemyPresenceScore?: number;
+    populationScore?: number;
+    cutawayComplianceScore?: number;
   };
   visionAnalysis?: {
     enabled: boolean;
@@ -156,7 +187,20 @@ export interface PanelValidationResult {
       | "weak_environment"
       | "weak_interaction"
       | "style_drift"
-      | "missing_visual_qa";
+      | "missing_visual_qa"
+      // Premium contractual issues
+      | "missing_prop"
+      | "missing_weapon"
+      | "missing_device"
+      | "missing_enemy_presence"
+      | "missing_dialogue_anchor"
+      | "wrong_subject_focus"
+      | "cutaway_not_respected"
+      | "cutaway_collapsed_to_hero"
+      | "wrong_cutaway_target"
+      | "object_used_but_not_visible"
+      | "npc_population_missing"
+      | "crowd_presence_missing";
     message: string;
     autoFixable: boolean;
   }>;

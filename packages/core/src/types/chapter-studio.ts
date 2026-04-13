@@ -1,5 +1,114 @@
 import { z } from "zod";
 import type { ApprovedChapterOutline } from "./approved-outline";
+import type {
+  NarrativeFact,
+  RequiredProp,
+  PresenceObligation,
+} from "./narrative-facts";
+
+// ─── Schémas Zod légers pour les types premium ────────────────────────────────
+// Ces schémas permettent la validation runtime sans duplication des interfaces.
+
+const narrativeFactSchema = z.object({
+  id: z.string(),
+  beatId: z.string(),
+  type: z.string(),
+  actorIds: z.array(z.string()).default([]),
+  targetIds: z.array(z.string()).default([]),
+  propCandidates: z.array(z.string()).default([]),
+  locationSignals: z.array(z.string()).default([]),
+  requiredVisibility: z.string().default("may_show"),
+  evidenceStrength: z.number().default(0.5),
+  source: z.string().default("inference"),
+  notes: z.array(z.string()).optional(),
+});
+
+const requiredPropSchema = z.object({
+  id: z.string(),
+  canonicalName: z.string(),
+  aliases: z.array(z.string()).default([]),
+  category: z.string().default("other"),
+  narrativeRole: z.string().default("worldbuilding"),
+  requiredForBeatIds: z.array(z.string()).default([]),
+  visibilityMode: z.string().default("in_hand"),
+  mustBeVisible: z.boolean().default(false),
+  confidence: z.number().default(0.5),
+  source: z.string().default("story_inference"),
+});
+
+const presenceObligationSchema = z.object({
+  id: z.string(),
+  beatId: z.string(),
+  entityType: z.string().default("hero"),
+  entityIdOrLabel: z.string(),
+  requirement: z.string().default("should_show"),
+  reason: z.string(),
+});
+
+const chapterObjectStateSchema = z.object({
+  objectId: z.string(),
+  canonicalName: z.string().optional().default(""),
+  label: z.string().optional(),
+  ownerCharacterId: z.string().optional().nullable(),
+  sceneId: z.string().optional().nullable(),
+  state: z.string().default("carried"),
+  beatId: z.string().optional().default(""),
+  visibility: z.string().optional(),
+});
+
+const chapterFocusBudgetSchema = z.object({
+  totalPanels: z.number().int().min(0).default(0),
+  heroCenterRatio: z.number().min(0).max(1).default(1),
+  heroFocusPanels: z.number().int().min(0).default(0),
+  enemyFocusPanels: z.number().int().min(0).default(0),
+  environmentPanels: z.number().int().min(0).default(0),
+  propInsertPanels: z.number().int().min(0).default(0),
+  reactionPanels: z.number().int().min(0).default(0),
+  speakerPanels: z.number().int().min(0).default(0),
+  groupPanels: z.number().int().min(0).default(0),
+  cutawayPanels: z.number().int().min(0).default(0),
+  cutawayCount: z.number().int().min(0).default(0),
+  cutawayRatio: z.number().min(0).max(1).default(0),
+  npcPanels: z.number().int().min(0).default(0),
+  focusDistribution: z.record(z.string(), z.number()).default({}),
+  shotDistribution: z.record(z.string(), z.number()).default({}),
+  violations: z.array(z.object({
+    type: z.string(),
+    message: z.string(),
+    severity: z.enum(["warning", "blocking"]),
+  })).default([]),
+});
+
+const panelBlueprintPremiumSchema = z.object({
+  panelId: z.string(),
+  beatId: z.string(),
+  panelIndex: z.number().int().min(0).optional(),
+  pageNumber: z.number().int().optional().nullable(),
+  panelNumber: z.number().int().min(1).default(1),
+  purpose: z.string(),
+  shotType: z.string(),
+  cameraAngle: z.string(),
+  subjectFocus: z.string(),
+  secondaryFocus: z.string().optional().nullable(),
+  requiredCharacters: z.array(z.string()).optional(),
+  requiredCharacterIds: z.array(z.string()).optional(),
+  mustShowCharacterIds: z.array(z.string()).optional(),
+  mayShowCharacterIds: z.array(z.string()).optional(),
+  mustShowEnemy: z.boolean().default(false),
+  requiredNpcCount: z.number().int().min(0).default(0),
+  requiredProps: z.array(requiredPropSchema).default([]),
+  optionalProps: z.array(requiredPropSchema).optional(),
+  presenceObligations: z.array(presenceObligationSchema).optional(),
+  requiredLocationSignals: z.array(z.string()).default([]),
+  speakerAnchorCharacterId: z.string().optional().nullable(),
+  speakerAnchorCharacterName: z.string().optional().nullable(),
+  dialogueCarrier: z.enum(["speaker_visible", "offscreen_allowed", "narration"]).optional().nullable(),
+  dialogueLinesAnchored: z.number().int().min(0).optional(),
+  cutawayType: z.string().default("none"),
+  heroCenterAllowed: z.boolean().default(true),
+  criticality: z.enum(["low", "medium", "high", "critical"]).default("medium"),
+  notes: z.array(z.string()).optional(),
+});
 
 export const chapterStudioStepSchema = z.enum([
   "intent",
@@ -223,12 +332,25 @@ export const productionBeatSchema = z.object({
   emotionProduced: z.string().optional().nullable(),
   indispensabilityScore: z.number().int().min(0).max(100).default(60),
   redundancyRisk: z.number().int().min(0).max(100).default(20),
+  // Premium narrative intelligence fields — tous optionnels pour compatibilité ascendante
+  narrativeFacts: z.array(narrativeFactSchema).optional(),
+  requiredProps: z.array(requiredPropSchema).optional(),
+  presenceObligations: z.array(presenceObligationSchema).optional(),
+  mustShowEnemy: z.boolean().optional(),
+  speakerAnchorCharacterId: z.string().nullable().optional(),
+  speakerAnchorCharacterName: z.string().nullable().optional(),
+  subjectFocusHint: z.string().nullable().optional(),
+  cutawayHint: z.string().nullable().optional(),
 });
 
-export type ProductionBeat = z.infer<typeof productionBeatSchema>;
+export type ProductionBeat = z.infer<typeof productionBeatSchema> & {
+  narrativeFacts?: NarrativeFact[];
+  requiredProps?: RequiredProp[];
+  presenceObligations?: PresenceObligation[];
+};
 
 export const productionOutlineSchema = z.object({
-  source: z.enum(["manual", "estimated", "generated", "legacy_adapted"]).default("generated"),
+  source: z.enum(["manual", "estimated", "generated", "legacy_adapted", "premium_rebuilt"]).default("generated"),
   chapterGoal: z.string(),
   cliffhanger: z.string(),
   beats: z.array(productionBeatSchema).min(1).max(24),
@@ -274,6 +396,19 @@ export const productionPlanSchema = z.object({
   compressionRisks: z.array(z.string()).default([]),
   enrichmentAdjustments: z.array(productionPlanAdjustmentSchema).default([]),
   imageBudgetStatus: z.enum(["under_target", "on_target", "over_target"]).default("on_target"),
+  // Premium intelligence fields — tous optionnels pour compatibilité ascendante
+  panelBlueprints: z.array(panelBlueprintPremiumSchema).optional(),
+  focusDistribution: z.record(z.string(), z.number()).optional(),
+  shotDistribution: z.record(z.string(), z.number()).optional(),
+  propCoverage: z.object({ covered: z.array(z.string()), missing: z.array(z.string()) }).optional(),
+  enemyCoverage: z.object({ panelCount: z.number(), beatsCovered: z.array(z.string()) }).optional(),
+  npcCoverage: z.object({ panelCount: z.number(), avgNpcCount: z.number() }).optional(),
+  dialogueAnchorCoverage: z.object({ anchored: z.number().default(0), floating: z.number().default(0) }).optional(),
+  cutawayCoverage: z.object({ count: z.number().default(0), ratio: z.number().default(0) }).optional(),
+  heroCenterRatio: z.number().min(0).max(1).optional(),
+  premiumReadinessScore: z.number().min(0).max(1).optional(),
+  focusBudget: chapterFocusBudgetSchema.optional(),
+  objectStateTimeline: z.array(chapterObjectStateSchema).optional(),
 });
 
 export type ProductionPlan = z.infer<typeof productionPlanSchema>;
@@ -319,6 +454,12 @@ export const qaAxisScoreSchema = z.object({
   narrativeRelevance: z.number().min(0).max(1),
   compositionReadability: z.number().min(0).max(1),
   environmentConsistency: z.number().min(0).max(1),
+  // Premium contractual QA scores
+  propComplianceScore: z.number().min(0).max(1).optional(),
+  subjectFocusScore: z.number().min(0).max(1).optional(),
+  dialogueAnchorScore: z.number().min(0).max(1).optional(),
+  enemyPresenceScore: z.number().min(0).max(1).optional(),
+  populationScore: z.number().min(0).max(1).optional(),
 });
 
 export const qaPanelResultSchema = z.object({
@@ -912,6 +1053,79 @@ export function buildLegacyApprovedOutlineFromStudio(
     approvalVersion: `studio_${snapshot.autosaveVersion}`,
     source: "user_approved",
   };
+}
+
+/**
+ * Construit un ApprovedChapterOutline depuis un ProductionOutline premium.
+ * Contrairement à buildLegacyApprovedOutlineFromStudio, utilise TOUS les beats
+ * et préserve les données premium (facts, props, obligations).
+ */
+export function buildApprovedOutlineFromProductionOutline(
+  snapshot: ChapterStudioSnapshot,
+): ApprovedChapterOutline | null {
+  const productionOutline = snapshot.data.productionOutline;
+  if (!productionOutline) return null;
+
+  return {
+    summary: snapshot.data.editorialOutline?.summary ?? productionOutline.chapterGoal,
+    cliffhanger: productionOutline.cliffhanger,
+    beats: productionOutline.beats.map((beat) => ({
+      id: beat.beatId,
+      summary: beat.summary,
+      characters: beat.involvedCharacters,
+      location: beat.environmentContext[0] ?? snapshot.data.chapterCanon?.currentLocation ?? "Lieu à préciser",
+      pageRole: beat.narrativeFunction,
+      turn: beat.dramaticChange,
+      emotionalDelta: clamp(Math.round((beat.indispensabilityScore - beat.redundancyRisk) / 25), -3, 3),
+      structuredBeat: {
+        source: "generator_structured",
+        confidence: clamp((beat.indispensabilityScore - beat.redundancyRisk + 50) / 100, 0.5, 0.98),
+        arcPromises: [],
+        worldConsequences: [],
+        setupPayoffHooks: [],
+      },
+    })),
+    approvedAt: new Date().toISOString(),
+    approvalVersion: `premium_${snapshot.autosaveVersion}`,
+    source: "user_approved",
+  };
+}
+
+/**
+ * Construit un contrat de production (productionOutline + productionPlan partiels)
+ * depuis un ApprovedChapterOutline existant, sans recalcul premium complet.
+ * Utilisé comme pont de compatibilité quand le contrat premium n'est pas disponible.
+ */
+export function buildProductionContractFromApprovedOutline(input: {
+  approvedOutline: ApprovedChapterOutline;
+  chapterSummary?: string | null;
+  cliffhanger?: string | null;
+}): { productionOutline: ProductionOutline; fallbackUsed: true } {
+  const productionOutline: ProductionOutline = productionOutlineSchema.parse({
+    source: "legacy_adapted",
+    chapterGoal: input.chapterSummary ?? input.approvedOutline.summary,
+    cliffhanger: input.cliffhanger ?? input.approvedOutline.cliffhanger,
+    beats: input.approvedOutline.beats.map((beat) => ({
+      beatId: beat.id,
+      summary: beat.summary,
+      narrativeFunction: beat.pageRole,
+      whyThisBeatExists: beat.summary,
+      dramaticChange: beat.turn,
+      involvedCharacters: beat.characters,
+      activeCanonConstraints: [],
+      environmentContext: [beat.location],
+      visualPriority: "high",
+      estimatedPanels: 4,
+      criticality: "medium",
+      continuityDependencies: [],
+      indispensabilityScore: 70,
+      redundancyRisk: 20,
+      infoGained: null,
+      emotionProduced: null,
+    })),
+  });
+
+  return { productionOutline, fallbackUsed: true };
 }
 
 export function buildStudioSnapshotFromLegacy(input: {

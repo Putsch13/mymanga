@@ -4,6 +4,7 @@
  */
 
 import type { PanelContract } from "@manga-ai-studio/core";
+import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
 import type { StoryboardPanel } from "@manga-ai-studio/ai";
 
 export interface PanelContractInput {
@@ -19,6 +20,8 @@ export interface PanelContractInput {
   };
   previousPanelId?: string;
   visualAnchorIds: string[];
+  /** Panel blueprint premium optionnel — enrichit le contrat avec les contraintes narratives */
+  panelBlueprint?: PanelBlueprintPremium;
 }
 
 /**
@@ -74,6 +77,34 @@ export async function buildPanelContract(input: PanelContractInput): Promise<Pan
     focalPoint: shotType === "closeup" ? { x: 0.5, y: 0.4 } : undefined,
   };
 
+  // Merge premium blueprint fields if provided
+  const bp = input.panelBlueprint;
+  const premiumFields: Partial<PanelContract> = bp
+    ? {
+        subjectFocus: bp.subjectFocus,
+        secondaryFocus: bp.secondaryFocus,
+        mustShowEnemy: bp.mustShowEnemy,
+        requiredNpcCount: bp.requiredNpcCount,
+        speakerAnchorCharacterId: bp.speakerAnchorCharacterId,
+        dialogueCarrier: bp.dialogueCarrier,
+        cutawayType: bp.cutawayType,
+        heroCenterAllowed: bp.heroCenterAllowed,
+        panelCriticalityLevel: bp.criticality,
+        requiredPropsTyped: bp.requiredProps,
+        optionalPropsTyped: bp.optionalProps,
+        // Merge required prop names into mustShowProps
+        mustShowProps: uniq([
+          ...mustShowProps,
+          ...bp.requiredProps.map((p) => p.canonicalName),
+        ]),
+        // Merge required characters from blueprint
+        requiredCharacters: uniq([
+          ...requiredCharacters,
+          ...(bp.mustShowCharacterIds ?? bp.requiredCharacters ?? []),
+        ]),
+      }
+    : {};
+
   return {
     panelId: input.panelId,
     pageNumber: input.pageNumber,
@@ -108,6 +139,7 @@ export async function buildPanelContract(input: PanelContractInput): Promise<Pan
     visualAnchorIds: input.visualAnchorIds,
     textBoxPlan,
     renderHints,
+    ...premiumFields,
   };
 }
 

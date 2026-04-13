@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
   approvedOutlineSchema,
-  buildLegacyApprovedOutlineFromStudio,
+  buildApprovedOutlineFromProductionOutline,
   chapterStudioDataSchema,
   type ApprovedChapterOutline,
 } from "@manga-ai-studio/core";
@@ -139,8 +139,15 @@ export async function POST(req: Request, ctx: Ctx) {
         },
       )
     : null;
-  const effectiveApprovedOutline =
-    body.approvedOutline ?? (initialStudio ? buildLegacyApprovedOutlineFromStudio(initialStudio) : null) ?? undefined;
+  // Si studioDraft.productionOutline premium est fourni, reconstruire l'approvedOutline depuis lui
+  // Ne jamais utiliser buildLegacyApprovedOutlineFromStudio
+  let effectiveApprovedOutline: ApprovedChapterOutline | undefined = body.approvedOutline;
+  if (!effectiveApprovedOutline && initialStudio?.data.productionOutline) {
+    const po = initialStudio.data.productionOutline;
+    if (po.source !== "legacy_adapted" && Array.isArray(po.beats) && po.beats.length > 0) {
+      effectiveApprovedOutline = buildApprovedOutlineFromProductionOutline(initialStudio) ?? undefined;
+    }
+  }
   const chapter = await prisma.chapter.create({
     data: {
       projectId,

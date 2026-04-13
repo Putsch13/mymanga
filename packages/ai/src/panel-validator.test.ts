@@ -264,3 +264,229 @@ describe("panel validator premium scoring", () => {
     expect(result.visionAnalysis?.findings).toContain("decor riche et lisible");
   });
 });
+
+describe("panel-validator QA premium — propComplianceScore", () => {
+  beforeEach(() => {
+    analyzePanelWithVisionMock.mockReset();
+    analyzePanelWithVisionMock.mockResolvedValue(null);
+  });
+
+  it("détecte missing_prop si un prop obligatoire est absent du prompt", async () => {
+    const result = await validateGeneratedPanel({
+      panelId: "panel-prop-1",
+      imageUrl: "https://example.com/panel.png",
+      requiredCharacters: [],
+      metadata: {
+        prompt: "hero standing in the dojo, medium shot",
+        panelContract: {
+          shotType: "medium",
+          purpose: "action",
+          mustShow: [],
+          backgroundExtras: [],
+          requiredPropsTyped: [
+            { canonicalName: "katana", mustBeVisible: true, narrativeRole: "weapon", visibilityMode: "in_hand" },
+          ],
+        },
+      },
+    });
+
+    const propIssue = result.issues.find((i) => i.type === "missing_prop" || i.type === "missing_weapon");
+    expect(propIssue).toBeDefined();
+    expect(result.qualityScores?.propComplianceScore).toBeDefined();
+    expect(result.qualityScores!.propComplianceScore!).toBeLessThan(1.0);
+  });
+
+  it("ne génère pas missing_prop si le prop est présent dans le prompt", async () => {
+    const result = await validateGeneratedPanel({
+      panelId: "panel-prop-2",
+      imageUrl: "https://example.com/panel.png",
+      requiredCharacters: [],
+      metadata: {
+        prompt: "hero holding katana in the dojo, medium shot, katana clearly visible",
+        panelContract: {
+          shotType: "medium",
+          purpose: "action",
+          mustShow: [],
+          backgroundExtras: [],
+          requiredPropsTyped: [
+            { canonicalName: "katana", mustBeVisible: true, narrativeRole: "weapon", visibilityMode: "in_hand" },
+          ],
+        },
+      },
+    });
+
+    const propIssue = result.issues.find((i) => i.type === "missing_prop" || i.type === "missing_weapon");
+    expect(propIssue).toBeUndefined();
+    expect(result.qualityScores?.propComplianceScore).toBe(1.0);
+  });
+});
+
+describe("panel-validator QA premium — subjectFocusScore", () => {
+  beforeEach(() => {
+    analyzePanelWithVisionMock.mockReset();
+    analyzePanelWithVisionMock.mockResolvedValue(null);
+  });
+
+  it("détecte wrong_subject_focus si focus=enemy mais prompt centré sur héros", async () => {
+    const result = await validateGeneratedPanel({
+      panelId: "panel-focus-1",
+      imageUrl: "https://example.com/panel.png",
+      requiredCharacters: [],
+      metadata: {
+        prompt: "hero portrait, hero face closeup, hero expression",
+        panelContract: {
+          shotType: "medium",
+          purpose: "action",
+          mustShow: [],
+          backgroundExtras: [],
+          subjectFocus: "enemy",
+        },
+      },
+    });
+
+    const focusIssue = result.issues.find((i) => i.type === "wrong_subject_focus");
+    expect(focusIssue).toBeDefined();
+    expect(result.qualityScores?.subjectFocusScore).toBeDefined();
+    expect(result.qualityScores!.subjectFocusScore!).toBeLessThan(1.0);
+  });
+});
+
+describe("panel-validator QA premium — enemyPresenceScore", () => {
+  beforeEach(() => {
+    analyzePanelWithVisionMock.mockReset();
+    analyzePanelWithVisionMock.mockResolvedValue(null);
+  });
+
+  it("détecte missing_enemy_presence si mustShowEnemy=true mais ennemi absent", async () => {
+    const result = await validateGeneratedPanel({
+      panelId: "panel-enemy-1",
+      imageUrl: "https://example.com/panel.png",
+      requiredCharacters: [],
+      metadata: {
+        prompt: "hero standing alone in the dojo, medium shot",
+        panelContract: {
+          shotType: "medium",
+          purpose: "action",
+          mustShow: [],
+          backgroundExtras: [],
+          mustShowEnemy: true,
+        },
+      },
+    });
+
+    const enemyIssue = result.issues.find((i) => i.type === "missing_enemy_presence");
+    expect(enemyIssue).toBeDefined();
+    expect(result.qualityScores?.enemyPresenceScore).toBeDefined();
+    expect(result.qualityScores!.enemyPresenceScore!).toBeLessThan(1.0);
+  });
+});
+
+describe("panel-validator QA premium — cutawayComplianceScore", () => {
+  beforeEach(() => {
+    analyzePanelWithVisionMock.mockReset();
+    analyzePanelWithVisionMock.mockResolvedValue(null);
+  });
+
+  it("détecte cutaway_collapsed_to_hero si cutaway mais prompt est portrait héros", async () => {
+    const result = await validateGeneratedPanel({
+      panelId: "panel-cutaway-1",
+      imageUrl: "https://example.com/panel.png",
+      requiredCharacters: [],
+      metadata: {
+        prompt: "hero portrait close-up face, hero face dominant",
+        panelContract: {
+          shotType: "closeup",
+          purpose: "action",
+          mustShow: [],
+          backgroundExtras: [],
+          cutawayType: "environment_establishing",
+          heroCenterAllowed: false,
+        },
+      },
+    });
+
+    const cutawayIssue = result.issues.find((i) => i.type === "cutaway_collapsed_to_hero");
+    expect(cutawayIssue).toBeDefined();
+    expect(result.qualityScores?.cutawayComplianceScore).toBeDefined();
+    expect(result.qualityScores!.cutawayComplianceScore!).toBeLessThan(0.5);
+  });
+
+  it("détecte wrong_cutaway_target si le sujet du cutaway est absent", async () => {
+    const result = await validateGeneratedPanel({
+      panelId: "panel-cutaway-2",
+      imageUrl: "https://example.com/panel.png",
+      requiredCharacters: [],
+      metadata: {
+        prompt: "hero standing in a vague space, medium shot",
+        panelContract: {
+          shotType: "medium",
+          purpose: "establishing",
+          mustShow: [],
+          backgroundExtras: [],
+          cutawayType: "enemy_reveal",
+          heroCenterAllowed: false,
+        },
+      },
+    });
+
+    const wrongTargetIssue = result.issues.find((i) => i.type === "wrong_cutaway_target");
+    expect(wrongTargetIssue).toBeDefined();
+    expect(result.qualityScores?.cutawayComplianceScore).toBeDefined();
+    expect(result.qualityScores!.cutawayComplianceScore!).toBeLessThan(0.5);
+  });
+
+  it("ne génère pas d'issue cutaway si le cutaway est respecté", async () => {
+    const result = await validateGeneratedPanel({
+      panelId: "panel-cutaway-3",
+      imageUrl: "https://example.com/panel.png",
+      requiredCharacters: [],
+      metadata: {
+        prompt: "environment establishing shot, landscape visible, location readable, exterior building",
+        panelContract: {
+          shotType: "wide",
+          purpose: "establishing",
+          mustShow: [],
+          backgroundExtras: [],
+          cutawayType: "environment_establishing",
+          heroCenterAllowed: false,
+        },
+      },
+    });
+
+    const cutawayIssue = result.issues.find((i) =>
+      i.type === "cutaway_collapsed_to_hero" || i.type === "wrong_cutaway_target"
+    );
+    expect(cutawayIssue).toBeUndefined();
+    expect(result.qualityScores?.cutawayComplianceScore).toBe(1.0);
+  });
+});
+
+describe("panel-validator QA premium — populationScore", () => {
+  beforeEach(() => {
+    analyzePanelWithVisionMock.mockReset();
+    analyzePanelWithVisionMock.mockResolvedValue(null);
+  });
+
+  it("détecte npc_population_missing si requiredNpcCount > 0 mais foule absente", async () => {
+    const result = await validateGeneratedPanel({
+      panelId: "panel-npc-1",
+      imageUrl: "https://example.com/panel.png",
+      requiredCharacters: [],
+      metadata: {
+        prompt: "hero standing alone in the market, medium shot",
+        panelContract: {
+          shotType: "medium",
+          purpose: "action",
+          mustShow: [],
+          backgroundExtras: [],
+          requiredNpcCount: 3,
+        },
+      },
+    });
+
+    const npcIssue = result.issues.find((i) => i.type === "npc_population_missing");
+    expect(npcIssue).toBeDefined();
+    expect(result.qualityScores?.populationScore).toBeDefined();
+    expect(result.qualityScores!.populationScore!).toBeLessThan(1.0);
+  });
+});

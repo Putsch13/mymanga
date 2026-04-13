@@ -534,3 +534,50 @@ export function buildChapterStructuredRuntimeCreateFields(input: {
     reviewBlockedReason: fields.reviewBlockedReason,
   };
 }
+
+/**
+ * Normalise un snapshot studio pour garantir la cohérence premium.
+ * - Préserve les champs enrichis premium au lieu d'écraser par buildStudioSnapshotFromLegacy
+ * - Recalcule readinessReport si les compteurs runtime ont changé
+ */
+export function normalizePremiumStudioSnapshot(
+  snapshot: ChapterStudioSnapshot,
+  outlineRecord?: Record<string, unknown>,
+): ChapterStudioSnapshot {
+  const data = snapshot.data;
+
+  const hasPremiumOutline =
+    data.productionOutline &&
+    data.productionOutline.source !== "legacy_adapted" &&
+    Array.isArray(data.productionOutline.beats) &&
+    data.productionOutline.beats.length > 0;
+
+  const hasPremiumPlan =
+    data.productionPlan &&
+    typeof data.productionPlan.minimumImages === "number" &&
+    data.productionPlan.minimumImages > 0;
+
+  if (!hasPremiumOutline && !hasPremiumPlan && outlineRecord) {
+    const storedOutline = outlineRecord.productionOutline;
+    const storedPlan = outlineRecord.productionPlan;
+    if (storedOutline || storedPlan) {
+      return {
+        ...snapshot,
+        data: {
+          ...data,
+          productionOutline: (storedOutline as ChapterStudioSnapshot["data"]["productionOutline"]) ?? data.productionOutline,
+          productionPlan: (storedPlan as ChapterStudioSnapshot["data"]["productionPlan"]) ?? data.productionPlan,
+        },
+      };
+    }
+  }
+
+  const currentReadiness = data.readinessReport ?? buildChapterReadinessReport(snapshot);
+  return {
+    ...snapshot,
+    data: {
+      ...data,
+      readinessReport: currentReadiness,
+    },
+  };
+}

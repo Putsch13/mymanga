@@ -1,4 +1,16 @@
-export type RetryMode = "environment" | "character" | "interaction" | "style" | "composition";
+export type RetryMode =
+  | "environment"
+  | "character"
+  | "interaction"
+  | "style"
+  | "composition"
+  // Premium specialized reroll modes
+  | "prop"
+  | "speaker"
+  | "enemy_presence"
+  | "subject_focus"
+  | "cutaway"
+  | "npc_population";
 
 export type RetryReferencePolicy = "NONE" | "LIGHT" | "STRONG";
 
@@ -14,7 +26,14 @@ export type RerollGoal =
   | "character_light"
   | "character_hard"
   | "style_only"
-  | "full_reroll";
+  | "full_reroll"
+  // Premium specialized reroll goals
+  | "prop_repair"
+  | "speaker_anchor_repair"
+  | "enemy_focus_repair"
+  | "subject_focus_repair"
+  | "cutaway_repair"
+  | "population_repair";
 
 export interface RerollPolicyDecision {
   rerollGoal: RerollGoal;
@@ -24,6 +43,12 @@ export interface RerollPolicyDecision {
   /** Contraintes qui peuvent être relâchées */
   relaxedConstraints: string[];
   reason: string;
+  /** Prompt positif spécialisé pour ce reroll */
+  positivePromptHint?: string;
+  /** Prompt négatif spécialisé pour ce reroll */
+  negativePromptHint?: string;
+  /** Kind de reroll pour traçabilité et metadata */
+  rerollKind?: string;
 }
 
 /** Mapper RetryMode → RerollGoal */
@@ -42,6 +67,13 @@ function retryModeToRerollGoal(
     case "character": return "character_hard";
     case "style": return "style_only";
     case "interaction": return "expression_only";
+    // Premium modes
+    case "prop": return "prop_repair";
+    case "speaker": return "speaker_anchor_repair";
+    case "enemy_presence": return "enemy_focus_repair";
+    case "subject_focus": return "subject_focus_repair";
+    case "cutaway": return "cutaway_repair";
+    case "npc_population": return "population_repair";
     default: return "environment_only";
   }
 }
@@ -85,8 +117,41 @@ function buildPreservedConstraints(goal: RerollGoal, hasLookProfile: boolean, ha
       if (hasAnchor) constraints.push("scene_anchor");
       break;
     case "full_reroll":
-      // Rien de préservé sauf le look profile minimum
       if (hasLookProfile) constraints.push("chapter_look_profile");
+      break;
+    // Premium goals — préserver le maximum sauf ce qui est réparé
+    case "prop_repair":
+      if (hasLookProfile) constraints.push("chapter_look_profile");
+      if (hasFingerprint) constraints.push("character_fingerprint");
+      if (hasAnchor) constraints.push("scene_anchor");
+      constraints.push("character_identity", "outfit_continuity", "environment_context");
+      break;
+    case "speaker_anchor_repair":
+      if (hasLookProfile) constraints.push("chapter_look_profile");
+      if (hasFingerprint) constraints.push("character_fingerprint");
+      if (hasAnchor) constraints.push("scene_anchor");
+      constraints.push("character_identity", "environment_context");
+      break;
+    case "enemy_focus_repair":
+      if (hasLookProfile) constraints.push("chapter_look_profile");
+      if (hasAnchor) constraints.push("scene_anchor");
+      constraints.push("environment_context");
+      break;
+    case "subject_focus_repair":
+      if (hasLookProfile) constraints.push("chapter_look_profile");
+      if (hasAnchor) constraints.push("scene_anchor");
+      constraints.push("environment_context");
+      break;
+    case "cutaway_repair":
+      if (hasLookProfile) constraints.push("chapter_look_profile");
+      if (hasAnchor) constraints.push("scene_anchor");
+      constraints.push("environment_context");
+      break;
+    case "population_repair":
+      if (hasLookProfile) constraints.push("chapter_look_profile");
+      if (hasFingerprint) constraints.push("character_fingerprint");
+      if (hasAnchor) constraints.push("scene_anchor");
+      constraints.push("character_identity", "environment_context");
       break;
   }
 
@@ -94,9 +159,9 @@ function buildPreservedConstraints(goal: RerollGoal, hasLookProfile: boolean, ha
 }
 
 /** Construire les contraintes relâchées selon le goal */
-function buildRelaxedConstraints(goal: RerollGoal): string[] {
+function buildRelaxedConstraints(goal: RerollGoal, hasMandatoryProps: boolean): string[] {
   switch (goal) {
-    case "environment_only": return ["background_elements", "props", "weather"];
+    case "environment_only": return ["background_elements", "weather"];
     case "composition_only": return ["framing", "camera_angle", "spatial_layout"];
     case "expression_only": return ["facial_expression", "pose"];
     case "action_only": return ["action_pose", "motion_lines"];
@@ -104,6 +169,58 @@ function buildRelaxedConstraints(goal: RerollGoal): string[] {
     case "character_hard": return ["background", "environment"];
     case "style_only": return ["style_family", "rendering_mode"];
     case "full_reroll": return ["everything_except_look_profile"];
+    // Premium: ne JAMAIS relâcher les props si obligatoires
+    case "prop_repair":
+      // Les props obligatoires ne peuvent jamais être relâchés dans ce mode
+      return ["framing", "camera_angle"];
+    case "speaker_anchor_repair":
+      return hasMandatoryProps ? ["framing", "camera_angle"] : ["framing", "camera_angle", "background_elements"];
+    case "enemy_focus_repair":
+      return hasMandatoryProps ? ["framing"] : ["framing", "background_elements"];
+    case "subject_focus_repair":
+      return hasMandatoryProps ? ["framing"] : ["framing", "camera_angle"];
+    case "cutaway_repair":
+      return hasMandatoryProps ? ["character_pose"] : ["character_pose", "character_expression"];
+    case "population_repair":
+      return hasMandatoryProps ? ["framing", "camera_angle"] : ["framing", "camera_angle", "character_expression"];
+  }
+}
+
+/** Prompts spécialisés par mode de reroll */
+function buildSpecializedPromptHints(goal: RerollGoal): { positive?: string; negative?: string } {
+  switch (goal) {
+    case "prop_repair":
+      return {
+        positive: "required prop clearly visible, object legible and foreground, correct object usage, object integrated in action, prop readable",
+        negative: "missing object, generic clutter replacing object, unreadable prop, prop absent, object hidden",
+      };
+    case "speaker_anchor_repair":
+      return {
+        positive: "speaker visible, face readable, dialogue carrier clearly framed, character expression clear, speaker in frame",
+        negative: "speaker offscreen, wrong character emphasis, anonymous talking head, speaker hidden, face obscured",
+      };
+    case "enemy_focus_repair":
+      return {
+        positive: "enemy clearly present, threatening silhouette, adversary readable, villain in frame, antagonist visible",
+        negative: "enemy absent, hero-centered replacement, adversary missing, villain offscreen",
+      };
+    case "subject_focus_repair":
+      return {
+        positive: "correct subject as primary focus, subject readable and dominant in composition",
+        negative: "wrong subject dominant, hero portrait replacing intended subject, subject collapsed",
+      };
+    case "cutaway_repair":
+      return {
+        positive: "environment cutaway, no hero-centric composition, location readable, scene context visible, cutaway shot",
+        negative: "hero portrait, floating character, no environment signal, character-only composition, hero face dominant",
+      };
+    case "population_repair":
+      return {
+        positive: "crowd visible, NPC presence, people in background, populated scene, ambient characters, bystanders visible",
+        negative: "empty background, no crowd, isolated characters, depopulated scene, missing NPC presence",
+      };
+    default:
+      return {};
   }
 }
 
@@ -152,15 +269,25 @@ export function resolveRetryReferencePolicy(input: {
   hasFingerprint?: boolean;
   /** Présence d'un scene anchor */
   hasSceneAnchor?: boolean;
+  /** Le panel a des props obligatoires — ne jamais les relâcher */
+  hasMandatoryProps?: boolean;
 }) {
   const importantCharacterPresent = inferImportantCharacterPresence(input.metadata);
   const hasLookProfile = input.hasLookProfile ?? false;
   const hasFingerprint = input.hasFingerprint ?? false;
   const hasAnchor = input.hasSceneAnchor ?? false;
+  const hasMandatoryProps = input.hasMandatoryProps ?? false;
 
   const rerollGoal = retryModeToRerollGoal(input.retryMode, input.recommendedAction);
   const preservedConstraints = buildPreservedConstraints(rerollGoal, hasLookProfile, hasFingerprint, hasAnchor);
-  const relaxedConstraints = buildRelaxedConstraints(rerollGoal);
+  const relaxedConstraints = buildRelaxedConstraints(rerollGoal, hasMandatoryProps);
+
+  // Règle critique : si des props sont obligatoires, "props" ne peut jamais apparaître dans relaxedConstraints
+  const safeRelaxedConstraints = hasMandatoryProps
+    ? relaxedConstraints.filter((c) => c !== "props" && c !== "required_props")
+    : relaxedConstraints;
+
+  const { positive: positivePromptHint, negative: negativePromptHint } = buildSpecializedPromptHints(rerollGoal);
 
   // Déterminer la politique de refs selon le goal
   let referencePolicy: RetryReferencePolicy;
@@ -188,10 +315,46 @@ export function resolveRetryReferencePolicy(input: {
   } else if (rerollGoal === "full_reroll") {
     referencePolicy = "NONE";
     reason = "full_reroll_no_constraints";
+  } else if (rerollGoal === "prop_repair") {
+    // Préserver personnage + style, réparer seulement le prop
+    referencePolicy = hasFingerprint ? "LIGHT" : "NONE";
+    reason = "prop_repair_preserve_character_and_style";
+  } else if (rerollGoal === "speaker_anchor_repair") {
+    referencePolicy = hasFingerprint ? "LIGHT" : "NONE";
+    reason = "speaker_repair_preserve_character_identity";
+  } else if (rerollGoal === "enemy_focus_repair") {
+    referencePolicy = "NONE";
+    reason = "enemy_focus_repair_shift_composition";
+  } else if (rerollGoal === "subject_focus_repair") {
+    referencePolicy = "NONE";
+    reason = "subject_focus_repair_shift_composition";
+  } else if (rerollGoal === "cutaway_repair") {
+    referencePolicy = hasAnchor ? "LIGHT" : "NONE";
+    reason = "cutaway_repair_preserve_scene_anchor";
+  } else if (rerollGoal === "population_repair") {
+    referencePolicy = hasFingerprint ? "LIGHT" : "NONE";
+    reason = "population_repair_preserve_character_add_crowd";
   } else {
     referencePolicy = "LIGHT";
     reason = "default_retry_policy";
   }
+
+  // Déterminer le rerollKind pour traçabilité
+  const rerollKindMap: Partial<Record<RerollGoal, string>> = {
+    prop_repair: "REROLL_PROP",
+    speaker_anchor_repair: "REROLL_SPEAKER_ANCHOR",
+    enemy_focus_repair: "REROLL_ENEMY_PRESENCE",
+    subject_focus_repair: "REROLL_SUBJECT_FOCUS",
+    cutaway_repair: "REROLL_CUTAWAY",
+    population_repair: "REROLL_NPC_POPULATION",
+    character_hard: "REROLL_CHARACTER_HARD",
+    character_light: "REROLL_CHARACTER_LIGHT",
+    style_only: "REROLL_STYLE",
+    environment_only: "REROLL_ENVIRONMENT",
+    composition_only: "REROLL_COMPOSITION",
+    full_reroll: "REROLL_FULL",
+  };
+  const rerollKind = rerollKindMap[rerollGoal] ?? "REROLL_GENERIC";
 
   return {
     referencePolicy,
@@ -199,6 +362,9 @@ export function resolveRetryReferencePolicy(input: {
     reason,
     rerollGoal,
     preservedConstraints,
-    relaxedConstraints,
+    relaxedConstraints: safeRelaxedConstraints,
+    positivePromptHint,
+    negativePromptHint,
+    rerollKind,
   };
 }

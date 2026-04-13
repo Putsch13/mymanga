@@ -30,8 +30,22 @@ vi.mock("@manga-ai-studio/memory", () => ({
   buildProjectContext: buildProjectContextMock,
 }));
 
+const inferNarrativeFactsFromBeatMock = vi.fn();
+const inferRequiredPropsFromBeatMock = vi.fn();
+const buildPanelBlueprintsFromBeatMock = vi.fn();
+const computeChapterFocusBudgetMock = vi.fn();
+const computePremiumReadinessScoreMock = vi.fn();
+
 vi.mock("@manga-ai-studio/ai", () => ({
   generateChapterBundle: generateChapterBundleMock,
+  inferNarrativeFactsFromBeat: inferNarrativeFactsFromBeatMock,
+  inferRequiredPropsFromBeat: inferRequiredPropsFromBeatMock,
+  buildPanelBlueprintsFromBeat: buildPanelBlueprintsFromBeatMock,
+  computeChapterFocusBudget: computeChapterFocusBudgetMock,
+  computePremiumReadinessScore: computePremiumReadinessScoreMock,
+  // Couche LLM — retourne null en test (pas de clé API)
+  enrichNarrativeFactsWithLLM: vi.fn().mockResolvedValue(null),
+  mergeNarrativeFacts: vi.fn().mockImplementation((heuristic: unknown[]) => heuristic),
 }));
 
 const ctx = { params: Promise.resolve({ id: "project-1" }) };
@@ -74,6 +88,29 @@ function makeBundle() {
   };
 }
 
+function makePremiumBlueprint(beatId: string, panelNumber: number) {
+  return {
+    panelId: `${beatId}_p${panelNumber}`,
+    beatId,
+    pageNumber: 1,
+    panelNumber,
+    purpose: "action",
+    shotType: "medium_shot",
+    cameraAngle: "eye_level",
+    subjectFocus: "hero",
+    mustShowEnemy: false,
+    requiredNpcCount: 0,
+    requiredProps: [{ canonicalName: "katana", mustBeVisible: true, narrativeRole: "weapon", visibilityMode: "foreground_insert" }],
+    optionalProps: [],
+    requiredLocationSignals: [],
+    speakerAnchorCharacterId: null,
+    dialogueCarrier: "speaker_visible" as const,
+    cutawayType: "none" as const,
+    heroCenterAllowed: true,
+    criticality: "medium" as const,
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   getAppUserMock.mockResolvedValue({ id: "user-1" });
@@ -81,6 +118,24 @@ beforeEach(() => {
   estimateChapterTextTokensFromRulesMock.mockResolvedValue(321);
   buildProjectContextMock.mockResolvedValue(makeContext());
   generateChapterBundleMock.mockResolvedValue(makeBundle());
+
+  // Default premium mocks
+  inferNarrativeFactsFromBeatMock.mockReturnValue([{ type: "action", confidence: 0.9, beatId: "beat_1", source: "heuristic" }]);
+  inferRequiredPropsFromBeatMock.mockReturnValue([{ canonicalName: "katana", mustBeVisible: true, narrativeRole: "weapon", visibilityMode: "foreground_insert" }]);
+  buildPanelBlueprintsFromBeatMock.mockImplementation((beat: { beatId: string }) =>
+    [makePremiumBlueprint(beat.beatId, 1), makePremiumBlueprint(beat.beatId, 2)]
+  );
+  computeChapterFocusBudgetMock.mockReturnValue({
+    focusDistribution: { hero: 12, environment: 4, enemy: 2, npc: 2 },
+    shotDistribution: { medium_shot: 10, close_up: 6, wide_shot: 4 },
+    violations: [],
+    heroCenterRatio: 0.6,
+    cutawayCount: 4,
+    cutawayRatio: 0.2,
+    enemyFocusPanels: 2,
+    npcPanels: 2,
+  });
+  computePremiumReadinessScoreMock.mockReturnValue(0.85);
 });
 
 describe("chapter estimate route", () => {
@@ -202,5 +257,97 @@ describe("chapter estimate route", () => {
         creativityControls,
       }),
     );
+  });
+
+  it("renvoie les champs premium dans productionPlan", async () => {
+    prismaMock.chapter.findFirst.mockResolvedValue({ chapterNumber: 2 });
+
+    const mod = await import("../app/api/projects/[id]/chapters/estimate/route");
+    const response = await mod.POST(
+      new Request("http://localhost", {
+        method: "POST",
+        body: JSON.stringify({ userIntent: "Le héros affronte son rival." }),
+      }),
+      ctx,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.productionPlan).toBeDefined();
+    expect(Array.isArray(payload.productionPlan.panelBlueprints)).toBe(true);
+    expect(payload.productionPlan.panelBlueprints.length).toBeGreaterThan(0);
+    expect(payload.productionPlan.focusDistribution).toBeDefined();
+    expect(payload.productionPlan.propCoverage).toBeDefined();
+    expect(payload.productionPlan.dialogueAnchorCoverage).toBeDefined();
+    expect(typeof payload.productionPlan.dialogueAnchorCoverage.anchored).toBe("number");
+    expect(typeof payload.productionPlan.dialogueAnchorCoverage.floating).toBe("number");
+    expect(typeof payload.productionPlan.heroCenterRatio).toBe("number");
+    expect(typeof payload.productionPlan.premiumReadinessScore).toBe("number");
+  });
+
+  it("productionOutline contient tous les beats (non tronqué à 5)", async () => {
+    prismaMock.chapter.findFirst.mockResolvedValue({ chapterNumber: 2 });
+
+    const mod = await import("../app/api/projects/[id]/chapters/estimate/route");
+    const response = await mod.POST(
+      new Request("http://localhost", {
+        method: "POST",
+        body: JSON.stringify({ userIntent: "Chapitre épique avec 10 beats." }),
+      }),
+      ctx,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    // makeBundle() génère 10 beats — productionOutline doit tous les contenir
+    expect(payload.productionOutline).toBeDefined();
+    expect(Array.isArray(payload.productionOutline.beats)).toBe(true);
+    expect(payload.productionOutline.beats.length).toBe(10);
+    // outlinePreview est limité à 5 pour l'affichage UI
+    expect(payload.outlinePreview.beats.length).toBeLessThanOrEqual(5);
+  });
+
+  it("appelle les fonctions premium pour chaque beat", async () => {
+    prismaMock.chapter.findFirst.mockResolvedValue({ chapterNumber: 1 });
+
+    const mod = await import("../app/api/projects/[id]/chapters/estimate/route");
+    await mod.POST(
+      new Request("http://localhost", {
+        method: "POST",
+        body: JSON.stringify({ userIntent: "Test appel fonctions premium." }),
+      }),
+      ctx,
+    );
+
+    // makeBundle() a 10 beats → chaque fonction doit être appelée 10 fois
+    expect(inferNarrativeFactsFromBeatMock).toHaveBeenCalledTimes(10);
+    expect(inferRequiredPropsFromBeatMock).toHaveBeenCalledTimes(10);
+    expect(buildPanelBlueprintsFromBeatMock).toHaveBeenCalledTimes(10);
+    expect(computeChapterFocusBudgetMock).toHaveBeenCalledTimes(1);
+    expect(computePremiumReadinessScoreMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("productionPlan contient cutawayCoverage (cutawayComplianceScore calculable)", async () => {
+    prismaMock.chapter.findFirst.mockResolvedValue({ chapterNumber: 2 });
+    // Blueprint avec cutaway pour vérifier que cutawayCoverage est bien calculé
+    buildPanelBlueprintsFromBeatMock.mockImplementation((beat: { beatId: string }) => [
+      { ...makePremiumBlueprint(beat.beatId, 1), cutawayType: "environment_establishing" },
+      { ...makePremiumBlueprint(beat.beatId, 2), cutawayType: "none" },
+    ]);
+
+    const mod = await import("../app/api/projects/[id]/chapters/estimate/route");
+    const response = await mod.POST(
+      new Request("http://localhost", {
+        method: "POST",
+        body: JSON.stringify({ userIntent: "Scène avec cutaway décor." }),
+      }),
+      ctx,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.productionPlan.cutawayCoverage).toBeDefined();
+    expect(typeof payload.productionPlan.cutawayCoverage.count).toBe("number");
+    expect(typeof payload.productionPlan.cutawayCoverage.ratio).toBe("number");
   });
 });

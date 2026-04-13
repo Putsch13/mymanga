@@ -38,6 +38,7 @@ import {
   type StableImageReference,
   type PanelCharacterPlan,
   type ChapterLookProfile,
+  type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
 import {
   buildPanelIntentCard,
@@ -99,6 +100,12 @@ type PipelineJobInput = {
   focusCharacterIds?: string[];
   selectedPlotLabel?: "safe" | "bold" | "shock";
   creativityControls?: Partial<CreativityControls>;
+  /** Blueprints premium passés depuis pipeline/route.ts */
+  panelBlueprints?: unknown[];
+  /** Plan de production premium complet */
+  productionPlan?: unknown;
+  /** Score de readiness premium */
+  premiumReadinessScore?: number;
 };
 
 type PipelineBundle = Awaited<ReturnType<typeof generateChapterBundle>>;
@@ -280,6 +287,43 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+/**
+ * Résout les panel blueprints premium effectifs pour un panel donné.
+ * Priorité : job.input.panelBlueprints > studioSnapshot.productionPlan.panelBlueprints > null
+ * Fallback : null (le pipeline utilisera les heuristiques génériques)
+ */
+function resolveEffectivePanelBlueprints(opts: {
+  jobInput: PipelineJobInput;
+  studioSnapshot: { data?: { productionPlan?: { panelBlueprints?: unknown[] } } } | null;
+}): PanelBlueprintPremium[] {
+  // Priorité 1 : blueprints passés explicitement dans le job input
+  if (Array.isArray(opts.jobInput.panelBlueprints) && opts.jobInput.panelBlueprints.length > 0) {
+    return opts.jobInput.panelBlueprints as PanelBlueprintPremium[];
+  }
+  // Priorité 2 : blueprints depuis le snapshot studio persisté
+  const snapshotBlueprints = opts.studioSnapshot?.data?.productionPlan?.panelBlueprints;
+  if (Array.isArray(snapshotBlueprints) && snapshotBlueprints.length > 0) {
+    return snapshotBlueprints as PanelBlueprintPremium[];
+  }
+  return [];
+}
+
+/**
+ * Trouve le blueprint premium correspondant à un panel donné (par beatId/sceneIndex + panelNumber).
+ */
+function findPanelBlueprint(
+  blueprints: PanelBlueprintPremium[],
+  sceneIndex: number,
+  panelNumber: number,
+): PanelBlueprintPremium | undefined {
+  // Correspondance par panelNumber dans l'ordre des blueprints pour ce beat
+  const beatBlueprints = blueprints.filter((bp) => {
+    const bpBeatIndex = parseInt(bp.beatId?.split("_")[1] ?? "0", 10) - 1;
+    return bpBeatIndex === sceneIndex;
+  });
+  return beatBlueprints[panelNumber - 1] ?? beatBlueprints[0];
 }
 
 function normalizeCreativeControls(
@@ -1175,10 +1219,43 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     const productionSource = studioSnapshot
       ? resolveEffectiveProductionSource(studioSnapshot)
       : { source: "missing", fallbackUsed: true, legacyBridgeUsed: true };
-    const approvedOutlineForBundle =
-      studioSnapshot
+
+    // Résolution de l'outline approuvé — priorité premium
+    // 1. productionOutline premium depuis le snapshot studio (source non legacy)
+    // 2. approvedOutline depuis le snapshot studio (bridge legacy)
+    // 3. approvedOutline depuis la DB directement
+    const premiumProductionOutline = studioSnapshot?.data?.productionOutline;
+    const hasPremiumOutline =
+      premiumProductionOutline &&
+      typeof premiumProductionOutline === "object" &&
+      "source" in premiumProductionOutline &&
+      premiumProductionOutline.source !== "legacy_adapted" &&
+      Array.isArray((premiumProductionOutline as { beats?: unknown[] }).beats) &&
+      ((premiumProductionOutline as { beats?: unknown[] }).beats?.length ?? 0) > 0;
+
+    const approvedOutlineForBundle = hasPremiumOutline
+      ? parseApprovedOutline(chapterOutlineRecord.approvedOutline)
+        ?? buildLegacyApprovedOutlineFromStudio(studioSnapshot!)
+      : studioSnapshot
         ? buildLegacyApprovedOutlineFromStudio(studioSnapshot) ?? parseApprovedOutline(chapterOutlineRecord.approvedOutline)
         : parseApprovedOutline(chapterOutlineRecord.approvedOutline);
+
+    // Résoudre les blueprints premium effectifs pour ce chapitre
+    const effectivePanelBlueprints = resolveEffectivePanelBlueprints({
+      jobInput: jobInput as PipelineJobInput,
+      studioSnapshot,
+    });
+
+    // Récupérer la timeline d'état des objets pour la continuité
+    const objectStateTimeline = Array.isArray(studioSnapshot?.data?.productionPlan?.objectStateTimeline)
+      ? (studioSnapshot!.data!.productionPlan!.objectStateTimeline as Array<{
+          beatId: string;
+          objectId: string;
+          canonicalName: string;
+          state: string;
+          visibility: string;
+        }>)
+      : [];
     const bundle = await generateChapterBundle({
       chapterNumber,
       chapterTitle: chapter.title,
@@ -1649,6 +1726,11 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               const panelCanonRefs = panel.characters
                 .map((name) => rawCharacters.find((c) => c.name === name)?.canonicalImageUrl)
                 .filter((url): url is string => Boolean(url));
+              // Résoudre le blueprint premium pour ce panel spécifique
+              const panelPremiumBlueprint = effectivePanelBlueprints.length > 0
+                ? findPanelBlueprint(effectivePanelBlueprints, index, panel.panelNumber)
+                : undefined;
+
               const panelContractBase = await buildPanelContract({
                 panelId: `${createdScene.id}:${panel.panelNumber}`,
                 pageNumber: index + 1,
@@ -1661,6 +1743,8 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 },
                 previousPanelId: panel.panelNumber > 1 ? `${createdScene.id}:${panel.panelNumber - 1}` : undefined,
                 visualAnchorIds: panelCanonRefs,
+                // Blueprint premium — priorité absolue sur les heuristiques
+                panelBlueprint: panelPremiumBlueprint,
               });
               const panelBackgroundExtras = [
                 ...scene.characters.filter((name) => !panel.characters.includes(name)).slice(0, 2),
@@ -1762,6 +1846,22 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                       .flatMap((state) => state.continuityObligations),
                   ]),
                 },
+                // Contrat premium injecté depuis le blueprint résolu
+                premiumContract: panelPremiumBlueprint
+                  ? {
+                      subjectFocus: panelPremiumBlueprint.subjectFocus,
+                      mustShowEnemy: panelPremiumBlueprint.mustShowEnemy,
+                      requiredNpcCount: panelPremiumBlueprint.requiredNpcCount,
+                      speakerAnchorCharacterId: panelPremiumBlueprint.speakerAnchorCharacterId,
+                      dialogueCarrier: panelPremiumBlueprint.dialogueCarrier,
+                      cutawayType: panelPremiumBlueprint.cutawayType,
+                      heroCenterAllowed: panelPremiumBlueprint.heroCenterAllowed,
+                      requiredPropNames: panelPremiumBlueprint.requiredProps.map((p) => p.canonicalName),
+                      antiCollapseReason: panelPremiumBlueprint.cutawayType !== "none"
+                        ? `cutaway type: ${panelPremiumBlueprint.cutawayType}`
+                        : undefined,
+                    }
+                  : undefined,
               });
               const sceneBlueprints = sceneBlueprintsByScene.get(index) ?? [];
               sceneBlueprints.push(sceneBlueprint);
@@ -2063,6 +2163,28 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                   refsIgnored: [],
                   charactersExpected: panel.characters,
                   styleProfileExpected: chapterLookProfile.styleFamily,
+                },
+              } : {}),
+              // Continuité objets : état des props pour ce beat
+              ...(objectStateTimeline.length > 0 ? {
+                objectStateBeat: objectStateTimeline.filter((frame) => {
+                  const bpBeatIndex = parseInt(frame.beatId?.split("_")[1] ?? "0", 10) - 1;
+                  return bpBeatIndex === index;
+                }),
+              } : {}),
+              // Blueprint premium résolu pour ce panel
+              ...(panelPremiumBlueprint ? {
+                premiumBlueprint: {
+                  subjectFocus: panelPremiumBlueprint.subjectFocus,
+                  cutawayType: panelPremiumBlueprint.cutawayType,
+                  mustShowEnemy: panelPremiumBlueprint.mustShowEnemy,
+                  requiredNpcCount: panelPremiumBlueprint.requiredNpcCount,
+                  speakerAnchorCharacterId: panelPremiumBlueprint.speakerAnchorCharacterId,
+                  requiredProps: panelPremiumBlueprint.requiredProps.map((p) => ({
+                    canonicalName: p.canonicalName,
+                    mustBeVisible: p.mustBeVisible,
+                    narrativeRole: p.narrativeRole,
+                  })),
                 },
               } : {}),
               stylePack: stylePack

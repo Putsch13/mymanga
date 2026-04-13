@@ -119,6 +119,18 @@ export const sceneBlueprintInputSchema = z.object({
     styleRules: z.array(z.string()).default([]),
     loreConstraints: z.array(z.string()).default([]),
   }),
+  // Premium narrative intelligence
+  premiumContract: z.object({
+    subjectFocus: z.string().optional().nullable(),
+    mustShowEnemy: z.boolean().optional(),
+    requiredNpcCount: z.number().int().optional(),
+    speakerAnchorCharacterId: z.string().optional().nullable(),
+    dialogueCarrier: z.enum(["speaker_visible", "offscreen_allowed", "narration"]).optional().nullable(),
+    cutawayType: z.string().optional().nullable(),
+    heroCenterAllowed: z.boolean().optional(),
+    requiredPropNames: z.array(z.string()).default([]),
+    antiCollapseReason: z.string().optional().nullable(),
+  }).optional(),
 });
 
 export type SceneBlueprintInput = z.infer<typeof sceneBlueprintInputSchema>;
@@ -216,6 +228,13 @@ export type SceneBlueprint = {
     environmentLine: string;
     hardConstraintLine: string;
     softConstraintLine: string;
+    // Premium hard constraints
+    requiredPropLine?: string;
+    requiredEnemyLine?: string;
+    speakerAnchorLine?: string;
+    focusLine?: string;
+    antiCollapseLine?: string;
+    cutawayLine?: string;
   };
 };
 

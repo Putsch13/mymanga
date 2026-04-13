@@ -130,6 +130,32 @@ export async function GET(_req: Request, ctx: Ctx) {
         latestReroll && typeof latestReroll === "object" && !Array.isArray(latestReroll)
           ? (latestReroll as Record<string, unknown>)
           : {};
+      // Premium scores (calculés par panel-validator, stockés dans validationDetails.qualityScores)
+      const propComplianceScore = typeof qualityScores.propComplianceScore === "number"
+        ? qualityScores.propComplianceScore : undefined;
+      const subjectFocusScore = typeof qualityScores.subjectFocusScore === "number"
+        ? qualityScores.subjectFocusScore : undefined;
+      const dialogueAnchorScore = typeof qualityScores.dialogueAnchorScore === "number"
+        ? qualityScores.dialogueAnchorScore : undefined;
+      const enemyPresenceScore = typeof qualityScores.enemyPresenceScore === "number"
+        ? qualityScores.enemyPresenceScore : undefined;
+      const populationScore = typeof qualityScores.populationScore === "number"
+        ? qualityScores.populationScore : undefined;
+      const cutawayComplianceScore = typeof qualityScores.cutawayComplianceScore === "number"
+        ? qualityScores.cutawayComplianceScore : undefined;
+
+      // Issues premium (issues typées depuis validationDetails)
+      const premiumIssues = Array.isArray(validationDetails.issues)
+        ? (validationDetails.issues as Array<{ message?: string; type?: string; severity?: string }>)
+            .filter((i) => [
+              "missing_prop", "missing_weapon", "missing_device",
+              "wrong_subject_focus", "missing_dialogue_anchor",
+              "missing_enemy_presence", "npc_population_missing",
+              "cutaway_not_respected", "cutaway_collapsed_to_hero", "wrong_cutaway_target",
+              "object_used_but_not_visible",
+            ].includes(i.type ?? ""))
+        : [];
+
       return {
         panelId: image.id,
         sceneId: scene.id,
@@ -150,9 +176,23 @@ export async function GET(_req: Request, ctx: Ctx) {
           narrativeRelevance: typeof qualityScores.interactionScore === "number" ? qualityScores.interactionScore : releaseScore,
           compositionReadability: typeof qualityScores.shotComplianceScore === "number" ? qualityScores.shotComplianceScore : releaseScore,
           environmentConsistency: typeof qualityScores.environmentReadabilityScore === "number" ? qualityScores.environmentReadabilityScore : releaseScore,
+          // Premium contractual scores
+          propComplianceScore,
+          subjectFocusScore,
+          dialogueAnchorScore,
+          enemyPresenceScore,
+          populationScore,
+          cutawayComplianceScore,
         },
-        rejectionReasons: [...issues.map((issue) => issue.message ?? issue.type ?? "quality_issue"), ...driftReasons].slice(0, 8),
-        repairSuggestions: issues.map((issue) => `Réparer ${issue.type ?? "quality_issue"}`),
+        rejectionReasons: [
+          ...issues.map((issue) => issue.message ?? issue.type ?? "quality_issue"),
+          ...premiumIssues.map((issue) => issue.message ?? issue.type ?? "premium_issue"),
+          ...driftReasons,
+        ].slice(0, 12),
+        repairSuggestions: [
+          ...issues.map((issue) => `Réparer ${issue.type ?? "quality_issue"}`),
+          ...premiumIssues.map((issue) => `Corriger ${issue.type ?? "premium_issue"}`),
+        ],
         rerollCount:
           typeof meta.rerollCount === "number"
             ? meta.rerollCount

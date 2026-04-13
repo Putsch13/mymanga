@@ -139,6 +139,56 @@ export function ChapterPlanStep({
 
       <ProductionPlanCard plan={draft.productionPlan} />
 
+      {/* Section Auto-déductions (lecture seule) */}
+      {draft.productionPlan?.premiumReadinessScore !== undefined && (
+        <Card className="border-border/60 bg-card/40">
+          <CardHeader>
+            <CardTitle className="text-base">Auto-déductions narratives</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <p className="text-xs text-muted-foreground">
+              Ces informations sont inférées automatiquement par le backend — aucune configuration manuelle requise.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {draft.productionPlan?.propCoverage?.covered && draft.productionPlan.propCoverage.covered.length > 0 && (
+                <div>
+                  <p className="text-muted-foreground text-xs mb-1">Props inférés</p>
+                  <div className="flex flex-wrap gap-1">
+                    {[...new Set(draft.productionPlan.propCoverage.covered)].slice(0, 6).map((prop) => (
+                      <span key={prop} className="rounded bg-muted/60 px-1.5 py-0.5 text-xs">{prop}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {draft.productionPlan?.cutawayCoverage && (
+                <div>
+                  <p className="text-muted-foreground text-xs">Plans de coupe prévus</p>
+                  <p className="font-semibold">{draft.productionPlan.cutawayCoverage.count}</p>
+                </div>
+              )}
+              {draft.productionPlan?.enemyCoverage && (
+                <div>
+                  <p className="text-muted-foreground text-xs">Panels focus ennemi</p>
+                  <p className="font-semibold">{draft.productionPlan.enemyCoverage.panelCount}</p>
+                </div>
+              )}
+              {draft.productionPlan?.dialogueAnchorCoverage && (
+                <div>
+                  <p className="text-muted-foreground text-xs">Dialogues ancrés</p>
+                  <p className="font-semibold">{draft.productionPlan.dialogueAnchorCoverage.anchored}</p>
+                </div>
+              )}
+              {draft.productionPlan?.npcCoverage && (
+                <div>
+                  <p className="text-muted-foreground text-xs">Densité PNJ moy.</p>
+                  <p className="font-semibold">{draft.productionPlan.npcCoverage.avgNpcCount.toFixed(1)}</p>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card className="border-border/60 bg-card/40">
         <CardHeader>
           <CardTitle className="text-base">Readiness du plan</CardTitle>
