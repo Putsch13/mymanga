@@ -13,6 +13,14 @@ const nextConfig: NextConfig = {
     "@manga-ai-studio/memory",
     "@manga-ai-studio/exports",
   ],
+  // Modules Node.js natifs utilisés uniquement côté serveur (API routes, Server Components)
+  // → ne pas bundler côté client (sharp, pdf-lib, fal-storage-service, etc.)
+  serverExternalPackages: [
+    "sharp",
+    "pdf-lib",
+    "@fal-ai/client",
+    "@fal-ai/serverless-client",
+  ],
 };
 
 export default nextConfig;

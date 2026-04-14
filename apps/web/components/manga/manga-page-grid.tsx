@@ -4,8 +4,21 @@ import type React from "react";
 import type { DemoMangaPage } from "@/lib/demo-data";
 import type { AnyPanelMood } from "./manga-panel";
 import { MangaPanel } from "./manga-panel";
-// LAY-2 : import des configs de layout dynamique
-import { PAGE_LAYOUT_CONFIGS } from "@manga-ai-studio/ai";
+
+// LAY-2 : configs CSS locales des templates de layout dynamique
+// (copie légère de PAGE_LAYOUT_CONFIGS — évite d'importer @manga-ai-studio/ai côté client)
+const PAGE_LAYOUT_CONFIGS: Record<string, { cssGridTemplate: string; cssGridAreas: string }> = {
+  splash:          { cssGridTemplate: "1fr",                          cssGridAreas: `"a"` },
+  double_spread:   { cssGridTemplate: "1fr 1fr",                      cssGridAreas: `"a b"` },
+  grid_2x2:        { cssGridTemplate: "1fr 1fr / 1fr 1fr",            cssGridAreas: `"a b" "c d"` },
+  grid_2x3:        { cssGridTemplate: "1fr 1fr / 1fr 1fr 1fr",        cssGridAreas: `"a b c" "d e f"` },
+  action_strip:    { cssGridTemplate: "1.5fr 1fr 1fr / 1fr 1fr 1fr",  cssGridAreas: `"a a b" "a a c" "d e f"` },
+  asymmetric_hero: { cssGridTemplate: "1.2fr 1fr / 1fr 1fr 1fr",      cssGridAreas: `"a a b" "a a c"` },
+  cinematic_bar:   { cssGridTemplate: "1fr 1fr 1fr / 1fr",            cssGridAreas: `"a" "b" "c"` },
+  focus_closeup:   { cssGridTemplate: "1.5fr 1fr / 1fr 1fr",          cssGridAreas: `"a a" "b c"` },
+  montage_rapid:   { cssGridTemplate: "1fr 1fr / 1fr 1fr 1fr 1fr",    cssGridAreas: `"a b c d" "e f g h"` },
+  vertical_strip:  { cssGridTemplate: "1fr / 1fr 1fr 1fr",            cssGridAreas: `"a b c"` },
+};
 
 /**
  * Layout presets for manga pages (4–6 panels).
