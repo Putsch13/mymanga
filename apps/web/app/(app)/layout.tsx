@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/app-header";
 import { getAppUser, isUnlimitedAdminEmail } from "@/lib/auth/get-app-user";
@@ -26,12 +27,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <p className="text-sm text-white/60">
               La base de données est en cours de mise à jour. Réessaie dans quelques instants.
             </p>
-            <a
+            <Link
               href="/"
               className="inline-block rounded-xl border border-white/20 px-4 py-2 text-sm text-white/70 hover:text-white transition-colors"
             >
               Retour à l&apos;accueil
-            </a>
+            </Link>
           </div>
         </div>
       );
