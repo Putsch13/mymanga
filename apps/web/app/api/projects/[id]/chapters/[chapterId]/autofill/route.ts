@@ -35,7 +35,12 @@ export async function POST(req: Request, ctx: Ctx) {
   });
   if (!chapter) return notFound();
 
-  const body = schema.parse(await req.json());
+  let body: z.infer<typeof schema>;
+  try {
+    body = schema.parse(await req.json());
+  } catch {
+    return NextResponse.json({ error: "Requête invalide — mode autofill non reconnu." }, { status: 400 });
+  }
 
   const outlineRecord = (chapter.outline ?? {}) as Record<string, unknown>;
   const rawSnapshot = outlineRecord.studio ?? null;

@@ -271,10 +271,13 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Erreur inconnue";
+      const isParseError = msg.includes("did not match") || msg.includes("JSON") || msg.includes("SyntaxError");
       const isNetwork = msg.includes("fetch") || msg.includes("network") || msg.includes("Failed");
-      setMessage(isNetwork
-        ? "Erreur réseau — vérifie ta connexion et réessaie."
-        : `Erreur lors de la complétion IA : ${msg}`);
+      setMessage(isParseError
+        ? "La réponse du serveur était inattendue. Réessaie dans quelques secondes."
+        : isNetwork
+          ? "Erreur réseau — vérifie ta connexion et réessaie."
+          : `Erreur lors de la complétion IA : ${msg}`);
     } finally {
       setAutofilling(false);
     }
@@ -314,7 +317,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
         ? "La stack de génération n’est pas prête. Corrige les blocants techniques ci-dessous."
         : null;
   const creativityControls = normalizeCreativeControls(draft.creativityControls);
-  const flowSteps = computeFlowCompletion(snapshot, blockerItems);
+  const flowSteps = computeFlowCompletion(snapshot, blockerItems, liveReadiness?.completedSteps);
   const summary = computeChapterSummary(draft, snapshot, chapterTitle);
   const briefIssues = groupIssuesByFlowStep(blockerItems, "brief");
   const briefWarnings = groupIssuesByFlowStep(warningItems, "brief");

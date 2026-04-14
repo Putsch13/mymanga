@@ -4,6 +4,7 @@ import { buildChapterReadinessReport } from "@manga-ai-studio/core";
 import { prisma } from "@manga-ai-studio/db";
 import { getCurrentUser } from "@/lib/auth/get-app-user";
 import { ChapterStatusBadge } from "@/components/studio/chapter-status-badge";
+import { ChapterSwitcher } from "@/components/studio/chapter-switcher";
 import { readChapterStudioSnapshotFromOutline } from "@/lib/chapter-studio";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,17 @@ const chapterNav = (projectId: string, chapterId: string) => [
 export default async function ChapterStudioLayout({ children, params }: Props) {
   const user = await getCurrentUser();
   const { id, chapterId } = await params;
+
+  let allChapters: Array<{ id: string; chapterNumber: number; title: string | null }> = [];
+  try {
+    allChapters = await prisma.chapter.findMany({
+      where: { projectId: id, project: { userId: user.id } },
+      orderBy: { chapterNumber: "asc" },
+      select: { id: true, chapterNumber: true, title: true },
+    });
+  } catch {
+    // non-bloquant
+  }
 
   let chapter: Awaited<ReturnType<typeof prisma.chapter.findFirst>> | null = null;
   try {
@@ -87,9 +99,18 @@ export default async function ChapterStudioLayout({ children, params }: Props) {
       <div className="rounded-2xl border border-border/60 bg-card/30 p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <Link href={`/projects/${id}/chapters`} className="text-sm text-muted-foreground hover:text-foreground">
-              ← Retour aux chapitres
-            </Link>
+            <div className="flex items-center gap-3">
+              <Link href={`/projects/${id}/chapters`} className="text-sm text-muted-foreground hover:text-foreground">
+                ← Chapitres
+              </Link>
+              {allChapters.length > 1 && (
+                <ChapterSwitcher
+                  projectId={id}
+                  currentChapterId={chapterId}
+                  chapters={allChapters}
+                />
+              )}
+            </div>
             <h1 className="mt-2 text-3xl font-semibold">{chapter.title ?? `Chapitre ${chapter.chapterNumber}`}</h1>
             <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{chapter.summary ?? chapter.userIntent ?? "Aucun résumé disponible."}</p>
           </div>

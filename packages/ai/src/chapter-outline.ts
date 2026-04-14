@@ -499,6 +499,14 @@ RÈGLES DE RYTHME MANGA :
 - Ne pas concentrer l'action sur un seul personnage : varier les combinaisons de personnages par beat.
 - Ne pas changer de décor sans raison narrative claire. Si l'intention utilisateur se déroule surtout dans un même lieu, la majorité des beats doivent rester dans ce lieu.
 
+RÈGLES ANTI-RÉPÉTITION (CRITIQUE) :
+- ABSOLUMENT INTERDIT de répéter ou paraphraser une situation déjà décrite dans un beat précédent.
+- Chaque beat doit introduire UN élément NOUVEAU : une information, une action, une conséquence ou une émotion inédite.
+- Les beats 4-6 doivent constituer une montée en tension DISTINCTE des beats 1-3 (jamais un miroir ou une reprise).
+- Les beats 7+ doivent représenter une ESCALADE ou un RENVERSEMENT de situation — jamais une répétition des beats 1-3.
+- Si un beat N ressemble (même lieu + mêmes personnages + même type d'action) au beat N-3 ou N-6, réécris-le entièrement avec une nouvelle information ou un nouveau déplacement narratif.
+- Test obligatoire : pour chaque beat, vérifie "Ce beat n'a PAS encore été dit ni montré dans les beats précédents" — si faux, réécris.
+
 RÈGLES DE CONTINUITÉ STRICTE :
 - Si previousCliffhanger est fourni, le PREMIER beat DOIT répondre directement à ce cliffhanger.
 - Le summary global DOIT commencer par "Après que..." ou "Suite à..." en référençant le chapitre précédent.

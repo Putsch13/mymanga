@@ -105,8 +105,12 @@ export function computeChapterSummary(draft: ChapterStudioData, snapshot: Chapte
   };
 }
 
-export function computeFlowCompletion(snapshot: ChapterStudioSnapshot, blockers: ChapterReadinessIssue[]) {
-  const completedStudioSteps = new Set(snapshot.data.readinessReport?.completedSteps ?? []);
+export function computeFlowCompletion(
+  snapshot: ChapterStudioSnapshot,
+  blockers: ChapterReadinessIssue[],
+  liveCompletedSteps?: string[],
+) {
+  const completedStudioSteps = new Set(liveCompletedSteps ?? snapshot.data.readinessReport?.completedSteps ?? []);
   const completedFlowSteps = new Set<ChapterFlowStepId>(
     Array.from(completedStudioSteps).map((step) => mapStudioStepToFlowStep(step as ChapterStudioStep)),
   );
