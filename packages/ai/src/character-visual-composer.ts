@@ -30,6 +30,10 @@ export interface CharacterVisualInput {
   sensualityLevel?: number;
   /** Layer de contenu */
   contentIntensityLayer?: string;
+  /** CREATURE-1 : type d'entité non-humaine */
+  entityKind?: string | null;
+  /** CREATURE-1 : label d'espèce (ex: "dragon rouge", "golem de pierre") */
+  speciesLabel?: string | null;
 }
 
 export interface CharacterVisualPrompt {
@@ -64,6 +68,58 @@ const INTENSITY_STYLE: Record<string, string> = {
   RESTRICTED_BLOCKED_VISUAL: "BLOCKED",
 };
 
+const CREATURE_STYLE_MAP: Record<string, string> = {
+  monster: "terrifying monster creature, detailed anatomy, manga monster design, intimidating presence, fearsome silhouette",
+  creature: "fantastical creature, unique anatomy, manga creature design, detailed features, otherworldly",
+  animal: "animal companion, realistic animal manga style, detailed fur/scales/feathers, expressive eyes",
+  spirit: "ethereal spirit being, translucent form, ghostly manga style, spiritual energy, glowing aura",
+  construct: "mechanical construct, robot manga design, mechanical joints visible, metallic surface, engineered precision",
+  dragon: "massive dragon, detailed scales, powerful wings, manga dragon design, majestic presence, ancient power",
+  demon: "dark demon creature, menacing horns, dark manga design, supernatural menace, intimidating form",
+  beast: "powerful beast creature, wild anatomy, manga beast design, raw ferocity",
+};
+
+/**
+ * Compose un prompt pour une créature / entité non-humaine.
+ * Court-circuite complètement le pipeline humain.
+ */
+function composeCreatureVisualPrompt(
+  input: CharacterVisualInput,
+  entityKind: string,
+  speciesLabel: string | null,
+): CharacterVisualPrompt {
+  const visualStyle = input.projectVisualStyle ?? "detailed manga art, professional creature sheet";
+  const baseStyle = CREATURE_STYLE_MAP[entityKind.toLowerCase()] ?? CREATURE_STYLE_MAP.creature;
+  const species = speciesLabel ? `${speciesLabel}, ` : "";
+
+  const positiveParts: string[] = [
+    visualStyle,
+    "manga creature reference sheet, full body, multiple angles",
+    `${input.name}`,
+    `${species}${baseStyle}`,
+    input.appearance ?? "",
+    input.hairColor ? `${input.hairColor} coloring` : "",
+    input.eyeColor ? `${input.eyeColor} eyes` : "",
+    input.outfitDefault ? input.outfitDefault : "",
+    input.traits?.length ? `characteristics: ${input.traits.slice(0, 3).join(", ")}` : "",
+    "white background, reference sheet style, clean linework, high detail",
+    "CRITICAL: all unique physical features, mutations, special anatomy must be clearly visible",
+  ].filter(Boolean);
+
+  const negative = [
+    BASE_NEGATIVE,
+    "human face, humanoid body, normal person, realistic human",
+    "poorly defined creature, blob, amorphous shape without distinct features",
+    "wrong species, inconsistent anatomy",
+  ].join(", ");
+
+  return {
+    positive: positiveParts.join(", "),
+    negative,
+    imageSize: "portrait_3_4",
+  };
+}
+
 /**
  * Compose un prompt structuré pour le visuel canonique d'un personnage.
  * Le résultat est utilisé directement dans l'appel FAL flux/dev.
@@ -71,6 +127,14 @@ const INTENSITY_STYLE: Record<string, string> = {
 export function composeCharacterVisualPrompt(
   input: CharacterVisualInput,
 ): CharacterVisualPrompt {
+  // CREATURE-1 : détecter les entités non-humaines et utiliser le composer dédié
+  const entityKind = input.entityKind;
+  const speciesLabel = input.speciesLabel ?? null;
+  const isNonHuman = entityKind && !["human", "named_npc", ""].includes(entityKind.toLowerCase());
+  if (isNonHuman) {
+    return composeCreatureVisualPrompt(input, entityKind, speciesLabel);
+  }
+
   const layer = input.contentIntensityLayer ?? "TEEN";
 
   if (layer === "RESTRICTED_BLOCKED_VISUAL") {

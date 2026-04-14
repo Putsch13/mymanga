@@ -900,7 +900,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     return { ok: false as const, error: "invalid_job" };
   }
 
-  const [chapter, project, stylePacks, loraAttachments, rawCharacters, npcProfiles] = await Promise.all([
+  const [chapter, project, stylePacks, loraAttachments, rawCharacters, npcProfiles, propInventory] = await Promise.all([
     prisma.chapter.findUnique({ where: { id: job.chapterId } }),
     prisma.project.findUnique({
       where: { id: job.projectId },
@@ -1053,6 +1053,16 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         metadata: true,
       },
     }),
+    // PROP-1 : charger l'inventaire de props actifs cross-chapitres
+    prisma.characterPropInventory.findMany({
+      where: { projectId: job.projectId ?? undefined, isActive: true },
+      select: {
+        characterId: true,
+        propCanonicalName: true,
+        propCategory: true,
+        visualDescription: true,
+      },
+    }),
   ]);
 
   if (!chapter) {
@@ -1144,11 +1154,12 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     });
 
     // Charger les lieux nommés du projet (pour le scene-environment-engine)
+    // DECOR-1 : inclure establishedVisualBrief pour ancrer visuellement les lieux déjà vus
     const knownLocations = await prisma.location.findMany({
       where: { projectId },
-      select: { name: true, description: true },
+      select: { name: true, description: true, visualBrief: true, establishedVisualBrief: true },
       take: 20,
-    }).catch(() => [] as Array<{ name: string; description: string | null }>);
+    }).catch(() => [] as Array<{ name: string; description: string | null; visualBrief?: string | null; establishedVisualBrief?: string | null }>);
 
     const contextDocument = [
       `Projet: ${context.project.title}`,
@@ -1769,6 +1780,33 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             console.warn(`[pipeline] layout_decision_failed (non-blocking): ${layoutErr instanceof Error ? layoutErr.message : layoutErr}`);
           }
 
+          // DECOR-1 : enregistrer le brief visuel du lieu si c'est sa première apparition
+          if (scene.location) {
+            try {
+              const locationRecord = knownLocations.find(
+                (loc) => loc.name.toLowerCase() === scene.location.trim().toLowerCase(),
+              );
+              if (locationRecord && !locationRecord.establishedVisualBrief && scene.summary) {
+                // Construire un brief visuel condensé depuis le summary de la scène
+                const visualBrief = [
+                  scene.location,
+                  scene.summary.slice(0, 200),
+                ].filter(Boolean).join(" — ");
+                await prisma.location.updateMany({
+                  where: { projectId, name: locationRecord.name },
+                  data: {
+                    establishedVisualBrief: visualBrief,
+                    firstSeenChapterId: chapterId,
+                  },
+                });
+                // Mettre à jour le cache local pour les scènes suivantes
+                locationRecord.establishedVisualBrief = visualBrief;
+              }
+            } catch (decorErr) {
+              console.warn(`[pipeline] decor_anchor_failed (non-blocking): ${decorErr instanceof Error ? decorErr.message : decorErr}`);
+            }
+          }
+
           const persistentSceneExtras = await ensureSceneExtras(tx, {
             sceneId: createdScene.id,
             locationName: scene.location,
@@ -2196,6 +2234,13 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                       wardrobeDetails: (() => {
                         const baseParts: string[] = [];
                         if (c.wardrobeDetails) baseParts.push(c.wardrobeDetails);
+                        // PROP-1 : injecter les props actifs cross-chapitres de ce personnage
+                        const charCrossChapProps = propInventory
+                          .filter((p) => p.characterId === c.id)
+                          .map((p) => p.visualDescription ?? p.propCanonicalName);
+                        if (charCrossChapProps.length > 0) {
+                          baseParts.push(`always carries: ${charCrossChapProps.join(", ")}`);
+                        }
                         // Ajouter les props visibles du panelContract portés par ce personnage
                         const propsForChar = (panelContract.requiredPropsTyped ?? [])
                           .filter((p: { mustBeVisible?: boolean; canonicalName: string }) => p.mustBeVisible !== false)
@@ -2258,6 +2303,17 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               ].filter(Boolean).join(" · ").slice(0, 320),
               environmentHint: [
                 sceneBlueprint.promptBridge.environmentLine,
+                // DECOR-1 : ancre visuelle du lieu si déjà établi dans un chapitre précédent
+                (() => {
+                  const locationName = scene.location?.trim().toLowerCase();
+                  if (!locationName) return null;
+                  const locationRecord = knownLocations.find(
+                    (loc) => loc.name.toLowerCase() === locationName || locationName.includes(loc.name.toLowerCase()),
+                  );
+                  return locationRecord?.establishedVisualBrief
+                    ? `ESTABLISHED VISUAL ANCHOR [${locationRecord.name}]: ${locationRecord.establishedVisualBrief}`
+                    : null;
+                })(),
                 composeEnvironment({
                 location: scene.location,
                 mood: panel.mood,

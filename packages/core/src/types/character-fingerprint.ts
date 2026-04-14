@@ -6,10 +6,14 @@
 export interface CharacterFingerprint {
   identity: {
     name: string;
-    gender: "male" | "female" | "other";
+    gender: "male" | "female" | "other" | "non_applicable";
     perceivedAge: string;
     role: string;
-    ageBand?: "child" | "teen" | "young_adult" | "adult" | "elder";
+    ageBand?: "child" | "teen" | "young_adult" | "adult" | "elder" | "ancient" | "unknown";
+    /** CREATURE-2 : type d'entité pour les non-humains */
+    entityKind?: "human" | "monster" | "creature" | "animal" | "spirit" | "construct" | "dragon" | "demon" | "beast";
+    /** CREATURE-2 : label d'espèce libre (ex: "dragon rouge", "golem de pierre") */
+    speciesLabel?: string | null;
   };
   face: {
     faceShape: string;
@@ -61,6 +65,18 @@ export interface CharacterFingerprint {
   accessorySignature?: string;
   /** Signature de posture */
   postureSignature?: string;
+  /**
+   * CREATURE-2 : traits visuels spécifiques aux entités non-humaines.
+   * Complète (et peut remplacer) les champs hair/body pour les créatures.
+   */
+  creatureTraits?: {
+    bodyType: string;              // ex: "quadruped", "serpentine", "winged_biped"
+    coveringType: string;          // "scales", "fur", "feathers", "skin", "metal", "energy"
+    primaryColor: string;
+    secondaryColor?: string;
+    distinctiveFeatures: string[]; // ex: ["six eyes", "barbed tail", "bioluminescent markings"]
+    sizeClass: "tiny" | "small" | "medium" | "large" | "colossal";
+  };
   /** Continuité de garde-robe */
   wardrobeContinuity?: {
     currentOutfit: string;

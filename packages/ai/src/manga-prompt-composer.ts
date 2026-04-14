@@ -93,6 +93,10 @@ export interface PanelPromptInput {
   cameraAngle?: string | null;
   /** IMG-4 : type de beat narratif pour les effets manga */
   beatType?: string | null;
+  /** STYLE-1 : URLs d'images de référence de style (passées à l'adaptateur fal) */
+  referenceImageUrls?: string[] | null;
+  /** STYLE-1 : politique d'application de la référence de style */
+  referencePolicy?: "LIGHT" | "STRONG" | null;
 }
 
 export interface ComposedPrompt {
@@ -272,12 +276,28 @@ function describeCharacter(c: CharacterRef): string {
     parts.push(`continuity ${c.continuityBudget}`);
   }
 
+  // CREATURE-3 : description anatomique prioritaire pour les entités non-humaines
   const entityKind = c.entityKind?.trim().toLowerCase();
-  if (entityKind && entityKind !== "human" && entityKind !== "named_npc") {
-    parts.push(entityKind);
+  if (entityKind && entityKind !== "human" && entityKind !== "named_npc" && entityKind !== "") {
+    const creatureStyleHints: Record<string, string> = {
+      monster: "large imposing creature, terrifying anatomy, detailed manga monster design",
+      creature: "fantastical creature, unique anatomy, manga creature design",
+      animal: "animal manga style, detailed anatomy",
+      spirit: "ethereal ghostly form, translucent, spiritual energy",
+      construct: "mechanical robot body, metallic surface, visible joints",
+      dragon: "massive dragon, detailed scales, powerful wings",
+      demon: "dark demon, menacing horns, supernatural menace",
+      beast: "powerful beast, wild anatomy, raw ferocity",
+    };
+    const styleHint = creatureStyleHints[entityKind] ?? `${entityKind} creature, detailed anatomy`;
     if (c.speciesLabel) parts.push(c.speciesLabel);
+    parts.push(styleHint);
     if (c.appearance) parts.push(c.appearance);
     if (c.bodyDetails) parts.push(c.bodyDetails);
+    if (c.hardTraits && c.hardTraits.length > 0) {
+      parts.push(`MUST HAVE: ${c.hardTraits.slice(0, 4).join(", ")}`);
+    }
+    parts.push("manga creature art style, detailed anatomy, consistent design");
     return parts.join(", ");
   }
 
@@ -451,9 +471,20 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     addSection("beatEffects", "Beat FX / Manga Effects", BEAT_TYPE_ADDONS[input.beatType]);
   }
 
-  // IMG-3 : Style anchor cross-panels (phrase figée pour cohérence de style sur tout le chapitre)
+  // STYLE-1 + IMG-3 : Style anchor renforcé — cohérence intra-chapitre obligatoire
   if (input.chapterStyleAnchor) {
-    addSection("chapterStyleAnchor", "Chapter Style Anchor", input.chapterStyleAnchor);
+    const styleEnforcement = [
+      input.chapterStyleAnchor,
+      "IMPORTANT: maintain consistent art style throughout all panels",
+      "same line weight, same shading technique, same character proportions as established",
+    ].filter(Boolean).join(", ");
+    addSection("chapterStyleAnchor", "Chapter Style Enforcement", styleEnforcement);
+  }
+
+  // STYLE-1 : injecter styleRefImageUrl du StylePack comme ancre de référence légère si disponible
+  if (input.stylePack?.styleRefImageUrl && !input.referenceImageUrls?.length) {
+    input.referenceImageUrls = [input.stylePack.styleRefImageUrl];
+    input.referencePolicy = "LIGHT";
   }
 
   // URGENCE 4 : Accessoires requis depuis le prop inference engine + prop visual library

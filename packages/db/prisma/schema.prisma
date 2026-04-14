@@ -540,6 +540,10 @@ model Location {
   children       Location[] @relation("LocationHierarchy")
   metadata       Json      @default("{}")
   canonLocked    Boolean   @default(false)
+  // DECOR-1 : ancrage visuel cross-chapitres
+  establishedVisualBrief  String?   // description visuelle validée lors de la 1ère apparition
+  firstSeenChapterId      String?   // chapitre où le lieu a été établi visuellement
+  canonImageUrl           String?   // image de référence du lieu
 
   npcVisualProfiles NpcVisualProfile[]
 }

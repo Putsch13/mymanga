@@ -11,6 +11,32 @@ export const dynamic = "force-dynamic";
 type Props = { params: Promise<{ id: string; chapterId: string }> };
 
 export default async function MangaReadPage({ params }: Props) {
+  // CRASH-1 : wrapper de sécurité — évite que les erreurs Prisma (migration non appliquée,
+  // contrainte unique non encore en prod) remontent comme "Server Components render error"
+  try {
+    return await renderReadPage(params);
+  } catch (err) {
+    console.error("[read-page] crash:", err);
+    const { id: projectId } = await params;
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-black text-white">
+        <AlertCircle className="h-8 w-8 text-white/30" />
+        <div className="text-center">
+          <p className="text-lg font-medium text-white/80">Ce chapitre est en cours de chargement.</p>
+          <p className="mt-1 text-sm text-white/40">Réessaie dans quelques secondes.</p>
+          <Link
+            href={`/projects/${projectId}/chapters`}
+            className="mt-4 inline-block rounded-full bg-white/10 px-4 py-2 text-sm text-white/80 hover:bg-white/20 transition-colors"
+          >
+            ← Retour aux chapitres
+          </Link>
+        </div>
+      </div>
+    );
+  }
+}
+
+async function renderReadPage(params: Props["params"]) {
   const user = await getCurrentUser();
   const { id: projectId, chapterId } = await params;
 
