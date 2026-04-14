@@ -154,10 +154,11 @@ const CAMERA_DESCRIPTORS: Record<string, string> = {
 
 const INTENSITY_CONSTRAINTS: Record<string, string> = {
   GENERAL_SAFE: "family friendly, no violence, no suggestive content",
-  TEEN: "mild action, no explicit content, teen appropriate",
-  MATURE_DRAMA: "mature themes allowed, no explicit nudity, dark drama",
-  MATURE_VISUAL: "mature visual content, artistic nudity allowed, dark themes",
-  ADULT_EXPLICIT: "adult content, explicit artistic nudity, dark romance, mature themes",
+  TEEN: "mild action, teen appropriate, light drama only",
+  // FIX-2 : MATURE_DRAMA autorise le gore stylisé, la violence dark manga et l'horreur
+  MATURE_DRAMA: "dark manga style, stylized violence allowed, blood splatter manga ink style, dark seinen aesthetic, visceral action, dramatic wounds, intense combat damage, horror manga composition, mature dark themes",
+  MATURE_VISUAL: "mature visual content, artistic nudity allowed, explicit violence, dark themes",
+  ADULT_EXPLICIT: "adult content, explicit artistic nudity, dark romance, explicit violence, extreme mature themes",
   RESTRICTED_BLOCKED_VISUAL: "BLOCKED",
 };
 
@@ -187,6 +188,12 @@ const MANGA_FRAMING_MAP: Record<string, string> = {
   "medium_combat": "manga combat panel, dynamic fighting pose, impact lines, kinetic composition",
   "over_shoulder": "over-the-shoulder perspective, manga POV panel, depth of field, subject in focus",
   "splash_reveal": "splash page reveal, full page impact, manga revelation panel, dramatic composition, widescreen manga",
+  // Variantes dark/gore
+  "wide_gore_aftermath": "wide shot aftermath, battle damage environment, debris field, dark atmosphere, empty battlefield, broken environment",
+  "closeup_wound": "extreme close-up injury, manga wound rendering, dark seinen style, dramatic impact mark, intense detail",
+  "medium_horror": "horror medium shot, unsettling framing, distorted space, horror manga composition, pale skin contrast",
+  "wide_horror": "horror establishing shot, oppressive environment, dark atmosphere, twisted space, no safe ground in frame",
+  "action_gore": "intense combat close-up, visceral action lines, impact moment, dark manga combat, kinetic violent energy",
 };
 
 // IMG-4 : Effets manga par type de beat
@@ -200,6 +207,34 @@ const BEAT_TYPE_ADDONS: Record<string, string> = {
   romance: "soft screen tone overlay, petal effects, warm hatching, manga romantic moment",
   comedy: "manga comedy panel, sweat drops, reaction lines, chibi exaggeration possible",
 };
+
+// QUAL-1 : Vocabulaire gore spécifique par sous-genre dark
+function buildDarkGenreBlock(
+  genre: string | null | undefined,
+  layer: string,
+): string | null {
+  if (layer !== "MATURE_DRAMA" && layer !== "MATURE_VISUAL" && layer !== "ADULT_EXPLICIT") return null;
+
+  const g = (genre ?? "").toLowerCase();
+
+  if (/gore|guro|splatter/.test(g)) {
+    return "dark gore manga style, visceral wounds stylized, blood splatter ink rendering, seinen splatter aesthetic, intense violence rendered in ink, horror manga composition";
+  }
+  if (/horror|horreur/.test(g)) {
+    return "dark horror manga, junji ito inspired atmosphere, oppressive shadows, distorted anatomy horror style, unsettling composition, psychological horror visual, twisted surreal space";
+  }
+  if (/seinen|dark|grimdark/.test(g)) {
+    return "dark seinen manga, gritty realistic style, heavy cross-hatching shadows, brutal atmosphere, visceral drama, damaged world aesthetic";
+  }
+  if (/post.?apo|apocalypse|wasteland/.test(g)) {
+    return "post-apocalyptic manga aesthetic, ruined world, desolate atmosphere, survival dark tone, gritty environmental detail";
+  }
+  if (/military|militaire|war|guerre/.test(g)) {
+    return "military manga style, tactical combat panel, weapon detail, war damage, realistic injuries manga rendering";
+  }
+
+  return "dark manga style, mature seinen aesthetic, intense dramatic shadows, adult drama visual";
+}
 
 // URGENCE 4 : Construire le bloc d'accessoires requis
 function buildRequiredPropsBlock(
@@ -427,6 +462,12 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     if (propsBlock) {
       addSection("requiredProps", "Required Props / Key Objects", `KEY OBJECTS: ${propsBlock}`);
     }
+  }
+
+  // QUAL-1 : vocabulaire gore / dark genre spécifique
+  const darkGenreBlock = buildDarkGenreBlock(input.stylePack?.description ?? input.stylePack?.name ?? null, layer);
+  if (darkGenreBlock) {
+    addSection("darkGenre", "Dark Genre Style", darkGenreBlock);
   }
 
   // URGENCE 5 : PNJ récurrents présents dans cette scène

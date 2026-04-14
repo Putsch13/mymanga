@@ -1,4 +1,4 @@
-import { exportChapterPdfStub } from "@manga-ai-studio/exports";
+import { exportChapterPdf } from "@manga-ai-studio/exports";
 import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
@@ -18,11 +18,13 @@ export async function POST(_req: Request, ctx: Ctx) {
 
   if (!chapter) return notFound();
 
-  const payload = await exportChapterPdfStub(chapterId);
-  return new Response(Buffer.from(payload), {
+  // FIX-3 : vrai export PDF via pdf-lib (au lieu du stub texte)
+  const pdfBytes = await exportChapterPdf(chapterId);
+  return new Response(Buffer.from(pdfBytes), {
     headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Content-Disposition": `attachment; filename="chapter-${chapter.chapterNumber}-export.txt"`,
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename="chapter-${chapter.chapterNumber}.pdf"`,
+      "Cache-Control": "private, no-store",
     },
   });
 }

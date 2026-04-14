@@ -92,6 +92,7 @@ export function normalizeRequestedFalModel(
 
 export function buildFalGenerationRequest(input: GenerateImageInput) {
   const isMature =
+    input.providerParams?.contentIntensityLayer === "MATURE_DRAMA" ||
     input.providerParams?.contentIntensityLayer === "MATURE_VISUAL" ||
     input.providerParams?.contentIntensityLayer === "ADULT_EXPLICIT";
   const isCover =

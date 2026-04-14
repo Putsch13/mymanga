@@ -1220,6 +1220,7 @@ model CharacterPropInventory {
   isActive            Boolean   @default(true)
   createdAt           DateTime  @default(now())
 
+  @@unique([characterId, propCanonicalName])
   @@index([characterId, isActive])
   @@index([projectId])
 }

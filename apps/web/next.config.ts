@@ -21,19 +21,20 @@ const nextConfig: NextConfig = {
     "@fal-ai/serverless-client",
   ],
   webpack(config, { isServer }) {
-    if (isServer) {
-      // Ignorer les dépendances optionnelles de sharp (bindings platform-specific)
-      // qui ne sont pas installées selon la plateforme de build
-      config.externals = [
-        ...(Array.isArray(config.externals) ? config.externals : []),
-        ({ request }: { request?: string }, callback: (err?: Error | null, result?: string) => void) => {
-          if (request?.startsWith("@img/sharp-")) {
-            return callback(null, `commonjs ${request}`);
-          }
-          callback();
-        },
-      ];
-    }
+    // Externaliser sharp + ses bindings optionnels platform-specific sur client ET serveur
+    // sharp ne peut PAS être bundlé par webpack (module natif Node.js)
+    const sharpExternalFn = ({ request }: { request?: string }, callback: (err?: Error | null, result?: string) => void) => {
+      if (request === "sharp" || request?.startsWith("@img/sharp-") || request?.startsWith("sharp/")) {
+        return callback(null, `commonjs ${request}`);
+      }
+      callback();
+    };
+
+    config.externals = [
+      ...(Array.isArray(config.externals) ? config.externals : config.externals ? [config.externals] : []),
+      sharpExternalFn,
+    ];
+
     return config;
   },
 };

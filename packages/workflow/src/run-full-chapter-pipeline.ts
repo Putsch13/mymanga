@@ -547,7 +547,9 @@ function buildRoutingContext(
     preferPhotorealCover: false,
     explicitBlocked: intensityLayer === "RESTRICTED_BLOCKED_VISUAL",
     goreStylizedMature:
-      intensityLayer === "MATURE_VISUAL" || intensityLayer === "ADULT_EXPLICIT",
+      intensityLayer === "MATURE_DRAMA" ||
+      intensityLayer === "MATURE_VISUAL" ||
+      intensityLayer === "ADULT_EXPLICIT",
     chapterLookProfileMode: chapterLookProfileMode ?? null,
     beatEventType: beatEventType ?? null,
   };
@@ -1619,6 +1621,42 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           allDynamicBlueprints.push(...beatBlueprints);
           pageCounter += Math.ceil(beatBlueprints.length / 3);
           panelCounter += beatBlueprints.length;
+
+          // FIX-4 : Persister les props narratifs importants dans CharacterPropInventory
+          // pour les retrouver cross-chapitres (personnage porte une arme depuis ch.3, etc.)
+          const propsToSave = props.filter((p: { mustBeVisible?: boolean; narrativeRole?: string | null }) =>
+            p.mustBeVisible !== false &&
+            (p.narrativeRole === "action_tool" || p.narrativeRole === "payoff" || p.narrativeRole === "threat"),
+          );
+          if (propsToSave.length > 0) {
+            const carrierCharId = productionBeat.involvedCharacters?.[0]
+              ? rawCharacters.find((rc) => rc.name === productionBeat.involvedCharacters?.[0])?.id ?? null
+              : heroCharacterId;
+            if (carrierCharId) {
+              await Promise.allSettled(
+                propsToSave.map((prop: { canonicalName: string; category?: string; narrativeRole?: string | null }) =>
+                  prisma.characterPropInventory.upsert({
+                    where: {
+                      characterId_propCanonicalName: {
+                        characterId: carrierCharId,
+                        propCanonicalName: prop.canonicalName,
+                      },
+                    },
+                    create: {
+                      characterId: carrierCharId,
+                      projectId,
+                      propCanonicalName: prop.canonicalName,
+                      propCategory: prop.category ?? "unknown",
+                      propNarrativeRole: prop.narrativeRole ?? null,
+                      acquiredAtChapterId: chapterId,
+                      isActive: true,
+                    },
+                    update: { isActive: true },
+                  }),
+                ),
+              );
+            }
+          }
         }
         if (allDynamicBlueprints.length > 0) {
           finalPanelBlueprints = allDynamicBlueprints;
@@ -2702,7 +2740,9 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             preferPhotorealCover: false,
             explicitBlocked: intensityLayer === "RESTRICTED_BLOCKED_VISUAL",
             goreStylizedMature:
-              intensityLayer === "MATURE_VISUAL" || intensityLayer === "ADULT_EXPLICIT",
+              intensityLayer === "MATURE_DRAMA" ||
+              intensityLayer === "MATURE_VISUAL" ||
+              intensityLayer === "ADULT_EXPLICIT",
           },
           {
             mode: "SCENE_KEYFRAME",

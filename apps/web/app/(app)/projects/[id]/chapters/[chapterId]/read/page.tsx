@@ -47,28 +47,30 @@ export default async function MangaReadPage({ params }: Props) {
   const totalImages = allImages.length;
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+    // QUAL-3 : fond noir total — le reader s'émancipe du layout /app
+    <div className="-mx-4 -my-4 sm:-mx-6 min-h-screen bg-black text-white">
+
+      {/* Header flottant minimaliste */}
+      <div className="sticky top-0 z-50 flex items-center justify-between gap-3 border-b border-white/10 bg-black/80 px-4 py-2 backdrop-blur-sm sm:px-6">
+        <div className="flex items-center gap-3 min-w-0">
           <Link
             href={`/projects/${projectId}/chapters`}
-            className="text-sm text-muted-foreground hover:text-foreground"
+            className="shrink-0 text-sm text-white/50 hover:text-white transition-colors"
           >
             ← Chapitres
           </Link>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+          <span className="text-white/20">·</span>
+          <h1 className="truncate text-sm font-medium text-white/80">
             {chapter.title ?? `Chapitre ${chapter.chapterNumber}`}
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {project.title} · {chapter.scenes.length} scènes · {totalImages} panels · lecture manga droite vers gauche
-          </p>
+          <span className="hidden text-white/20 sm:inline">·</span>
+          <span className="hidden text-xs text-white/40 sm:inline">{project.title}</span>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {activeJob ? (
             <Badge variant="outline" className="gap-1.5 border-amber-500/40 text-amber-400">
               <Loader2 className="h-3 w-3 animate-spin" />
-              Génération en cours
+              <span className="hidden sm:inline">En cours</span>
             </Badge>
           ) : null}
           {totalImages > 0 ? (
@@ -77,17 +79,11 @@ export default async function MangaReadPage({ params }: Props) {
               className={
                 completedImages === totalImages
                   ? "gap-1.5 border-emerald-500/40 text-emerald-400"
-                  : "gap-1.5 border-border/60 text-muted-foreground"
+                  : "gap-1.5 border-white/20 text-white/40"
               }
             >
               <ImageIcon className="h-3 w-3" />
-              {completedImages}/{totalImages} images
-            </Badge>
-          ) : null}
-          {chapter.status === "ready_for_render" && !activeJob ? (
-            <Badge variant="outline" className="gap-1.5 border-violet-500/40 text-violet-400">
-              <Clock className="h-3 w-3" />
-              Prêt à lire
+              {completedImages}/{totalImages}
             </Badge>
           ) : null}
         </div>
@@ -95,29 +91,26 @@ export default async function MangaReadPage({ params }: Props) {
 
       {/* Avertissement si génération en cours */}
       {activeJob ? (
-        <div className="flex items-start gap-3 rounded-lg border border-amber-500/20 bg-amber-950/20 p-4">
+        <div className="flex items-start gap-3 border-b border-amber-500/20 bg-amber-950/30 px-4 py-3 sm:px-6">
           <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-amber-400" />
-          <div>
-            <p className="text-sm font-medium text-amber-300">Génération d&apos;images en cours</p>
-            <p className="mt-0.5 text-xs text-amber-400/70">
-              Les panels s&apos;affichent au fur et à mesure. Rafraîchis la page pour voir les nouvelles images.
-            </p>
-          </div>
+          <p className="text-xs text-amber-400/80">
+            Génération en cours — les panels s&apos;affichent au fur et à mesure.
+          </p>
         </div>
       ) : null}
 
-      {/* Avertissement si aucune scène */}
+      {/* Contenu reader */}
       {chapter.scenes.length === 0 ? (
-        <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-card/50 p-6 text-center">
-          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+        <div className="flex flex-col items-center justify-center gap-4 py-32 text-center">
+          <AlertCircle className="h-8 w-8 text-white/30" />
           <div>
-            <p className="font-medium">Ce chapitre n&apos;a pas encore été généré</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Lance la génération depuis la page du projet pour créer les scènes et les images.
+            <p className="font-medium text-white/70">Ce chapitre n&apos;a pas encore été généré</p>
+            <p className="mt-1 text-sm text-white/40">
+              Lance la génération depuis la page du projet.
             </p>
             <Link
               href={`/projects/${projectId}/generate`}
-              className="mt-3 inline-block text-sm text-accent hover:underline"
+              className="mt-4 inline-block rounded-full bg-white/10 px-4 py-2 text-sm text-white/80 hover:bg-white/20 transition-colors"
             >
               Générer ce chapitre →
             </Link>
