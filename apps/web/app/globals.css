@@ -54,3 +54,71 @@ body {
   background-clip: text;
   color: transparent;
 }
+
+/* ─── UX-4 : Animations et identité manga ───────────────────────────────── */
+
+/* Transition de page reader */
+@keyframes pageFlipIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0);    }
+}
+@keyframes pageFlipOut {
+  from { opacity: 1; transform: translateX(0);   }
+  to   { opacity: 0; transform: translateX(-20px); }
+}
+.page-flip-in  { animation: pageFlipIn  0.2s ease-out; }
+.page-flip-out { animation: pageFlipOut 0.15s ease-in;  }
+
+/* Splash reveal pour les pages révélation */
+@keyframes splashReveal {
+  from { opacity: 0; transform: scale(1.02); }
+  to   { opacity: 1; transform: scale(1);    }
+}
+.splash-reveal { animation: splashReveal 0.5s ease-out; }
+
+/* Pulse doux pour les panels en cours de génération */
+@keyframes panelPulse {
+  0%, 100% { opacity: 0.4; }
+  50%       { opacity: 0.7; }
+}
+.panel-pulse { animation: panelPulse 1.5s ease-in-out infinite; }
+
+/* Speed lines ambiance action (décoration) */
+.speed-lines {
+  background: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 12px,
+    rgba(255,255,255,0.02) 12px,
+    rgba(255,255,255,0.02) 13px
+  );
+}
+
+/* Gradient manga (violet → rose intense) */
+.text-gradient-manga {
+  background: linear-gradient(135deg, #ffffff 0%, #a78bfa 40%, #fb7185 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Card avec hover élévation manga */
+.card-manga {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.card-manga:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(124, 58, 237, 0.15);
+}
+
+/* Scan lines subtiles pour le reader */
+.scan-lines {
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+  pointer-events: none;
+}

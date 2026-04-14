@@ -1521,7 +1521,11 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     const chapterStoryboard: Prisma.InputJsonValue = revisedBundle.storyboard;
 
     // ── Genre director : inférer le mode une fois pour tout le chapitre ──────
-    const chapterGenreMode = inferGenreMode(effectiveCreativeControls, selectedPlotLabel);
+    const chapterGenreMode = inferGenreMode(
+      effectiveCreativeControls,
+      selectedPlotLabel,
+      project?.primaryGenre ?? null,
+    );
     const chapterGenreConfig = getGenreDirectorConfig(chapterGenreMode);
 
     // ── ChapterLookProfile : résoudre depuis le snapshot studio ──────────────

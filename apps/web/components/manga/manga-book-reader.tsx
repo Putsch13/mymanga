@@ -319,6 +319,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   const [exporting, setExporting] = useState(false);
   const [retryingPanel, setRetryingPanel] = useState<string | null>(null);
   const [transitioning, setTransitioning] = useState(false);
+  const [showSwipeHint, setShowSwipeHint] = useState(true);
   const touchStartX = useRef<number | null>(null);
   const degradedReaderWarning =
     (generationDiagnostics?.degradedModes?.length ?? 0) > 0
@@ -407,6 +408,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
 
   const goNext = useCallback(() => {
     setTurn({ dir: "next", at: Date.now() });
+    setShowSwipeHint(false);
     const step = spreadMode ? 2 : 1;
     setTransitioning(true);
     setTimeout(() => {
@@ -451,6 +453,13 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [goNext, goPrev, fullscreen, mangaRtl, readerMode]);
+
+  // UX-5 : Cacher le swipe hint après 3s ou au premier changement de page
+  useEffect(() => {
+    if (!showSwipeHint) return;
+    const t = setTimeout(() => setShowSwipeHint(false), 3500);
+    return () => clearTimeout(t);
+  }, [showSwipeHint]);
 
   // READ-2 : Touch swipe pour mobile (delta > 50px → navigation)
   useEffect(() => {
@@ -541,7 +550,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
       const compositeUrl = `/api/projects/${projectId}/chapters/${chapterId}/composite-page?sceneId=${leftPage.id}&mode=double`;
       return (
         <div
-          className={cn("relative mx-auto transition-opacity duration-200", transitioning && "opacity-0")}
+          className={cn("relative mx-auto transition-opacity duration-200", transitioning ? "opacity-0" : "opacity-100 page-flip-in")}
           style={{ maxWidth: fullscreen ? "100%" : "1440px" }}
           role="button"
           tabIndex={0}
@@ -568,7 +577,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
     if (isSplash && splashImage) {
       return (
         <div
-          className={cn("transition-opacity duration-200", transitioning && "opacity-0")}
+          className={cn("transition-opacity duration-200", transitioning ? "opacity-0 splash-reveal" : "opacity-100 splash-reveal")}
           style={{ maxWidth: fullscreen ? "100%" : "720px", margin: "0 auto" }}
         >
           <SplashPageRenderer
@@ -584,7 +593,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
 
     return (
       <div
-        className={cn("relative mx-auto cursor-pointer transition-opacity duration-200", transitioning && "opacity-0")}
+        className={cn("relative mx-auto cursor-pointer transition-opacity duration-200", transitioning ? "opacity-0" : "opacity-100 page-flip-in")}
         style={{ maxWidth: fullscreen ? "100%" : spreadMode ? "1040px" : "720px" }}
         role="button"
         tabIndex={0}
@@ -1008,7 +1017,39 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col gap-3 bg-[#0a0a0f] p-3">
         {toolbar}
-        {!showEnd ? (readerMode === "webtoon" ? renderWebtoon() : renderPage()) : null}
+        <div className="relative flex-1 overflow-hidden">
+          {!showEnd ? (readerMode === "webtoon" ? renderWebtoon() : renderPage()) : null}
+
+          {/* UX-5 : Dots de progression manga */}
+          {readerMode === "manga" && totalPages > 1 && !showEnd && (
+            <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5 z-20 pointer-events-none">
+              {Array.from({ length: Math.ceil(totalPages / (spreadMode ? 2 : 1)) }).map((_, i) => {
+                const idx = i * (spreadMode ? 2 : 1);
+                const isActive = idx === pageIndex;
+                const isPast = idx < pageIndex;
+                return (
+                  <div
+                    key={i}
+                    className={cn(
+                      "rounded-full transition-all duration-300",
+                      isActive ? "w-5 h-1.5 bg-white" :
+                      isPast ? "w-1.5 h-1.5 bg-white/50" : "w-1.5 h-1.5 bg-white/20"
+                    )}
+                  />
+                );
+              })}
+            </div>
+          )}
+
+          {/* UX-5 : Swipe hint au premier chargement */}
+          {showSwipeHint && readerMode === "manga" && (
+            <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
+              <div className="rounded-2xl bg-black/70 px-6 py-4 text-center text-sm text-white/80 backdrop-blur-sm animate-in fade-in duration-300">
+                ← Swipe ou touche les côtés pour naviguer →
+              </div>
+            </div>
+          )}
+        </div>
         {endCard}
       </div>
     );

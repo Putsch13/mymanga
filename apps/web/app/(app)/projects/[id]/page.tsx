@@ -80,11 +80,18 @@ export default async function ProjectOverviewPage({ params }: Props) {
       },
     });
   } catch (e) {
-    console.error("[project-page] DB error:", e instanceof Error ? e.message : e);
+    const msg = e instanceof Error ? e.message : String(e);
+    const isMigration =
+      msg.includes("column") || msg.includes("does not exist") ||
+      msg.includes("P2022") || msg.includes("Unknown field");
+    console.error("[project-page] DB error:", msg);
     return (
-      <div className="space-y-4 p-6">
-        <p className="text-red-400 text-sm">Erreur de chargement du projet. La base de donnees necessite une migration.</p>
-        <p className="text-xs text-muted-foreground">Execute <code>pnpm db:push</code> sur la base distante.</p>
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 px-6 text-center">
+        <p className="text-lg font-medium">
+          {isMigration ? "Mise à jour de la base de données en cours." : "Erreur de chargement du projet."}
+        </p>
+        <p className="text-sm text-muted-foreground max-w-md">Réessaie dans quelques instants.</p>
+        <Button asChild variant="outline"><Link href="/dashboard">← Dashboard</Link></Button>
       </div>
     );
   }

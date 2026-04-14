@@ -13,15 +13,41 @@ export const dynamic = "force-dynamic";
 export default async function MyMangasPage() {
   const user = await getCurrentUser();
 
-  const projects = await prisma.project.findMany({
-    where: { userId: user.id, status: { not: "archived" } },
-    orderBy: { updatedAt: "desc" },
-    take: 50,
-    include: {
-      chapters: { orderBy: { chapterNumber: "desc" }, take: 1 },
-      _count: { select: { chapters: true, characters: true } },
-    },
-  });
+  let projects: Array<{
+    id: string;
+    title: string;
+    pitch: string | null;
+    status: string;
+    chapters: Array<{ id: string; chapterNumber: number; status: string }>;
+    _count: { chapters: number; characters: number };
+  }> = [];
+
+  try {
+    projects = await prisma.project.findMany({
+      where: { userId: user.id, status: { not: "archived" } },
+      orderBy: { updatedAt: "desc" },
+      take: 50,
+      include: {
+        chapters: { orderBy: { chapterNumber: "desc" }, take: 1 },
+        _count: { select: { chapters: true, characters: true } },
+      },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const isMigration =
+      msg.includes("column") || msg.includes("does not exist") ||
+      msg.includes("P2022") || msg.includes("Unknown field");
+    console.error("[mangas-page] db error:", msg);
+    return (
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 text-center px-6">
+        <p className="text-lg font-medium">
+          {isMigration ? "Mise à jour de la base de données en cours." : "Erreur de chargement de la bibliothèque."}
+        </p>
+        <p className="text-sm text-muted-foreground max-w-md">Réessaie dans quelques instants.</p>
+        <Button asChild><Link href="/dashboard">Retour au dashboard</Link></Button>
+      </div>
+    );
+  }
 
   if (!projects) notFound();
 

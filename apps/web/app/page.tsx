@@ -1,20 +1,47 @@
 import Link from "next/link";
-import { ArrowRight, BookOpenText, Coins, LibraryBig, ShieldCheck, Sparkles, Wand2 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { ArrowRight, BookOpenText, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+
+const features = [
+  {
+    emoji: "🎌",
+    title: "Personnages fidèles",
+    desc: "Ton héros garde son visage, sa tenue et ses accessoires de la première à la dernière page. Un canon visuel strict garantit la cohérence entre tous les panels.",
+  },
+  {
+    emoji: "📖",
+    title: "Vrais plans manga",
+    desc: "Splash pages, plans de coupe dramatiques, combats dynamiques, double pages — la mise en scène s'adapte automatiquement à l'intensité de chaque scène.",
+  },
+  {
+    emoji: "⚡",
+    title: "Tous les genres",
+    desc: "Shōnen, seinen, horreur, isekai, romance, mecha, sport, médical — chaque genre a son propre rythme narratif, son style visuel et ses règles de cliffhanger.",
+  },
+];
+
+const genres = [
+  "⚔️ Shōnen Combat",
+  "🌆 Seinen Tension",
+  "💕 Romance Shōjo",
+  "🌀 Isekai",
+  "⚙️ Mecha",
+  "🔮 Horreur & Gore",
+  "🏃 Sport",
+  "🏥 Drame médical",
+];
 
 const steps = [
-  "1. Landing page claire avec proposition de valeur manga IA.",
-  "2. Connexion ou création de compte.",
-  "3. Dashboard utilisateur avec bibliothèque, labo, compte et crédits.",
-  "4. Labo V4 pour personnages, style manga, rendu visuel, intensité et génération.",
-  "5. Lecture manga de droite à gauche avec mémoire pour la suite.",
+  { n: "01", title: "Crée ton univers", desc: "Titre, pitch, genre, style visuel — l'IA construit les règles de ton monde en 30 secondes." },
+  { n: "02", title: "Définis tes personnages", desc: "Fiche physique, tenue, traits — chaque personnage est mémorisé et restera identique panel après panel." },
+  { n: "03", title: "Génère un chapitre", desc: "L'IA écrit le script, découpe en scènes et génère chaque panel avec les bons plans de coupe." },
+  { n: "04", title: "Lis et continue", desc: "Lecteur manga immersif, fond noir, navigation RTL. Reprends à tout moment avec la mémoire complète." },
 ];
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-background">
+      {/* Header */}
       <header className="mx-auto flex max-w-7xl items-center justify-between px-6 py-6">
         <span className="flex items-center gap-2 font-semibold tracking-tight">
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-violet-600 to-rose-700">
@@ -27,125 +54,125 @@ export default function LandingPage() {
             <Link href="/login">Connexion</Link>
           </Button>
           <Button asChild>
-            <Link href="/login">Essayer maintenant</Link>
+            <Link href="/login">Essayer gratuitement</Link>
           </Button>
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-6 pb-24 pt-8">
-        <section className="relative overflow-hidden rounded-[2rem] border border-border/60 bg-black/25 px-6 py-16 shadow-2xl shadow-violet-950/20 md:px-10 md:py-20">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(124,58,237,0.18),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(190,18,60,0.14),transparent_26%)]" />
-          <div className="relative grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
-            <div>
-              <div className="flex flex-wrap gap-2">
-                <Badge>Site web SaaS</Badge>
-                <Badge variant="outline">Lecture manga droite vers gauche</Badge>
-                <Badge variant="outline">Crédits de bienvenue</Badge>
+      <main className="mx-auto max-w-7xl px-6 pb-24">
+        {/* Hero */}
+        <section className="relative overflow-hidden rounded-[2rem] border border-border/60 bg-black/25 px-6 py-20 shadow-2xl shadow-violet-950/20 md:px-12 md:py-28">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(124,58,237,0.22),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(190,18,60,0.18),transparent_30%)]" />
+          <div className="relative mx-auto max-w-3xl text-center">
+            <div className="inline-flex items-center gap-2 rounded-full border border-violet-500/30 bg-violet-950/40 px-4 py-1.5 text-xs font-medium text-violet-300">
+              <Sparkles className="h-3 w-3" />
+              Génération de manga par IA
+            </div>
+            <h1 className="mt-6 text-5xl font-semibold leading-tight tracking-tight md:text-6xl">
+              Ton manga.{" "}
+              <span className="text-gradient-manga">Chapitre par chapitre.</span>
+            </h1>
+            <p className="mt-6 text-lg leading-8 text-muted-foreground">
+              Crée tes personnages une fois — et génère des pages manga cohérentes avec plans de coupe
+              dramatiques, dialogues et lecteur immersif intégré. Même univers, même style, de la
+              première à la dernière page.
+            </p>
+            <div className="mt-10 flex flex-wrap justify-center gap-4">
+              <Button size="lg" asChild className="gap-2 shadow-lg shadow-violet-900/40">
+                <Link href="/login">
+                  Créer mon manga <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+              <Button size="lg" variant="secondary" asChild className="gap-2">
+                <Link href="/login">
+                  Voir le studio <BookOpenText className="h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </section>
+
+        {/* Features */}
+        <section className="mt-16 grid gap-5 sm:grid-cols-3">
+          {features.map((f) => (
+            <div
+              key={f.title}
+              className="card-manga rounded-2xl border border-border/60 bg-card/40 p-6"
+            >
+              <div className="mb-4 text-3xl">{f.emoji}</div>
+              <h3 className="font-semibold">{f.title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{f.desc}</p>
+            </div>
+          ))}
+        </section>
+
+        {/* Genres */}
+        <section className="mt-16">
+          <h2 className="text-center text-2xl font-semibold tracking-tight">
+            Un moteur narratif pour chaque genre
+          </h2>
+          <p className="mx-auto mt-3 max-w-xl text-center text-sm text-muted-foreground">
+            Chaque genre dispose de son propre rythme de beats, style de cliffhanger et densité de
+            panels — généré automatiquement selon ton projet.
+          </p>
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
+            {genres.map((g) => (
+              <span
+                key={g}
+                className="rounded-full border border-border/60 bg-card/40 px-4 py-2 text-sm font-medium text-muted-foreground"
+              >
+                {g}
+              </span>
+            ))}
+          </div>
+        </section>
+
+        {/* How it works */}
+        <section className="mt-20">
+          <h2 className="text-center text-2xl font-semibold tracking-tight">
+            De l'idée au chapitre en 4 étapes
+          </h2>
+          <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {steps.map((s) => (
+              <div
+                key={s.n}
+                className="card-manga rounded-2xl border border-border/60 bg-card/40 p-6"
+              >
+                <div className="text-gradient-manga text-3xl font-bold">{s.n}</div>
+                <h3 className="mt-3 font-semibold">{s.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.desc}</p>
               </div>
-              <h1 className="mt-6 max-w-4xl text-5xl font-semibold leading-tight tracking-tight md:text-6xl">
-                Conçois ton manga, génère un vrai premier chapitre, puis poursuis ta série avec mémoire, personnages et lecteur premium.
-              </h1>
-              <p className="mt-6 max-w-2xl text-lg leading-8 text-muted-foreground">
-                MYMANGA V4 relie enfin le produit, le studio et la lecture : une landing vendeuse, un dashboard clair, une bibliothèque personnelle, un labo central
-                pour personnages et styles, puis une lecture manga-first avec stockage mémoire pour les chapitres suivants.
+            ))}
+          </div>
+        </section>
+
+        {/* CTA final */}
+        <section className="mt-20">
+          <div className="relative overflow-hidden rounded-[2rem] border border-border/60 bg-black/25 px-6 py-14 text-center shadow-2xl shadow-violet-950/15">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(124,58,237,0.15),transparent_60%)]" />
+            <div className="relative">
+              <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
+                Prêt à créer ton premier chapitre&nbsp;?
+              </h2>
+              <p className="mx-auto mt-4 max-w-lg text-muted-foreground">
+                Commence avec des crédits offerts. Aucune carte bancaire requise.
               </p>
-              <div className="mt-10 flex flex-wrap gap-4">
+              <div className="mt-8 flex flex-wrap justify-center gap-4">
                 <Button size="lg" asChild className="gap-2 shadow-lg shadow-violet-900/40">
                   <Link href="/login">
                     Créer mon compte <ArrowRight className="h-4 w-4" />
                   </Link>
                 </Button>
-                <Button size="lg" variant="secondary" asChild className="gap-2">
-                  <Link href="/login">
-                    Accéder au studio <BookOpenText className="h-4 w-4" />
-                  </Link>
-                </Button>
               </div>
             </div>
-
-            <Card className="border-border/60 bg-card/60">
-              <CardHeader>
-                <CardTitle>Parcours V4</CardTitle>
-                <CardDescription>Le produit doit être limpide, testable et vendeuse en moins de 20 secondes.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {steps.map((step) => (
-                  <div key={step} className="rounded-2xl border border-border/60 bg-background/30 p-4 text-sm text-muted-foreground">
-                    {step}
-                  </div>
-                ))}
-                <div className="grid gap-3 pt-2 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-border/60 bg-background/30 p-4">
-                    <p className="text-xs text-muted-foreground">Offre de départ</p>
-                    <p className="mt-1 text-2xl font-semibold">500 crédits</p>
-                  </div>
-                  <div className="rounded-2xl border border-border/60 bg-background/30 p-4">
-                    <p className="text-xs text-muted-foreground">Promesse lecture</p>
-                    <p className="mt-1 text-sm font-medium">format manga ouvert, lecture RTL, continuité mémorisée</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
           </div>
         </section>
-
-        <section className="mt-16 grid gap-5 md:grid-cols-4">
-          <Card className="border-border/50 bg-card/40">
-            <CardHeader>
-              <LibraryBig className="mb-2 h-8 w-8 text-violet-400" />
-              <CardTitle className="text-lg">Bibliothèque</CardTitle>
-              <CardDescription>Chaque utilisateur retrouve ses mangas, ses suites et son point de reprise de lecture.</CardDescription>
-            </CardHeader>
-          </Card>
-          <Card className="border-border/50 bg-card/40">
-            <CardHeader>
-              <Wand2 className="mb-2 h-8 w-8 text-rose-300" />
-              <CardTitle className="text-lg">Labo V4</CardTitle>
-              <CardDescription>Physique des personnages, style manga, DA, disclaimers +18 et génération centralisés.</CardDescription>
-            </CardHeader>
-          </Card>
-          <Card className="border-border/50 bg-card/40">
-            <CardHeader>
-              <Coins className="mb-2 h-8 w-8 text-amber-400" />
-              <CardTitle className="text-lg">Monétisation claire</CardTitle>
-              <CardDescription>Des crédits offerts pour tester, puis un parcours naturel pour continuer et acheter davantage.</CardDescription>
-            </CardHeader>
-          </Card>
-          <Card className="border-border/50 bg-card/40">
-            <CardHeader>
-              <ShieldCheck className="mb-2 h-8 w-8 text-emerald-300" />
-              <CardTitle className="text-lg">Admin & diagnostic</CardTitle>
-              <CardDescription>Mode admin illimité pour QA, diagnostics runtime et déblocage direct des providers.</CardDescription>
-            </CardHeader>
-          </Card>
-        </section>
-
-        <section className="mt-16 grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-          <Card className="border-border/50 bg-card/40">
-            <CardHeader>
-              <CardTitle className="text-lg">Ce que le dashboard doit offrir</CardTitle>
-              <CardDescription>Après connexion, l’utilisateur ne doit jamais se perdre.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm text-muted-foreground">
-              <p>`Bibliothèque` pour reprendre les mangas créés.</p>
-              <p>`Labo` pour créer l’histoire, les personnages, le style de dessin et lancer les générations.</p>
-              <p>`Mon compte` pour voir le statut, les accès et l’age gate.</p>
-              <p>`Crédits` pour suivre le solde ou tester en admin illimité.</p>
-            </CardContent>
-          </Card>
-          <Card className="border-border/50 bg-card/40">
-            <CardHeader>
-              <CardTitle className="text-lg">Ce que lit l’utilisateur</CardTitle>
-              <CardDescription>Une vraie sensation manga, pas un simple carrousel d’images.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm text-muted-foreground">
-              <p>Lecture de droite à gauche, changement de page en mode ouvrage ouvert.</p>
-              <p>Images persistées et diagnostics si un provider échoue.</p>
-              <p>Dialogues et suites guidés par la mémoire du projet et la configuration personnages.</p>
-            </CardContent>
-          </Card>
-        </section>
       </main>
+
+      {/* Footer minimal */}
+      <footer className="border-t border-border/40 py-6 text-center text-xs text-muted-foreground">
+        © {new Date().getFullYear()} Manga AI Studio — Tous droits réservés
+      </footer>
     </div>
   );
 }

@@ -23,37 +23,68 @@ function getCoverUrl(project: {
 export default async function DashboardPage() {
   const user = await getCurrentUser();
   const unlimitedAdmin = isUnlimitedAdminEmail(user.email);
-  const [projects, wallet] = await Promise.all([
-    prisma.project.findMany({
-      where: { userId: user.id, status: { not: "archived" } },
-      orderBy: { updatedAt: "desc" },
-      take: 24,
-      include: {
-        stylePacks: { take: 1, orderBy: { version: "desc" } },
-        settings: true,
-        chapters: {
-          orderBy: { chapterNumber: "asc" },
-          take: 1,
-          include: {
-            scenes: {
-              take: 1,
-              orderBy: { sceneNumber: "asc" },
-              include: {
-                images: {
-                  where: { status: "completed" },
-                  take: 1,
-                  orderBy: { panelNumber: "asc" },
-                  select: { persistedUrl: true, imageUrl: true },
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let projects: any[] = [];
+  let wallet: { balance: number } | null = null;
+
+  try {
+    [projects, wallet] = await Promise.all([
+      prisma.project.findMany({
+        where: { userId: user.id, status: { not: "archived" } },
+        orderBy: { updatedAt: "desc" },
+        take: 24,
+        include: {
+          stylePacks: { take: 1, orderBy: { version: "desc" } },
+          settings: true,
+          chapters: {
+            orderBy: { chapterNumber: "asc" },
+            take: 1,
+            include: {
+              scenes: {
+                take: 1,
+                orderBy: { sceneNumber: "asc" },
+                include: {
+                  images: {
+                    where: { status: "completed" },
+                    take: 1,
+                    orderBy: { panelNumber: "asc" },
+                    select: { persistedUrl: true, imageUrl: true },
+                  },
                 },
               },
             },
           },
+          _count: { select: { characters: true, chapters: true } },
         },
-        _count: { select: { characters: true, chapters: true } },
-      },
-    }),
-    prisma.wallet.findUnique({ where: { userId: user.id } }),
-  ]);
+      }),
+      prisma.wallet.findUnique({ where: { userId: user.id } }),
+    ]);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const isMigration =
+      msg.includes("column") ||
+      msg.includes("does not exist") ||
+      msg.includes("P2022") ||
+      msg.includes("Unknown field");
+    console.error("[dashboard] db error:", msg);
+    return (
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 text-center px-6">
+        <p className="text-lg font-medium">
+          {isMigration ? "Mise à jour de la base de données en cours." : "Erreur de chargement du tableau de bord."}
+        </p>
+        <p className="text-sm text-muted-foreground max-w-md">
+          {isMigration
+            ? "Lance npx prisma migrate deploy sur l'environnement de production puis redémarre le serveur."
+            : "Réessaie dans quelques instants."}
+        </p>
+        <div className="mt-4 flex gap-3">
+          <Button asChild><Link href="/projects/new">Nouveau manga</Link></Button>
+          <Button variant="outline" asChild><Link href="/lab">Labo</Link></Button>
+        </div>
+      </div>
+    );
+  }
 
   const totalChapters = projects.reduce((sum, p) => sum + p._count.chapters, 0);
   const totalCharacters = projects.reduce((sum, p) => sum + p._count.characters, 0);
@@ -164,7 +195,8 @@ export default async function DashboardPage() {
                   contentRating: p.contentRating,
                   status: p.status,
                   _count: p._count,
-                  chapters: p.chapters.map((ch) => ({
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  chapters: p.chapters.map((ch: any) => ({
                     id: ch.id,
                     chapterNumber: ch.chapterNumber,
                     status: ch.status,

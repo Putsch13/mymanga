@@ -11,6 +11,22 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 
+// Genres avec emoji pour l'affichage visuel
+const GENRE_CARDS = [
+  { emoji: "⚔️", label: "Shōnen", value: "shōnen" },
+  { emoji: "🌆", label: "Seinen", value: "seinen" },
+  { emoji: "💕", label: "Romance", value: "shōjo" },
+  { emoji: "🌀", label: "Isekai", value: "isekai" },
+  { emoji: "⚙️", label: "Mecha", value: "mecha" },
+  { emoji: "🔮", label: "Horreur", value: "horreur" },
+  { emoji: "🏃", label: "Sport", value: "sport" },
+  { emoji: "🏥", label: "Médical", value: "médical" },
+  { emoji: "🗡️", label: "Fantasy", value: "fantasy" },
+  { emoji: "🔬", label: "Sci-Fi", value: "sci-fi" },
+  { emoji: "🕵️", label: "Mystère", value: "mystère" },
+  { emoji: "💀", label: "Dark / Gore", value: "dark fantasy" },
+];
+
 // Genres organisés par famille
 const GENRE_FAMILIES = [
   {
@@ -26,8 +42,8 @@ const GENRE_FAMILIES = [
     genres: ["shōjo", "romance", "romance tragique", "slice of life", "comédie"],
   },
   {
-    label: "Sci-Fi / Cyberpunk",
-    genres: ["cyberpunk", "sci-fi", "post-apocalyptique", "mecha"],
+    label: "Sci-Fi / Cyberpunk / Sport",
+    genres: ["cyberpunk", "sci-fi", "post-apocalyptique", "mecha", "sport", "médical"],
   },
 ];
 
@@ -176,8 +192,7 @@ export default function NewProjectPage() {
         <CardHeader>
           <CardTitle className="text-xl">Nouveau manga</CardTitle>
           <CardDescription>
-            Étape {step}/3 —{" "}
-            {step === 1 ? "Concept & genre" : step === 2 ? "Style & ton" : "Réglages fins (optionnel)"}
+            {step === 1 ? "Étape 1/3 — Ton concept & genre" : step === 2 ? "Étape 2/3 — Style visuel & ton" : "Étape 3/3 — Réglages fins (optionnel)"}
           </CardDescription>
           <div className="flex gap-2 pt-1">
             {[1, 2, 3].map((n) => (
@@ -212,46 +227,60 @@ export default function NewProjectPage() {
                     placeholder="Arcs prévus, thèmes profonds, fin envisagée…" />
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <Label>Genre principal</Label>
+                  {/* Grid visuelle de genres avec emoji */}
+                  <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+                    {GENRE_CARDS.map(({ emoji, label, value }) => {
+                      const isPrimary = primaryGenre === value;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setPrimaryGenre(isPrimary ? "" : value)}
+                          className={`card-manga flex flex-col items-center gap-1.5 rounded-xl border p-3 text-center transition-colors ${
+                            isPrimary
+                              ? "border-primary bg-primary/20 text-primary"
+                              : "border-border/60 bg-background/40 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                          }`}
+                        >
+                          <span className="text-xl">{emoji}</span>
+                          <span className="text-xs font-medium leading-tight">{label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Ou saisie libre */}
                   <Input
                     value={primaryGenre}
                     onChange={(e) => setPrimaryGenre(e.target.value)}
-                    placeholder="Tape ou clique ci-dessous"
+                    placeholder="Autre genre… (saisie libre)"
+                    className="mt-1"
                   />
-                  <div className="space-y-3 pt-1">
+                  {/* Sous-genres */}
+                  <div className="space-y-2 pt-1">
+                    <p className="text-xs font-medium text-muted-foreground">Sous-genres (optionnel)</p>
                     {GENRE_FAMILIES.map((family) => (
                       <div key={family.label}>
-                        <p className="mb-1.5 text-xs font-medium text-muted-foreground">{family.label}</p>
+                        <p className="mb-1 text-[11px] text-muted-foreground/60">{family.label}</p>
                         <div className="flex flex-wrap gap-1.5">
                           {family.genres.map((genre) => {
-                            const isPrimary = primaryGenre === genre;
-                            const isSub = subGenres.includes(genre);
+                            const isSub = subGenres.includes(genre) && primaryGenre !== genre;
                             return (
                               <button
                                 key={genre}
                                 type="button"
                                 onClick={() => {
-                                  if (isPrimary) {
-                                    setPrimaryGenre("");
-                                  } else if (isSub) {
-                                    setSubGenres((prev) => prev.filter((g) => g !== genre));
-                                  } else if (!primaryGenre) {
-                                    setPrimaryGenre(genre);
-                                  } else {
-                                    toggleSubGenre(genre);
-                                  }
+                                  if (genre === primaryGenre) return;
+                                  toggleSubGenre(genre);
                                 }}
-                                className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-                                  isPrimary
-                                    ? "border-primary bg-primary text-primary-foreground"
-                                    : isSub
-                                      ? "border-primary/50 bg-primary/15 text-primary"
-                                      : "border-border/60 bg-background/60 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                                className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
+                                  isSub
+                                    ? "border-primary/50 bg-primary/15 text-primary"
+                                    : "border-border/60 bg-background/60 text-muted-foreground hover:border-primary/40 hover:text-foreground"
                                 }`}
                               >
-                                {genre}
-                                {isPrimary ? " ★" : isSub ? " +" : ""}
+                                {genre}{isSub ? " ✓" : ""}
                               </button>
                             );
                           })}
@@ -341,6 +370,14 @@ export default function NewProjectPage() {
             {/* ── ÉTAPE 3 : Réglages fins ───────────────────────────────────── */}
             {step === 3 && (
               <div className="space-y-5">
+                {/* Récap du projet */}
+                <div className="rounded-xl border border-border/50 bg-card/30 p-4 space-y-1.5">
+                  <p className="text-sm font-medium">{title || "Sans titre"}</p>
+                  {primaryGenre && <p className="text-xs text-muted-foreground">Genre : {primaryGenre}{subGenres.length > 0 ? ` + ${subGenres.join(", ")}` : ""}</p>}
+                  {tone && <p className="text-xs text-muted-foreground">Ton : {tone}</p>}
+                  {format && <p className="text-xs text-muted-foreground">Format : {format}</p>}
+                  {pitch && <p className="text-xs text-muted-foreground line-clamp-2 italic">"{pitch}"</p>}
+                </div>
                 <div className="flex items-center justify-between">
                   <p className="text-sm text-muted-foreground">
                     Ces curseurs ajustent le ton de ton manga. Les valeurs par défaut conviennent dans la plupart des cas.
@@ -393,9 +430,14 @@ export default function NewProjectPage() {
             </div>
 
             {step === 2 && (
-              <p className="text-center text-xs text-muted-foreground">
-                Tu peux passer l&apos;étape 3 — les réglages avancés sont optionnels.
-              </p>
+              <button
+                type="button"
+                onClick={onSubmit as unknown as React.MouseEventHandler}
+                disabled={!canContinue || loading}
+                className="w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors py-1 disabled:opacity-40"
+              >
+                Passer les réglages avancés et créer directement →
+              </button>
             )}
           </form>
         </CardContent>
