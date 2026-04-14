@@ -55,3 +55,7 @@ export * from "./services/premium-chapter-contract-builder";
 export * from "./services/panel-retry-policy";
 export * from "./services/ensure-character-fingerprints";
 export * from "./services/prop-visual-library";
+export * from "./services/page-layout-engine";
+export * from "./services/manga-page-compositor";
+export * from "./services/dialogue-placer";
+export * from "./services/sfx-extractor";

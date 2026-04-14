@@ -2729,6 +2729,9 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       return promise;
     }
 
+    // COST-2 : cache des décors purs (environment panels) pour éviter de regénérer le même décor
+    const environmentImageCache = new Map<string, string>(); // key: location+mood → imageUrl
+
     async function processOneImage(item: PlannedImage): Promise<"ok" | "fail"> {
       const panelCharacterNames: string[] = item.panel.characters ?? [];
       const canonRef = panelCharacterNames.map((n) => canonRefByName.get(n)).find(Boolean) ?? null;
@@ -2921,6 +2924,36 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                 : null,
         });
 
+        // COST-2 : réutiliser les décors purs déjà générés dans ce chapitre (économie ~15%)
+        const panelCategoryStr = strategy.panelCategory as string | null;
+        const isEnvironmentPanel =
+          panelCategoryStr === "ESTABLISHING_ENVIRONMENT" ||
+          panelCategoryStr === "ENVIRONMENT_ONLY" ||
+          (panelContractMeta?.purpose === "environment" && (panelCharacterNames.length === 0));
+        if (isEnvironmentPanel) {
+          const envLocation = typeof (item.baseMetadata.panelContract as Record<string, unknown> | undefined)?.environmentPrimary === "string"
+            ? String((item.baseMetadata.panelContract as Record<string, unknown>).environmentPrimary)
+            : (item.panel.prompt.split(" ").slice(0, 3).join("_") ?? "generic");
+          const envMood = item.panel.mood ?? "neutral";
+          const envCacheKey = `${envLocation}_${envMood}`.toLowerCase().replace(/\s+/g, "_");
+          const cachedEnvUrl = environmentImageCache.get(envCacheKey);
+          if (cachedEnvUrl) {
+            await prisma.sceneImage.update({
+              where: { id: item.sceneImageId },
+              data: {
+                status: "completed",
+                imageUrl: cachedEnvUrl,
+                persistedUrl: cachedEnvUrl,
+                provider: "cache",
+                failureReason: null,
+                metadata: ({ ...item.baseMetadata, cachedFrom: envCacheKey } as unknown) as Prisma.InputJsonValue,
+              },
+            });
+            console.log(`[pipeline] env_cache_hit sceneImageId=${item.sceneImageId} key=${envCacheKey}`);
+            return "ok";
+          }
+        }
+
         const isEnvironmentSufficientForNarrativePanel = (validation: Awaited<ReturnType<typeof validateGeneratedPanel>>) => {
           if (strategy.panelCategory === "CHARACTER_LOCK" || strategy.panelCategory === "LOCAL_FIX") return true;
           const scores = validation.qualityScores;
@@ -2991,6 +3024,8 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               panelCategory: strategy.panelCategory,
               scenePass: params.scenePass,
               rerollKind: params.rerollKind,
+              // COST-1 : injecter la criticité pour le choix schnell vs dev
+              panelCriticality: panelCriticality.level,
             },
           };
           const generation = await runRoutedImageGeneration(routingCtx, {
@@ -3348,6 +3383,17 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             } as unknown) as Prisma.InputJsonValue,
           },
         });
+
+        // COST-2 : stocker dans le cache si c'est un environment panel réussi
+        if (isEnvironmentPanel && persisted.url) {
+          const envLocation = typeof (item.baseMetadata.panelContract as Record<string, unknown> | undefined)?.environmentPrimary === "string"
+            ? String((item.baseMetadata.panelContract as Record<string, unknown>).environmentPrimary)
+            : (item.panel.prompt.split(" ").slice(0, 3).join("_") ?? "generic");
+          const envMood = item.panel.mood ?? "neutral";
+          const envCacheKey = `${envLocation}_${envMood}`.toLowerCase().replace(/\s+/g, "_");
+          environmentImageCache.set(envCacheKey, persisted.url);
+        }
+
         return "ok";
       } catch (imgError) {
         const msg = imgError instanceof Error ? imgError.message : "image_error";

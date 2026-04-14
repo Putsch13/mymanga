@@ -1,5 +1,7 @@
 import { prisma } from "@manga-ai-studio/db";
 
+export { exportChapterPdf } from "./pdf-export";
+
 export async function exportChapterPdfStub(chapterId: string): Promise<Uint8Array> {
   const chapter = await prisma.chapter.findUnique({
     where: { id: chapterId },

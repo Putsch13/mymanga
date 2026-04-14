@@ -7,7 +7,9 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@manga-ai-studio/db": "workspace:*"
+    "@manga-ai-studio/db": "workspace:*",
+    "@manga-ai-studio/ai": "workspace:*",
+    "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
     "typescript": "^5"

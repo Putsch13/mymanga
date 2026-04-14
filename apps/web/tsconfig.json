@@ -19,7 +19,12 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@manga-ai-studio/ai": ["../../packages/ai/src/index.ts"],
+      "@manga-ai-studio/core": ["../../packages/core/src/index.ts"],
+      "@manga-ai-studio/db": ["../../packages/db/src/index.ts"],
+      "@manga-ai-studio/workflow": ["../../packages/workflow/src/index.ts"],
+      "@manga-ai-studio/exports": ["../../packages/exports/src/index.ts"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

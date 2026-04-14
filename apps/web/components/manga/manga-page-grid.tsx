@@ -1,8 +1,11 @@
 "use client";
 
+import type React from "react";
 import type { DemoMangaPage } from "@/lib/demo-data";
 import type { AnyPanelMood } from "./manga-panel";
 import { MangaPanel } from "./manga-panel";
+// LAY-2 : import des configs de layout dynamique
+import { PAGE_LAYOUT_CONFIGS } from "@manga-ai-studio/ai";
 
 /**
  * Layout presets for manga pages (4–6 panels).
@@ -119,9 +122,21 @@ export interface UniversalPanel {
   };
 }
 
+// LAY-2 : types étendus pour les nouveaux templates de layout
+export type ExtendedLayoutTemplate =
+  | "A" | "B" | "C" | "D" | "E" | "F"  // Legacy
+  | "splash" | "double_spread" | "grid_2x2" | "grid_2x3"
+  | "action_strip" | "asymmetric_hero" | "cinematic_bar"
+  | "focus_closeup" | "montage_rapid" | "vertical_strip";
+
 export interface UniversalMangaPage {
   id?: string;
   layout: "A" | "B" | "C" | "D" | "E" | "F";
+  /** LAY-2 : template étendu (prioritaire sur layout si présent) */
+  layoutTemplate?: ExtendedLayoutTemplate;
+  isSplashPage?: boolean;
+  isDoublePage?: boolean;
+  title?: string | null;
   panels: UniversalPanel[];
 }
 
@@ -299,7 +314,17 @@ export function MangaPageGrid({ page }: Props) {
     ? demoPageToUniversal(page)
     : (page as UniversalMangaPage);
 
-  const layoutStyle = LAYOUT_STYLES[universal.layout] ?? LAYOUT_STYLES.A;
+  // LAY-2 : résolution du layout — priorité aux nouveaux templates
+  const extTemplate = universal.layoutTemplate;
+  const dynamicConfig = extTemplate && PAGE_LAYOUT_CONFIGS[extTemplate as keyof typeof PAGE_LAYOUT_CONFIGS];
+  const layoutStyle: React.CSSProperties = dynamicConfig
+    ? {
+        display: "grid",
+        gridTemplateAreas: dynamicConfig.cssGridAreas,
+        gridTemplate: dynamicConfig.cssGridTemplate,
+        gap: "3px",
+      }
+    : (LAYOUT_STYLES[universal.layout] ?? LAYOUT_STYLES.A);
   const renderedPanels = universal.panels.map((panel, i) => {
     const area = AREA_NAMES[i] ?? "a";
     const { fit, position } = pickPanelImageFit(panel);

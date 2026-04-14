@@ -5,6 +5,51 @@ import { createFalJobClient, type FalJobClientInput } from "../services/fal-job-
 export const FAL_MODEL_TEXT = "fal-ai/flux/dev";
 export const FAL_MODEL_REDUX = "fal-ai/flux/dev/redux";
 export const FAL_MODEL_LORA = "fal-ai/flux-lora";
+export const FAL_MODEL_SCHNELL = "fal-ai/flux/schnell";
+
+/**
+ * COST-1 — Résolution du modèle optimal selon la criticité du panel.
+ * flux/schnell ($0.003) pour les panels medium/low.
+ * flux/dev ($0.025) uniquement pour les panels critical/high et les character refs.
+ * Économie attendue : ~70% du coût image.
+ */
+export function resolveOptimalFalModel(
+  criticality: string | null | undefined,
+  panelCategory: string | null | undefined,
+  referencePolicy: string | null | undefined,
+  rerollKind: string | null | undefined,
+): { model: string; numSteps: number; usedSchnell: boolean } {
+  // Toujours flux/dev pour les panels critiques, les character locks, les refs fortes et la cover
+  const forceHighQuality =
+    criticality === "critical" ||
+    criticality === "high" ||
+    panelCategory === "CHARACTER_LOCK" ||
+    panelCategory === "COVER_ART" ||
+    panelCategory === "SPLASH_PAGE" ||
+    referencePolicy === "STRONG";
+
+  if (forceHighQuality) {
+    return { model: FAL_MODEL_TEXT, numSteps: 28, usedSchnell: false };
+  }
+
+  // Rerolls locaux : toujours schnell (rapide + moins cher, juste pour voir les fixes)
+  if (rerollKind === "reroll_local" || rerollKind === "LOCAL_FIX") {
+    return { model: FAL_MODEL_SCHNELL, numSteps: 4, usedSchnell: true };
+  }
+
+  // Establishing shots / environment panels → schnell suffisant
+  if (
+    panelCategory === "ESTABLISHING_ENVIRONMENT" ||
+    panelCategory === "ENVIRONMENT_ONLY" ||
+    criticality === "medium" ||
+    criticality === "low"
+  ) {
+    return { model: FAL_MODEL_SCHNELL, numSteps: 4, usedSchnell: true };
+  }
+
+  // Par défaut : flux/dev
+  return { model: FAL_MODEL_TEXT, numSteps: 28, usedSchnell: false };
+}
 
 export function buildFalNegativePrompt(raw: string | undefined) {
   if (!raw?.trim()) return "";
@@ -32,13 +77,17 @@ export function describeReferencePolicy(value: unknown) {
 export function normalizeRequestedFalModel(
   requested: string | null | undefined,
   flags: { useLora: boolean; useRedux: boolean },
+  optimalModel?: { model: string; numSteps: number; usedSchnell: boolean },
 ) {
-  if (flags.useLora) return { model: FAL_MODEL_LORA };
-  if (flags.useRedux) return { model: FAL_MODEL_REDUX };
+  if (flags.useLora) return { model: FAL_MODEL_LORA, numSteps: optimalModel?.numSteps ?? 28, usedSchnell: false };
+  if (flags.useRedux) return { model: FAL_MODEL_REDUX, numSteps: optimalModel?.numSteps ?? 28, usedSchnell: false };
   if (requested === "flux-pro/v1.1") {
-    return { model: FAL_MODEL_TEXT };
+    return { model: FAL_MODEL_TEXT, numSteps: optimalModel?.numSteps ?? 28, usedSchnell: false };
   }
-  return { model: FAL_MODEL_TEXT };
+  if (optimalModel) {
+    return { model: optimalModel.model, numSteps: optimalModel.numSteps, usedSchnell: optimalModel.usedSchnell };
+  }
+  return { model: FAL_MODEL_TEXT, numSteps: 28, usedSchnell: false };
 }
 
 export function buildFalGenerationRequest(input: GenerateImageInput) {
@@ -55,6 +104,12 @@ export function buildFalGenerationRequest(input: GenerateImageInput) {
   const referencePolicy = describeReferencePolicy(input.providerParams?.referencePolicy);
   const panelCategory = typeof input.providerParams?.panelCategory === "string" ? input.providerParams.panelCategory : "CHARACTER_IN_SCENE";
   const scenePass = typeof input.providerParams?.scenePass === "string" ? input.providerParams.scenePass : "single_pass";
+  const rerollKind = typeof input.providerParams?.rerollKind === "string" ? input.providerParams.rerollKind : null;
+  const panelCriticality = typeof input.providerParams?.panelCriticality === "string" ? input.providerParams.panelCriticality : null;
+
+  // COST-1 : résolution du modèle optimal (schnell vs dev selon criticité)
+  const optimalModel = resolveOptimalFalModel(panelCriticality, panelCategory, referencePolicy, rerollKind);
+
   const translatedPositive = optimizePromptForFal(input.positivePrompt);
   const translatedNegative = buildFalNegativePrompt(input.negativePrompt);
   const activeLoras = input.loras?.filter((l) => l.url) ?? [];
@@ -78,15 +133,21 @@ export function buildFalGenerationRequest(input: GenerateImageInput) {
   const target = normalizeRequestedFalModel(
     typeof input.providerParams?.model === "string" ? input.providerParams.model : null,
     { useLora, useRedux },
+    optimalModel,
   );
+
+  const numSteps = target.numSteps ?? 28;
+  // flux/schnell n'accepte pas guidance_scale — on l'omet pour ce modèle
+  const isSchnell = target.model === FAL_MODEL_SCHNELL;
+  const guidanceScale = isSchnell ? undefined : 3.9;
 
   let payload: Record<string, unknown>;
   if (useLora) {
     payload = {
       prompt: promptWithNeg,
       image_size: imageSize,
-      num_inference_steps: 28,
-      guidance_scale: 3.9,
+      num_inference_steps: numSteps,
+      ...(guidanceScale !== undefined ? { guidance_scale: guidanceScale } : {}),
       num_images: 1,
       enable_safety_checker: !isMature,
       output_format: "jpeg",
@@ -104,8 +165,8 @@ export function buildFalGenerationRequest(input: GenerateImageInput) {
       prompt: promptWithNeg,
       image_url: referenceUrl,
       image_size: imageSize,
-      num_inference_steps: 28,
-      guidance_scale: 3.9,
+      num_inference_steps: numSteps,
+      ...(guidanceScale !== undefined ? { guidance_scale: guidanceScale } : {}),
       num_images: 1,
       enable_safety_checker: !isMature,
       output_format: "jpeg",
@@ -115,8 +176,8 @@ export function buildFalGenerationRequest(input: GenerateImageInput) {
     payload = {
       prompt: promptWithNeg,
       image_size: imageSize,
-      num_inference_steps: 28,
-      guidance_scale: 3.9,
+      num_inference_steps: numSteps,
+      ...(guidanceScale !== undefined ? { guidance_scale: guidanceScale } : {}),
       num_images: 1,
       enable_safety_checker: !isMature,
       output_format: "jpeg",
@@ -148,6 +209,7 @@ export async function runFalGenerationJob(apiKey: string | undefined, input: Gen
     `[fal] ${JSON.stringify({
       strategy,
       model: request.target.model,
+      usedSchnell: request.target.usedSchnell ?? false,
       imageSize: typeof request.imageSize === "string" ? request.imageSize : `${request.imageSize.width}x${request.imageSize.height}`,
       referencePolicy: request.referencePolicy,
       panelCategory: request.panelCategory,

@@ -633,6 +633,12 @@ model ChapterScene {
   dialogue   Json     @default("{}")
   metadata   Json     @default("{}")
 
+  /// LAY-3 : layout décidé pour cette page
+  pageLayoutTemplate  String?
+  dramaticWeight      Float?
+  isDoublePage        Boolean  @default(false)
+  isSplashPage        Boolean  @default(false)
+
   images     SceneImage[]
   mediaAssets MediaAsset[]
   keyframes  SceneKeyframe[]

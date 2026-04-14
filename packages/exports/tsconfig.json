@@ -1,4 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@manga-ai-studio/ai": ["../ai/src/index.ts"],
+      "@manga-ai-studio/db": ["../db/src/index.ts"]
+    }
+  },
   "include": ["src/**/*.ts"]
 }

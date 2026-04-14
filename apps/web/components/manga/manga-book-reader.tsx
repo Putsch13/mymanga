@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   ChevronLeft,
@@ -27,6 +27,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { MangaPanel } from "./manga-panel";
 import { MangaPageGrid, flattenPagesToPanels, pipelineScenesToPages, type UniversalMangaPage } from "./manga-page-grid";
+import { WebtoonLazyScroll } from "./webtoon-lazy-scroll";
+import { SplashPageRenderer } from "./splash-page-renderer";
 
 type SceneImage = {
   id: string;
@@ -303,6 +305,8 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   const [continueMsg, setContinueMsg] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [retryingPanel, setRetryingPanel] = useState<string | null>(null);
+  const [transitioning, setTransitioning] = useState(false);
+  const touchStartX = useRef<number | null>(null);
   const degradedReaderWarning =
     (generationDiagnostics?.degradedModes?.length ?? 0) > 0
       ? [
@@ -391,21 +395,29 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   const goNext = useCallback(() => {
     setTurn({ dir: "next", at: Date.now() });
     const step = spreadMode ? 2 : 1;
-    if (pageIndex < totalPages - step) {
-      setPageIndex((i) => i + step);
-    } else {
-      setShowEnd(true);
-    }
+    setTransitioning(true);
+    setTimeout(() => {
+      if (pageIndex < totalPages - step) {
+        setPageIndex((i) => i + step);
+      } else {
+        setShowEnd(true);
+      }
+      setTransitioning(false);
+    }, 180);
   }, [pageIndex, totalPages, spreadMode]);
 
   const goPrev = useCallback(() => {
     setTurn({ dir: "prev", at: Date.now() });
-    if (showEnd) {
-      setShowEnd(false);
-      return;
-    }
-    const step = spreadMode ? 2 : 1;
-    setPageIndex((i) => Math.max(0, i - step));
+    setTransitioning(true);
+    setTimeout(() => {
+      if (showEnd) {
+        setShowEnd(false);
+      } else {
+        const step = spreadMode ? 2 : 1;
+        setPageIndex((i) => Math.max(0, i - step));
+      }
+      setTransitioning(false);
+    }, 180);
   }, [showEnd, spreadMode]);
 
   useEffect(() => {
@@ -426,6 +438,34 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [goNext, goPrev, fullscreen, mangaRtl, readerMode]);
+
+  // READ-2 : Touch swipe pour mobile (delta > 50px → navigation)
+  useEffect(() => {
+    if (readerMode === "webtoon") return;
+    function onTouchStart(e: TouchEvent) {
+      touchStartX.current = e.touches[0]?.clientX ?? null;
+    }
+    function onTouchEnd(e: TouchEvent) {
+      if (touchStartX.current === null) return;
+      const dx = (e.changedTouches[0]?.clientX ?? 0) - touchStartX.current;
+      touchStartX.current = null;
+      if (Math.abs(dx) < 50) return;
+      // Swipe gauche = avancer (RTL) ou reculer (LTR)
+      if (dx < 0) {
+        if (mangaRtl) goPrev();
+        else goNext();
+      } else {
+        if (mangaRtl) goNext();
+        else goPrev();
+      }
+    }
+    window.addEventListener("touchstart", onTouchStart, { passive: true });
+    window.addEventListener("touchend", onTouchEnd, { passive: true });
+    return () => {
+      window.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [goNext, goPrev, mangaRtl, readerMode]);
 
   async function submitContinue(quickTag?: string) {
     const text = intent.trim();
@@ -482,9 +522,30 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   const renderPage = () => {
     if (!leftPage) return null;
 
+    // READ-2 : splash page pleine page
+    const splashImage = leftPage.panels[0]?.imageUrl;
+    const isSplash = (leftPage as { isSplashPage?: boolean }).isSplashPage && Boolean(splashImage);
+
+    if (isSplash && splashImage) {
+      return (
+        <div
+          className={cn("transition-opacity duration-200", transitioning && "opacity-0")}
+          style={{ maxWidth: fullscreen ? "100%" : "720px", margin: "0 auto" }}
+        >
+          <SplashPageRenderer
+            imageUrl={splashImage}
+            chapterNumber={chapter?.chapterNumber ?? 0}
+            beatTitle={leftPage.title ?? null}
+            isOpening={pageIndex === 0}
+            onTap={() => mangaRtl ? goPrev() : goNext()}
+          />
+        </div>
+      );
+    }
+
     return (
       <div
-        className="relative mx-auto cursor-pointer"
+        className={cn("relative mx-auto cursor-pointer transition-opacity duration-200", transitioning && "opacity-0")}
         style={{ maxWidth: fullscreen ? "100%" : spreadMode ? "1040px" : "720px" }}
         role="button"
         tabIndex={0}
@@ -676,43 +737,33 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   };
 
   const renderWebtoon = () => (
-    <div className="mx-auto w-full max-w-[860px]">
-      <div className="space-y-12 md:space-y-16">
-        {pages.map((page, pageIdx) => (
-          <section key={page.id ?? `page-${pageIdx}`} className="space-y-4 rounded-[32px] border border-white/5 bg-white/[0.02] px-2 py-4 sm:px-4">
-            <div className="sticky top-3 z-20 mx-auto flex w-fit items-center gap-2 rounded-full border border-white/10 bg-black/60 px-3 py-1 text-xs text-stone-200 backdrop-blur">
-              <BookOpen className="h-3.5 w-3.5 text-accent" />
-              <span>Page {pageIdx + 1}</span>
-            </div>
-            <div className="space-y-8 md:space-y-10">
-              {page.panels.map((panel, panelIdx) => (
-                <MangaPanel
-                  key={panel.id ?? `${pageIdx}-${panelIdx}`}
-                  mood={panel.mood}
-                  imageUrl={panel.imageUrl}
-                  status={panel.status}
-                  provider={panel.provider}
-                  model={panel.model}
-                  error={panel.error}
-                  sceneImageId={panel.id}
-                  dialogue={panel.dialogue}
-                  dialogues={panel.dialogues}
-                  speaker={panel.speaker}
-                  narration={panel.narration}
-                  sfx={panel.sfx}
-                  caption={panel.caption}
-                  textScale={panel.textScale}
-                  renderMeta={panel.renderMeta}
-                  layoutMeta={panel.layoutMeta}
-                  renderMode="webtoon"
-                  panelIndex={panelIdx}
-                />
-              ))}
-            </div>
-          </section>
-        ))}
-      </div>
-    </div>
+    <WebtoonLazyScroll
+      pages={pages.map((page, pageIdx) => ({
+        id: page.id ?? `page-${pageIdx}`,
+        panels: page.panels.map((panel, panelIdx) => ({
+          id: panel.id ?? `${pageIdx}-${panelIdx}`,
+          imageUrl: panel.imageUrl,
+          status: panel.status,
+          provider: panel.provider,
+          model: panel.model,
+          error: panel.error,
+          sceneImageId: panel.id,
+          dialogue: panel.dialogue ? { speaker: panel.speaker ?? "", text: panel.dialogue } : undefined,
+          dialogues: panel.dialogues,
+          speaker: panel.speaker,
+          narration: panel.narration,
+          sfx: panel.sfx,
+          caption: panel.caption,
+          textScale: panel.textScale,
+          renderMeta: panel.renderMeta,
+          layoutMeta: panel.layoutMeta,
+          mood: panel.mood,
+          pageIndex: pageIdx,
+        })),
+      }))}
+      onRetryPanel={retryPanel}
+      retryingPanel={retryingPanel}
+    />
   );
 
   const toolbar = (
