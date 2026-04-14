@@ -29,10 +29,12 @@ import { MangaPanel } from "./manga-panel";
 import { MangaPageGrid, flattenPagesToPanels, pipelineScenesToPages, type UniversalMangaPage } from "./manga-page-grid";
 import { WebtoonLazyScroll } from "./webtoon-lazy-scroll";
 import { SplashPageRenderer } from "./splash-page-renderer";
+import { MangaCanvasRenderer, computePanelPositions } from "./manga-canvas-renderer";
 
 type SceneImage = {
   id: string;
   imageUrl: string | null;
+  persistedUrl?: string | null;   // URGENCE 3 : URL stable Supabase
   panelNumber: number;
   status?: string;
   provider?: string | null;
@@ -65,6 +67,11 @@ type SceneImage = {
 type ChapterScene = {
   id: string;
   title: string | null;
+  // URGENCE 3 : champs layout depuis la DB
+  pageLayoutTemplate?: string | null;
+  isSplashPage?: boolean | null;
+  isDoublePage?: boolean | null;
+  dramaticWeight?: number | null;
   images: SceneImage[];
 };
 
@@ -240,11 +247,18 @@ function buildPagesFromChapter(chapter: ChapterPayload): UniversalMangaPage[] {
 
   const pipelineScenes = chapter.scenes.map((scene) => ({
     id: scene.id,
+    // URGENCE 3 : passer les champs layout dynamique
+    pageLayoutTemplate: scene.pageLayoutTemplate,
+    isSplashPage: scene.isSplashPage,
+    isDoublePage: scene.isDoublePage,
+    dramaticWeight: scene.dramaticWeight,
     images: scene.images.map((img) => ({
       id: img.id,
       panelNumber: img.panelNumber,
       mood: img.metadata?.mood,
-      imageUrl: img.imageUrl,
+      // URGENCE 3 : préférer persistedUrl (stable) — proxy appliqué côté API
+      imageUrl: img.persistedUrl ?? img.imageUrl,
+      persistedUrl: img.persistedUrl,
       status: img.status,
       provider: img.provider,
       model: img.model,
@@ -522,6 +536,32 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   const renderPage = () => {
     if (!leftPage) return null;
 
+    // READ-FINAL-2 : double-page spread authentique (pleine largeur 2 colonnes)
+    const isDoublePage = (leftPage as { isDoublePage?: boolean }).isDoublePage;
+    if (isDoublePage && leftPage.id) {
+      const compositeUrl = `/api/projects/${projectId}/chapters/${chapterId}/composite-page?sceneId=${leftPage.id}&mode=double`;
+      return (
+        <div
+          className={cn("relative mx-auto transition-opacity duration-200", transitioning && "opacity-0")}
+          style={{ maxWidth: fullscreen ? "100%" : "1440px" }}
+          role="button"
+          tabIndex={0}
+          onClick={() => mangaRtl ? goPrev() : goNext()}
+          onKeyDown={(e) => e.key === "Enter" && (mangaRtl ? goPrev() : goNext())}
+          aria-label="Double page manga"
+        >
+          <img
+            src={compositeUrl}
+            alt={`Double page manga ${pageIndex + 1}`}
+            className="w-full object-contain"
+          />
+          <div className="absolute bottom-3 right-3 z-20 rounded-full border border-black/20 bg-white/85 px-2 py-1 text-[10px] font-medium text-stone-900">
+            Pages {pageIndex + 1}–{pageIndex + 2}
+          </div>
+        </div>
+      );
+    }
+
     // READ-2 : splash page pleine page
     const splashImage = leftPage.panels[0]?.imageUrl;
     const isSplash = (leftPage as { isSplashPage?: boolean }).isSplashPage && Boolean(splashImage);
@@ -726,7 +766,45 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                     ))}
                   </div>
                 ) : (
-                  <MangaPageGrid page={leftPage} />
+                  // URGENCE 6 → READ-FINAL-1 : hiérarchie de rendu
+                  // 1. Image composite (Sharp, panels assemblés + bulles + SFX) si sceneId disponible
+                  // 2. MangaCanvasRenderer (canvas client) si panels complétés
+                  // 3. MangaPageGrid (CSS grid fallback)
+                  leftPage.id && leftPage.panels.some((p) => p.imageUrl && p.status === "completed")
+                    ? <div className="relative h-full w-full">
+                        <img
+                          src={`/api/projects/${projectId}/chapters/${chapterId}/composite-page?sceneId=${leftPage.id}`}
+                          alt={`Page manga ${pageIndex + 1}`}
+                          className="h-full w-full object-contain"
+                          loading="eager"
+                          onError={(e) => {
+                            // Fallback : masquer l'img, le MangaCanvasRenderer prend le relais
+                            (e.target as HTMLImageElement).style.display = "none";
+                            const fallback = (e.target as HTMLImageElement).nextElementSibling;
+                            if (fallback) (fallback as HTMLElement).style.display = "block";
+                          }}
+                        />
+                        <div style={{ display: "none" }} className="h-full">
+                          <MangaCanvasRenderer
+                            panels={computePanelPositions(
+                              leftPage.panels.map((p) => ({
+                                id: p.id ?? "",
+                                imageUrl: p.imageUrl ?? null,
+                                persistedUrl: null,
+                                metadata: null,
+                              })),
+                              800,
+                              1130,
+                              2,
+                            )}
+                            pageWidth={800}
+                            pageHeight={1130}
+                            darkMode={false}
+                            className="rounded-sm"
+                          />
+                        </div>
+                      </div>
+                    : <MangaPageGrid page={leftPage} />
                 )}
               </div>
             )}

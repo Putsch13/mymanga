@@ -50,6 +50,7 @@ export async function GET(_req: Request, ctx: Ctx) {
                 id: true,
                 panelNumber: true,
                 imageUrl: true,
+                persistedUrl: true,      // URGENCE 2 : URL stable Supabase
                 status: true,
                 provider: true,
                 model: true,
@@ -135,6 +136,11 @@ export async function GET(_req: Request, ctx: Ctx) {
           const proxied = toProxied(signed ?? original);
           if (proxied && proxied !== (signed ?? original)) proxiedCount++;
           img.imageUrl = proxied ?? signed ?? original;
+          // URGENCE 2 : préférer persistedUrl (stable) mais la proxifier aussi
+          if ((img as { persistedUrl?: string | null }).persistedUrl) {
+            const ps = await signSupabaseUrlIfNeeded((img as { persistedUrl?: string | null }).persistedUrl ?? null);
+            (img as { persistedUrl?: string | null }).persistedUrl = toProxied(ps ?? (img as { persistedUrl?: string | null }).persistedUrl) ?? (img as { persistedUrl?: string | null }).persistedUrl;
+          }
         }),
       ],
     ),

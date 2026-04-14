@@ -123,7 +123,8 @@ export async function buildChapterCanonState(
         fatigue: null,
         emotion: char.emotionalState ?? null,
         objective: char.objective ?? null,
-        possessions: [],
+        // URGENCE 7 : possessions héritées du chapitre précédent si disponibles
+        possessions: prevState?.currentState?.possessions ?? [],
         knowledge: [],
         obligations: [],
       },

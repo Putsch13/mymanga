@@ -1047,6 +1047,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         silhouetteSignature: true,
         accessoryMarker: true,
         outfitSignature: true,
+        shortVisualCore: true,   // URGENCE 5 : description visuelle pour injection dans prompts
         metadata: true,
       },
     }),
@@ -1693,6 +1694,43 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             },
           });
 
+          // URGENCE 1 — Brancher resolvePageLayout() pour déterminer le layout dramatique de la scène
+          try {
+            const { resolvePageLayout } = await import("@manga-ai-studio/ai");
+            const beatForLayout = revisedBundle.outline.beats[index];
+            const totalBeats = revisedBundle.outline.beats.length;
+            const beatHints = {
+              pageRole: (beatForLayout?.pageRole ?? "escalation") as "establishing" | "escalation" | "confrontation" | "revelation" | "aftermath" | "cliffhanger" | "dialogue" | "action" | "transition",
+              emotionalDelta: typeof (beatForLayout as { emotionalDelta?: number })?.emotionalDelta === "number"
+                ? ((beatForLayout as { emotionalDelta?: number }).emotionalDelta as number)
+                : (beatForLayout?.pageRole === "revelation" || beatForLayout?.pageRole === "cliffhanger" ? 2 : 0),
+              cutawayType: null,
+              subjectFocus: null,
+              panelCount: finalPanelBlueprints.filter((bp) => {
+                const bpRec = bp as unknown as Record<string, unknown>;
+                const bpPage = typeof bpRec.pageNumber === "number" ? bpRec.pageNumber : null;
+                return bpPage === null || bpPage === index + 1;
+              }).length || 4,
+            };
+            const layoutDecision = resolvePageLayout(beatHints, {
+              isFirst: index === 0,
+              isLast: index === totalBeats - 1,
+              beatIndex: index,
+              totalBeats,
+            });
+            await tx.chapterScene.update({
+              where: { id: createdScene.id },
+              data: {
+                pageLayoutTemplate: layoutDecision.template,
+                dramaticWeight: layoutDecision.dramaticWeight,
+                isSplashPage: layoutDecision.template === "splash",
+                isDoublePage: layoutDecision.isDoublePage,
+              },
+            });
+          } catch (layoutErr) {
+            console.warn(`[pipeline] layout_decision_failed (non-blocking): ${layoutErr instanceof Error ? layoutErr.message : layoutErr}`);
+          }
+
           const persistentSceneExtras = await ensureSceneExtras(tx, {
             sceneId: createdScene.id,
             locationName: scene.location,
@@ -2116,7 +2154,19 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
                             : ("none" as const),
                       recurringMemory,
                       bodyDetails: c.bodyDetails,
-                      wardrobeDetails: c.wardrobeDetails,
+                      // URGENCE 7 : enrichir wardrobeDetails avec les props actifs du personnage
+                      wardrobeDetails: (() => {
+                        const baseParts: string[] = [];
+                        if (c.wardrobeDetails) baseParts.push(c.wardrobeDetails);
+                        // Ajouter les props visibles du panelContract portés par ce personnage
+                        const propsForChar = (panelContract.requiredPropsTyped ?? [])
+                          .filter((p: { mustBeVisible?: boolean; canonicalName: string }) => p.mustBeVisible !== false)
+                          .map((p: { canonicalName: string }) => p.canonicalName);
+                        if (propsForChar.length > 0) {
+                          baseParts.push(`carrying/wearing: ${propsForChar.join(", ")}`);
+                        }
+                        return baseParts.length > 0 ? baseParts.join(", ") : null;
+                      })(),
                       hardTraits,
                       softTraits,
                       fingerprint: fingerprint as never,
@@ -2192,6 +2242,43 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               chapterLookProfile,
               sceneAnchor: panelSceneAnchor,
               intentCard: panelIntentCard,
+              // URGENCE 4 : accessoires requis depuis le prop inference engine
+              requiredProps: panelContract.requiredPropsTyped ?? null,
+              // URGENCE 5 : PNJ récurrents présents dans cette scène
+              npcPresence: (() => {
+                const activeNpcDescriptors = npcProfiles
+                  .filter(
+                    (n) =>
+                      typeof n.shortVisualCore === "string" &&
+                      (n.importanceLevel === "recurring" || n.importanceLevel === "important"),
+                  )
+                  .sort((a, b) => b.appearanceCount - a.appearanceCount)
+                  .slice(0, 3)
+                  .map((n) => {
+                    const parts: string[] = [];
+                    if (n.shortVisualCore) parts.push(n.shortVisualCore);
+                    if (n.outfitSignature) parts.push(`wearing ${n.outfitSignature}`);
+                    parts.push("background character");
+                    return parts.join(", ");
+                  });
+                return activeNpcDescriptors.length > 0 ? activeNpcDescriptors : null;
+              })(),
+              // IMG-1 : type de plan pour les framing directives manga
+              shotType: panelContract.shotType ?? null,
+              cutawayType: (panelContract as Record<string, unknown>).cutawayType as string | null ?? null,
+              subjectFocus: (panelContract as Record<string, unknown>).subjectFocus as string | null ?? null,
+              cameraAngle: null,
+              // IMG-3 : phrase d'ancrage de style figée pour cohérence cross-panels
+              chapterStyleAnchor: stylePack
+                ? [
+                    stylePack.renderFamily ?? null,
+                    `${stylePack.lineWeight ?? ""} line weight`,
+                    stylePack.shadingMode ?? null,
+                    "manga panel style",
+                  ].filter(Boolean).join(", ")
+                : "manga art style, clean ink lines, screen tone shading, Japanese manga aesthetics",
+              // IMG-4 : type de beat pour les effets manga
+              beatType: (revisedBundle.outline.beats[index]?.pageRole as string | undefined) ?? null,
             });
             composedPositive = [
               composed.positive,

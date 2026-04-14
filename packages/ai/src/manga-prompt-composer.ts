@@ -8,6 +8,7 @@ import type { SceneAnchor } from "./services/scene-anchor";
 import { buildSceneAnchorPromptBlock } from "./services/scene-anchor";
 import type { PanelIntentCard } from "./services/panel-intent-card";
 import { buildPanelIntentPromptBlock, buildPanelIntentNegativeBlock } from "./services/panel-intent-card";
+import { getPropVisualDescriptor } from "./services/prop-visual-library";
 
 export interface CharacterRef {
   name: string;
@@ -74,6 +75,24 @@ export interface PanelPromptInput {
   sceneAnchor?: SceneAnchor | null;
   /** Carte d'intention visuelle du panel */
   intentCard?: PanelIntentCard | null;
+  /** URGENCE 4 : accessoires requis par le panel (depuis prop inference engine) */
+  requiredProps?: Array<{
+    canonicalName: string;
+    visibilityMode?: string | null;
+    mustBeVisible?: boolean;
+    narrativeRole?: string | null;
+  }> | null;
+  /** URGENCE 5 : PNJ présents dans cette scène avec leur descripteur visuel */
+  npcPresence?: string[] | null;
+  /** IMG-3 : phrase d'ancrage de style figée pour le chapitre */
+  chapterStyleAnchor?: string | null;
+  /** IMG-1 : type de plan manga pour les framing directives */
+  shotType?: string | null;
+  cutawayType?: string | null;
+  subjectFocus?: string | null;
+  cameraAngle?: string | null;
+  /** IMG-4 : type de beat narratif pour les effets manga */
+  beatType?: string | null;
 }
 
 export interface ComposedPrompt {
@@ -146,6 +165,65 @@ const BASE_NEGATIVE =
   "blurry, deformed hands, extra limbs, wrong hair color, inconsistent outfit, bad anatomy, " +
   "watermark, text overlay, low quality, duplicate character, poorly drawn face, " +
   "missing fingers, extra fingers, fused characters, inconsistent art style, empty background, vague background, plain backdrop, studio background, floating character, disconnected characters, no environment interaction, washed image, overblur";
+
+// IMG-2 : Négatif prompt manga universel — interdit tout ce qui casse le style manga
+const MANGA_UNIVERSAL_NEGATIVE =
+  "photorealistic, photography, 3d render, CGI, western comics style, american comics, " +
+  "Marvel style, DC style, pixar style, anime 3d, portrait photo, selfie, " +
+  "centered composition always, white background, studio background, signature, artist signature, " +
+  "bad anatomy, deformed hands, extra fingers, fused fingers, missing limbs, floating limbs";
+
+// IMG-1 : Framing directives selon shotType + subjectFocus
+const MANGA_FRAMING_MAP: Record<string, string> = {
+  "wide_environment": "wide establishing shot, full background detail, characters small in frame, manga environmental panel, environmental storytelling",
+  "wide_action": "dynamic action shot, motion blur lines, speed lines, manga action panel, kinetic energy, explosive composition",
+  "wide_crowd": "crowd scene, multiple figures, manga public scene, depth of field, social dynamics visible",
+  "closeup_reaction": "extreme close-up face, manga reaction panel, expressive eyes, emotion lines, hatching screen tone background",
+  "closeup_emotion": "extreme close-up face, manga emotion panel, glistening eyes, micro expression detail, emotion lines",
+  "closeup_prop": "macro close-up insert panel, object detail shot, manga prop focus, sharp object detail",
+  "closeup_enemy": "villain reveal close-up, manga antagonist panel, intimidating gaze, dramatic lighting",
+  "medium_hero": "medium shot, manga hero panel, dynamic pose, detailed costume, clean crisp linework",
+  "medium_dialogue": "over-shoulder dialogue shot, manga conversation panel, speech bubble space reserved top",
+  "medium_combat": "manga combat panel, dynamic fighting pose, impact lines, kinetic composition",
+  "over_shoulder": "over-the-shoulder perspective, manga POV panel, depth of field, subject in focus",
+  "splash_reveal": "splash page reveal, full page impact, manga revelation panel, dramatic composition, widescreen manga",
+};
+
+// IMG-4 : Effets manga par type de beat
+const BEAT_TYPE_ADDONS: Record<string, string> = {
+  combat: "speed lines, motion blur, impact burst, kinetic energy lines, manga action sfx styling",
+  chase: "speed lines, blur trail, motion streak, horizontal momentum lines, kinetic manga panel",
+  revelation: "dramatic sunburst background, manga reveal panel, screen tone burst, radial lines emanating",
+  emotional: "emotion screen tone, sparkle effects, soft diagonal screen tone, manga emotional moment",
+  infiltration: "deep ink shadows, cross-hatching, noir manga style, stealth atmosphere, high contrast",
+  confrontation: "dramatic impact lines, manga standoff panel, tension lines between figures",
+  romance: "soft screen tone overlay, petal effects, warm hatching, manga romantic moment",
+  comedy: "manga comedy panel, sweat drops, reaction lines, chibi exaggeration possible",
+};
+
+// URGENCE 4 : Construire le bloc d'accessoires requis
+function buildRequiredPropsBlock(
+  props: NonNullable<NonNullable<PanelPromptInput["requiredProps"]>>,
+): string {
+  if (!props.length) return "";
+
+  const visibleProps = props.filter((p) => p.mustBeVisible !== false);
+  if (!visibleProps.length) return "";
+
+  const parts = visibleProps.map((p) => {
+    const visualDescriptor = getPropVisualDescriptor(p.canonicalName) ?? p.canonicalName;
+    switch (p.visibilityMode) {
+      case "in_hand":     return `holding ${visualDescriptor} in hand, prominently visible, sharp focus`;
+      case "foreground_insert": return `${visualDescriptor} in foreground, extreme close-up detail, sharp focus`;
+      case "used_in_action": return `using ${visualDescriptor} actively, visible in action pose`;
+      case "on_body":    return `${visualDescriptor} worn/holstered, clearly visible on character`;
+      case "aftermath_trace": return `${visualDescriptor} visible on ground, aftermath detail`;
+      default:           return `${visualDescriptor} clearly visible in scene`;
+    }
+  });
+
+  return parts.join(", ");
+}
 
 function describeCharacter(c: CharacterRef): string {
   const parts: string[] = [`[${c.name}]`];
@@ -323,6 +401,40 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
   );
   addSection("renderingMood", "Rendering / Inking / Mood", `Style: ${visualStyle}. ${intensityNote && layer !== "GENERAL_SAFE" ? `Content boundaries: ${intensityNote}.` : ""}`);
 
+  // IMG-1 : Manga framing directive selon le type de plan
+  const shotKey = input.shotType && input.subjectFocus
+    ? `${input.shotType}_${input.subjectFocus}`
+    : input.shotType && input.cutawayType
+      ? `${input.shotType}_${input.cutawayType}`
+      : input.shotType ?? null;
+  if (shotKey && MANGA_FRAMING_MAP[shotKey]) {
+    addSection("mangaFraming", "Manga Panel Framing", MANGA_FRAMING_MAP[shotKey]);
+  }
+
+  // IMG-4 : Effets manga selon le beatType
+  if (input.beatType && BEAT_TYPE_ADDONS[input.beatType]) {
+    addSection("beatEffects", "Beat FX / Manga Effects", BEAT_TYPE_ADDONS[input.beatType]);
+  }
+
+  // IMG-3 : Style anchor cross-panels (phrase figée pour cohérence de style sur tout le chapitre)
+  if (input.chapterStyleAnchor) {
+    addSection("chapterStyleAnchor", "Chapter Style Anchor", input.chapterStyleAnchor);
+  }
+
+  // URGENCE 4 : Accessoires requis depuis le prop inference engine + prop visual library
+  if (input.requiredProps && input.requiredProps.length > 0) {
+    const propsBlock = buildRequiredPropsBlock(input.requiredProps);
+    if (propsBlock) {
+      addSection("requiredProps", "Required Props / Key Objects", `KEY OBJECTS: ${propsBlock}`);
+    }
+  }
+
+  // URGENCE 5 : PNJ récurrents présents dans cette scène
+  if (input.npcPresence && input.npcPresence.length > 0) {
+    const npcBlock = input.npcPresence.slice(0, 3).join("; ");
+    addSection("npcPresence", "Background NPC Characters", `BACKGROUND CHARACTERS: ${npcBlock}`);
+  }
+
   if (!charDescs && input.characters && input.characters.length > 0) {
     promptWarnings.push("character_lock_missing");
   }
@@ -368,7 +480,8 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
   const positive = positiveParts.filter(Boolean).join(" ");
 
   // Negative prompt enrichi selon le layer + verrous de dérive visuelle
-  let negative = BASE_NEGATIVE;
+  // IMG-2 : négatif manga universel préfixé systématiquement
+  let negative = `${MANGA_UNIVERSAL_NEGATIVE}, ${BASE_NEGATIVE}`;
   if (input.characters && input.characters.length > 0) {
     const driftGuards = input.characters
       .flatMap((c) => {

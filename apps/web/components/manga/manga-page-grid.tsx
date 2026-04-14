@@ -185,6 +185,11 @@ export interface PipelinePanel {
 export interface PipelineScene {
   id: string;
   images?: PipelinePanel[];
+  // URGENCE 3 : champs layout depuis la DB
+  pageLayoutTemplate?: string | null;
+  isSplashPage?: boolean | null;
+  isDoublePage?: boolean | null;
+  dramaticWeight?: number | null;
 }
 
 type MangaGridLayout = "A" | "B" | "C" | "D" | "E" | "F";
@@ -208,30 +213,34 @@ export function pipelineScenesToPages(
 
     const panels: UniversalPanel[] = (scene.images ?? [])
       .sort((a, b) => a.panelNumber - b.panelNumber)
-      .map((img) => ({
-        id: (img as { id?: string }).id,
-        mood: (img.mood as AnyPanelMood) ?? "dramatic",
-        imageUrl: img.imageUrl,
-        status: img.status,
-        provider: img.provider ?? null,
-        model: img.model ?? null,
-        error: (img.metadata?.error ?? img.metadata?.blockedReason) ?? null,
-        dialogue: Array.isArray(img.metadata?.dialogue) ? img.metadata.dialogue[0]?.text : img.metadata?.dialogue?.text,
-        dialogues: Array.isArray(img.metadata?.dialogues) ? img.metadata.dialogues : Array.isArray(img.metadata?.dialogue) ? img.metadata.dialogue : img.metadata?.dialogue ? [img.metadata.dialogue] : undefined,
-        speaker: Array.isArray(img.metadata?.dialogue) ? img.metadata.dialogue[0]?.speaker : img.metadata?.dialogue?.speaker,
-        narration: img.metadata?.narration,
-        sfx: img.metadata?.sfx,
-        caption: img.metadata?.caption,
-        textScale: img.metadata?.textScale,
-        renderMeta: img.metadata?.renderMeta,
-        layoutMeta: img.metadata?.layoutMeta,
-      }));
+      .map((img) => {
+        // URGENCE 3 : préférer persistedUrl (URL stable Supabase) sur imageUrl (peut expirer)
+        const effectiveImageUrl = (img as { persistedUrl?: string | null }).persistedUrl ?? img.imageUrl;
+        return {
+          id: (img as { id?: string }).id,
+          mood: (img.mood as AnyPanelMood) ?? "dramatic",
+          imageUrl: effectiveImageUrl,
+          status: img.status,
+          provider: img.provider ?? null,
+          model: img.model ?? null,
+          error: (img.metadata?.error ?? img.metadata?.blockedReason) ?? null,
+          dialogue: Array.isArray(img.metadata?.dialogue) ? img.metadata.dialogue[0]?.text : img.metadata?.dialogue?.text,
+          dialogues: Array.isArray(img.metadata?.dialogues) ? img.metadata.dialogues : Array.isArray(img.metadata?.dialogue) ? img.metadata.dialogue : img.metadata?.dialogue ? [img.metadata.dialogue] : undefined,
+          speaker: Array.isArray(img.metadata?.dialogue) ? img.metadata.dialogue[0]?.speaker : img.metadata?.dialogue?.speaker,
+          narration: img.metadata?.narration,
+          sfx: img.metadata?.sfx,
+          caption: img.metadata?.caption,
+          textScale: img.metadata?.textScale,
+          renderMeta: img.metadata?.renderMeta,
+          layoutMeta: img.metadata?.layoutMeta,
+        };
+      });
 
     // Garde : si aucun panel, créer un placeholder pour éviter une page visuellement vide
     if (panels.length === 0) {
       return {
         id: scene.id,
-        layout: "F",
+        layout: "F" as MangaGridLayout,
         panels: [{
           mood: "dramatic" as AnyPanelMood,
           imageUrl: null,
@@ -242,7 +251,18 @@ export function pipelineScenesToPages(
     }
 
     const layout = normalizeLayout(rawLayout, panels.length);
-    return { id: scene.id, layout, panels };
+
+    // URGENCE 3 : utiliser le template dynamique si présent (priorité sur le layout A-F)
+    const dynamicTemplate = scene.pageLayoutTemplate as ExtendedLayoutTemplate | null | undefined;
+
+    return {
+      id: scene.id,
+      layout,
+      layoutTemplate: dynamicTemplate ?? undefined,
+      isSplashPage: scene.isSplashPage ?? false,
+      isDoublePage: scene.isDoublePage ?? false,
+      panels,
+    };
   });
 }
 
