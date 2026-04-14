@@ -48,9 +48,11 @@ function computeSimilarity(textA: string, textB: string): number {
   return jaccardSimilarity(extractKeywords(textA), extractKeywords(textB));
 }
 
-const DUPLICATE_THRESHOLD = 0.55;
-const LATE_REPEAT_THRESHOLD = 0.40;
-const LOW_PROGRESSION_THRESHOLD = 0.30;
+// Seuils relevés pour éviter les faux positifs sur des beats courts
+// Jaccard sur 2-3 mots communs dans des beats de 8-12 mots monte facilement à 0.25-0.45
+const DUPLICATE_THRESHOLD = 0.70;       // était 0.55 → trop de faux positifs sur beats adjacents
+const LATE_REPEAT_THRESHOLD = 0.60;     // était 0.40 → faux positifs systématiques beat 7-9 vs beat 1-3
+const LOW_PROGRESSION_THRESHOLD = 0.55; // était 0.30 → presque tout déclenchait ce warning
 
 export function validateOutlineProgression(input: {
   editorialOutline?: { beats?: Array<BeatLike> } | null;

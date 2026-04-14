@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AutofillMeta, ChapterReadinessIssue, ChapterStudioData, ChapterStudioSnapshot, ChapterStudioStep } from "@manga-ai-studio/core";
+import { buildChapterReadinessReport } from "@manga-ai-studio/core";
 import { Button } from "@/components/ui/button";
 import type { OutlineProgressionIssue } from "@/lib/outline-progression-guard";
 import { ChapterBriefStep } from "./chapter-brief-step";
@@ -61,10 +62,26 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
     setSnapshot(json.snapshot);
     setGenerationContext(json.generationContext);
     setCharacterCatalog(json.characterCatalog ?? []);
+    const loadedData = json.snapshot.data;
+    // Auto-créer le narrativeContract si absent (blocant récurrent sur chapitres existants)
+    const autoContract = loadedData.narrativeContract ?? (loadedData.intent?.shortPitch ? {
+      emotionalGoal: loadedData.intent?.emotionalGoal ?? "Faire évoluer le héros face au conflit",
+      heroStateAtStart: `Avant : ${(loadedData.intent.shortPitch ?? "").slice(0, 60)}`,
+      heroStateAtEnd: "Transformation après les événements du chapitre",
+      centralConflict: loadedData.intent?.mainConflict ?? loadedData.intent?.shortPitch ?? "Conflit central",
+      revealOrInformationGain: "",
+      relationshipShift: "",
+      chapterQuestion: `Comment le héros va-t-il traverser ${loadedData.intent?.workingTitle ?? "ce chapitre"} ?`,
+      endingMode: "cliffhanger" as const,
+      tone: "dramatic" as const,
+      intensityCurve: [],
+      forbiddenNarrativeMisses: [],
+    } : undefined);
     setDraft({
-      ...json.snapshot.data,
-      selectedPlotLabel: json.snapshot.data.selectedPlotLabel ?? "bold",
-      creativityControls: normalizeCreativeControls(json.snapshot.data.creativityControls),
+      ...loadedData,
+      selectedPlotLabel: loadedData.selectedPlotLabel ?? "bold",
+      creativityControls: normalizeCreativeControls(loadedData.creativityControls),
+      narrativeContract: autoContract,
     });
     setActiveStudioStep(json.snapshot.currentStep);
     setActiveFlowStep(mapStudioStepToFlowStep(json.snapshot.currentStep));
@@ -252,18 +269,37 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
         const reason = json.emptyPatchReason ?? "Aucun champ vide détecté";
         setMessage(reason);
       }
-    } catch {
-      setMessage("Erreur réseau lors de la complétion IA.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erreur inconnue";
+      const isNetwork = msg.includes("fetch") || msg.includes("network") || msg.includes("Failed");
+      setMessage(isNetwork
+        ? "Erreur réseau — vérifie ta connexion et réessaie."
+        : `Erreur lors de la complétion IA : ${msg}`);
     } finally {
       setAutofilling(false);
     }
   }, [activeStudioStep, chapterId, draft, projectId, save]);
 
+  // Recalculer le readiness depuis le draft local en temps réel (pas depuis le snapshot DB)
+  // → les blocants disparaissent dès que l'utilisateur remplit un champ, sans attendre l'autosave
+  const liveReadiness = useMemo(() => {
+    if (!draft || !snapshot) return null;
+    const liveSnapshot: ChapterStudioSnapshot = {
+      ...snapshot,
+      data: { ...draft },
+    };
+    try {
+      return buildChapterReadinessReport(liveSnapshot);
+    } catch {
+      return snapshot.data.readinessReport ?? null;
+    }
+  }, [draft, snapshot]);
+
   if (loading || !draft || !snapshot) {
     return <div className="rounded-2xl border border-border/60 bg-card/30 p-6 text-sm text-muted-foreground">Chargement du studio…</div>;
   }
 
-  const readiness = snapshot.data.readinessReport;
+  const readiness = liveReadiness ?? snapshot.data.readinessReport;
   const blockerItems = readiness?.blockerItems ?? [];
   const warningItems = readiness?.warningItems ?? [];
   const generatedImages = generationContext?.imageStats.total ?? readiness?.imageCounts.generatedImages ?? 0;
