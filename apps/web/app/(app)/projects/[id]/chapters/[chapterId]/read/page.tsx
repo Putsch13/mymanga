@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AlertCircle, Clock, ImageIcon, Loader2 } from "lucide-react";
+import { AlertCircle, ImageIcon, Loader2 } from "lucide-react";
 import { MangaBookReader } from "@/components/manga/manga-book-reader";
 import { getCurrentUser } from "@/lib/auth/get-app-user";
 import { prisma } from "@manga-ai-studio/db";

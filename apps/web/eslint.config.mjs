@@ -11,6 +11,14 @@ const compat = new FlatCompat({
 
 const eslintConfig = [
   ...compat.extends("next/core-web-vitals", "next/typescript"),
+  {
+    rules: {
+      // Les URLs Fal.ai / Supabase sont signées dynamiquement et ne peuvent pas
+      // passer par next/image sans configuration de domaines exhaustive.
+      // Le reader manga utilise <img> intentionnellement pour les panels générés.
+      "@next/next/no-img-element": "warn",
+    },
+  },
 ];
 
 export default eslintConfig;
