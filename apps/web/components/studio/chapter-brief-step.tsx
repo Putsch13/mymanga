@@ -74,10 +74,15 @@ export function ChapterBriefStep({
               />
             </div>
             <div className="space-y-2">
-              <Label>Pitch du chapitre</Label>
+              <div className="flex items-center gap-1.5">
+                <Label>Pitch du chapitre</Label>
+                <span className="text-xs text-rose-400">*requis</span>
+              </div>
               <Textarea
                 data-testid="studio-short-pitch"
                 data-studio-field="studio-short-pitch"
+                rows={3}
+                placeholder="Ex. : Le héros affronte son ancien mentor dans les ruines de la tour. Il découvre que la trahison vient de plus haut…"
                 value={draft.intent?.shortPitch ?? ""}
                 onChange={(event) =>
                   onUpdateDraft({
@@ -87,6 +92,29 @@ export function ChapterBriefStep({
                 }
               />
             </div>
+          </div>
+
+          {/* Conflit principal — sorti du mode expert car requis pour la génération */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5">
+              <Label>Conflit principal du chapitre</Label>
+              <span className="text-xs text-rose-400">*requis</span>
+            </div>
+            <Input
+              data-testid="studio-main-conflict"
+              data-studio-field="studio-main-conflict"
+              placeholder="Ex. : Lyra découvre que son mentor l'a trahie et doit choisir entre vengeance et pardon"
+              value={draft.intent?.mainConflict ?? ""}
+              onChange={(event) =>
+                onUpdateDraft({
+                  ...draft,
+                  intent: { ...draft.intent, mainConflict: event.target.value },
+                }, "intent")
+              }
+            />
+            <p className="text-xs text-muted-foreground">
+              Le conflit central qui structure ce chapitre — utilisé par l&apos;IA pour construire les beats et les dialogues.
+            </p>
           </div>
 
           <div className="space-y-3">
@@ -111,35 +139,22 @@ export function ChapterBriefStep({
           </div>
 
           <details className="rounded-xl border border-border/60 bg-background/30 p-4">
-            <summary className="cursor-pointer text-sm font-medium">Mode expert</summary>
+            <summary className="cursor-pointer text-sm font-medium">Réglages avancés (optionnel)</summary>
             <div className="mt-4 space-y-4">
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Place dans l’arc</Label>
-                  <Input
-                    data-studio-field="studio-arc-position"
-                    value={draft.intent?.arcPosition ?? ""}
-                    onChange={(event) =>
-                      onUpdateDraft({
-                        ...draft,
-                        intent: { ...draft.intent, arcPosition: event.target.value },
-                      }, "intent")
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Conflit principal</Label>
-                  <Input
-                    data-studio-field="studio-main-conflict"
-                    value={draft.intent?.mainConflict ?? ""}
-                    onChange={(event) =>
-                      onUpdateDraft({
-                        ...draft,
-                        intent: { ...draft.intent, mainConflict: event.target.value },
-                      }, "intent")
-                    }
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label>Place dans l’arc narratif</Label>
+                <Input
+                  data-studio-field="studio-arc-position"
+                  placeholder="Ex. : Milieu d’arc, montée en tension"
+                  value={draft.intent?.arcPosition ?? ""}
+                  onChange={(event) =>
+                    onUpdateDraft({
+                      ...draft,
+                      intent: { ...draft.intent, arcPosition: event.target.value },
+                    }, "intent")
+                  }
+                />
+                <p className="text-xs text-muted-foreground">Positionne ce chapitre dans l’arc global (début, pivot, climax, résolution…).</p>
               </div>
 
               <SliderField

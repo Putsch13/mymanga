@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChapterReadinessIssue, ChapterStudioData } from "@manga-ai-studio/core";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -96,8 +96,35 @@ export function ChapterPlanStep({
   onGenerateOutlines: () => void | Promise<void>;
   onValidatePlan: () => void;
 }) {
+  const hasOutline = (draft.editorialOutline?.beats?.length ?? 0) > 0 || (draft.productionOutline?.beats?.length ?? 0) > 0;
+
   return (
     <div data-studio-section="plan" className="space-y-6">
+
+      {/* UX-FIX-4 : CTA proéminent si outline absente */}
+      {!hasOutline && !generatingOutline && (
+        <div className="flex flex-col items-center gap-4 rounded-2xl border border-dashed border-violet-500/40 bg-violet-500/5 py-12 text-center">
+          <Sparkles className="h-8 w-8 text-violet-400/60" />
+          <div className="space-y-1">
+            <p className="text-lg font-medium">L&apos;outline n&apos;est pas encore générée</p>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              Clique ci-dessous pour que l&apos;IA génère l&apos;outline éditorial, l&apos;outline de production et le plan complet du chapitre.
+            </p>
+          </div>
+          <Button size="lg" type="button" onClick={() => void onGenerateOutlines()} className="mt-2 gap-2">
+            <Sparkles className="h-4 w-4" />
+            Générer outline &amp; plan de production
+          </Button>
+        </div>
+      )}
+
+      {generatingOutline && (
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-border/40 bg-card/20 py-10 text-center">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <p className="text-sm text-muted-foreground">Génération en cours — cela peut prendre 30–60 secondes…</p>
+        </div>
+      )}
+
       <Card className="border-border/60 bg-card/40">
         <CardHeader>
           <CardTitle className="text-base">Direction narrative du chapitre</CardTitle>

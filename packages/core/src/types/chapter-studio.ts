@@ -783,13 +783,14 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
     warningItems.push(issue);
   };
 
-  if (snapshot.data.intent?.shortPitch && snapshot.data.intent?.mainConflict) completedSteps.push("intent");
+  // Un pitch d'au moins 5 chars suffit — mainConflict est désormais visible dans le brief
+  if (snapshot.data.intent?.shortPitch && snapshot.data.intent.shortPitch.trim().length >= 5) completedSteps.push("intent");
   else addBlocker({
     id: "missing_intent",
     step: "intent",
     field: "studio-short-pitch",
-    message: "L’intention du chapitre est incomplète.",
-    ctaLabel: "Compléter l’intention",
+    message: "Décris ce qui se passe dans ce chapitre (champ Pitch — au moins 5 caractères).",
+    ctaLabel: "Remplir le pitch",
     action: "focus_field",
   });
 

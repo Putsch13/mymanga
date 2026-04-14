@@ -156,7 +156,7 @@ export function ChapterEditorSidebarSummary({
               title={step.title}
               description={step.description}
               state={activeStep === step.id ? "current" : step.done ? "done" : "blocked"}
-              badge={step.blockerCount > 0 ? `${step.blockerCount} blocant${step.blockerCount > 1 ? "s" : ""}` : null}
+              blockerCount={step.blockerCount}
             />
           </button>
         ))}

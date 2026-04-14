@@ -156,11 +156,28 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
       setMessage(json.error ?? "La génération de la base de chapitre a échoué.");
       return;
     }
+    // BUG-B : créer automatiquement un narrativeContract minimal si absent
+    // Sans lui, le readiness check bloque toujours (étape narrative_contract manquante)
+    const autoNarrativeContract = draft.narrativeContract ?? {
+      emotionalGoal: draft.intent?.emotionalGoal ?? "Faire évoluer le héros face au conflit",
+      heroStateAtStart: draft.intent?.shortPitch ? `Avant : ${draft.intent.shortPitch.slice(0, 60)}` : "État initial",
+      heroStateAtEnd: "Transformation après les événements du chapitre",
+      centralConflict: draft.intent?.mainConflict ?? draft.intent?.shortPitch ?? "Conflit central du chapitre",
+      revealOrInformationGain: "",
+      relationshipShift: "",
+      chapterQuestion: `Comment le héros va-t-il traverser ${draft.intent?.workingTitle ?? "ce chapitre"} ?`,
+      endingMode: "cliffhanger" as const,
+      tone: "dramatic" as const,
+      intensityCurve: [],
+      forbiddenNarrativeMisses: [],
+    };
+
     const nextDraft: ChapterStudioData = {
       ...draft,
       editorialOutline: json.editorialOutline,
       productionOutline: json.productionOutline,
       productionPlan: json.productionPlan,
+      narrativeContract: autoNarrativeContract,
       ...(json.estimateContext ? { estimateContext: json.estimateContext } : {}),
     };
 
@@ -200,7 +217,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
     goToFlowStep(mapStudioStepToFlowStep(issue.step), issue.field, issue.step);
   }, [generateOutlines, goToFlowStep]);
 
-  const runAutofill = useCallback(async (mode: "all_missing" | "repair_readiness") => {
+  const runAutofill = useCallback(async (mode: "all_missing" | "repair_readiness" | "brief") => {
     if (!draft) return;
     setAutofilling(true);
     setAutofillResult(null);
@@ -309,9 +326,18 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
               size="sm"
               variant="outline"
               disabled={autofilling}
-              onClick={() => void runAutofill("all_missing")}
+              onClick={() => {
+                // BUG-C : choisir le mode selon l'état du pitch pour éviter le blocage serveur
+                const pitch = draft?.intent?.shortPitch?.trim() ?? "";
+                const mode = pitch.length < 5 ? "brief" : "all_missing";
+                void runAutofill(mode);
+              }}
             >
-              {autofilling ? "Complétion IA en cours…" : "Complétion IA des champs manquants"}
+              {autofilling
+                ? "IA en cours…"
+                : (draft?.intent?.shortPitch?.trim().length ?? 0) < 5
+                  ? "L'IA génère le brief pour moi"
+                  : "Complétion IA des champs manquants"}
             </Button>
             {blockerItems.length > 0 ? (
               <Button
@@ -319,7 +345,11 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
                 size="sm"
                 variant="ghost"
                 disabled={autofilling}
-                onClick={() => void runAutofill("repair_readiness")}
+                onClick={() => {
+                  // BUG-D : même logique adaptative pour "Réparer"
+                  const pitch = draft?.intent?.shortPitch?.trim() ?? "";
+                  void runAutofill(pitch.length < 5 ? "brief" : "repair_readiness");
+                }}
               >
                 Réparer ce qui bloque
               </Button>
