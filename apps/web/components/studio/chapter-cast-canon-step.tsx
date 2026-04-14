@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import type { ChapterReadinessIssue, ChapterStudioData } from "@manga-ai-studio/core";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,9 +35,22 @@ export function ChapterCastCanonStep({
   onContinue: () => void;
 }) {
   const catalog = characterCatalog ?? [];
-  const heroes = catalog.filter((c) => /hero|protagon/i.test(c.roleType ?? ""));
+  const heroes = catalog.filter((c) => /hero|protagon|main_char/i.test(c.roleType ?? ""));
   const antagonists = catalog.filter((c) => /antagon|villain/i.test(c.roleType ?? ""));
   const mainChars = catalog.filter((c) => /hero|protagon|support|main/i.test(c.roleType ?? ""));
+
+  // Auto-sélection silencieuse du héros si heroCharacterId vide mais actifs contiennent un héros
+  const autoHeroId =
+    !draft.characterSelection?.heroCharacterId && heroes.length > 0
+      ? (heroes.find((h) => draft.characterSelection?.activeCharacterIds?.includes(h.id)) ?? heroes[0])?.id ?? null
+      : null;
+
+  useEffect(() => {
+    if (autoHeroId) {
+      updateCharacterSelection({ heroCharacterId: autoHeroId });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoHeroId]);
 
   function updateCharacterSelection(patch: Partial<NonNullable<ChapterStudioData["characterSelection"]>>) {
     onUpdateDraft({

@@ -58,10 +58,11 @@ export async function POST(req: Request, ctx: Ctx) {
     ? chapterStudioDataSchema.parse(snapshot.data)
     : chapterStudioDataSchema.parse({});
 
-  // Bloquer l'autofill "all_missing" si le pitch est vide
+  // Bloquer l'autofill "all_missing" uniquement si le pitch est vraiment absent
+  // Seuil abaissé à 5 chars (cohérent avec buildChapterReadinessReport)
   if (body.mode === "all_missing") {
     const pitch = currentData.intent?.shortPitch?.trim() ?? "";
-    if (pitch.length < 10) {
+    if (pitch.length < 5) {
       console.warn(
         `[autofill] autofill_blocked_no_pitch chapterId=${chapterId} pitchLength=${pitch.length}`,
       );
@@ -71,7 +72,7 @@ export async function POST(req: Request, ctx: Ctx) {
         mode: body.mode,
         blocked: true,
         blockedReason: "pitch_too_short",
-        blockedMessage: "Ajoute d'abord un pitch de chapitre (au moins une phrase) avant de demander une complétion IA.",
+        blockedMessage: "Remplis d'abord le pitch du chapitre (au moins 5 caractères) avant de demander une complétion IA.",
         suggestedPatch: {},
         appliedFields: [],
         unresolvedQuestions: [],

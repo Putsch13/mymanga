@@ -1027,17 +1027,29 @@ export async function generateChapterBundle(input: {
   const dominantLocation = rawOutlineBeats[0]?.location || locA;
   const beats = input.approvedOutline
     ? rawOutlineBeats.slice(0, TARGET_PAGES)
-    : stretchToCount(rawOutlineBeats, TARGET_PAGES, (index) => ({
-        id: `beat_${index + 1}`,
-        summary: `${chapterGoal}. Cette étape approfondit ${input.userIntent.slice(0, 120)} avec une progression plus ${selectedLabel}.`,
-        tension: Math.min(9, 3 + index),
-        characters: mainCast.slice(0, Math.min(index % 3 === 0 ? 4 : 3, mainCast.length)),
-        location: dominantLocation,
-        purpose: `variation_${index + 1}`,
-        pageRole: PAGE_ROLE_SEQUENCE[index % PAGE_ROLE_SEQUENCE.length] ?? "escalation",
-        turn: `Progression inattendue vers ${input.context.project.title}.`,
-        emotionalDelta: index % 2 === 0 ? 1 : -1,
-        structuredBeat: rawOutlineBeats[Math.max(0, rawOutlineBeats.length - 1)]?.structuredBeat,
+    : stretchToCount(rawOutlineBeats, TARGET_PAGES, (index) => {
+        // Phases narratives distinctes pour éviter les beats 100% identiques
+        const STRETCH_PHASES = [
+          `Montée en pression : ${input.userIntent.slice(0, 80)} — les conséquences s'accumulent.`,
+          `Escalade : un obstacle inattendu complique la situation de ${mainCast[0] ?? "le héros"}.`,
+          `Point de basculement : ${chapterGoal} atteint une limite critique.`,
+          `Réaction en chaîne : les choix passés pèsent sur la décision suivante.`,
+          `Nouvelle donne : un élément change la perception du conflit central.`,
+          `Tension maximale : les personnages sont acculés à agir maintenant ou jamais.`,
+        ] as const;
+        const phase = STRETCH_PHASES[index % STRETCH_PHASES.length] ?? STRETCH_PHASES[0];
+        return {
+          id: `beat_${index + 1}`,
+          summary: phase,
+          tension: Math.min(9, 3 + index),
+          characters: mainCast.slice(0, Math.min(index % 3 === 0 ? 4 : 3, mainCast.length)),
+          location: index % 2 === 0 ? dominantLocation : (locB ?? dominantLocation),
+          purpose: `variation_${index + 1}`,
+          pageRole: PAGE_ROLE_SEQUENCE[index % PAGE_ROLE_SEQUENCE.length] ?? "escalation",
+          turn: `Conséquence directe : la situation évolue de manière irréversible (étape ${index + 1}).`,
+          emotionalDelta: index % 2 === 0 ? 1 : -1,
+          structuredBeat: rawOutlineBeats[Math.max(0, rawOutlineBeats.length - 1)]?.structuredBeat,
+        };
       }));
 
   if (!input.approvedOutline) {
