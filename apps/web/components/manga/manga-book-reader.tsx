@@ -25,7 +25,6 @@ import {
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { MangaPanel } from "./manga-panel";
 import { MangaPageGrid, flattenPagesToPanels, pipelineScenesToPages, type UniversalMangaPage } from "./manga-page-grid";
 import { WebtoonLazyScroll } from "./webtoon-lazy-scroll";
 import { SplashPageRenderer } from "./splash-page-renderer";

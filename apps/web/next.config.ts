@@ -13,14 +13,29 @@ const nextConfig: NextConfig = {
     "@manga-ai-studio/memory",
     "@manga-ai-studio/exports",
   ],
-  // Modules Node.js natifs utilisés uniquement côté serveur (API routes, Server Components)
-  // → ne pas bundler côté client (sharp, pdf-lib, fal-storage-service, etc.)
+  // Modules Node.js natifs uniquement côté serveur — ne pas bundler avec webpack
   serverExternalPackages: [
     "sharp",
     "pdf-lib",
     "@fal-ai/client",
     "@fal-ai/serverless-client",
   ],
+  webpack(config, { isServer }) {
+    if (isServer) {
+      // Ignorer les dépendances optionnelles de sharp (bindings platform-specific)
+      // qui ne sont pas installées selon la plateforme de build
+      config.externals = [
+        ...(Array.isArray(config.externals) ? config.externals : []),
+        ({ request }: { request?: string }, callback: (err?: Error | null, result?: string) => void) => {
+          if (request?.startsWith("@img/sharp-")) {
+            return callback(null, `commonjs ${request}`);
+          }
+          callback();
+        },
+      ];
+    }
+    return config;
+  },
 };
 
 export default nextConfig;
