@@ -130,7 +130,7 @@ export default function LandingPage() {
         {/* How it works */}
         <section className="mt-20">
           <h2 className="text-center text-2xl font-semibold tracking-tight">
-            De l'idée au chapitre en 4 étapes
+            De l&apos;idée au chapitre en 4 étapes
           </h2>
           <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {steps.map((s) => (
