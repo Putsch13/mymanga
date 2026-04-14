@@ -11,7 +11,31 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   let user: Awaited<ReturnType<typeof getAppUser>>;
   try {
     user = await getAppUser();
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Erreur Prisma de migration → afficher une page d'erreur claire, pas une boucle login
+    const isMigration =
+      msg.includes("column") || msg.includes("does not exist") ||
+      msg.includes("P2022") || msg.includes("Unknown field") ||
+      msg.includes("P1001");
+    if (isMigration) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-[#0b0b10] px-6">
+          <div className="max-w-md text-center space-y-4">
+            <p className="text-2xl font-semibold text-white">Mise à jour en cours</p>
+            <p className="text-sm text-white/60">
+              La base de données est en cours de mise à jour. Réessaie dans quelques instants.
+            </p>
+            <a
+              href="/"
+              className="inline-block rounded-xl border border-white/20 px-4 py-2 text-sm text-white/70 hover:text-white transition-colors"
+            >
+              Retour à l&apos;accueil
+            </a>
+          </div>
+        </div>
+      );
+    }
     redirect("/login?error=db_error");
   }
 

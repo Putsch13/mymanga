@@ -4,7 +4,7 @@ import type { ApprovedChapterOutline } from "@manga-ai-studio/core";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Loader2, Pencil, Users, BookOpen } from "lucide-react";
+import { Check, HelpCircle, Loader2, Pencil, Users, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -42,21 +42,49 @@ type OutlinePreviewBeat = {
   structuredBeat?: ApprovedChapterOutline["beats"][number]["structuredBeat"];
 };
 
+function Tooltip({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative inline-flex">
+      <button
+        type="button"
+        className="text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Aide"
+      >
+        <HelpCircle className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <span className="absolute bottom-full left-1/2 z-50 mb-2 w-60 -translate-x-1/2 rounded-lg border border-border/60 bg-popover px-3 py-2 text-xs text-popover-foreground shadow-lg">
+          {text}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function SliderField({
   label,
   value,
   onChange,
   helper,
+  tooltip,
 }: {
   label: string;
   value: number;
   onChange: (v: number) => void;
   helper: string;
+  tooltip?: string;
 }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <Label>{label}</Label>
+        <div className="flex items-center gap-1.5">
+          <Label>{label}</Label>
+          {tooltip && <Tooltip text={tooltip} />}
+        </div>
         <span className="text-xs text-muted-foreground">{value}/100</span>
       </div>
       <input
@@ -375,7 +403,7 @@ export default function ChapterGeneratorPage() {
   async function runPipeline() {
     if (!selectedChapter) return;
     if (!planApproved) {
-      setPipelineMsg("Valide d'abord le découpage détaillé du chapitre.");
+      setPipelineMsg("Clique d\u2019abord sur \u00ab\u00a0Valider le plan\u00a0\u00bb pour confirmer le d\u00e9coupage propos\u00e9 par l\u2019IA.");
       return;
     }
     setStartingPipeline(true);
@@ -429,7 +457,7 @@ export default function ChapterGeneratorPage() {
 
   async function createAndGenerate() {
     if (!planApproved) {
-      setPipelineMsg("Valide d'abord le découpage détaillé du chapitre.");
+      setPipelineMsg("Clique d\u2019abord sur \u00ab\u00a0Valider le plan\u00a0\u00bb pour confirmer le d\u00e9coupage propos\u00e9 par l\u2019IA.");
       return;
     }
     setCreatingDraft(true);
@@ -526,6 +554,19 @@ export default function ChapterGeneratorPage() {
         </p>
       </div>
 
+      {/* Étapes du tunnel */}
+      {!isGenerating && !isDone && (
+        <div className="flex items-start gap-3 rounded-xl border border-border/40 bg-background/30 px-4 py-3 text-xs text-muted-foreground">
+          <span className="mt-0.5 shrink-0 text-base">💡</span>
+          <div className="space-y-0.5">
+            <p className="font-medium text-foreground/70">Comment ça marche ?</p>
+            <p><span className="font-medium text-foreground/60">1.</span> Remplis la description du chapitre et clique sur <strong className="text-foreground/60">Prévisualiser le chapitre</strong>.</p>
+            <p><span className="font-medium text-foreground/60">2.</span> Vérifie le plan proposé par l&apos;IA, modifie si besoin, puis clique sur <strong className="text-foreground/60">Valider le plan</strong>.</p>
+            <p><span className="font-medium text-foreground/60">3.</span> Clique sur <strong className="text-foreground/60">Lancer la génération</strong> — l&apos;IA écrit et illustre ton chapitre (5–10 min).</p>
+          </div>
+        </div>
+      )}
+
       {/* Personnages */}
       <Card className="border-border/60 bg-card/50">
         <CardHeader className="pb-3">
@@ -533,7 +574,10 @@ export default function ChapterGeneratorPage() {
             <Users className="h-4 w-4" />
             Personnages
           </CardTitle>
-          <CardDescription>Sélectionne ceux qui apparaissent dans ce chapitre.</CardDescription>
+          <CardDescription>
+            Sélectionne ceux qui apparaissent dans ce chapitre.{" "}
+            <span className="text-muted-foreground/70">Les personnages sélectionnés seront au cœur du scénario et des images. Si tu n&apos;en sélectionnes aucun, l&apos;IA choisit automatiquement.</span>
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {characters.length > 0 ? (
@@ -574,7 +618,10 @@ export default function ChapterGeneratorPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label>Titre du chapitre (optionnel)</Label>
+            <div className="flex items-center gap-1.5">
+              <Label>Titre du chapitre (optionnel)</Label>
+              <Tooltip text="Si tu laisses vide, le titre sera &quot;Chapitre N&quot; par défaut. Tu pourras le modifier plus tard depuis la page du projet." />
+            </div>
             <Input
               value={chapterTitle}
               onChange={(e) => setChapterTitle(e.target.value)}
@@ -582,7 +629,11 @@ export default function ChapterGeneratorPage() {
             />
           </div>
           <div className="space-y-2">
-            <Label>Ce qui se passe dans ce chapitre</Label>
+            <div className="flex items-center gap-1.5">
+              <Label>Ce qui se passe dans ce chapitre</Label>
+              <Tooltip text="Décris l'histoire de ton chapitre librement : les lieux visités, les personnages impliqués, les tensions, les rebondissements, la fin. Pas besoin d'être précis — quelques phrases suffisent. L'IA construit le plan détaillé à partir de ta description." />
+              <span className="text-xs text-rose-400">*requis</span>
+            </div>
             <Textarea
               rows={6}
               value={userIntent}
@@ -591,7 +642,10 @@ export default function ChapterGeneratorPage() {
             />
           </div>
           <div className="space-y-2">
-            <Label>Rythme</Label>
+            <div className="flex items-center gap-1.5">
+              <Label>Rythme du chapitre</Label>
+              <Tooltip text="Contrôle la densité émotionnelle. &quot;Progressif&quot; = montée douce, bonne pour un chapitre de transition. &quot;Intense&quot; = accélération et tension, idéal pour la plupart des chapitres. &quot;Explosif&quot; = rebondissements forts et cliffhanger choc, parfait pour les fins d'arc." />
+            </div>
             <div className="flex flex-wrap gap-2">
               {[
                 { value: "safe" as const, label: "Progressif", desc: "Montée en douceur" },
@@ -616,40 +670,45 @@ export default function ChapterGeneratorPage() {
           </div>
           <div className="space-y-4 rounded-xl border border-border/60 bg-background/30 p-4">
             <div>
-              <p className="text-sm font-medium">Contrôles créatifs avancés</p>
+              <p className="text-sm font-medium">Réglages créatifs avancés</p>
               <p className="text-xs text-muted-foreground">
-                Ces réglages alimentent directement le moteur procédural et le `SceneBlueprint`.
+                Ces curseurs influencent le scénario, les personnages et les images générés.
               </p>
             </div>
             <SliderField
-              label="Novelty"
+              label="Originalité"
               value={creativityControls.noveltyLevel}
               onChange={(value) => setCreativityControls((current) => ({ ...current, noveltyLevel: value }))}
-              helper="Plus haut = plus de variation contrôlée dans les propositions."
+              helper="Plus haut = l’IA propose des situations plus inattendues."
+              tooltip="Contrôle la prise de risque narrative. À 0, l’IA suit des schémas classiques. À 100, elle invente des tournures surprenantes. Ex. : à 70, un combat peut se terminer par une trahison inattendue."
             />
             <SliderField
-              label="World strictness"
+              label="Fidélité au lore"
               value={creativityControls.worldStrictness}
               onChange={(value) => setCreativityControls((current) => ({ ...current, worldStrictness: value }))}
-              helper="Plus haut = le moteur reste collé au canon, au lore et aux contraintes du monde."
+              helper="Plus haut = l’IA reste strictement dans les règles de ton univers."
+              tooltip="Détermine si l’IA peut s’écarter des règles de ton monde. À 100, rien ne contredira ton lore. À 30, elle peut inventer de nouveaux éléments cohérents."
             />
             <SliderField
-              label="Visual exoticism"
+              label="Exotisme visuel"
               value={creativityControls.visualExoticism}
               onChange={(value) => setCreativityControls((current) => ({ ...current, visualExoticism: value }))}
-              helper="Plus haut = créatures, silhouettes et détails visuels plus inhabituels."
+              helper="Plus haut = créatures, silhouettes et décors plus originaux dans les images."
+              tooltip="Influence l’aspect des images générées. À 80, les personnages ont des looks uniques. À 20, les images restent dans un style manga sobre et classique."
             />
             <SliderField
-              label="NPC variety"
+              label="Diversité des PNJ"
               value={creativityControls.npcVariety}
               onChange={(value) => setCreativityControls((current) => ({ ...current, npcVariety: value }))}
-              helper="Plus haut = PNJ plus variés et plus présents dans le visuel et l’action."
+              helper="Plus haut = plus de personnages secondaires différents dans le chapitre."
+              tooltip="PNJ = personnages de fond (passants, gardes, marchands…). Un réglage élevé rend le monde plus vivant mais peut diluer l’attention sur tes personnages principaux."
             />
             <SliderField
-              label="Environment richness"
+              label="Richesse des décors"
               value={creativityControls.environmentRichness}
               onChange={(value) => setCreativityControls((current) => ({ ...current, environmentRichness: value }))}
-              helper="Plus haut = décors plus denses, plus lisibles et plus persistants."
+              helper="Plus haut = arrière-plans plus détaillés et cohérents d’une case à l’autre."
+              tooltip="Contrôle la densité des arrière-plans. À 90, chaque case montre un décor fouillé. À 30, l’IA privilégie les personnages et laisse les fonds simples."
             />
           </div>
         </CardContent>
@@ -795,16 +854,23 @@ export default function ChapterGeneratorPage() {
       {/* Bouton principal + suivi */}
       <div className="space-y-4">
         {!isGenerating && !isDone && !previewData && (
-          <Button
-            type="button"
-            size="lg"
-            className="w-full text-base"
-            onClick={fetchPreview}
-            disabled={previewLoading || !userIntent.trim()}
-          >
-            {previewLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <BookOpen className="mr-2 h-5 w-5" />}
-            Prévisualiser le chapitre
-          </Button>
+          <div className="space-y-2">
+            <Button
+              type="button"
+              size="lg"
+              className="w-full text-base"
+              onClick={fetchPreview}
+              disabled={previewLoading || !userIntent.trim()}
+            >
+              {previewLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <BookOpen className="mr-2 h-5 w-5" />}
+              Prévisualiser le chapitre
+            </Button>
+            {!userIntent.trim() && (
+              <p className="text-center text-xs text-amber-400/80">
+                ↑ Décris ce qui se passe dans ce chapitre pour continuer (champ &quot;Ce qui se passe dans ce chapitre&quot;)
+              </p>
+            )}
+          </div>
         )}
 
         {chapters.length > 1 && !isGenerating && (
