@@ -26,42 +26,63 @@ const projectNav = (id: string) => [
 export default async function ProjectStudioLayout({ children, params }: Props) {
   const user = await getCurrentUser();
   const { id } = await params;
-  const project = await prisma.project.findFirst({
-    where: { id, userId: user.id },
-    include: {
-      chapters: {
-        orderBy: { chapterNumber: "desc" },
-        take: 1,
+
+  let project: Awaited<ReturnType<typeof prisma.project.findFirst>> & {
+    chapters: Awaited<ReturnType<typeof prisma.chapter.findMany>>;
+  } | null = null;
+
+  try {
+    project = await prisma.project.findFirst({
+      where: { id, userId: user.id },
+      include: {
+        chapters: {
+          orderBy: { chapterNumber: "desc" },
+          take: 1,
+        },
       },
-    },
-  });
+    });
+  } catch (err) {
+    console.error("[project-layout] DB error:", err instanceof Error ? err.message : err);
+    return (
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-6 text-center">
+        <p className="text-lg font-medium">Projet temporairement inaccessible.</p>
+        <p className="text-sm text-muted-foreground">La base de données est en cours de mise à jour. Réessaie dans quelques instants.</p>
+        <Link href="/dashboard" className="rounded-xl border border-border/60 px-4 py-2 text-sm text-muted-foreground transition hover:text-foreground">← Dashboard</Link>
+      </div>
+    );
+  }
 
   if (!project) notFound();
 
-  const currentChapter = project.chapters[0]
-    ? buildChapterStudioListItem({
-        id: project.chapters[0].id,
-        chapterNumber: project.chapters[0].chapterNumber,
-        title: project.chapters[0].title,
-        status: project.chapters[0].status,
-        summary: project.chapters[0].summary,
-        cliffhanger: project.chapters[0].cliffhanger,
-        outline: project.chapters[0].outline,
-        studioStatus: project.chapters[0].studioStatus,
-        studioCurrentStep: project.chapters[0].studioCurrentStep,
-        studioUpdatedAt: project.chapters[0].studioUpdatedAt,
-        studioAutosaveVersion: project.chapters[0].studioAutosaveVersion,
-        minimumImages: project.chapters[0].minimumImages,
-        generatedImages: project.chapters[0].generatedImages,
-        acceptedImages: project.chapters[0].acceptedImages,
-        rejectedImages: project.chapters[0].rejectedImages,
-        missingImages: project.chapters[0].missingImages,
-        criticalPanelsCount: project.chapters[0].criticalPanelsCount,
-        criticalPanelsBlocked: project.chapters[0].criticalPanelsBlocked,
-        criticalPanelsMissingQa: project.chapters[0].criticalPanelsMissingQa,
-        reviewBlockedReason: project.chapters[0].reviewBlockedReason,
-      })
-    : null;
+  let currentChapter: ReturnType<typeof buildChapterStudioListItem> | null = null;
+  try {
+    currentChapter = project.chapters[0]
+      ? buildChapterStudioListItem({
+          id: project.chapters[0].id,
+          chapterNumber: project.chapters[0].chapterNumber,
+          title: project.chapters[0].title,
+          status: project.chapters[0].status,
+          summary: project.chapters[0].summary,
+          cliffhanger: project.chapters[0].cliffhanger,
+          outline: project.chapters[0].outline,
+          studioStatus: project.chapters[0].studioStatus,
+          studioCurrentStep: project.chapters[0].studioCurrentStep,
+          studioUpdatedAt: project.chapters[0].studioUpdatedAt,
+          studioAutosaveVersion: project.chapters[0].studioAutosaveVersion,
+          minimumImages: project.chapters[0].minimumImages,
+          generatedImages: project.chapters[0].generatedImages,
+          acceptedImages: project.chapters[0].acceptedImages,
+          rejectedImages: project.chapters[0].rejectedImages,
+          missingImages: project.chapters[0].missingImages,
+          criticalPanelsCount: project.chapters[0].criticalPanelsCount,
+          criticalPanelsBlocked: project.chapters[0].criticalPanelsBlocked,
+          criticalPanelsMissingQa: project.chapters[0].criticalPanelsMissingQa,
+          reviewBlockedReason: project.chapters[0].reviewBlockedReason,
+        })
+      : null;
+  } catch {
+    currentChapter = null;
+  }
 
   return (
     <div className="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
