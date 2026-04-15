@@ -285,6 +285,7 @@ model Project {
   canonChangeRequests CanonChangeRequest[]
   npcCanonPacks       NpcCanonPack[]
   characterPropInventories CharacterPropInventory[]
+  speciesArchetypes   SpeciesArchetype[]
 }
 
 model ProjectSettings {
@@ -594,7 +595,7 @@ model Chapter {
   coverImageUrl  String?
   tokenEstimate  Int?
   tokenActual    Int?
-  minimumImages  Int?
+  minimumImages  Int?    @default(75)
   generatedImages Int?
   acceptedImages Int?
   rejectedImages Int?
@@ -792,6 +793,7 @@ model NpcVisualProfile {
   importanceLevel   NpcImportanceLevel  @default(generic)
   promotionStatus   NpcPromotionStatus  @default(candidate)
   appearanceCount   Int                 @default(1)
+  speciesLabel      String?
   canonicalRefAssetId String?
   canonicalRefAsset MediaAsset?         @relation(fields: [canonicalRefAssetId], references: [id], onDelete: SetNull)
   metadata          Json                @default("{}")
@@ -1226,5 +1228,23 @@ model CharacterPropInventory {
 
   @@unique([characterId, propCanonicalName])
   @@index([characterId, isActive])
+  @@index([projectId])
+}
+
+// V4 — Species Archetype Registry : traits visuels partagés par une espèce non-humaine
+model SpeciesArchetype {
+  id               String   @id @default(cuid())
+  projectId        String
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  label            String
+  labelNormalized  String
+  baseVisualTraits Json     @default("{}")
+  promptFragment   String?
+  generatedByAI    Boolean  @default(true)
+  memberCount      Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([projectId, labelNormalized])
   @@index([projectId])
 }

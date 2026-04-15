@@ -4,3 +4,4 @@ export * from "./rendering-modes";
 export * from "./continuity/physical-events";
 export * from "./chapter-runtime";
 export * from "./outline-ghost-repair";
+export * from "./shot-diversity-enforcer";

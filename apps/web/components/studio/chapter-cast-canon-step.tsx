@@ -73,6 +73,36 @@ export function ChapterCastCanonStep({
     }, "characters");
   }
 
+  const [recurringNpcs, setRecurringNpcs] = useState<Array<{
+    stableNpcId: string;
+    label: string;
+    shortVisualCore: string;
+    appearanceCount: number;
+    isPromotedToCharacter: boolean;
+  }>>([]);
+
+  useEffect(() => {
+    fetch(`/api/projects/${projectId}/recurring-npcs`)
+      .then(r => r.json())
+      .then(data => setRecurringNpcs(data.npcs ?? []))
+      .catch(() => {});
+  }, [projectId]);
+
+  async function handlePromoteNpc(stableNpcId: string, currentLabel: string) {
+    const name = window.prompt("Nom de ce personnage dans la série :", currentLabel);
+    if (!name) return;
+    const res = await fetch(`/api/projects/${projectId}/recurring-npcs/${stableNpcId}/promote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      const updated = await fetch(`/api/projects/${projectId}/recurring-npcs`).then(r => r.json());
+      setRecurringNpcs(updated.npcs ?? []);
+    }
+  }
+
   const [npcRawDescription, setNpcRawDescription] = useState("");
   const [resolvingNpc, setResolvingNpc] = useState(false);
   const [resolvedNpcs, setResolvedNpcs] = useState<Array<{
@@ -303,6 +333,30 @@ export function ChapterCastCanonStep({
               />
             </div>
           </div>
+
+          {recurringNpcs.length > 0 && (
+            <div className="space-y-2 rounded-xl border border-border/60 bg-card/40 p-4">
+              <p className="text-xs font-medium text-muted-foreground">PNJ récurrents du projet</p>
+              {recurringNpcs.map(npc => (
+                <div key={npc.stableNpcId} className="flex items-center justify-between rounded-lg border border-border/40 bg-background/30 px-3 py-2">
+                  <div>
+                    <p className="text-xs font-medium">{npc.label}</p>
+                    <p className="text-[11px] text-muted-foreground">{npc.shortVisualCore.slice(0, 60)}</p>
+                  </div>
+                  <span className="text-[10px] text-accent">{npc.appearanceCount}× apparu</span>
+                  {!npc.isPromotedToCharacter && npc.appearanceCount >= 2 && (
+                    <button
+                      type="button"
+                      onClick={() => handlePromoteNpc(npc.stableNpcId, npc.label)}
+                      className="text-[10px] text-violet-400 hover:text-violet-300 underline"
+                    >
+                      → Personnage
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* PNJ libres — résolution IA */}
           <div className="space-y-3 rounded-xl border border-border/60 bg-card/40 p-4">

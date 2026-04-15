@@ -6,7 +6,7 @@
 import type { PrismaClient, Prisma } from "@manga-ai-studio/db";
 import type { SceneExtra, NpcType } from "@manga-ai-studio/core";
 
-const NPC_PROMOTION_THRESHOLD = 3;
+const NPC_PROMOTION_THRESHOLD = 2;
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -438,4 +438,43 @@ function generateVisualSignature(archetype: SceneExtra["archetype"]): SceneExtra
   };
 
   return templates[archetype] ?? { outfit: "generic", silhouette: "average" };
+}
+
+/**
+ * Charge tous les NPC promus (recurring + important) d'un projet.
+ */
+export async function loadProjectRecurringNpcs(
+  prisma: PrismaClient | Prisma.TransactionClient,
+  projectId: string,
+): Promise<Array<{
+  stableNpcId: string;
+  label: string;
+  role: string | null;
+  shortVisualCore: string;
+  outfitSignature: string | null;
+  silhouetteSignature: string | null;
+  appearanceCount: number;
+  promotionStatus: string;
+  speciesLabel: string | null;
+}>> {
+  const profiles = await prisma.npcVisualProfile.findMany({
+    where: {
+      projectId,
+      promotionStatus: { in: ["promoted", "locked"] },
+    },
+    orderBy: { appearanceCount: "desc" },
+    take: 20,
+  });
+
+  return profiles.map(p => ({
+    stableNpcId: p.stableNpcId,
+    label: p.role ?? "PNJ récurrent",
+    role: p.role,
+    shortVisualCore: p.shortVisualCore,
+    outfitSignature: p.outfitSignature,
+    silhouetteSignature: p.silhouetteSignature,
+    appearanceCount: p.appearanceCount,
+    promotionStatus: p.promotionStatus,
+    speciesLabel: p.speciesLabel,
+  }));
 }

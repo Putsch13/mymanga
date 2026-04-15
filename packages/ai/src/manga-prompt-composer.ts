@@ -377,6 +377,36 @@ function inferPromptPreset(input: PanelPromptInput): NonNullable<ComposedPrompt[
   return "story_panel";
 }
 
+export function buildNpcMemoryBlock(recurringNpcs: Array<{ label: string; shortVisualCore: string; speciesLabel?: string | null }>): string {
+  if (recurringNpcs.length === 0) return "";
+  return `\n=== PERSONNAGES SECONDAIRES RÉCURRENTS ===\n` +
+    `Ces PNJ ont déjà été établis visuellement. Leurs traits DOIVENT être cohérents si ils réapparaissent.\n` +
+    recurringNpcs.map(n =>
+      `• ${n.label}${n.speciesLabel ? ` (${n.speciesLabel})` : ""} : ${n.shortVisualCore}`
+    ).join("\n") +
+    `\n=== FIN MÉMOIRE NPC ===\n`;
+}
+
+function buildCompositionDirective(blueprint: { subjectFocus: string; heroCenterAllowed?: boolean }): string {
+  const focus = blueprint.subjectFocus;
+  if (focus === "environment") {
+    return "COMPOSITION: Le personnage principal NE DOIT PAS être au centre. Plan large sur le décor, l'architecture ou l'atmosphère. Si des personnages apparaissent, ils sont petits, en silhouette ou en arrière-plan.";
+  }
+  if (focus === "npc") {
+    return "COMPOSITION: Centré sur les personnages secondaires ou la foule. Le héros principal est absent ou en arrière-plan flou.";
+  }
+  if (focus === "prop") {
+    return "COMPOSITION: Insert sur un objet, une arme, un symbole ou un détail de décor. Pas de visage humain en sujet principal.";
+  }
+  if (focus === "reaction" && !blueprint.heroCenterAllowed) {
+    return "COMPOSITION: Plan de réaction sur un personnage AUTRE que le héros principal. Émotion visible.";
+  }
+  if (focus === "aftermath") {
+    return "COMPOSITION: Plan large sur les conséquences visuelles de l'action. Aucun personnage en position héroïque.";
+  }
+  return "";
+}
+
 /**
  * Compose un prompt image structuré pour un panel manga.
  * Intègre le style du projet, les descriptions canoniques des personnages,
@@ -505,6 +535,16 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
   if (input.npcPresence && input.npcPresence.length > 0) {
     const npcBlock = input.npcPresence.slice(0, 3).join("; ");
     addSection("npcPresence", "Background NPC Characters", `BACKGROUND CHARACTERS: ${npcBlock}`);
+  }
+
+  if (input.subjectFocus) {
+    const compositionDirective = buildCompositionDirective({
+      subjectFocus: input.subjectFocus,
+      heroCenterAllowed: false,
+    });
+    if (compositionDirective) {
+      addSection("compositionDirective", "Composition Directive", compositionDirective);
+    }
   }
 
   if (!charDescs && input.characters && input.characters.length > 0) {

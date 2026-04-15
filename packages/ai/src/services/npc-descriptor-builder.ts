@@ -13,6 +13,13 @@ export interface NpcProfileLike {
   silhouetteSignature?: string | null;
   accessoryMarker?: string | null;
   locationId?: string | null;
+  speciesLabel?: string | null;
+  speciesTraits?: {
+    promptFragment: string;
+    distinctiveMarkers: string[];
+    morphology: string;
+  } | null;
+  individualVariation?: string | null;
 }
 
 /**
@@ -21,6 +28,15 @@ export interface NpcProfileLike {
  */
 export function buildNpcPromptDescriptor(profile: NpcProfileLike): string {
   const parts: string[] = [];
+
+  if (profile.speciesTraits) {
+    parts.push(profile.speciesTraits.promptFragment);
+    const markers = profile.speciesTraits.distinctiveMarkers.slice(0, 2).join(", ");
+    if (markers) parts.push(markers);
+    if (profile.individualVariation) parts.push(`individual variation: ${profile.individualVariation}`);
+    if (profile.outfitSignature) parts.push(`wearing ${profile.outfitSignature}`);
+    return parts.filter(Boolean).join(", ");
+  }
 
   if (profile.shortVisualCore) parts.push(profile.shortVisualCore);
   if (profile.outfitSignature) parts.push(`wearing ${profile.outfitSignature}`);

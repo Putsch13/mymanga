@@ -390,7 +390,7 @@ export const productionPlanSchema = z.object({
   panelsPerPage: z.array(z.number().int().min(1)).default([]),
   estimatedImages: z.number().int().min(0).default(0),
   targetImages: z.number().int().min(0).default(0),
-  minimumImages: z.number().int().min(0).default(55),
+  minimumImages: z.number().int().min(0).default(75),
   criticalPanels: z.array(z.string()).default([]),
   lockedCharacters: z.array(z.string()).default([]),
   compressionRisks: z.array(z.string()).default([]),
@@ -420,7 +420,7 @@ export const chapterImageCountSchema = z.object({
   generatedImages: z.number().int().min(0).default(0),
   acceptedImages: z.number().int().min(0).default(0),
   rejectedImages: z.number().int().min(0).default(0),
-  missingImages: z.number().int().min(0).default(55),
+  missingImages: z.number().int().min(0).default(75),
 });
 
 export type ChapterImageCount = z.infer<typeof chapterImageCountSchema>;
@@ -637,8 +637,8 @@ export function buildProductionPlanFromOutline(
     lockedCharacters?: string[];
   },
 ): ProductionPlan {
-  const minimumImages = Math.max(1, input?.minimumImages ?? 55);
-  const maxPanelsPerPage = Math.max(3, input?.maxPanelsPerPage ?? 5);
+  const minimumImages = Math.max(1, input?.minimumImages ?? 75);
+  const maxPanelsPerPage = Math.max(3, input?.maxPanelsPerPage ?? 6);
   const panels = outline.beats.map((beat) => Math.max(1, beat.estimatedPanels));
   const estimatedImages = sum(panels);
   const pages: ProductionPlanPage[] = [];
@@ -757,7 +757,7 @@ export function normalizeChapterImageCounts(input?: Partial<ChapterImageCount> |
   const normalized = chapterImageCountSchema.parse({
     estimatedImages: input?.estimatedImages ?? 0,
     targetImages: input?.targetImages ?? input?.estimatedImages ?? 0,
-    minimumImages: input?.minimumImages ?? 55,
+    minimumImages: input?.minimumImages ?? 75,
     generatedImages: input?.generatedImages ?? 0,
     acceptedImages: input?.acceptedImages ?? 0,
     rejectedImages: input?.rejectedImages ?? 0,
@@ -881,7 +881,7 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
     imageCounts = normalizeChapterImageCounts({
       estimatedImages: snapshot.data.productionPlan.estimatedImages ?? 0,
       targetImages: snapshot.data.productionPlan.targetImages ?? 0,
-      minimumImages: snapshot.data.productionPlan.minimumImages ?? 55,
+      minimumImages: snapshot.data.productionPlan.minimumImages ?? 75,
       acceptedImages: snapshot.data.readinessReport?.imageCounts.acceptedImages ?? 0,
       generatedImages: snapshot.data.readinessReport?.imageCounts.generatedImages ?? 0,
       rejectedImages: snapshot.data.readinessReport?.imageCounts.rejectedImages ?? 0,

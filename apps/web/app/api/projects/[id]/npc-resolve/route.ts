@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { NPC_ONTOLOGY, resolveNpcWithAiFallback } from "@manga-ai-studio/world";
+import { detectSpeciesInDescription, resolveSpeciesArchetype } from "@manga-ai-studio/memory";
+import { prisma } from "@manga-ai-studio/db";
 
 const openai = process.env.OPENAI_API_KEY ? new OpenAI() : null;
 
@@ -10,7 +12,7 @@ type Ctx = { params: Promise<{ id: string }> };
 export async function POST(req: NextRequest, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  await ctx.params;
+  const { id: projectId } = await ctx.params;
 
   const body = await req.json() as {
     rawDescription: string;
@@ -26,6 +28,48 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   const desc = body.rawDescription.toLowerCase();
   const universe = (body.universe ?? "fantasy").toLowerCase();
   const tone = (body.tone ?? "épique").toLowerCase();
+
+  const speciesLabel = detectSpeciesInDescription(body.rawDescription);
+
+  if (speciesLabel) {
+    try {
+      const { traits, isNew } = await resolveSpeciesArchetype(prisma, {
+        projectId,
+        speciesLabel,
+        universe,
+        tone,
+        generateWithAI: async (prompt) => {
+          if (!openai) return "{}";
+          const completion = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [{ role: "user", content: prompt }],
+            response_format: { type: "json_object" },
+            max_tokens: 500,
+          });
+          return completion.choices[0]?.message?.content ?? "{}";
+        },
+      });
+
+      return NextResponse.json({
+        strategy: isNew ? "species_created" : "species_recalled",
+        confidence: 0.95,
+        isSpecies: true,
+        speciesLabel,
+        topMatch: {
+          label: speciesLabel,
+          visualCues: [traits.morphology, traits.skinTexture, ...traits.distinctiveMarkers.slice(0, 1)],
+          interactionHooks: [
+            `Un membre de l'espèce ${speciesLabel} avec les traits distinctifs de la race`,
+            `Variation individuelle sur la base commune de l'espèce`,
+          ],
+        },
+        promptFragment: traits.promptFragment,
+        narrativeHook: `Un·e ${speciesLabel} avec les traits caractéristiques de son espèce.`,
+      });
+    } catch (err) {
+      console.error("[npc-resolve] species resolution failed:", err);
+    }
+  }
 
   const scored = NPC_ONTOLOGY.map((entry) => {
     let score = 0;

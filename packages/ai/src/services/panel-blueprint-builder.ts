@@ -76,6 +76,28 @@ interface PanelTemplate {
 
 const COMBAT_TEMPLATES: PanelTemplate[] = [
   {
+    purpose: "establishing battlefield — aucun héros",
+    shotType: "wide",
+    cameraAngle: "aerial",
+    subjectFocus: "environment",
+    mustShowEnemy: false,
+    requiredNpcCount: 0,
+    cutawayType: "environment",
+    heroCenterAllowed: false,
+    criticality: "high",
+  },
+  {
+    purpose: "crowd reaction — spectateurs / témoins",
+    shotType: "wide",
+    cameraAngle: "eye_level",
+    subjectFocus: "npc",
+    mustShowEnemy: false,
+    requiredNpcCount: 3,
+    cutawayType: "none",
+    heroCenterAllowed: false,
+    criticality: "low",
+  },
+  {
     purpose: "wide action establishing",
     shotType: "wide",
     cameraAngle: "low_angle",
@@ -189,6 +211,28 @@ const TENSE_DIALOGUE_TEMPLATES: PanelTemplate[] = [
     heroCenterAllowed: true,
     criticality: "high",
     dialogueCarrier: "speaker_visible",
+  },
+  {
+    purpose: "NPC reaction crowd / witness",
+    shotType: "medium",
+    cameraAngle: "eye_level",
+    subjectFocus: "npc",
+    mustShowEnemy: false,
+    requiredNpcCount: 2,
+    cutawayType: "none",
+    heroCenterAllowed: false,
+    criticality: "low",
+  },
+  {
+    purpose: "décor détail symbolique — ancrage lieu",
+    shotType: "closeup",
+    cameraAngle: "high_angle",
+    subjectFocus: "prop",
+    mustShowEnemy: false,
+    requiredNpcCount: 0,
+    cutawayType: "prop_insert",
+    heroCenterAllowed: false,
+    criticality: "low",
   },
 ];
 

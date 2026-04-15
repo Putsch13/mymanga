@@ -52,6 +52,7 @@ import {
   buildProjectContext,
   detectCanonWarnings,
   ensureSceneExtras,
+  loadProjectRecurringNpcs,
   persistChapterMemory,
   replaceRagDocument,
 } from "@manga-ai-studio/memory";
@@ -71,6 +72,7 @@ import {
   applySceneEventsToKernel,
   type CharacterState,
 } from "@manga-ai-studio/continuity";
+import { enforceShotDiversity } from "@manga-ai-studio/core";
 import { scoreVisualConsistency } from "@manga-ai-studio/visual-consistency";
 import { buildSceneBlueprint, type CreativityControls, type SceneBlueprint } from "@manga-ai-studio/world";
 import { createClient } from "@supabase/supabase-js";
@@ -1161,6 +1163,18 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       take: 20,
     }).catch(() => [] as Array<{ name: string; description: string | null; visualBrief?: string | null; establishedVisualBrief?: string | null }>);
 
+    const recurringNpcs = await loadProjectRecurringNpcs(prisma, projectId);
+    console.log(`[pipeline:npc-memory] ${recurringNpcs.length} PNJ récurrents chargés pour le projet`);
+
+    const npcMemoryContext = recurringNpcs.length > 0
+      ? `\nPNJ RÉCURRENTS DU PROJET (visuels à respecter si réapparition) :\n` +
+        recurringNpcs.map(n =>
+          `- ${n.label} (${n.appearanceCount} apparitions) : ${n.shortVisualCore}` +
+          (n.outfitSignature ? ` | Tenue : ${n.outfitSignature}` : "") +
+          (n.speciesLabel ? ` | Espèce : ${n.speciesLabel}` : "")
+        ).join("\n")
+      : "";
+
     const contextDocument = [
       `Projet: ${context.project.title}`,
       context.project.pitch ? `Pitch: ${context.project.pitch}` : "",
@@ -1187,10 +1201,11 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             .map((doc) => `${doc.title ?? doc.entityType ?? "doc"}: ${doc.content}`)
             .join("\n")}`
         : "",
+      npcMemoryContext,
     ]
       .filter(Boolean)
       .join("\n\n")
-      .slice(0, 3900);
+      .slice(0, 4200);
 
     await replaceRagDocument(prisma, {
       projectId,
@@ -1681,6 +1696,20 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         const bpMsg = blueprintErr instanceof Error ? blueprintErr.message : "blueprint_error";
         console.warn(`[pipeline] b3-1 blueprint generation failed (non-blocking): ${bpMsg}`);
       }
+    }
+
+    // Shot diversity enforcement
+    if (finalPanelBlueprints.length > 0) {
+      const { blueprints: diversifiedBlueprints, report: diversityReport } =
+        enforceShotDiversity(finalPanelBlueprints);
+      console.log(`[pipeline:shot-diversity] hero=${Math.round(diversityReport.heroCenterRatio * 100)}%` +
+        ` env=${Math.round(diversityReport.environmentRatio * 100)}%` +
+        ` npc=${Math.round(diversityReport.npcRatio * 100)}%` +
+        ` corrections=${diversityReport.corrections.length}`);
+      if (!diversityReport.valid) {
+        console.warn("[pipeline:shot-diversity] violations:", diversityReport.violations.map(v => v.type));
+      }
+      finalPanelBlueprints = diversifiedBlueprints;
     }
 
     // Map sceneId → list of planned SceneImage ids (for image generation step)
