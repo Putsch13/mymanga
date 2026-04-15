@@ -1,81 +1,81 @@
 # Runtime Chapter Studio Map
 
-## Parcours réel branché
+## Parcours reel branche
 
-- Création projet: `apps/web/app/(app)/projects/new/page.tsx` -> `apps/web/app/api/projects/route.ts`
-- Hub projet: `apps/web/app/(app)/projects/[id]/page.tsx`
-- Liste chapitres: `apps/web/app/(app)/projects/[id]/chapters/page.tsx`
-- Studio chapitre:
+- Creation projet : `apps/web/app/(app)/projects/new/page.tsx` → `apps/web/app/api/projects/route.ts`
+- Hub projet : `apps/web/app/(app)/projects/[id]/page.tsx`
+- Liste chapitres : `apps/web/app/(app)/projects/[id]/chapters/page.tsx`
+- Studio chapitre :
   - `apps/web/app/(app)/projects/[id]/chapters/new/page.tsx`
   - `apps/web/app/(app)/projects/[id]/chapters/[chapterId]/edit/page.tsx`
   - `apps/web/app/(app)/projects/[id]/chapters/[chapterId]/generate/page.tsx`
   - `apps/web/app/(app)/projects/[id]/chapters/[chapterId]/review/page.tsx`
   - `apps/web/app/(app)/projects/[id]/chapters/[chapterId]/read/page.tsx`
+- Pipeline projet : `apps/web/app/(app)/projects/[id]/pipeline/page.tsx`
+- Style visuel : `apps/web/app/(app)/projects/[id]/style/page.tsx`
+- Redirect legacy : `/projects/[id]/generate` → `/projects/[id]/pipeline` (301)
+- Redirect legacy : `/projects/[id]/studio` → dernier chapitre `/edit`
 
-## APIs runtime utilisées
+## APIs runtime utilisees
 
-- Création et listing chapitres: `apps/web/app/api/projects/[id]/chapters/route.ts`
-- Estimate narrative + outlines: `apps/web/app/api/projects/[id]/chapters/estimate/route.ts`
-- Studio chapitre: `apps/web/app/api/projects/[id]/chapters/[chapterId]/studio/route.ts`
-- Readiness gate: `apps/web/app/api/projects/[id]/chapters/[chapterId]/readiness/route.ts`
-- Launch generation: `apps/web/app/api/projects/[id]/chapters/[chapterId]/launch/route.ts`
-- Legacy launch encore branché mais désormais gardé par la readiness studio: `apps/web/app/api/projects/[id]/pipeline/route.ts`
-- QA report: `apps/web/app/api/projects/[id]/chapters/[chapterId]/qa-report/route.ts`
-- Complete review: `apps/web/app/api/projects/[id]/chapters/[chapterId]/review/complete/route.ts`
-- Legacy approved outline bridge: `apps/web/app/api/projects/[id]/chapters/[chapterId]/approved-outline/route.ts`
-- Reader payload: `apps/web/app/api/projects/[id]/chapters/[chapterId]/route.ts`
-- Retry panel: `apps/web/app/api/scene-images/[sceneImageId]/retry/route.ts`
+- Creation et listing chapitres : `apps/web/app/api/projects/[id]/chapters/route.ts`
+- Estimate narrative + outlines : `apps/web/app/api/projects/[id]/chapters/estimate/route.ts`
+- Studio chapitre : `apps/web/app/api/projects/[id]/chapters/[chapterId]/studio/route.ts`
+- Autofill IA : `apps/web/app/api/projects/[id]/chapters/[chapterId]/autofill/route.ts`
+- Readiness gate : `apps/web/app/api/projects/[id]/chapters/[chapterId]/readiness/route.ts`
+- Launch generation : `apps/web/app/api/projects/[id]/chapters/[chapterId]/launch/route.ts`
+- Pipeline projet : `apps/web/app/api/projects/[id]/pipeline/route.ts`
+- NPC resolve : `apps/web/app/api/projects/[id]/npc-resolve/route.ts`
+- QA report : `apps/web/app/api/projects/[id]/chapters/[chapterId]/qa-report/route.ts`
+- Complete review : `apps/web/app/api/projects/[id]/chapters/[chapterId]/review/complete/route.ts`
+- Approved outline bridge : `apps/web/app/api/projects/[id]/chapters/[chapterId]/approved-outline/route.ts`
+- Reader payload : `apps/web/app/api/projects/[id]/chapters/[chapterId]/route.ts`
+- Retry panel : `apps/web/app/api/scene-images/[sceneImageId]/retry/route.ts`
+- TTS : `apps/web/app/api/tts/route.ts`
 
-## Packages réellement impliqués
+## Packages impliques
 
-- `packages/core`: types studio, canon, readiness, QA, adapters legacy
-- `packages/ai`: prompt composer hiérarchique, lock policy FAL
-- `packages/workflow`: pipeline de génération complet
-- `packages/continuity`: continuité et canon persistants
-- `packages/memory`: contexte projet et mémoire chapitre
-- `packages/world`: blueprint scène, ontologies
-- `packages/db`: schéma Prisma, jobs, images, assets
-- `packages/db/prisma/backfill-chapter-studio.ts`: backfill logique des anciens chapitres vers `outline.studio`
+- `packages/core` : types studio, canon, readiness, QA, adapters, approved outline
+- `packages/ai` : prompt composer, lock policy FAL, genre director, story spine, story quality gate, NPC descriptor builder
+- `packages/workflow` : pipeline de generation complet
+- `packages/continuity` : continuite et canon persistants
+- `packages/memory` : contexte projet et memoire chapitre
+- `packages/world` : blueprint scene, ontologies NPC/creatures, NPC resolver
+- `packages/db` : schema Prisma, jobs, images, assets
+- `packages/billing` : Stripe, wallet, ledger
 
-## Source de vérité runtime
+## Studio 4 etapes
 
-- `chapter.outline.studio` reste la source de vérité studio-first pour le wizard, la readiness, la review détaillée et le debug bundle.
-- `Chapter.studioStatus`, `Chapter.studioCurrentStep`, `Chapter.studioUpdatedAt`, `Chapter.minimumImages`, `Chapter.generatedImages`, `Chapter.acceptedImages`, `Chapter.rejectedImages`, `Chapter.missingImages`, `Chapter.criticalPanelsCount`, `Chapter.criticalPanelsBlocked`, `Chapter.criticalPanelsMissingQa`, `Chapter.reviewBlockedReason` sont désormais persistés en colonnes runtime réellement lues/écrites.
-- `chapter.outline.approvedOutline` reste un bridge de compatibilité pour le pipeline historique tant que la cible relationnelle complète n’existe pas.
-- Le pipeline choisit désormais sa source outline en priorité depuis le studio (`productionOutline` -> bridge legacy) et trace `outlineSource`, `fallbackUsed`, `legacyBridgeUsed` dans les payloads persistés.
+Le studio `/edit` est le tunnel par defaut :
 
-## QA critique obligatoire
+1. **Brief** : pitch, conflit, mode expert/simple
+2. **Casting & Canon** : heros, antagonistes, decor, PNJ libres
+3. **Plan du chapitre** : contrat narratif, outlines, plan de production
+4. **Generation & Review** : pipeline, suivi, QA, rerolls
 
-- La criticité panel est centralisée via `packages/core/src/chapter-runtime.ts`.
-- Tout panel critique doit exposer `qaWasRequired`, `qaWasExecuted`, `qaFailureReason`, `qaBypassReason`, `panelCriticality`.
-- Si l’analyzer visuel est indisponible sur un panel critique:
-  - le pipeline marque le panel `blocked`
-  - le retry manuel marque le panel `blocked`
-  - `qa-report` remonte `criticalPanelsMissingQA`
-  - `review/complete` refuse la clôture
+### Mode simple vs expert
+- Chapitre 1 : mode simple par defaut (masque les reglages avances)
+- Chapitres suivants : mode expert par defaut
+- Toggle disponible dans le header du studio
 
-## Garantie runtime des 55 images
+### Readiness live
+- Le rapport de readiness est recalcule en temps reel depuis le draft local
+- Les blocants disparaissent instantanement quand l'utilisateur remplit les champs
+- Le contrat narratif est cree automatiquement si absent
 
-- Les compteurs passent par un agrégateur partagé `aggregateChapterImageCounts()`.
-- Tant que `acceptedImages < minimumImages`, le runtime reste non terminal (`GENERATION_PARTIAL` / `review_required`).
-- `qa-report`, `review/complete`, la review UI et `generationRunSummary` exposent `minimumImages`, `acceptedImages`, `missingImages`.
-- Les compteurs structurés sur `Chapter` sont rechargés dans les layouts/pages studio avant rendu, avec backfill pour l’existant.
+### Selecteur de chapitre
+- Dropdown dans le header pour naviguer entre chapitres
+- Conserve le sous-chemin actuel (/edit, /read, /generate)
 
-## Choke points encore vivants
+## Source de verite runtime
 
-- `packages/workflow/src/run-full-chapter-pipeline.ts` reste l’orchestrateur principal.
-- `Chapter.outline/script/storyboard` restent les blobs JSON de compatibilité pour le snapshot studio complet, l’historique détaillé et les structures panel/page encore non normalisées.
-- Le reader legacy `read` reste branché pour la lecture finale et les rerolls panel.
-- Une suite Playwright minimale existe désormais sur les pages réelles `edit/generate/review`, avec fixture DB et interaction navigateur.
+- `chapter.outline.studio` reste la source de verite studio-first
+- Le pipeline choisit sa source outline en priorite depuis le studio (`productionOutline` → bridge legacy)
+- Les compteurs images passent par `aggregateChapterImageCounts()`
+- Tant que `acceptedImages < minimumImages`, le runtime reste non terminal
 
-## Note projet après les 5 dernières passes
+## Genre Director
 
-- Le studio principal `/edit` est désormais le tunnel par défaut en 4 étapes:
-  - `Brief`
-  - `Casting & Canon`
-  - `Plan du chapitre`
-  - `Génération & Review`
-- Le reroll panel ne dépend plus uniquement d'URLs encore vivantes: il tente d'abord de reconstruire les refs stables depuis `referenceTrace`, `requestedCanonicalRef` et `canonRefUsed`.
-- Le routage image distingue maintenant retry transitoire local et failover cross-provider compatible, avec logs de `initialProvider`, `fallbackProvider`, `failoverReason` et historique des tentatives.
-- Le drift detector reste symbolique tant qu'aucune vraie analyse image n'est branchée, mais il renvoie désormais un diagnostic exploitable: `driftScore`, `severity`, `reasons`, `missingTraits`, `conflictingTraits`.
-- Les routes legacy `generate` et `review` restent compatibles, mais la surface produit recommandée est le studio `/edit`.
+16 modes disponibles : shonen_combat, seinen_tension, romance_shojo, thriller_horror, quiet_aftermath, isekai_adventure, mecha_tactical, sport_rivalry, medical_drama, mystery_detective, slice_of_life, supernatural, historical_epic, dark_fantasy_gore, josei_adult, comedy_parody
+
+Chaque mode configure : beatRhythm, turnTypes, silenceDensity, actionDialogueRatio, cliffhangerStyle, panelDensity, emotionalIntensityDefault.

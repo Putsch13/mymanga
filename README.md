@@ -1,34 +1,65 @@
 # Manga AI Studio
 
-Source unique de verite du projet. Toute la documentation produit, architecture, deploiement, QA et etat du pipeline V5 est centralisee ici.
+Monorepo full-stack pour generer des chapitres manga/webtoon coherents avec memoire narrative, canon visuel, PNJ adaptatifs et generation multi-provider.
 
-MYMANGA est un monorepo full-stack pour generer des chapitres manga/webtoon coherents avec :
+## Parcours principal
 
-- memoire narrative persistante
-- personnages verrouilles par canon visuel
-- generation d'images multi-provider
-- SceneBlueprint, PanelContract, SceneState et continuity kernel
-- QA premium, rerolls explicites et release gates
-- lecteur manga + webtoon vertical
+1. Creer un projet (pitch, genre, ton, style pack)
+2. Definir personnages, style et univers
+3. Creer un chapitre dans le studio 4 etapes (Brief → Casting → Plan → Generation)
+4. Lire en manga pagine ou en webtoon vertical
+5. Continuer la serie en gardant le canon
 
-## Resume produit
+## Fonctionnalites
 
-Parcours principal :
+### Projets
+- Pitch, genres, intensite, bible d'univers, style pack
+- Curseurs creatifs (violence, romance, noirceur, realisme, rythme…)
+- Navigation : Overview, Bible, Characters, Canon, Style visuel, Chapters, Pipeline, Assets, Settings, History
 
-1. creer un projet
-2. definir personnages, style et univers
-3. lancer un chapitre depuis une intention libre
-4. lire en manga pagine ou en webtoon vertical
-5. continuer la serie en gardant le canon
+### Personnages
+- Fiches completes avec refs visuelles, preview et fingerprint
+- Prompts verrouilles via canon pack
+- Preview IA et generation visuelle automatique
 
-Fonctions cle actuelles :
+### Chapitres — Studio 4 etapes
+- **Brief** : pitch, conflit principal, mode expert/simple (mode simple par defaut pour le chapitre 1)
+- **Casting & Canon** : selection heros/antagonistes, decor principal, PNJ libres avec resolution IA
+- **Plan** : contrat narratif, outline editoriale, outline de production, plan de production
+- **Generation & Review** : pipeline complet, suivi temps reel, QA, rerolls
 
-- projets : pitch, genres, intensite, bible d'univers, style pack
-- personnages : fiche complete, refs visuelles, preview, fingerprint, prompts verrouilles
-- chapitres : outline structure, dialogues, continuity, storyboard, images, memoire
-- PNJ/extras : generation procedurale, reusage scene-level et cross-scenes par lieu/projet
-- images : fal en provider principal, retries explicites, proxy et URLs signees
-- debug premium : fallbacks visibles, scores qualite, diagnostics panel/chapitre, routing FAL scene-first
+### PNJ & Creatures
+- 35+ archetypes NPC (mentor, villain, rival, oracle, berserker, informateur, ghost…)
+- 15+ creatures (dragon, oni, shinigami, golem, kaiju, spectre, familier, symbiote…)
+- Moteur de resolution adaptatif : catalogue local + generation IA
+- Endpoint API `/api/projects/[id]/npc-resolve`
+
+### Pipeline chapitre
+- Outline structuree avec arc promises, world consequences, setup/payoff hooks
+- 21 types de beats narratifs (setup, escalation, villain_introduction, flashback_trigger, body_horror_reveal…)
+- Modes narratifs : linear, flashback_framed, flash_forward_framed, in_medias_res
+- 16 modes de genre (shonen_combat, seinen_tension, dark_fantasy_gore, josei_adult, comedy_parody…)
+- Anti-repetition : detection de similarite, phases narratives distinctes pour les beats generes
+- Story quality gate : cliffhanger, micro-turns, payoff, respiration, variete de beats
+- Directives gore conditionnelles pour dark fantasy
+
+### Lecteur
+- Manga pagine (simple/double page) et webtoon vertical
+- TTS : bouton ecouter global + lecture inline des dialogues
+- Debug panel : provider, workflow, reference policy, complexite, rerolls, findings vision
+- Proxy image, URLs signees, retries d'images
+
+### Images & Vision QA
+- Provider principal : fal.ai (FLUX dev, LoRA, Redux)
+- Secondaires : Runware, BFL, Stability
+- Routing scene-first avec complexite, reference policy, categories de panel
+- Vision QA auto-activee sur panels critiques (environment/continuity critical, complexite >= 0.8)
+- Rerolls cibles : decor, fidelite personnage, interaction, style, composition
+
+### Autofill IA
+- Completion automatique des champs manquants du studio
+- Mode brief (genere le pitch) et mode all_missing (complete tout)
+- Detection et message adapte pour les erreurs reseau/parsing
 
 ## Architecture
 
@@ -42,204 +73,70 @@ flowchart TB
   API --> ING[Inngest]
   API --> STRIPE[Stripe]
   DB --> MEM[Memory + Continuity]
-  MEM --> WF[Workflow chapitre V5]
+  MEM --> WF[Workflow chapitre]
   WF --> IMG[Generation image + validation + reroll]
 ```
 
-Stack principale :
+Stack :
 
-- frontend : Next.js 15, React 19, Tailwind v4, shadcn
-- backend : route handlers Next.js + packages TypeScript
-- data : PostgreSQL, Prisma, pgvector
-- auth/storage : Supabase
-- orchestration : Inngest avec fallback synchrone
-- texte : OpenAI
-- image : fal principal, Runware/BFL/Stability secondaires
+- Frontend : Next.js 15, React 19, Tailwind v4, shadcn
+- Backend : route handlers Next.js + packages TypeScript
+- Data : PostgreSQL, Prisma, pgvector
+- Auth/Storage : Supabase
+- Orchestration : Inngest avec fallback synchrone
+- Texte : OpenAI
+- Image : fal principal, Runware/BFL/Stability secondaires
 
 ## Structure du depot
 
 ```text
 MYMANGA/
-|-- apps/web/                  # app Next.js, UI et routes API
-|-- packages/ai/              # prompts, image routing, QA vision, fingerprints
-|-- packages/workflow/        # pipeline chapitre V5
-|-- packages/world/           # SceneBlueprint, ontologies, QA procedurale
-|-- packages/continuity/      # canon, snapshots, diff, validation
-|-- packages/memory/          # RAG, scene extras, memoire persistante
-|-- packages/core/            # types partages et contrats
-|-- packages/db/              # schema Prisma
-|-- packages/billing/         # Stripe, wallet, ledger
-|-- packages/moderation/      # garde-fous contenu/provider
-|-- render.yaml               # blueprint Render
-`-- README.md                 # documentation unique
+├── apps/web/                   # App Next.js, UI et routes API
+├── packages/ai/                # Prompts, image routing, QA vision, fingerprints, genre director
+├── packages/workflow/          # Pipeline chapitre complet
+├── packages/world/             # SceneBlueprint, ontologies NPC/creatures, NPC resolver
+├── packages/continuity/        # Canon, snapshots, diff, validation
+├── packages/memory/            # RAG, scene extras, memoire persistante
+├── packages/core/              # Types partages et contrats
+├── packages/db/                # Schema Prisma
+├── packages/billing/           # Stripe, wallet, ledger
+├── packages/moderation/        # Garde-fous contenu/provider
+├── packages/config/            # Configuration partagee
+├── packages/exports/           # Export manga/PDF
+├── packages/ui/                # Composants UI partages
+├── docs/                       # Architecture et glossaire routes
+└── render.yaml                 # Blueprint Render
 ```
 
-## Pipeline chapitre V5
+## Routes principales
 
-```mermaid
-flowchart TD
-  A[Contexte projet + memoire] --> B[Outline structure]
-  B --> C[Structured beats: arc promises + world consequences + hooks]
-  C --> D[Script + dialogues + structured scene deltas]
-  D --> E[SceneBlueprint + SceneState + PanelContract]
-  E --> F[Scene extras / PNJ / decor anchors]
-  F --> G[Prompt panel premium]
-  G --> H[Generation image routee]
-  H --> I[Validation heuristique + vision QA]
-  I --> J[Reroll si necessaire]
-  J --> K[Persist chapter, memory snapshot, quality report]
-```
+| Route | Role |
+|---|---|
+| `/projects/[id]` | Hub projet (overview, tuiles, arcs, chapitres recents) |
+| `/projects/[id]/style` | Configuration style visuel |
+| `/projects/[id]/pipeline` | Pipeline de generation (ex /generate) |
+| `/projects/[id]/chapters/[id]/edit` | Studio chapitre 4 etapes |
+| `/projects/[id]/chapters/[id]/generate` | Suivi temps reel de la generation |
+| `/projects/[id]/chapters/[id]/read` | Lecteur manga/webtoon |
+| `/projects/[id]/chapters/[id]/review` | Review QA |
+| `/projects/[id]/studio` | Redirect vers le dernier chapitre |
 
-Blocs premium actifs :
+## API principale
 
-- `CharacterFingerprint` persiste sur les personnages et reinjecte dans les prompts
-- `SceneState` et `PanelContract` sont construits avant image
-- `SceneBlueprint` relie narration, environnement, style, cast et contraintes
-- routing FAL scene-first avec `sceneComplexityScore`, `referencePolicy` et categories de panel
-- outline structure avec `arcPromises`, `worldConsequences`, `setupPayoffHooks`
-- dialogues produisent `sceneEvents`, `characterDeltas`, `locationDeltas`, `arcDeltas`
-- `SceneExtrasRegistry` gere la recurrence des PNJ/extras
-- release gate chapitre via `qualityReport`
-- modes degrades et fallbacks explicitement traces
-
-## Coherence narrative et visuelle
-
-### Personnages
-
-- refs canoniques via `CharacterVisualRef.isPrimary`
-- extraction de fingerprint depuis donnees structurees et, si OpenAI est dispo, analyse vision des refs
-- prompts panel/personnage avec contraintes de genre, couleurs, markers, drift interdit
-- reroll si le panel rate la fidelite, le decor, le style ou l'interaction
-
-### Monde et continuites
-
-- StoryBible, WorldState, CharacterState, LocationState, EventLog, ArcRegistry
-- snapshots et deltas apres validation
-- continuity validator avant sortie finale
-- scene extras persistants par scene et reusage cross-scenes/cross-chapitres base sur le lieu
-
-### Storytelling
-
-- beats avec role, tension, progression, turn, emotional delta
-- dialogues alignes sur l'objectif du beat et les hooks amont
-- anti-beats plats et anti-repetition
-- consequences monde et setup/payoff maintenant remontes des l'outline
-
-## Qualite premium et QA
-
-### Release gates
-
-Statuts normalises :
-
-- `FULLY_OPERATIONAL`
-- `DEGRADED_NO_OPENAI`
-- `DEGRADED_NO_IMAGE_PROVIDER`
-- `DEGRADED_STORAGE_MISSING`
-- `DEGRADED_DIALOGUE_FALLBACK`
-- `DEGRADED_OUTLINE_FALLBACK`
-
-Le pipeline ne masque plus un fallback critique. Un chapitre degrade sort en `partial_success`.
-
-### Scoring panel
-
-Chaque panel peut etre note sur :
-
-- `characterConsistencyScore`
-- `backgroundPresenceScore`
-- `environmentReadabilityScore`
-- `interactionScore`
-- `shotComplianceScore`
-- `styleConsistencyScore`
-- `releaseScore`
-- `visionScore` si QA vision active
-
-La validation panel combine :
-
-- heuristiques prompt/metadata
-- property validators du `SceneBlueprint`
-- analyse vision reelle optionnelle via OpenAI sur les panels critiques ou ambigus
-
-### Integration FAL scene-first
-
-Le pipeline image n'est plus "portrait-first". Il applique maintenant :
-
-- categories de panel : `ESTABLISHING_ENVIRONMENT`, `CHARACTER_IN_SCENE`, `CHARACTER_LOCK`, `LOCAL_FIX`
-- reference policy progressive : `NONE`, `LIGHT`, `STRONG`
-- tailles FAL centralisees : `character_ref`, `panel_story`, `panel_establishing`, `reroll_local`, `reroll_scene`
-- passe scene-first sur les panels complexes : scene base puis renfort continuite personnage si utile
-- rerolls cibles : decor, fidelite personnage, interaction, style, composition
-- logs FAL structures : workflow, model, prompt final, negative constraints, taille, refs, reference policy, complexite
-- benchmark FAL code-level pour archetypes de scene (`school_bullying`, `post_apo_establishing`, etc.)
-
-### QA suites
-
-Suites actuellement dans le code :
-
-- fixed regression suite a 6 scenarios premium
-- procedural stress suite par seeds
-- property-based validation
-- metamorphic tests pour changements controles
-
-Scenarios fixes couverts :
-
-1. exterieur post-apo avec heros seul
-2. jardin romantique avec duo
-3. ruelle cyberpunk avec PNJ
-4. laboratoire abandonne avec creature
-5. arene / scene d'action
-6. close-up emotionnel
-
-## Lecteur et UX
-
-Le reader V5 supporte :
-
-- manga pagine, simple ou double page
-- webtoon vertical par defaut
-- proxy image, URLs signees, retries d'images
-- debug panel : provider, workflow, reference policy, complexite, rerolls, issues, findings vision
-- bloc memoire + statut generation
-
-Le webtoon a ete repoli pour :
-
-- meilleure respiration verticale
-- sections de page plus lisibles
-- cases plus stables visuellement
-- debug rendu directement visible dans le reader
-
-## Admin et debug premium
-
-Le backoffice expose maintenant :
-
-- etat du stack de generation
-- modes degrades actifs
-- chapitres recents et release score
-- panels faibles
-- images bloquees ou en echec
-
-Le reader expose aussi :
-
-- quality report chapitre
-- panel debug
-- findings vision quand disponibles
-- boutons debug de reroll force : decor / personnage / composition
-
-## Providers et modeles
-
-Etat actuel :
-
-- image principale : fal.ai
-- texte / continuity / embeddings / vision QA : OpenAI
-- secondaires : Runware, BFL, Stability
-
-Modele fal principal utilise pour les panels premium :
-
-- `fal-ai/flux/dev`
-
-Autres usages possibles selon routage et contexte :
-
-- LoRA / Redux / refs selon complexite
-- `fal-ai/flux-lora`
-- `fal-ai/flux/dev/redux` pour les vrais cas `CHARACTER_LOCK`
+| Methode | Route | Role |
+|---|---|---|
+| `GET/POST` | `/api/projects` | Projets |
+| `GET/POST` | `/api/projects/[id]/characters` | Personnages |
+| `POST` | `/api/characters/[id]/generate-visual` | Preview visuel personnage |
+| `POST` | `/api/projects/[id]/chapters` | Brouillon chapitre |
+| `POST` | `/api/projects/[id]/pipeline` | Lancer pipeline |
+| `POST` | `/api/projects/[id]/npc-resolve` | Resolution PNJ (catalogue + IA) |
+| `POST` | `/api/projects/[id]/chapters/[id]/autofill` | Completion IA |
+| `POST` | `/api/projects/[id]/chapters/[id]/launch` | Lancer generation chapitre |
+| `GET` | `/api/projects/[id]/chapters/[id]` | Data reader + debug |
+| `POST` | `/api/scene-images/[id]/retry` | Reroll image |
+| `POST` | `/api/tts` | Text-to-speech |
+| `GET` | `/api/diagnostics/public` | Checks prod sans secrets |
 
 ## Installation locale
 
@@ -254,19 +151,19 @@ Commandes utiles :
 
 | Commande | Role |
 |---|---|
-| `pnpm dev` | lance le site |
-| `pnpm build` | build prod |
+| `pnpm dev` | Lance le site |
+| `pnpm build` | Build prod |
 | `pnpm db:generate` | Prisma generate |
-| `pnpm db:push` | sync schema |
+| `pnpm db:push` | Sync schema |
 | `pnpm db:studio` | Prisma Studio |
-| `pnpm --filter @manga-ai-studio/ai test` | tests IA |
-| `pnpm --filter @manga-ai-studio/workflow test` | tests workflow |
-| `pnpm --filter @manga-ai-studio/world test` | tests QA world |
-| `pnpm --filter @manga-ai-studio/web build` | build app web |
+| `pnpm --filter @manga-ai-studio/ai test` | Tests IA |
+| `pnpm --filter @manga-ai-studio/workflow test` | Tests workflow |
+| `pnpm --filter @manga-ai-studio/world test` | Tests QA world |
+| `pnpm --filter @manga-ai-studio/web build` | Build app web |
 
 ## Variables d'environnement
 
-Variables critiques :
+Critiques :
 
 - `DATABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_URL`
@@ -281,7 +178,7 @@ Variables critiques :
 - `INNGEST_EVENT_KEY`
 - `INNGEST_SIGNING_KEY`
 
-Variables utiles / optionnelles :
+Optionnelles :
 
 - `BFL_API_KEY`
 - `RUNWARE_API_KEY`
@@ -306,7 +203,7 @@ Ne jamais laisser `AUTH_DISABLED=true` en production.
 
 ## Deploiement Render
 
-Build command recommande :
+Build command :
 
 ```bash
 npm install -g pnpm@10.33.0 && pnpm install --frozen-lockfile && pnpm --filter @manga-ai-studio/db exec prisma generate && pnpm --filter @manga-ai-studio/web build
@@ -318,58 +215,27 @@ Start command :
 pnpm --filter @manga-ai-studio/web start
 ```
 
-Checklist deploiement :
+Checklist :
 
-1. renseigner toutes les variables critiques
-2. verifier `NEXT_PUBLIC_APP_URL`
-3. ne pas definir `AUTH_DISABLED`
-4. executer `pnpm --filter @manga-ai-studio/db exec prisma db push`
-5. verifier `GET /api/diagnostics/public`
-6. verifier `hasFalKey=true`, `hasOpenAI=true`, `authDisabled=false`
-7. lancer un vrai chapitre test
-8. confirmer que le job passe jusqu'a `update_memory`
-
-Notes Render/Supabase :
-
-- si Prisma echoue en local avec une erreur de connexion Supabase, verifier le bon host/port pooler
-- si les images doivent etre persistantes, `SUPABASE_SERVICE_ROLE_KEY` + `STORAGE_BUCKET` sont necessaires
-- le proxy image et les URLs signees sont la voie officielle en prod
+1. Renseigner toutes les variables critiques
+2. Verifier `NEXT_PUBLIC_APP_URL`
+3. Ne pas definir `AUTH_DISABLED`
+4. Executer `pnpm --filter @manga-ai-studio/db exec prisma db push`
+5. Verifier `GET /api/diagnostics/public`
+6. Confirmer `hasFalKey=true`, `hasOpenAI=true`, `authDisabled=false`
+7. Lancer un chapitre test
 
 ## Base de donnees
 
-Schema principal : `packages/db/prisma/schema.prisma`
+Schema : `packages/db/prisma/schema.prisma`
 
-Modeles notables :
-
-- `Project`
-- `Character`
-- `Chapter`
-- `ChapterScene`
-- `SceneImage`
-- `MemorySnapshot`
-- `Job`
-- `RagDocument`
-- `Wallet`
-
-## API principale
-
-| Methode | Route | Role |
-|---|---|---|
-| `GET/POST` | `/api/projects` | projets |
-| `GET/POST` | `/api/projects/[id]/characters` | personnages |
-| `POST` | `/api/characters/[characterId]/generate-visual` | preview / visuel perso |
-| `POST` | `/api/projects/[id]/chapters` | brouillon chapitre |
-| `POST` | `/api/projects/[id]/pipeline` | lancer pipeline |
-| `GET` | `/api/projects/[id]/chapters/[chapterId]` | data reader + debug |
-| `POST` | `/api/projects/[id]/chapters/[chapterId]/continue` | suite chapitre |
-| `POST` | `/api/scene-images/[sceneImageId]/retry` | reroll image (`?mode=environment|character|interaction|style|composition`) |
-| `GET` | `/api/diagnostics/public` | checks prod sans secrets |
+Modeles principaux : Project, Character, Chapter, ChapterScene, SceneImage, MemorySnapshot, Job, RagDocument, Wallet, NpcCanonPack, CharacterPropInventory
 
 ## Paiement et tokens
 
 - Stripe alimente le wallet
-- le wallet et le ledger sont la source de verite
-- les comptes admin QA peuvent etre illimites
+- Le wallet et le ledger sont la source de verite
+- Les comptes admin QA peuvent etre illimites
 
 ## Cout IA par chapitre
 
@@ -377,44 +243,19 @@ Ordre de grandeur pour un chapitre premium de 10 pages :
 
 | Poste | Hypothese | Cout approx. |
 |---|---|---|
-| panels | 40-60 images `768x1024` via fal | `~0.58-0.95 USD` |
-| style frame + keyframes + cover | refs et couverture | `~0.13 USD` |
-| rerolls QA | decor / interaction / drift | `~0.03-0.10 USD` |
-| texte + embeddings | outline, dialogues, passes, memoire | `~0.03-0.06 USD` |
-| total | pipeline complet | `~0.77-1.24 USD` |
+| Panels | 40-60 images 768x1024 via fal | ~0.58-0.95 USD |
+| Style frame + keyframes + cover | Refs et couverture | ~0.13 USD |
+| Rerolls QA | Decor / interaction / drift | ~0.03-0.10 USD |
+| Texte + embeddings | Outline, dialogues, passes, memoire | ~0.03-0.06 USD |
+| **Total** | Pipeline complet | **~0.77-1.24 USD** |
 
-## Etat reel du projet
+## Statuts de generation
 
-### Actif et robuste
+- `FULLY_OPERATIONAL`
+- `DEGRADED_NO_OPENAI` (Service d'ecriture indisponible)
+- `DEGRADED_NO_IMAGE_PROVIDER` (Service d'image indisponible)
+- `DEGRADED_STORAGE_MISSING`
+- `DEGRADED_DIALOGUE_FALLBACK`
+- `DEGRADED_OUTLINE_FALLBACK`
 
-- structure V5 premium branchee
-- webtoon + manga reader fonctionnels
-- chapitres avec diagnostics et release gates
-- preview personnage + fingerprint + prompt lock
-- outline et dialogues structures
-- retries provider et fallbacks visibles
-- docs consolidees dans ce README
-
-### Encore perfectible mais non bloquant
-
-- calibration fine des seuils de reroll sur gros corpus reel
-- vision QA encore optionnelle et dependante d'OpenAI
-- providers secondaires a valider davantage en prod
-- export PDF encore simple
-- TTS pas encore branche dans le reader
-
-## Nettoyage de documentation
-
-Ce README remplace les anciens fichiers disperses :
-
-- changelogs dedies
-- notes d'architecture separees
-- guide de deploiement separe
-- checklist legacy V4
-- README secondaires frontend/backend/app
-
-Objectif : une seule doc a maintenir, alignee avec le code reel.
-
-## Raccourci mental
-
-Si tu veux savoir "comment ca marche vraiment aujourd'hui", lis uniquement ce README et le pipeline dans `packages/workflow/src/run-full-chapter-pipeline.ts`.
+Un chapitre degrade sort en `partial_success`.
