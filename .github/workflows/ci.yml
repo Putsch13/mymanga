@@ -57,6 +57,9 @@ jobs:
       - name: Unit tests (continuity)
         run: pnpm --filter @manga-ai-studio/continuity test
 
+      - name: Contract tests (web)
+        run: pnpm --filter @manga-ai-studio/web test
+
       - name: Build
         run: pnpm --filter @manga-ai-studio/web build
         env:

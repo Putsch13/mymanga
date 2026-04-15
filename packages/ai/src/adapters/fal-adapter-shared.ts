@@ -258,7 +258,7 @@ export function buildFalGenerationRequest(input: GenerateImageInput) {
     effectiveReferenceUrls,
     translatedPositive,
     translatedNegative,
-    mode: (useLoraWithRef || useRedux || Boolean(referenceUrl)) ? "img2img" : "text2img",
+    mode: (useLoraWithRef || useRedux) ? "img2img" : "text2img",
   } as const;
 }
 

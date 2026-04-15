@@ -54,7 +54,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     criticalPanelsMissingQa: chapter.criticalPanelsMissingQa,
     reviewBlockedReason: chapter.reviewBlockedReason,
   });
-  const minimumImages = studio.data.productionPlan?.minimumImages ?? studio.data.readinessReport?.imageCounts.minimumImages ?? 55;
+  const minimumImages = studio.data.productionPlan?.minimumImages ?? studio.data.readinessReport?.imageCounts.minimumImages ?? 75;
 
   const panelResults = chapter.scenes.flatMap((scene) =>
     scene.images.map((image) => {

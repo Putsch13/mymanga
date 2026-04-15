@@ -26,15 +26,15 @@ describe("chapter-runtime helpers", () => {
     const counts = aggregateChapterImageCounts({
       estimatedImages: 60,
       targetImages: 58,
-      minimumImages: 55,
+      minimumImages: 75,
       generatedImages: 57,
       acceptedImages: 49,
       rejectedImages: 8,
     });
 
-    expect(counts.missingImages).toBe(6);
+    expect(counts.missingImages).toBe(26);
     expect(counts.acceptedImages).toBe(49);
-    expect(counts.minimumImages).toBe(55);
+    expect(counts.minimumImages).toBe(75);
   });
 
   it("normalise les champs runtime structurés persistables", () => {
@@ -48,7 +48,7 @@ describe("chapter-runtime helpers", () => {
         history: [],
       },
       counts: {
-        minimumImages: 55,
+        minimumImages: 75,
         generatedImages: 48,
         acceptedImages: 50,
         rejectedImages: 2,
@@ -60,7 +60,7 @@ describe("chapter-runtime helpers", () => {
 
     expect(fields.generatedImages).toBe(50);
     expect(fields.acceptedImages).toBe(50);
-    expect(fields.missingImages).toBe(5);
+    expect(fields.missingImages).toBe(25);
     expect(fields.reviewBlockedReason).toBe("missing_images");
     expect(fields.studioStatus).toBe("GENERATION_PARTIAL");
   });

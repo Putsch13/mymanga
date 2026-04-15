@@ -77,7 +77,7 @@ export function ProductionPlanCard({ plan, productionOutlineSource }: {
           </div>
           <div>
             <p className="text-muted-foreground">Minimum</p>
-            <p>{plan?.minimumImages ?? 55}</p>
+            <p>{plan?.minimumImages ?? 75}</p>
           </div>
         </div>
 

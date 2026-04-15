@@ -334,7 +334,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
   const warningItems = readiness?.warningItems ?? [];
   const generatedImages = generationContext?.imageStats.total ?? readiness?.imageCounts.generatedImages ?? 0;
   const acceptedImages = readiness?.imageCounts.acceptedImages ?? 0;
-  const minimumImages = readiness?.imageCounts.minimumImages ?? 55;
+  const minimumImages = readiness?.imageCounts.minimumImages ?? 75;
   const stackReady = generationContext?.stack.canGenerateChapters ?? true;
   const canAccessReview = generatedImages > 0 || ["QA_REVIEW", "NEEDS_FIXES", "COMPLETED", "PUBLISHED", "GENERATION_PARTIAL"].includes(snapshot.status);
   const launchDisabledMessage =

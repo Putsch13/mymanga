@@ -25,9 +25,9 @@ function buildFullPremiumProductionPlan() {
       criticalPanelCount: 1,
     })),
     panelsPerPage: Array.from({ length: 11 }, () => 5),
-    estimatedImages: 55,
-    targetImages: 55,
-    minimumImages: 55,
+    estimatedImages: 75,
+    targetImages: 75,
+    minimumImages: 75,
     criticalPanels: ["p1"],
     lockedCharacters: ["hero-1"],
     compressionRisks: [],
@@ -114,13 +114,13 @@ function buildFullPremiumSnapshot(beatCount = 10) {
       readinessReport: {
         status: "ready",
         imageCounts: {
-          estimatedImages: 55,
-          targetImages: 55,
-          minimumImages: 55,
+          estimatedImages: 75,
+          targetImages: 75,
+          minimumImages: 75,
           generatedImages: 0,
           acceptedImages: 0,
           rejectedImages: 0,
-          missingImages: 55,
+          missingImages: 75,
         },
       },
       characterCanons: [],
@@ -256,9 +256,9 @@ describe("premium-end-to-end-contract — survie du contrat premium", () => {
     const existing = buildFullPremiumProductionPlan();
     const incoming = {
       pageCount: 11,
-      estimatedImages: 55,
-      targetImages: 55,
-      minimumImages: 55,
+      estimatedImages: 75,
+      targetImages: 75,
+      minimumImages: 75,
       pages: existing.pages,
       panelsPerPage: existing.panelsPerPage,
       criticalPanels: [],
@@ -315,7 +315,7 @@ describe("premium-end-to-end-contract — survie du contrat premium", () => {
     };
     const incomingDraft = {
       intent: { workingTitle: "Nouveau titre" },
-      productionPlan: { pageCount: 11, estimatedImages: 55, targetImages: 55, minimumImages: 55 },
+      productionPlan: { pageCount: 11, estimatedImages: 75, targetImages: 75, minimumImages: 75 },
     };
 
     const merged = mergePremiumStudioDraft(

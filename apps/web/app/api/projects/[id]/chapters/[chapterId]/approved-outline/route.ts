@@ -172,11 +172,11 @@ export async function PATCH(req: Request, ctx: Ctx) {
     data: {
       ...buildChapterStructuredRuntimePrismaFields({
         snapshot: studioSnapshot,
-        minimumImages: studioSnapshot.data.readinessReport?.imageCounts.minimumImages ?? studioSnapshot.data.productionPlan?.minimumImages ?? 55,
+        minimumImages: studioSnapshot.data.readinessReport?.imageCounts.minimumImages ?? studioSnapshot.data.productionPlan?.minimumImages ?? 75,
         generatedImages: chapter.generatedImages ?? 0,
         acceptedImages: chapter.acceptedImages ?? 0,
         rejectedImages: chapter.rejectedImages ?? 0,
-        missingImages: chapter.missingImages ?? (studioSnapshot.data.readinessReport?.imageCounts.minimumImages ?? 55),
+        missingImages: chapter.missingImages ?? (studioSnapshot.data.readinessReport?.imageCounts.minimumImages ?? 75),
         criticalPanelsCount: chapter.criticalPanelsCount ?? 0,
         criticalPanelsBlocked: chapter.criticalPanelsBlocked ?? 0,
         criticalPanelsMissingQa: chapter.criticalPanelsMissingQa ?? 0,

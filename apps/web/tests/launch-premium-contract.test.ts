@@ -18,6 +18,7 @@ vi.mock("@manga-ai-studio/db", () => ({
 
 vi.mock("@/lib/auth/get-app-user", () => ({
   getAppUser: getAppUserMock,
+  isUnlimitedAdminEmail: () => true,
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
@@ -41,6 +42,10 @@ vi.mock("@/lib/age-gate", () => ({
   canAccessMatureContent: () => true,
   getAgeGateMessage: () => "blocked",
   projectRequiresAgeGate: () => false,
+}));
+
+vi.mock("@manga-ai-studio/ai", () => ({
+  computeShotVarietyBudget: () => ({ varietyScore: 0.8, missingShots: [] }),
 }));
 
 // Mock readChapterStudioSnapshotFromOutline pour retourner directement le snapshot premium
@@ -75,11 +80,11 @@ vi.mock("@/lib/chapter-studio", async (importOriginal) => {
       studioCurrentStep: "production_plan",
       studioUpdatedAt: new Date(),
       studioAutosaveVersion: 1,
-      minimumImages: 55,
+      minimumImages: 75,
       generatedImages: 0,
       acceptedImages: 0,
       rejectedImages: 0,
-      missingImages: 55,
+      missingImages: 75,
       criticalPanelsCount: 0,
       criticalPanelsBlocked: 0,
       criticalPanelsMissingQa: 0,
@@ -104,11 +109,11 @@ function buildPremiumChapter(beatCount = 10) {
     studioCurrentStep: "production_plan",
     studioUpdatedAt: new Date(),
     studioAutosaveVersion: 1,
-    minimumImages: 55,
+    minimumImages: 75,
     generatedImages: 0,
     acceptedImages: 0,
     rejectedImages: 0,
-    missingImages: 55,
+    missingImages: 75,
     criticalPanelsCount: 0,
     criticalPanelsBlocked: 0,
     criticalPanelsMissingQa: 0,
@@ -175,9 +180,9 @@ function buildPremiumChapter(beatCount = 10) {
               criticalPanelCount: 1,
             })),
             panelsPerPage: Array.from({ length: 11 }, () => 5),
-            estimatedImages: 55,
-            targetImages: 55,
-            minimumImages: 55,
+            estimatedImages: 75,
+            targetImages: 75,
+            minimumImages: 75,
             criticalPanels: ["p1"],
             lockedCharacters: ["hero-1"],
             compressionRisks: [],
@@ -209,13 +214,13 @@ function buildPremiumChapter(beatCount = 10) {
           readinessReport: {
             status: "ready",
             imageCounts: {
-              estimatedImages: 55,
-              targetImages: 55,
-              minimumImages: 55,
+              estimatedImages: 75,
+              targetImages: 75,
+              minimumImages: 75,
               generatedImages: 0,
               acceptedImages: 0,
               rejectedImages: 0,
-              missingImages: 55,
+              missingImages: 75,
             },
           },
         },

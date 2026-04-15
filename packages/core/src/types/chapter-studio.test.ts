@@ -10,7 +10,7 @@ import {
 } from "./chapter-studio";
 
 describe("chapter studio domain", () => {
-  it("enrichit automatiquement un plan sous 55 images", () => {
+  it("enrichit automatiquement un plan sous 75 images", () => {
     const plan = buildProductionPlanFromOutline({
       source: "generated",
       chapterGoal: "Monter la tension avant l'affrontement.",
@@ -34,7 +34,7 @@ describe("chapter studio domain", () => {
     });
 
     expect(plan.estimatedImages).toBe(30);
-    expect(plan.targetImages).toBeGreaterThanOrEqual(55);
+    expect(plan.targetImages).toBeGreaterThanOrEqual(75);
     expect(plan.enrichmentAdjustments.length).toBeGreaterThan(0);
   });
 
@@ -111,11 +111,30 @@ describe("chapter studio domain", () => {
           redundancyRisk: 30,
         })),
       },
+      productionPlan: {
+        pageCount: 4,
+        pages: Array.from({ length: 4 }, (_, i) => ({
+          pageNumber: i + 1,
+          beatIds: [`prod_${i + 1}`],
+          panelCount: 5,
+          imageTarget: 5,
+          criticalPanelCount: 0,
+        })),
+        panelsPerPage: [5, 5, 5, 5],
+        estimatedImages: 20,
+        targetImages: 20,
+        minimumImages: 75,
+        criticalPanels: [],
+        lockedCharacters: [],
+        compressionRisks: [],
+        enrichmentAdjustments: [],
+        imageBudgetStatus: "under_target",
+      },
     });
 
     const report = buildChapterReadinessReport(snapshot);
-    expect(report.blockingIssues.some((issue) => issue.includes("55"))).toBe(true);
-    expect(report.blockerItems.some((issue) => issue.id === "production_plan_under_minimum_images" && issue.step === "production_plan")).toBe(true);
+    expect(report.warnings.some((issue) => issue.includes("75"))).toBe(true);
+    expect(report.warningItems.some((issue) => issue.id === "production_plan_under_minimum_images" && issue.step === "production_plan")).toBe(true);
     expect(report.warningItems.some((issue) => issue.id === "missing_continuity_notes" && issue.step === "canon")).toBe(true);
   });
 
@@ -154,12 +173,12 @@ describe("chapter studio domain", () => {
     const counts = normalizeChapterImageCounts({
       estimatedImages: 62,
       targetImages: 58,
-      minimumImages: 55,
+      minimumImages: 75,
       generatedImages: 48,
       acceptedImages: 41,
       rejectedImages: 7,
     });
 
-    expect(counts.missingImages).toBe(14);
+    expect(counts.missingImages).toBe(34);
   });
 });

@@ -22,6 +22,7 @@ vi.mock("@manga-ai-studio/db", () => ({
 
 vi.mock("@/lib/auth/get-app-user", () => ({
   getAppUser: getAppUserMock,
+  isUnlimitedAdminEmail: () => true,
 }));
 
 vi.mock("@/lib/ownership", () => ({
@@ -165,9 +166,9 @@ function buildReadyStudio() {
           criticalPanelCount: 1,
         })),
         panelsPerPage: Array.from({ length: 11 }, () => 5),
-        estimatedImages: 55,
-        targetImages: 55,
-        minimumImages: 55,
+        estimatedImages: 75,
+        targetImages: 75,
+        minimumImages: 75,
         criticalPanels: ["p1"],
         lockedCharacters: ["hero-1"],
         compressionRisks: [],
@@ -226,8 +227,8 @@ beforeEach(() => {
     history: [],
     updatedAt: new Date().toISOString(),
     data: {
-      productionPlan: { minimumImages: 55 },
-      readinessReport: { imageCounts: { minimumImages: 55 } },
+      productionPlan: { minimumImages: 75 },
+      readinessReport: { imageCounts: { minimumImages: 75 } },
     },
   });
   buildChapterStructuredRuntimePrismaFieldsMock.mockReturnValue({
@@ -235,11 +236,11 @@ beforeEach(() => {
     studioCurrentStep: "production_plan",
     studioUpdatedAt: new Date(),
     studioAutosaveVersion: 1,
-    minimumImages: 55,
+    minimumImages: 75,
     generatedImages: 0,
     acceptedImages: 0,
     rejectedImages: 0,
-    missingImages: 55,
+    missingImages: 75,
     criticalPanelsCount: 0,
     criticalPanelsBlocked: 0,
     criticalPanelsMissingQa: 0,
@@ -524,7 +525,7 @@ describe("routes Chapter Studio", () => {
       scenes: [
         {
           id: "scene-1",
-          images: Array.from({ length: 55 }, (_, index) => ({
+          images: Array.from({ length: 75 }, (_, index) => ({
             id: `img-${index}`,
             status: "completed",
             metadata: index === 0
@@ -613,7 +614,7 @@ describe("routes Chapter Studio", () => {
       generatedImages: 0,
       acceptedImages: 0,
       rejectedImages: 0,
-      missingImages: 55,
+      missingImages: 75,
       criticalPanelsCount: 0,
       criticalPanelsBlocked: 0,
       criticalPanelsMissingQa: 0,
@@ -691,8 +692,8 @@ describe("routes Chapter Studio", () => {
       generatedImages: 0,
       acceptedImages: 0,
       rejectedImages: 0,
-      missingImages: 55,
-      minimumImages: 55,
+      missingImages: 75,
+      minimumImages: 75,
       criticalPanelsCount: 0,
       criticalPanelsBlocked: 0,
       criticalPanelsMissingQa: 0,
@@ -772,8 +773,8 @@ describe("routes Chapter Studio", () => {
       generatedImages: 0,
       acceptedImages: 0,
       rejectedImages: 0,
-      missingImages: 55,
-      minimumImages: 55,
+      missingImages: 75,
+      minimumImages: 75,
       criticalPanelsCount: 0,
       criticalPanelsBlocked: 0,
       criticalPanelsMissingQa: 0,
@@ -889,8 +890,8 @@ describe("studio PATCH — préservation intégrale des champs premium", () => {
       generatedImages: 0,
       acceptedImages: 0,
       rejectedImages: 0,
-      missingImages: 55,
-      minimumImages: 55,
+      missingImages: 75,
+      minimumImages: 75,
       criticalPanelsCount: 0,
       criticalPanelsBlocked: 0,
       criticalPanelsMissingQa: 0,
@@ -972,8 +973,8 @@ describe("studio PATCH — préservation intégrale des champs premium", () => {
       generatedImages: 0,
       acceptedImages: 0,
       rejectedImages: 0,
-      missingImages: 55,
-      minimumImages: 55,
+      missingImages: 75,
+      minimumImages: 75,
       criticalPanelsCount: 0,
       criticalPanelsBlocked: 0,
       criticalPanelsMissingQa: 0,

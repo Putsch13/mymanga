@@ -64,7 +64,7 @@ export function computeChapterQualityReport(
   },
 ) {
   const releaseThreshold = input?.releaseThreshold ?? Number(process.env.PREMIUM_RELEASE_SCORE_THRESHOLD ?? "0.72");
-  const minimumAcceptedImages = input?.minimumAcceptedImages ?? Number(process.env.CHAPTER_MIN_ACCEPTED_IMAGES ?? "55");
+  const minimumAcceptedImages = input?.minimumAcceptedImages ?? Number(process.env.CHAPTER_MIN_ACCEPTED_IMAGES ?? "75");
   const completed = rows.filter((row) => typeof row.consistencyScore === "number");
   const averageReleaseScore =
     completed.length > 0
