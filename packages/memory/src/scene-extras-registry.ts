@@ -475,6 +475,6 @@ export async function loadProjectRecurringNpcs(
     silhouetteSignature: p.silhouetteSignature,
     appearanceCount: p.appearanceCount,
     promotionStatus: p.promotionStatus,
-    speciesLabel: p.speciesLabel,
+    speciesLabel: (p as { speciesLabel?: string | null }).speciesLabel ?? null,
   }));
 }

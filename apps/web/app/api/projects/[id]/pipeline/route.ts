@@ -57,7 +57,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 export async function POST(req: Request, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return unauthorized();
-  const rl = checkRateLimit(user.id, "pipeline");
+  const rl = await checkRateLimit(user.id, "pipeline");
   if (!rl.ok) {
     return NextResponse.json({ error: rl.message }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSecs) } });
   }
@@ -116,6 +116,17 @@ export async function POST(req: Request, ctx: Ctx) {
   const approvedOutline = resolveApprovedOutlineFromSnapshot(snapshot, chapterOutlineRecord);
   if (!approvedOutline) {
     return validationError("Valide d'abord le plan détaillé du chapitre avant de lancer la génération.");
+  }
+
+  const existingAo = chapterOutlineRecord.approvedOutline as Record<string, unknown> | undefined;
+  const existingBeats = Array.isArray(existingAo?.beats) ? existingAo.beats : [];
+
+  if (existingBeats.length === 0 && Array.isArray(approvedOutline.beats) && approvedOutline.beats.length > 0) {
+    await prisma.chapter.update({
+      where: { id: body.chapterId },
+      data: { outline: { ...chapterOutlineRecord, approvedOutline } as never },
+    });
+    console.log(`[pipeline] approvedOutline persisted chapterId=${body.chapterId} beats=${approvedOutline.beats.length}`);
   }
 
   // Vérifier le contrat premium complet avant lancement

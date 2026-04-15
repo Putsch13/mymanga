@@ -21,10 +21,10 @@ export function FieldTooltip({ text, example }: { text: string; example?: string
         <HelpCircle className="h-3.5 w-3.5" />
       </button>
       {open && (
-        <div className="absolute bottom-full left-1/2 z-50 mb-2 w-64 -translate-x-1/2 rounded-xl border border-border/60 bg-popover px-4 py-3 text-xs text-popover-foreground shadow-xl">
+        <div className="tooltip-content absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2">
           <p className="leading-relaxed">{text}</p>
           {example && (
-            <p className="mt-2 rounded-md bg-muted/40 px-2 py-1.5 font-mono leading-relaxed text-muted-foreground">
+            <p className="mt-2 rounded border border-white/[0.08] bg-white/[0.05] px-2 py-1.5 font-mono text-[10px] text-muted-foreground">
               Ex : {example}
             </p>
           )}

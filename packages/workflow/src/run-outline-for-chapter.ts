@@ -77,6 +77,20 @@ export async function runOutlineForChapterId(
     );
   }
 
+  const PLACEHOLDER_PATTERNS = [
+    /^montée en pression/i, /^escalade :/i, /^point de basculement/i,
+    /^réaction en chaîne/i, /^tension maximale/i, /^nouvelle donne/i,
+  ];
+  const placeholderHitCount = repairedBeats.filter((beat) => {
+    const summary = typeof beat.summary === "string" ? beat.summary.trim() : "";
+    return summary.length > 0 && PLACEHOLDER_PATTERNS.some((pattern) => pattern.test(summary));
+  }).length;
+  if (placeholderHitCount > 0) {
+    console.warn(
+      `[outline] placeholder_pattern_hits chapterId=${chapterId} beats=${placeholderHitCount}/${repairedBeats.length}`,
+    );
+  }
+
   const outlineJson: Prisma.InputJsonValue = {
     beats: repairedBeats as unknown as Prisma.InputJsonValue,
     _meta: {
@@ -84,6 +98,7 @@ export async function runOutlineForChapterId(
       ...(model ? { model } : {}),
       source: usedOpenAI ? "openai" : "fallback",
       ...(ghostRepair.ghostsFound > 0 ? { ghostRepair: { found: ghostRepair.ghostsFound, resolved: ghostRepair.ghostsResolved } } : {}),
+      ...(placeholderHitCount > 0 ? { placeholderPatternHits: placeholderHitCount } : {}),
     },
   } as Prisma.InputJsonValue;
 

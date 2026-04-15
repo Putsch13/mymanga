@@ -487,6 +487,8 @@ Chaque beat DOIT contenir :
       - setupPayoffHooks = tableau de { hookId, label, kind: "setup"|"foreshadowing"|"echo"|"payoff", targetBeatHint?, resolved? }
 
 Langue : français. Les beats sont des étapes narratives courtes (pas de dialogue complet).
+Nombre de beats : produis entre 3 et 10 beats (selon la profondeur nécessaire pour ce chapitre), chacun avec un summary et un turn nettement distincts des autres — aucun doublon ni paraphrase paresseuse.
+INTERDIT d'utiliser des summaries « placeholders » génériques qui ne font que nommer une phase (ex. titres vides du type « Montée en pression », « Escalade », « Point de basculement », « Réaction en chaîne », « Nouvelle donne », « Tension maximale » sans événement concret lié au cast et aux lieux fournis). Chaque summary doit décrire une action ou une information spécifique à CE chapitre.
 ${genreDirectorBlock}
 RÈGLES DE RYTHME MANGA :
 - INTERDIT : 2 beats consécutifs avec le même pageRole.

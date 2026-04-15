@@ -33,7 +33,7 @@ export async function POST(req: Request) {
   if (!stack.canGenerateImages) {
     return validationError("La generation d'image n'est pas disponible tant que la stack image n'est pas correctement configuree.", stack);
   }
-  const limited = checkRateLimit(user.id, "generate_visual");
+  const limited = await checkRateLimit(user.id, "generate_visual");
   if (!limited.ok) {
     return validationError("Trop de requêtes de génération. Réessaie dans quelques instants.", limited);
   }

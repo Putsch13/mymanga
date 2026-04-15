@@ -75,6 +75,9 @@ export function ChapterEditorSidebarSummary({
             <div className="rounded-xl border border-border/60 bg-background/30 p-3">
               <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">État de préparation</p>
               <p className={`mt-2 font-semibold ${readinessColor}`}>{readinessScore}/100</p>
+              <div className="progress-bar-track mt-2">
+                <div className="progress-bar-fill" style={{ width: `${Math.min(100, readinessScore)}%` }} />
+              </div>
             </div>
             <div className="rounded-xl border border-border/60 bg-background/30 p-3">
               <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Budget images</p>

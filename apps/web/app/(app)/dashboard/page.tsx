@@ -129,23 +129,23 @@ export default async function DashboardPage() {
 
       {/* Navigation rapide */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Link href="/mangas" className="rounded-2xl border border-border/60 bg-background/30 p-4 transition hover:border-accent/40">
-          <LibraryBig className="h-5 w-5 text-violet-300" />
+        <Link href="/mangas" className="group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 transition-all duration-200 hover:border-accent/30 hover:bg-accent/5 hover:shadow-lg hover:shadow-violet-900/10">
+          <LibraryBig className="h-5 w-5 text-violet-300 transition-transform duration-200 group-hover:scale-110" />
           <p className="mt-3 text-sm font-medium">Bibliothèque</p>
           <p className="mt-0.5 text-xs text-muted-foreground">Tous mes mangas</p>
         </Link>
-        <Link href="/lab" className="rounded-2xl border border-border/60 bg-background/30 p-4 transition hover:border-accent/40">
-          <Wand2 className="h-5 w-5 text-rose-300" />
+        <Link href="/lab" className="group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 transition-all duration-200 hover:border-accent/30 hover:bg-accent/5 hover:shadow-lg hover:shadow-violet-900/10">
+          <Wand2 className="h-5 w-5 text-violet-300 transition-transform duration-200 group-hover:scale-110" />
           <p className="mt-3 text-sm font-medium">Labo</p>
           <p className="mt-0.5 text-xs text-muted-foreground">Style, DA, génération</p>
         </Link>
-        <Link href="/account" className="rounded-2xl border border-border/60 bg-background/30 p-4 transition hover:border-accent/40">
-          <UserRound className="h-5 w-5 text-accent" />
+        <Link href="/account" className="group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 transition-all duration-200 hover:border-accent/30 hover:bg-accent/5 hover:shadow-lg hover:shadow-violet-900/10">
+          <UserRound className="h-5 w-5 text-violet-300 transition-transform duration-200 group-hover:scale-110" />
           <p className="mt-3 text-sm font-medium">Mon compte</p>
           <p className="mt-0.5 text-xs text-muted-foreground">Accès et paramètres</p>
         </Link>
-        <Link href="/wallet" className="rounded-2xl border border-border/60 bg-background/30 p-4 transition hover:border-accent/40">
-          <Coins className="h-5 w-5 text-amber-300" />
+        <Link href="/wallet" className="group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 transition-all duration-200 hover:border-accent/30 hover:bg-accent/5 hover:shadow-lg hover:shadow-violet-900/10">
+          <Coins className="h-5 w-5 text-violet-300 transition-transform duration-200 group-hover:scale-110" />
           <p className="mt-3 text-sm font-medium">Crédits</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {unlimitedAdmin ? "Illimité" : `${wallet?.balance ?? 0} disponibles`}

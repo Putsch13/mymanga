@@ -421,11 +421,18 @@ export default function ChapterGeneratorPage() {
           creativityControls,
         }),
       });
-      const j = await res.json();
-      // Contrat premium incomplet — afficher les champs manquants
-      if (!res.ok && j.missing && Array.isArray(j.missing)) {
-        setPremiumContractMissing(j.missing as string[]);
-        setPipelineMsg(j.message ?? "Le contrat premium est incomplet.");
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (j.missing && Array.isArray(j.missing)) {
+          setPremiumContractMissing(j.missing as string[]);
+        } else {
+          setPremiumContractMissing(null);
+        }
+        setPipelineMsg(
+          (j as { error?: string }).error === "premium_contract_incomplete"
+            ? "Le plan du chapitre est incomplet. Retourne dans le studio, étape 3 « Plan », génère l'outline et le plan de production, puis reviens ici."
+            : (j as { message?: string }).message ?? (j as { error?: string }).error ?? "Erreur de lancement.",
+        );
         setJobState(null);
         return;
       }
@@ -443,9 +450,19 @@ export default function ChapterGeneratorPage() {
           },
           ...(j.ok === false ? { error: { message: j.message } } : {}),
         });
-        if (!j.ok) setPipelineMsg(j.message ?? "Erreur de lancement.");
-      } else if (!res.ok || j.ok === false) {
-        setPipelineMsg(j.message ?? "Erreur de lancement.");
+        if (!j.ok) {
+          setPipelineMsg(
+            (j as { error?: string }).error === "premium_contract_incomplete"
+              ? "Le plan du chapitre est incomplet. Retourne dans le studio, étape 3 « Plan », génère l'outline et le plan de production, puis reviens ici."
+              : (j as { message?: string }).message ?? (j as { error?: string }).error ?? "Erreur de lancement.",
+          );
+        }
+      } else if (j.ok === false) {
+        setPipelineMsg(
+          (j as { error?: string }).error === "premium_contract_incomplete"
+            ? "Le plan du chapitre est incomplet. Retourne dans le studio, étape 3 « Plan », génère l'outline et le plan de production, puis reviens ici."
+            : (j as { message?: string }).message ?? (j as { error?: string }).error ?? "Erreur de lancement.",
+        );
         setJobState(null);
       }
     } catch (e) {
@@ -499,7 +516,15 @@ export default function ChapterGeneratorPage() {
           creativityControls,
         }),
       });
-      const pJ = await pRes.json();
+      const pJ = await pRes.json().catch(() => ({}));
+      if (!pRes.ok) {
+        setPipelineMsg(
+          (pJ as { error?: string }).error === "premium_contract_incomplete"
+            ? "Le plan du chapitre est incomplet. Retourne dans le studio, étape 3 « Plan », génère l'outline et le plan de production, puis reviens ici."
+            : (pJ as { message?: string }).message ?? (pJ as { error?: string }).error ?? "Erreur de lancement.",
+        );
+        return;
+      }
       if (pJ.jobId) {
         setSelectedJobId(pJ.jobId);
         setJobState({
@@ -513,7 +538,11 @@ export default function ChapterGeneratorPage() {
           },
         });
       } else {
-        setPipelineMsg(pJ.message ?? "Erreur de lancement.");
+        setPipelineMsg(
+          (pJ as { error?: string }).error === "premium_contract_incomplete"
+            ? "Le plan du chapitre est incomplet. Retourne dans le studio, étape 3 « Plan », génère l'outline et le plan de production, puis reviens ici."
+            : (pJ as { message?: string }).message ?? (pJ as { error?: string }).error ?? "Erreur de lancement.",
+        );
       }
     } catch (e) {
       setPipelineMsg(e instanceof Error ? e.message : "Erreur réseau");

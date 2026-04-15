@@ -2,18 +2,25 @@ import { type NextRequest, NextResponse } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 import { authDisabledInProduction, isAuthDisabled } from "@/lib/auth/auth-mode";
 
-const PUBLIC_PREFIXES = [
-  "/auth/callback",
-  "/auth/signout",
-  "/api/billing/webhooks",
+const API_PUBLIC_WHITELIST = [
+  "/api/billing/webhooks/stripe",
   "/api/inngest",
-  "/api/", // Toutes les API routes gèrent leur propre auth
+  "/api/diagnostics/public",
+  "/api/auth/callback",
 ];
-const PUBLIC_EXACT = ["/", "/login"];
 
-function isPublicRoute(pathname: string) {
-  if (PUBLIC_EXACT.includes(pathname)) return true;
-  return PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+const PUBLIC_UI_EXACT = ["/", "/login"];
+const PUBLIC_UI_PREFIXES = ["/auth/callback", "/auth/signout"];
+
+function isPublicRoute(pathname: string): boolean {
+  if (PUBLIC_UI_EXACT.includes(pathname)) return true;
+  if (PUBLIC_UI_PREFIXES.some(p => pathname.startsWith(p))) return true;
+
+  if (pathname.startsWith("/api/")) {
+    return API_PUBLIC_WHITELIST.some(w => pathname.startsWith(w));
+  }
+
+  return false;
 }
 
 export async function middleware(request: NextRequest) {
@@ -24,11 +31,11 @@ export async function middleware(request: NextRequest) {
     );
   }
 
-  if (isAuthDisabled()) {
+  if (isPublicRoute(request.nextUrl.pathname)) {
     return NextResponse.next();
   }
 
-  if (isPublicRoute(request.nextUrl.pathname)) {
+  if (isAuthDisabled()) {
     return NextResponse.next();
   }
 

@@ -17,24 +17,34 @@ export async function GET(_req: Request, ctx: Ctx) {
   });
   if (!project) return notFound();
 
-  const npcs = await prisma.npcVisualProfile.findMany({
-    where: {
-      projectId,
-      promotionStatus: { in: ["promoted", "locked"] },
-    },
-    orderBy: { appearanceCount: "desc" },
-    take: 20,
-    select: {
-      stableNpcId: true,
-      role: true,
-      shortVisualCore: true,
-      outfitSignature: true,
-      appearanceCount: true,
-      promotionStatus: true,
-      speciesLabel: true,
-      characterId: true,
-    },
-  });
+  let npcs: Array<{
+    stableNpcId: string; role: string; shortVisualCore: string;
+    outfitSignature: string | null; appearanceCount: number;
+    promotionStatus: string; speciesLabel?: string | null; characterId: string | null;
+  }>;
+  try {
+    npcs = await prisma.npcVisualProfile.findMany({
+      where: { projectId, promotionStatus: { in: ["promoted", "locked"] } },
+      orderBy: { appearanceCount: "desc" },
+      take: 20,
+      select: {
+        stableNpcId: true, role: true, shortVisualCore: true,
+        outfitSignature: true, appearanceCount: true,
+        promotionStatus: true, speciesLabel: true, characterId: true,
+      },
+    });
+  } catch {
+    npcs = await prisma.npcVisualProfile.findMany({
+      where: { projectId, promotionStatus: { in: ["promoted", "locked"] } },
+      orderBy: { appearanceCount: "desc" },
+      take: 20,
+      select: {
+        stableNpcId: true, role: true, shortVisualCore: true,
+        outfitSignature: true, appearanceCount: true,
+        promotionStatus: true, characterId: true,
+      },
+    });
+  }
 
   return NextResponse.json({
     npcs: npcs.map(n => ({
@@ -44,7 +54,7 @@ export async function GET(_req: Request, ctx: Ctx) {
       outfitSignature: n.outfitSignature,
       appearanceCount: n.appearanceCount,
       promotionStatus: n.promotionStatus,
-      speciesLabel: n.speciesLabel,
+      speciesLabel: (n as { speciesLabel?: string | null }).speciesLabel ?? null,
       isPromotedToCharacter: !!n.characterId,
     })),
   });

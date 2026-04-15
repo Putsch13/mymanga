@@ -39,10 +39,10 @@ export function AppHeader({
   const allLinks = role === "admin" ? [...links, { href: "/admin", label: "Admin", icon: Shield }] : links;
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border/80 bg-[#0b0b10]/85 backdrop-blur-xl">
+    <header className="sticky top-0 z-50 border-b border-white/[0.06] bg-[#09090d]/80 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
         <Link href="/dashboard" className="flex items-center gap-2 font-semibold tracking-tight text-foreground">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-violet-600 to-rose-700 shadow-lg shadow-violet-900/40">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-600 to-rose-700 shadow-lg shadow-violet-900/40">
             <Sparkles className="h-4 w-4 text-white" />
           </span>
           <span className="hidden sm:inline">Manga AI Studio</span>

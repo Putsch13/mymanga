@@ -1,25 +1,20 @@
-# https://render.com/docs/blueprint-spec
 services:
   - type: web
-    name: manga-ai-studio-web
+    name: mymanga-web
     runtime: node
-    region: frankfurt
+    region: oregon
     plan: starter
-    rootDir: .
-    # IMPORTANT: Next build peut exécuter du code serveur (prerender). On doit donc pousser le schéma AVANT `next build`.
-    buildCommand: npm install -g pnpm@10.33.0 && pnpm install --frozen-lockfile && pnpm --filter @manga-ai-studio/db exec prisma db push && pnpm --filter @manga-ai-studio/db exec prisma generate && pnpm --filter @manga-ai-studio/web build
-    # IMPORTANT: en l'absence de migrations Prisma (pas de dossier prisma/migrations),
-    # on doit pousser le schéma au démarrage sinon la prod répond 500 (champs/tables manquants).
-    startCommand: pnpm --filter @manga-ai-studio/db exec prisma db push && pnpm --filter @manga-ai-studio/web start
-    healthCheckPath: /
+    buildCommand: |
+      npm install -g pnpm@10.33.0
+      pnpm install --frozen-lockfile
+      pnpm --filter @manga-ai-studio/db exec prisma generate
+      pnpm --filter @manga-ai-studio/web build
+    startCommand: pnpm --filter @manga-ai-studio/web start
+    healthCheckPath: /api/diagnostics/public
     envVars:
-      - key: NODE_VERSION
-        value: "20.18.0"
+      - key: NODE_ENV
+        value: production
       - key: DATABASE_URL
-        sync: false
-      - key: DIRECT_URL
-        sync: false
-      - key: NEXT_PUBLIC_APP_URL
         sync: false
       - key: NEXT_PUBLIC_SUPABASE_URL
         sync: false
@@ -27,43 +22,23 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      - key: STORAGE_BUCKET
+        sync: false
+      - key: FAL_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
-      - key: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-        sync: false
-      - key: RESEND_API_KEY
+      - key: NEXT_PUBLIC_APP_URL
         sync: false
       - key: INNGEST_EVENT_KEY
         sync: false
       - key: INNGEST_SIGNING_KEY
         sync: false
-      - key: FAL_KEY
+      - key: UPSTASH_REDIS_REST_URL
         sync: false
-      - key: BFL_API_KEY
-        sync: false
-      - key: RUNWARE_API_KEY
-        sync: false
-      - key: STABILITY_API_KEY
-        sync: false
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: OPENAI_TEXT_MODEL
-        sync: false
-      - key: OPENAI_STRUCTURED_MODEL
-        sync: false
-      - key: OPENAI_IMAGE_MODEL
-        sync: false
-      - key: OPENAI_EMBEDDING_MODEL
-        sync: false
-      - key: OPENAI_MODERATION_MODEL
-        sync: false
-      - key: POSTHOG_KEY
-        sync: false
-      - key: SENTRY_DSN
-        sync: false
-      - key: STORAGE_BUCKET
-        sync: false
-      - key: AUTH_DISABLED
+      - key: UPSTASH_REDIS_REST_TOKEN
         sync: false

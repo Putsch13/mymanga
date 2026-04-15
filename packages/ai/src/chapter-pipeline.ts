@@ -1028,13 +1028,16 @@ export async function generateChapterBundle(input: {
   const beats = input.approvedOutline
     ? rawOutlineBeats.slice(0, TARGET_PAGES)
     : (() => {
+        const lastBeat = rawOutlineBeats[rawOutlineBeats.length - 1];
+        const lastLocation = lastBeat?.location ?? dominantLocation;
+        const lastSummaryBase = lastBeat?.summary?.slice(0, 80) ?? input.userIntent.slice(0, 80);
         const STRETCH_PHASES: string[] = [
-          "Montée en pression : " + input.userIntent.slice(0, 80) + " — les conséquences s'accumulent.",
-          "Escalade : un obstacle inattendu complique la situation de " + (mainCast[0] ?? "le héros") + ".",
-          "Point de basculement : " + chapterGoal + " atteint une limite critique.",
-          "Réaction en chaîne : les choix passés pèsent sur la décision suivante.",
-          "Nouvelle donne : un élément change la perception du conflit central.",
-          "Tension maximale : les personnages sont acculés à agir maintenant ou jamais.",
+          `Suite directe : ${lastSummaryBase} — la situation évolue.`,
+          `Complication : un nouvel élément complique l'objectif de ${mainCast[0] ?? "le héros"}.`,
+          `Pression narrative : les enjeux montent autour de ${lastLocation}.`,
+          `Décision : ${mainCast[0] ?? "le héros"} doit choisir une voie malgré l'incertitude.`,
+          `Conséquence : l'action précédente produit un effet visible sur le monde.`,
+          `Pivot : la dynamique change — ce qui semblait fixe devient instable.`,
         ];
         return stretchToCount(rawOutlineBeats, TARGET_PAGES, (index) => ({
           id: "beat_" + (index + 1),

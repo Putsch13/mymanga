@@ -420,7 +420,7 @@ export const chapterImageCountSchema = z.object({
   generatedImages: z.number().int().min(0).default(0),
   acceptedImages: z.number().int().min(0).default(0),
   rejectedImages: z.number().int().min(0).default(0),
-  missingImages: z.number().int().min(0).default(75),
+  missingImages: z.number().int().min(0).default(0),
 });
 
 export type ChapterImageCount = z.infer<typeof chapterImageCountSchema>;

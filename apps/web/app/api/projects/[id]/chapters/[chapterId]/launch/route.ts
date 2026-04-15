@@ -29,7 +29,7 @@ export async function POST(_req: Request, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return unauthorized();
 
-  const rl = checkRateLimit(user.id, "pipeline");
+  const rl = await checkRateLimit(user.id, "pipeline");
   if (!rl.ok) {
     return NextResponse.json({ error: rl.message }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSecs) } });
   }

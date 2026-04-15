@@ -227,7 +227,7 @@ function buildPremiumChapter(beatCount = 10) {
 beforeEach(() => {
   vi.clearAllMocks();
   getAppUserMock.mockResolvedValue(user);
-  checkRateLimitMock.mockReturnValue({ ok: true });
+  checkRateLimitMock.mockResolvedValue({ ok: true });
   getGenerationStackStatusMock.mockReturnValue({
     canGenerateChapters: true,
     operationalStatus: "FULLY_OPERATIONAL",

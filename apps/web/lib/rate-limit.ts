@@ -1,55 +1,92 @@
-/**
- * Rate limiting en mémoire (single-instance).
- * Pour multi-instances, brancher Upstash Redis (UPSTASH_REDIS_REST_URL).
- */
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
 
-interface RateLimitEntry {
-  count: number;
-  resetAt: number;
-}
+const hasUpstash = Boolean(
+  process.env.UPSTASH_REDIS_REST_URL &&
+  process.env.UPSTASH_REDIS_REST_TOKEN
+);
 
-const store = new Map<string, RateLimitEntry>();
+interface RateLimitEntry { count: number; resetAt: number; }
+const memoryStore = new Map<string, RateLimitEntry>();
 
-export interface RateLimitConfig {
-  /** Nombre max de requêtes dans la fenêtre */
-  limit: number;
-  /** Durée de la fenêtre en secondes */
-  windowSecs: number;
-}
-
-const CONFIGS: Record<string, RateLimitConfig> = {
-  pipeline:        { limit: 5,  windowSecs: 3600 },
-  generate_visual: { limit: 15, windowSecs: 3600 },
-  continue:        { limit: 20, windowSecs: 3600 },
-  train_lora:      { limit: 2,  windowSecs: 86400 },
-  tts:             { limit: 50, windowSecs: 3600 },
+const CONFIGS = {
+  pipeline:        { requests: 5,  window: "1 h" as const },
+  generate_visual: { requests: 15, window: "1 h" as const },
+  continue:        { requests: 20, window: "1 h" as const },
+  train_lora:      { requests: 2,  window: "1 d" as const },
+  tts:             { requests: 50, window: "1 h" as const },
 };
 
-export function checkRateLimit(
-  userId: string,
-  action: keyof typeof CONFIGS,
-): { ok: true } | { ok: false; retryAfterSecs: number; message: string } {
-  const config = CONFIGS[action];
-  if (!config) return { ok: true };
+type RateLimitAction = keyof typeof CONFIGS;
 
+let redis: Redis | null = null;
+const upstashLimiters = new Map<RateLimitAction, Ratelimit>();
+
+function getUpstashLimiter(action: RateLimitAction): Ratelimit {
+  if (!upstashLimiters.has(action)) {
+    if (!redis) {
+      redis = new Redis({
+        url: process.env.UPSTASH_REDIS_REST_URL!,
+        token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+      });
+    }
+    const cfg = CONFIGS[action];
+    upstashLimiters.set(
+      action,
+      new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(cfg.requests, cfg.window),
+        prefix: `manga:rl:${action}`,
+      })
+    );
+  }
+  return upstashLimiters.get(action)!;
+}
+
+function checkMemoryLimit(userId: string, action: RateLimitAction): { ok: boolean; retryAfterSecs: number } {
+  const cfg = CONFIGS[action];
+  const windowSecs = cfg.window === "1 h" ? 3600 : 86400;
   const key = `${action}:${userId}`;
   const now = Date.now();
-  const entry = store.get(key);
+  const entry = memoryStore.get(key);
 
   if (!entry || now > entry.resetAt) {
-    store.set(key, { count: 1, resetAt: now + config.windowSecs * 1000 });
+    memoryStore.set(key, { count: 1, resetAt: now + windowSecs * 1000 });
+    return { ok: true, retryAfterSecs: 0 };
+  }
+  if (entry.count >= cfg.requests) {
+    return { ok: false, retryAfterSecs: Math.ceil((entry.resetAt - now) / 1000) };
+  }
+  entry.count++;
+  return { ok: true, retryAfterSecs: 0 };
+}
+
+export async function checkRateLimit(
+  userId: string,
+  action: RateLimitAction,
+): Promise<{ ok: true } | { ok: false; retryAfterSecs: number; message: string }> {
+  if (!hasUpstash) {
+    const result = checkMemoryLimit(userId, action);
+    if (!result.ok) {
+      return {
+        ok: false,
+        retryAfterSecs: result.retryAfterSecs,
+        message: `Limite atteinte pour ${action}. Réessaie dans ${Math.ceil(result.retryAfterSecs / 60)} min.`,
+      };
+    }
     return { ok: true };
   }
 
-  if (entry.count >= config.limit) {
-    const retryAfterSecs = Math.ceil((entry.resetAt - now) / 1000);
+  const limiter = getUpstashLimiter(action);
+  const { success, reset } = await limiter.limit(userId);
+
+  if (!success) {
+    const retryAfterSecs = Math.ceil((reset - Date.now()) / 1000);
     return {
       ok: false,
       retryAfterSecs,
-      message: `Limite atteinte (${config.limit} par ${config.windowSecs < 3600 ? `${config.windowSecs}s` : `${config.windowSecs / 3600}h`}). Réessaie dans ${retryAfterSecs}s.`,
+      message: `Limite atteinte pour ${action}. Réessaie dans ${Math.ceil(retryAfterSecs / 60)} min.`,
     };
   }
-
-  entry.count++;
   return { ok: true };
 }

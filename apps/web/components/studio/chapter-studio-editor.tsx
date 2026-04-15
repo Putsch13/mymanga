@@ -52,8 +52,11 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
   const [characterCatalog, setCharacterCatalog] = useState<CharacterCatalogEntry[]>([]);
   const [progressionIssues, setProgressionIssues] = useState<OutlineProgressionIssue[]>([]);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const isFirstChapter = snapshot?.data?.intent?.chapterNumber === 1;
-  const [expertMode, setExpertMode] = useState(!isFirstChapter);
+  const hasExistingContent = Boolean(
+    snapshot?.data?.intent?.shortPitch ||
+    snapshot?.data?.narrativeContract?.centralConflict
+  );
+  const [expertMode, setExpertMode] = useState(hasExistingContent);
   const autosaveRef = useRef<number | null>(null);
 
   const loadStudio = useCallback(async () => {
@@ -381,15 +384,23 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
           hasCharacters={characterCatalog.length > 0}
         />
 
-        {isFirstChapter && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <label className="relative inline-flex cursor-pointer items-center">
-              <input type="checkbox" checked={expertMode} onChange={(e) => setExpertMode(e.target.checked)} className="peer sr-only" />
-              <div className="h-5 w-9 rounded-full bg-border peer-checked:bg-primary transition-colors after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-full" />
-            </label>
-            <span>Mode expert</span>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setExpertMode(m => !m)}
+            className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all ${
+              expertMode
+                ? "border-accent/40 bg-accent/10 text-accent"
+                : "border-border/50 bg-background/30 text-muted-foreground hover:border-border"
+            }`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${expertMode ? "bg-accent" : "bg-muted-foreground/40"}`} />
+            {expertMode ? "Mode expert" : "Mode simplifié"}
+          </button>
+          {!expertMode && (
+            <span className="text-[11px] text-muted-foreground/60">Champs avancés masqués</span>
+          )}
+        </div>
 
         {/* Résumé chapitre + CTA autofill natif au flow */}
         <div className="rounded-xl border border-border/60 bg-card/40 p-4 space-y-3">

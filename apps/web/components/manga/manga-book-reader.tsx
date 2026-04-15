@@ -10,6 +10,7 @@ import {
   ImageIcon,
   Maximize2,
   Minimize2,
+  Pause,
   RefreshCw,
   Repeat2,
   Sparkles,
@@ -689,10 +690,9 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                       <h3 className="font-serif text-base font-bold text-stone-200">
                         Page {mangaRtl ? pageIndex + 2 : pageIndex + 1}
                       </h3>
-                      {/* TODO: ajouter boutons TTS inline sur les dialogues spread (comme dans la vue single-page) */}
                       <div className="mt-3 space-y-3">
                         {spreadLeftPage.panels.map((panel, i) => (
-                          <div key={i} className="rounded-lg border border-stone-700 bg-stone-900 p-3">
+                          <div key={i} className="relative rounded-lg border border-stone-700 bg-stone-900 p-3">
                             {panel.narration ? (
                               <p className="mb-1 text-xs italic text-stone-400">{panel.narration}</p>
                             ) : null}
@@ -707,6 +707,20 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                             {panel.sfx ? (
                               <p className="mt-1 text-center text-xs font-black italic text-red-400">{panel.sfx}</p>
                             ) : null}
+                            {panel.dialogue && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const spreadPageIdx = mangaRtl ? pageIndex + 1 : pageIndex;
+                                  void playDialogue(panel.dialogue!, panel.speaker, `spread-${spreadPageIdx}-${i}`);
+                                }}
+                                className="absolute bottom-2 right-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white/80 hover:text-white transition-colors"
+                                aria-label="Écouter"
+                              >
+                                {playingTtsId === `spread-${mangaRtl ? pageIndex + 1 : pageIndex}-${i}` ? <Pause className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+                              </button>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -744,7 +758,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                         </h3>
                         <div className="mt-3 space-y-3">
                           {spreadRightPage.panels.map((panel, i) => (
-                            <div key={i} className="rounded-lg border border-stone-700 bg-stone-900 p-3">
+                            <div key={i} className="relative rounded-lg border border-stone-700 bg-stone-900 p-3">
                               {panel.narration ? (
                                 <p className="mb-1 text-xs italic text-stone-400">{panel.narration}</p>
                               ) : null}
@@ -759,6 +773,20 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                               {panel.sfx ? (
                                 <p className="mt-1 text-center text-xs font-black italic text-red-400">{panel.sfx}</p>
                               ) : null}
+                              {panel.dialogue && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const spreadPageIdx = mangaRtl ? pageIndex : pageIndex + 1;
+                                    void playDialogue(panel.dialogue!, panel.speaker, `spread-${spreadPageIdx}-${i}`);
+                                  }}
+                                  className="absolute bottom-2 right-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white/80 hover:text-white transition-colors"
+                                  aria-label="Écouter"
+                                >
+                                  {playingTtsId === `spread-${mangaRtl ? pageIndex : pageIndex + 1}-${i}` ? <Pause className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+                                </button>
+                              )}
                             </div>
                           ))}
                         </div>

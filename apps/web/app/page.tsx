@@ -62,7 +62,7 @@ export default function LandingPage() {
       <main className="mx-auto max-w-7xl px-6 pb-24">
         {/* Hero */}
         <section className="relative overflow-hidden rounded-[2rem] border border-border/60 bg-black/25 px-6 py-20 shadow-2xl shadow-violet-950/20 md:px-12 md:py-28">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(124,58,237,0.22),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(190,18,60,0.18),transparent_30%)]" />
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_50%_-10%,rgba(124,58,237,0.25),transparent_60%),radial-gradient(circle_at_80%_50%,rgba(190,18,60,0.15),transparent_30%)]" />
           <div className="relative mx-auto max-w-3xl text-center">
             <div className="inline-flex items-center gap-2 rounded-full border border-violet-500/30 bg-violet-950/40 px-4 py-1.5 text-xs font-medium text-violet-300">
               <Sparkles className="h-3 w-3" />

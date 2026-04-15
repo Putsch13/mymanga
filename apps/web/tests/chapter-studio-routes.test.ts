@@ -208,7 +208,7 @@ const ctxChapter = { params: Promise.resolve({ id: "project-1", chapterId: "chap
 beforeEach(() => {
   vi.clearAllMocks();
   getAppUserMock.mockResolvedValue(user);
-  checkRateLimitMock.mockReturnValue({ ok: true });
+  checkRateLimitMock.mockResolvedValue({ ok: true });
   getGenerationStackStatusMock.mockReturnValue({
     canGenerateChapters: true,
     operationalStatus: "FULLY_OPERATIONAL",
