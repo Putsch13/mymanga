@@ -51,10 +51,23 @@ export async function analyzePanelWithVision(input: {
     cameraLanguage?: string | null;
   };
   sceneBlueprint?: SceneBlueprint;
+  criticality?: {
+    environmentCritical?: boolean;
+    continuityCritical?: boolean;
+    sceneComplexityScore?: number;
+  };
 }): Promise<VisionPanelScore | null> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   const model = process.env.OPENAI_VISION_MODEL?.trim() || "gpt-4o-mini";
-  const visionEnabled = process.env.ENABLE_PREMIUM_VISION_QA !== "false";
+  const envFlag = process.env.ENABLE_PREMIUM_VISION_QA;
+
+  const isCriticalPanel =
+    input.criticality?.environmentCritical === true
+    || input.criticality?.continuityCritical === true
+    || (input.criticality?.sceneComplexityScore ?? 0) >= 0.8
+    || input.heuristicReleaseScore < 0.70;
+
+  const visionEnabled = envFlag !== "false" || isCriticalPanel;
   if (!apiKey || !visionEnabled) return null;
   if (!/^https?:\/\//i.test(input.imageUrl)) return null;
 

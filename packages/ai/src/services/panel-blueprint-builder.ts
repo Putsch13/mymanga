@@ -754,3 +754,15 @@ export function computePremiumReadinessScore(
 
   return Math.max(0, Math.min(1, score));
 }
+
+// ─── Gore Directives ────────────────────────────────────────────────────────
+
+export function buildGoreDirectives(intensityLayer: string, beatType: string): string {
+  if (!["MATURE_VISUAL", "ADULT_EXPLICIT"].includes(intensityLayer)) return "";
+  const goreLevel = intensityLayer === "ADULT_EXPLICIT" ? "explicit" : "implied";
+  if (goreLevel === "implied") {
+    return "Gore implicite autorisé : blessures visibles mais non étalées, sang présent sans excès, priorité à l'expression émotionnelle.";
+  }
+  return "Gore explicite autorisé (dark fantasy). Blessures anatomiques stylisées manga. Le sang suit la dynamique du panel. Pas de complaisance gratuite. Lisibilité prioritaire." +
+    (beatType === "silent_aftermath" ? " Aftermath seulement — pas de violence active." : "");
+}

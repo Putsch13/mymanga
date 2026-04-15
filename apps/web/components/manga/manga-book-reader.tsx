@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Repeat2,
   Sparkles,
+  Volume2,
 } from "lucide-react";
 import { cn } from "@manga-ai-studio/ui";
 import { Button } from "@/components/ui/button";
@@ -320,6 +321,8 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
   const [retryingPanel, setRetryingPanel] = useState<string | null>(null);
   const [transitioning, setTransitioning] = useState(false);
   const [showSwipeHint, setShowSwipeHint] = useState(true);
+  const [playingTtsId, setPlayingTtsId] = useState<string | null>(null);
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
   const touchStartX = useRef<number | null>(null);
   const degradedReaderWarning =
     (generationDiagnostics?.degradedModes?.length ?? 0) > 0
@@ -371,6 +374,40 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
       setRetryingPanel(null);
     }
   }, [load]);
+
+  const playDialogue = useCallback(async (text: string, speaker?: string | null, id?: string) => {
+    if (ttsAudioRef.current) {
+      ttsAudioRef.current.pause();
+      ttsAudioRef.current = null;
+    }
+    const ttsId = id ?? text.slice(0, 20);
+    if (playingTtsId === ttsId) {
+      setPlayingTtsId(null);
+      return;
+    }
+    setPlayingTtsId(ttsId);
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: text.slice(0, 500), roleType: speaker ?? undefined }),
+      });
+      if (!res.ok) { setPlayingTtsId(null); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      ttsAudioRef.current = audio;
+      audio.onended = () => { setPlayingTtsId(null); URL.revokeObjectURL(url); };
+      audio.onerror = () => { setPlayingTtsId(null); URL.revokeObjectURL(url); };
+      await audio.play();
+    } catch {
+      setPlayingTtsId(null);
+    }
+  }, [playingTtsId]);
+
+  useEffect(() => {
+    return () => { if (ttsAudioRef.current) ttsAudioRef.current.pause(); };
+  }, []);
 
   useEffect(() => {
     void load();
@@ -652,6 +689,7 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                       <h3 className="font-serif text-base font-bold text-stone-200">
                         Page {mangaRtl ? pageIndex + 2 : pageIndex + 1}
                       </h3>
+                      {/* TODO: ajouter boutons TTS inline sur les dialogues spread (comme dans la vue single-page) */}
                       <div className="mt-3 space-y-3">
                         {spreadLeftPage.panels.map((panel, i) => (
                           <div key={i} className="rounded-lg border border-stone-700 bg-stone-900 p-3">
@@ -758,12 +796,25 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
                           <p className="mb-2 text-sm italic text-stone-400">{panel.narration}</p>
                         )}
                         {panel.dialogue && (
-                          <p className="text-sm text-stone-200">
-                            {panel.speaker && (
-                              <span className="font-bold text-violet-400">{panel.speaker}: </span>
-                            )}
-                            {panel.dialogue}
-                          </p>
+                          <div className="flex items-start gap-1.5">
+                            <p className="flex-1 text-sm text-stone-200">
+                              {panel.speaker && (
+                                <span className="font-bold text-violet-400">{panel.speaker}: </span>
+                              )}
+                              {panel.dialogue}
+                            </p>
+                            <button
+                              type="button"
+                              className={cn(
+                                "mt-0.5 shrink-0 rounded p-0.5 transition-colors",
+                                playingTtsId === `panel-${pageIndex}-${i}` ? "text-violet-400" : "text-stone-400 hover:text-white",
+                              )}
+                              onClick={(e) => { e.stopPropagation(); void playDialogue(panel.dialogue!, panel.speaker, `panel-${pageIndex}-${i}`); }}
+                              aria-label="Écouter ce dialogue"
+                            >
+                              <Volume2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         )}
                         {panel.sfx && (
                           <p className="mt-1 text-center font-black italic text-red-400">
@@ -906,6 +957,28 @@ export function MangaBookReader({ projectId, chapterId }: Props) {
         >
           {showTextOnly ? <FileText className="h-4 w-4" /> : <ImageIcon className="h-4 w-4" />}
           {showTextOnly ? "Texte" : "Cases"}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            const currentPage = pages[pageIndex];
+            if (!currentPage) return;
+            const allText = currentPage.panels
+              .map((p) =>
+                [p.narration, p.dialogue ? `${p.speaker ?? ""}: ${p.dialogue}` : null, p.sfx]
+                  .filter(Boolean)
+                  .join(". "),
+              )
+              .join(". ");
+            if (allText) void playDialogue(allText, null, `page-${pageIndex}`);
+          }}
+          disabled={playingTtsId !== null && !playingTtsId.startsWith("page-")}
+          className="gap-1"
+        >
+          <Volume2 className="h-4 w-4" />
+          {playingTtsId?.startsWith("page-") ? "Lecture…" : "Écouter"}
         </Button>
         <Button
           type="button"

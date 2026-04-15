@@ -12,7 +12,18 @@ export type BeatEventType =
   | "betrayal"
   | "counterattack"
   | "silent_aftermath"
-  | "cliff_pivot";
+  | "cliff_pivot"
+  | "villain_introduction"
+  | "villain_motivation_layer"
+  | "villain_mirror_moment"
+  | "villain_victory"
+  | "flashback_trigger"
+  | "flash_forward_hint"
+  | "callback_payoff"
+  | "body_horror_reveal"
+  | "comic_reversal"
+  | "absurd_reveal"
+  | "emotional_ambiguity";
 
 export type ReversalType =
   | "information"
@@ -62,6 +73,17 @@ const BEAT_KEYWORDS: Record<BeatEventType, string[]> = {
   counterattack: ["contre-attaque", "riposte", "counter", "retourne", "reprend"],
   silent_aftermath: ["silence", "aftermath", "calme", "après", "retombées", "respiration"],
   cliff_pivot: ["cliffhanger", "pivot", "fin", "suspense", "à suivre", "coupure"],
+  villain_introduction: ["villain", "antagoniste", "ennemi", "menace", "apparition", "adversaire"],
+  villain_motivation_layer: ["motivation", "raison", "pourquoi", "passé", "origine", "justification"],
+  villain_mirror_moment: ["miroir", "semblable", "commun", "parallèle", "reflet"],
+  villain_victory: ["victoire", "gagne", "triomphe", "domine", "écrase", "défaite"],
+  flashback_trigger: ["flashback", "souvenir", "passé", "mémoire", "retour"],
+  flash_forward_hint: ["futur", "vision", "prémonition", "flash-forward", "avenir"],
+  callback_payoff: ["callback", "rappel", "payoff", "résolution", "boucle"],
+  body_horror_reveal: ["horreur", "corps", "mutation", "transformation", "chair", "gore"],
+  comic_reversal: ["comique", "absurde", "renversement", "gag", "blague"],
+  absurd_reveal: ["absurde", "révélation", "inattendu", "n'importe quoi", "surréaliste"],
+  emotional_ambiguity: ["ambigu", "incertain", "doute", "dilemme", "tiraillé"],
 };
 
 const REVERSAL_KEYWORDS: Record<ReversalType, string[]> = {

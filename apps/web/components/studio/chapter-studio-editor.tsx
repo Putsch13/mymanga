@@ -51,6 +51,8 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
   const [autofillResult, setAutofillResult] = useState<{ meta: AutofillMeta; appliedFields: string[]; unresolvedQuestions: string[] } | null>(null);
   const [characterCatalog, setCharacterCatalog] = useState<CharacterCatalogEntry[]>([]);
   const [progressionIssues, setProgressionIssues] = useState<OutlineProgressionIssue[]>([]);
+  const isFirstChapter = snapshot?.data?.intent?.chapterNumber === 1;
+  const [expertMode, setExpertMode] = useState(!isFirstChapter);
   const autosaveRef = useRef<number | null>(null);
 
   const loadStudio = useCallback(async () => {
@@ -350,6 +352,16 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
           hasCharacters={characterCatalog.length > 0}
         />
 
+        {isFirstChapter && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <label className="relative inline-flex cursor-pointer items-center">
+              <input type="checkbox" checked={expertMode} onChange={(e) => setExpertMode(e.target.checked)} className="peer sr-only" />
+              <div className="h-5 w-9 rounded-full bg-border peer-checked:bg-primary transition-colors after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-full" />
+            </label>
+            <span>Mode expert</span>
+          </div>
+        )}
+
         {/* Résumé chapitre + CTA autofill natif au flow */}
         <div className="rounded-xl border border-border/60 bg-card/40 p-4 space-y-3">
           <div>
@@ -429,6 +441,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
             issues={briefIssues}
             warningItems={briefWarnings}
             generatingOutline={generatingOutline}
+            expertMode={expertMode}
             onIssueAction={handleIssueAction}
             onUpdateDraft={updateDraft}
             onGenerateBase={generateOutlines}

@@ -38,6 +38,7 @@ export function ChapterBriefStep({
   issues,
   warningItems,
   generatingOutline,
+  expertMode,
   onIssueAction,
   onUpdateDraft,
   onGenerateBase,
@@ -47,6 +48,7 @@ export function ChapterBriefStep({
   issues: ChapterReadinessIssue[];
   warningItems: ChapterReadinessIssue[];
   generatingOutline: boolean;
+  expertMode?: boolean;
   onIssueAction: (issue: ChapterReadinessIssue) => void | Promise<void>;
   onUpdateDraft: (next: ChapterStudioData, step?: "intent") => void;
   onGenerateBase: () => void | Promise<void>;
@@ -138,6 +140,7 @@ export function ChapterBriefStep({
             </div>
           </div>
 
+          {expertMode && (
           <details className="rounded-xl border border-border/60 bg-background/30 p-4">
             <summary className="cursor-pointer text-sm font-medium">Réglages avancés (optionnel)</summary>
             <div className="mt-4 space-y-4">
@@ -189,6 +192,7 @@ export function ChapterBriefStep({
               />
             </div>
           </details>
+          )}
 
           <div className="flex justify-end">
             <Button data-testid="studio-generate-outline-button" type="button" onClick={() => void onGenerateBase()} disabled={generatingOutline}>

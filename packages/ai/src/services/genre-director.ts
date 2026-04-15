@@ -14,7 +14,10 @@ export type GenreDirectorMode =
   | "mystery_detective"
   | "slice_of_life"
   | "supernatural"
-  | "historical_epic";
+  | "historical_epic"
+  | "dark_fantasy_gore"
+  | "josei_adult"
+  | "comedy_parody";
 
 export type GenreDirectorConfig = {
   beatRhythm: "fast" | "medium" | "slow";
@@ -174,6 +177,39 @@ const GENRE_CONFIGS: Record<GenreDirectorMode, GenreDirectorConfig> = {
     combatReadabilityBonus: 15,
     romanceTensionBonus: 8,
   },
+  dark_fantasy_gore: {
+    beatRhythm: "slow",
+    turnTypes: ["setup", "escalation", "reveal", "betrayal", "silent_aftermath", "cliff_pivot"],
+    silenceDensity: 0.4,
+    actionDialogueRatio: 0.55,
+    cliffhangerStyle: "body_horror_or_cosmic_revelation",
+    panelDensity: "balanced",
+    emotionalIntensityDefault: 85,
+    combatReadabilityBonus: 15,
+    romanceTensionBonus: 0,
+  },
+  josei_adult: {
+    beatRhythm: "slow",
+    turnTypes: ["setup", "near_confession", "interruption", "silent_aftermath", "reveal"],
+    silenceDensity: 0.5,
+    actionDialogueRatio: 0.2,
+    cliffhangerStyle: "emotional_ambiguity_or_life_decision",
+    panelDensity: "airy",
+    emotionalIntensityDefault: 65,
+    combatReadabilityBonus: 0,
+    romanceTensionBonus: 20,
+  },
+  comedy_parody: {
+    beatRhythm: "fast",
+    turnTypes: ["setup", "escalation", "reveal", "cliff_pivot"],
+    silenceDensity: 0.1,
+    actionDialogueRatio: 0.4,
+    cliffhangerStyle: "comedic_misunderstanding_or_absurd_twist",
+    panelDensity: "dense",
+    emotionalIntensityDefault: 40,
+    combatReadabilityBonus: 5,
+    romanceTensionBonus: 10,
+  },
 };
 
 export function getGenreDirectorConfig(mode: GenreDirectorMode): GenreDirectorConfig {
@@ -196,7 +232,13 @@ export function inferGenreMode(
     if (/slice.*life|vie.*quotidienne|tranche.*vie|school.*life|quotidien/.test(genre)) return "slice_of_life";
     if (/surnaturel|supernatural|paranormal|occulte/.test(genre)) return "supernatural";
     if (/histori|edo|meiji|samourai|époque|medieval|médiéval|feudal/.test(genre)) return "historical_epic";
-    if (/horreur|horror|gore|terreur/.test(genre)) return "thriller_horror";
+    if (/dark\s*fantasy/.test(genre)) return "dark_fantasy_gore";
+    if (/\bgore\b/.test(genre)) return "dark_fantasy_gore";
+    if (/horreur\s*gore/.test(genre)) return "dark_fantasy_gore";
+    if (/\bjosei\b/.test(genre)) return "josei_adult";
+    if (/comédie|comedie/.test(genre)) return "comedy_parody";
+    if (/parodie/.test(genre)) return "comedy_parody";
+    if (/horreur|horror|terreur/.test(genre)) return "thriller_horror";
     if (/romance|amour|shojo|love/.test(genre)) return "romance_shojo";
     if (/shonen|action|combat|battle/.test(genre)) return "shonen_combat";
     if (/seinen|mature|dark|adult/.test(genre)) return "seinen_tension";

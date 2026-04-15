@@ -306,6 +306,9 @@ function generateNarrativePatches(
       slice_of_life: "Une seule phrase change tout. Elle sourit — mais ses yeux pleurent.",
       supernatural: "L'entité s'arrête. Elle regarde directement vers lui. Elle le voit.",
       historical_epic: "L'armée s'immobilise. Le messager tombe. La trahison est confirmée.",
+      dark_fantasy_gore: "Le corps s'effondre — mais quelque chose continue de bouger à l'intérieur.",
+      josei_adult: "Elle repose le téléphone. Le message non envoyé reste. Le choix est fait.",
+      comedy_parody: "Le héros se retourne triomphant — et percute le vrai boss final. Fondu au noir.",
     };
     const suggestedCliffhanger = cliffhangerByGenre[genreMode];
     // Auto-appliquer si le cliffhanger actuel est vraiment trop court
@@ -346,6 +349,9 @@ function generateNarrativePatches(
       slice_of_life: "Mais le message reçu change tout le sens de la journée.",
       supernatural: "Sauf que le rituel de protection n'a pas fonctionné.",
       historical_epic: "Mais les renforts promis ne viendront pas.",
+      dark_fantasy_gore: "Sauf que la créature ne meurt pas — elle se transforme.",
+      josei_adult: "Mais ce silence n'est pas de l'indifférence — c'est un choix.",
+      comedy_parody: "Sauf que le plan parfait repose sur un malentendu absurde.",
     };
     const scenes = patchedBundle.script?.scenes ?? [];
     // Trouver la scène la plus plate (milieu du chapitre)
@@ -378,6 +384,9 @@ function generateNarrativePatches(
       slice_of_life: "Le moment anodin révèle quelque chose de profond sur les personnages.",
       supernatural: "Le pouvoir se maîtrise — ou dérape avec conséquences.",
       historical_epic: "Le sacrifice militaire ou politique porte ses fruits — ou son deuil.",
+      dark_fantasy_gore: "La malédiction prend son tribut — le héros survit, mais transformé.",
+      josei_adult: "Le non-dit se résout enfin — pas en mots, en actes.",
+      comedy_parody: "Le running gag atteint son apogée — et tout le monde comprend la blague.",
     };
     suggested.push({
       type: "add_payoff_hint",
@@ -403,6 +412,9 @@ function generateNarrativePatches(
       slice_of_life: "Un repas partagé. Pas de dialogue important — juste la présence.",
       supernatural: "Moment de rituel calme avant l'affrontement.",
       historical_epic: "Bivouac nocturne. Les soldats dorment. Le général veille seul.",
+      dark_fantasy_gore: "Le héros contemple ses mains ensanglantées. Le silence est assourdissant.",
+      josei_adult: "Elle s'assoit dans un café vide. Le temps passe sans qu'elle le remarque.",
+      comedy_parody: "Le héros essaie de dormir mais le running gag le poursuit même dans ses rêves.",
     };
     suggested.push({
       type: "add_breathing_beat",
@@ -438,6 +450,9 @@ function generateNarrativePatches(
       slice_of_life: "Un secret du passé d'un personnage ordinaire refait surface.",
       supernatural: "La vraie nature de l'entité ou du phénomène enfin révélée.",
       historical_epic: "La trahison dans les rangs finalement identifiée.",
+      dark_fantasy_gore: "La véritable origine de la malédiction — elle n'est pas ce qu'on croyait.",
+      josei_adult: "Un choix passé revient sous une forme inattendue.",
+      comedy_parody: "Le personnage le plus anodin se révèle être le vrai cerveau de l'opération.",
     };
     suggested.push({
       type: "add_reveal_beat",

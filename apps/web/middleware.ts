@@ -24,10 +24,6 @@ export async function middleware(request: NextRequest) {
     );
   }
 
-  if (request.nextUrl.pathname.startsWith("/demo")) {
-    return NextResponse.redirect(new URL("/login", request.url));
-  }
-
   if (isAuthDisabled()) {
     return NextResponse.next();
   }

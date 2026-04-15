@@ -105,7 +105,7 @@ export default async function MyMangasPage() {
             const last = p.chapters[0];
             const lastLink = last
               ? `/projects/${p.id}/chapters/${last.id}/read`
-              : `/projects/${p.id}/generate`;
+              : `/projects/${p.id}/pipeline`;
             const actionLabel = last ? "Continuer la lecture" : "Générer le chapitre 1";
 
             return (
@@ -138,7 +138,7 @@ export default async function MyMangasPage() {
                       </Link>
                     </Button>
                     <Button asChild variant="outline">
-                      <Link href={`/projects/${p.id}/generate`}>Générer la suite</Link>
+                      <Link href={`/projects/${p.id}/pipeline`}>Générer la suite</Link>
                     </Button>
                     <Button asChild variant="outline">
                       <Link href={`/projects/${p.id}`}>Ouvrir le studio</Link>

@@ -107,7 +107,7 @@ export default function NewCharacterPage() {
       }
 
       if (isOnboarding) {
-        router.push(`/projects/${id}/generate`);
+        router.push(`/projects/${id}/pipeline`);
       } else {
         router.push(`/projects/${id}/characters/${characterId}`);
       }
@@ -125,7 +125,7 @@ export default function NewCharacterPage() {
             Remplis au minimum : nom, couleur de cheveux, couleur des yeux et tenue. Ces 4 champs suffisent pour générer des images cohérentes. Tu pourras enrichir la fiche plus tard.
           </p>
           <div className="mt-2 flex gap-2">
-            <Link href={`/projects/${id}/generate`} className="text-xs text-muted-foreground underline hover:text-foreground">
+            <Link href={`/projects/${id}/pipeline`} className="text-xs text-muted-foreground underline hover:text-foreground">
               Passer et générer directement →
             </Link>
           </div>

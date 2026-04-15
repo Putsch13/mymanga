@@ -22,6 +22,7 @@
     "@manga-ai-studio/moderation": "workspace:*",
     "@manga-ai-studio/ui": "workspace:*",
     "@manga-ai-studio/workflow": "workspace:*",
+    "@manga-ai-studio/world": "workspace:*",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
     "@radix-ui/react-label": "^2.1.8",
     "@radix-ui/react-progress": "^1.1.8",

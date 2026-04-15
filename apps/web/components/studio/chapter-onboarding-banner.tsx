@@ -1,9 +1,16 @@
 "use client";
 
-import Link from "next/link";
-import { Users, X } from "lucide-react";
 import { useState } from "react";
+import Link from "next/link";
+import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+
+const ONBOARDING_STEPS = [
+  { icon: "1", title: "Brief", desc: "Décris ce qui se passe dans ce chapitre en une phrase." },
+  { icon: "2", title: "Casting", desc: "Choisis quels personnages sont présents et où." },
+  { icon: "3", title: "Plan", desc: "Valide le contrat narratif, puis lance la génération." },
+  { icon: "4", title: "Génération", desc: "L'IA écrit et illustre. Tu relis, retouches, valides." },
+];
 
 export function ChapterOnboardingBanner({
   projectId,
@@ -12,50 +19,47 @@ export function ChapterOnboardingBanner({
   projectId: string;
   hasCharacters: boolean;
 }) {
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("studio-onboarding-dismissed") === "true";
+  });
 
-  if (dismissed || hasCharacters) return null;
+  if (dismissed) return null;
 
   return (
-    <div className="relative rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm">
+    <div className="relative rounded-xl border border-border/60 bg-card/40 p-4 space-y-3">
       <button
-        type="button"
-        onClick={() => setDismissed(true)}
+        onClick={() => {
+          setDismissed(true);
+          localStorage.setItem("studio-onboarding-dismissed", "true");
+        }}
         className="absolute right-3 top-3 text-muted-foreground hover:text-foreground"
         aria-label="Fermer"
       >
         <X className="h-4 w-4" />
       </button>
-      <div className="flex items-start gap-3">
-        <Users className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-        <div className="space-y-2">
-          <p className="font-medium text-foreground">
-            Étape recommandée : ajoute ton héros et les personnages du chapitre
-          </p>
-          <p className="text-muted-foreground text-xs">
-            Le studio fonctionne sans personnages, mais l&apos;IA génère des images bien meilleures quand elle connaît tes personnages.
-          </p>
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Button asChild size="sm" variant="default">
-              <Link href={`/projects/${projectId}/characters/new`}>
-                Créer un personnage
-              </Link>
-            </Button>
-            <Button asChild size="sm" variant="outline">
-              <Link href={`/projects/${projectId}/characters`}>
-                Voir tous les personnages
-              </Link>
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setDismissed(true)}
-            >
-              Continuer sans personnage
-            </Button>
+      <p className="text-sm font-semibold">Comment créer un chapitre</p>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {ONBOARDING_STEPS.map((step) => (
+          <div key={step.title} className="rounded-lg border border-border/40 bg-background/30 p-3 text-center">
+            <div className="mx-auto flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
+              {step.icon}
+            </div>
+            <p className="mt-2 text-xs font-medium">{step.title}</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">{step.desc}</p>
           </div>
-        </div>
+        ))}
       </div>
+      {!hasCharacters && (
+        <div className="flex gap-2 text-xs">
+          <Button asChild size="sm" variant="outline">
+            <Link href={`/projects/${projectId}/characters/new`}>Créer un personnage</Link>
+          </Button>
+          <Button asChild size="sm" variant="ghost">
+            <Link href={`/projects/${projectId}/characters`}>Voir les personnages</Link>
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

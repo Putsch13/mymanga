@@ -41,7 +41,7 @@ export type ChapterFlowStepId = "brief" | "cast_canon" | "plan" | "generation_re
 export const FLOW_STEPS: Array<{ id: ChapterFlowStepId; title: string; description: string }> = [
   { id: "brief", title: "1. Brief", description: "Titre, pitch et base narrative du chapitre." },
   { id: "cast_canon", title: "2. Casting & Cohérence", description: "Personnages actifs, décor et continuité essentielle." },
-  { id: "plan", title: "3. Plan du chapitre", description: "Contrat narratif, outline, plan de prod et readiness." },
+  { id: "plan", title: "3. Plan du chapitre", description: "Direction narrative, outline, plan de prod et prêt à générer." },
   { id: "generation_review", title: "4. Génération & Review", description: "Run, progression, rerolls et validation finale." },
 ];
 

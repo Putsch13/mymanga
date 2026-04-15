@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { BookMarked, BookOpen, GitBranch, ImageIcon, Palette, ScrollText, Settings, Users, Wand2, History } from "lucide-react";
+import { BookMarked, BookOpen, Brush, GitBranch, ImageIcon, Palette, ScrollText, Settings, Users, Wand2, History } from "lucide-react";
 import { prisma } from "@manga-ai-studio/db";
 import { getCurrentUser } from "@/lib/auth/get-app-user";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +36,12 @@ const tiles = (id: string) =>
       title: "Bible",
       desc: "Règles du monde, lore, canon verrouillé.",
       icon: BookOpen,
+    },
+    {
+      href: `/projects/${id}/style`,
+      title: "Style visuel",
+      desc: "Style-pack, famille de rendu, line weight, caméra.",
+      icon: Brush,
     },
     {
       href: `/projects/${id}/chapters/new`,

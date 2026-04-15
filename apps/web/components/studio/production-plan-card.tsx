@@ -55,7 +55,7 @@ export function ProductionPlanCard({ plan, productionOutlineSource }: {
           <span>Production Plan</span>
           {plan?.premiumReadinessScore !== undefined && (
             <span className="text-sm font-normal text-muted-foreground">
-              Premium readiness : <PremiumScoreBadge score={plan.premiumReadinessScore} />
+              Prêt à générer : <PremiumScoreBadge score={plan.premiumReadinessScore} />
             </span>
           )}
         </CardTitle>

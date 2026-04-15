@@ -93,7 +93,7 @@ export function MangaProjectCard({ project, coverImageUrl }: MangaProjectCardPro
             variant="outline"
             className={`h-7 text-xs ${lastChapter ? "" : "flex-1"}`}
           >
-            <Link href={`/projects/${project.id}/studio`}>
+            <Link href={`/projects/${project.id}/chapters/new`}>
               <Pencil className="mr-1 h-3 w-3" />
               {isInProgress ? "Continuer" : "Créer"}
             </Link>

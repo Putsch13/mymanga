@@ -51,6 +51,12 @@ export const approvedOutlineSchema = z.object({
   approvedAt: z.string().min(1),
   approvalVersion: z.string().min(1),
   source: z.enum(["estimate_preview", "user_approved"]).default("user_approved"),
+  narrativeMode: z.enum(["linear", "flashback_framed", "flash_forward_framed", "in_medias_res"]).optional(),
+  flashbackContext: z.object({
+    triggeredBy: z.string(),
+    timeframe: z.string(),
+    returnBeat: z.number(),
+  }).optional().nullable(),
 });
 
 export type ApprovedOutlineBeat = z.infer<typeof approvedOutlineBeatSchema>;
