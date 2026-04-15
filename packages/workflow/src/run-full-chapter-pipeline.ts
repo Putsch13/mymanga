@@ -5,8 +5,6 @@ import {
   composeEnvironment,
   runChapterContinuityPass,
   runChapterNarrativeCoherencePass,
-  buildTriggerWord,
-  trainCharacterLora,
   detectVisualDrift,
   validateGeneratedPanel,
   parseIntentEntities,
@@ -24,7 +22,6 @@ import {
   runPanelQualityGate,
   getMaxRerolls,
   type StoryboardPanel,
-  type RoutingContext,
   type ProjectContextForChapter,
 } from "@manga-ai-studio/ai";
 import {
@@ -37,7 +34,6 @@ import {
   resolveCharacterImportanceTier,
   resolveChapterLookProfile,
   type StableImageReference,
-  type PanelCharacterPlan,
   type ChapterLookProfile,
   type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
@@ -75,22 +71,46 @@ import {
 import { enforceShotDiversity } from "@manga-ai-studio/core";
 import { scoreVisualConsistency } from "@manga-ai-studio/visual-consistency";
 import { buildSceneBlueprint, type CreativityControls, type SceneBlueprint } from "@manga-ai-studio/world";
-import { createClient } from "@supabase/supabase-js";
 import { buildPanelContract } from "./build-panel-contract";
+import {
+  buildPanelCharacterPlan,
+  buildSceneKeyframeDraft,
+  buildRoutingContext,
+  inferRequiredSceneExtras,
+} from "./pipeline-scene-builder";
 import {
   buildPersistedChapterRuntimeState,
   buildRuntimeDebugSummary,
   buildValidationDetails as buildSharedValidationDetails,
-  computeChapterQualityReport as computeChapterQualityReportShared,
 } from "./chapter-runtime-helpers";
 import { buildStableImageReference, resolveStableImageReferences } from "./stable-image-refs";
+import {
+  extractSceneFactions,
+  inferSceneWeather,
+  inferSceneTimeOfDay,
+  uniq,
+  asRecord,
+} from "./pipeline-helpers";
+import {
+  syncVisualsAfterNarrativePass,
+  enforceBundleIntegrity,
+} from "./pipeline-bundle-integrity";
+import { persistImageIfNeeded } from "./pipeline-image-persistence";
+import { setJobProgress, mergeJobOutput, type JobStep } from "./pipeline-job";
+import {
+  resolveEffectivePanelBlueprints,
+  findPanelBlueprint,
+  normalizeCreativeControls,
+  computeChapterQualityReport,
+  type PipelineJobInput,
+} from "./pipeline-quality";
+import {
+  queueAutoLoraTrainingIfEligible,
+  type LoadedLoraAttachment,
+  type LoadedCharacterForPipeline,
+} from "./pipeline-lora";
 
-type JobStep = {
-  key: string;
-  label: string;
-  status?: "queued" | "running" | "completed" | "failed";
-  detail?: string;
-};
+export { setJobProgress } from "./pipeline-job";
 
 type PlannedImage = {
   sceneImageId: string;
@@ -99,796 +119,11 @@ type PlannedImage = {
   baseMetadata: Record<string, unknown>;
 };
 
-type PipelineJobInput = {
-  focusCharacterIds?: string[];
-  selectedPlotLabel?: "safe" | "bold" | "shock";
-  creativityControls?: Partial<CreativityControls>;
-  /** Blueprints premium passés depuis pipeline/route.ts */
-  panelBlueprints?: unknown[];
-  /** Plan de production premium complet */
-  productionPlan?: unknown;
-  /** Score de readiness premium */
-  premiumReadinessScore?: number;
-};
-
 type PipelineBundle = Awaited<ReturnType<typeof generateChapterBundle>>;
 
 const STD_NEGATIVE =
   "blurry, deformed hands, extra limbs, wrong hair color, inconsistent outfit, bad anatomy, watermark, text overlay, low quality, duplicate character";
 const PANEL_DRAFT_SIZE = getPremiumImageSize("PANEL_DRAFT");
-
-function buildPanelCharacterPlan(input: {
-  panelId: string;
-  panel: StoryboardPanel;
-  sceneCharacters: string[];
-  shotType?: string;
-  purpose?: string;
-}): PanelCharacterPlan {
-  const characters = input.panel.characters ?? [];
-  const foregroundCharacters =
-    input.shotType === "wide"
-      ? characters.slice(0, 1)
-      : input.shotType === "closeup" || input.shotType === "extreme_closeup"
-        ? characters.slice(0, 1)
-        : characters.slice(0, 2);
-  const midgroundCharacters =
-    input.shotType === "wide"
-      ? characters.slice(1, 3)
-      : input.shotType === "over_shoulder"
-        ? characters.slice(0, 2)
-        : characters.slice(1, 3);
-  const backgroundCharacters = input.sceneCharacters.filter((name) => !foregroundCharacters.includes(name) && !midgroundCharacters.includes(name));
-  return {
-    panelId: input.panelId,
-    foregroundCharacters,
-    midgroundCharacters,
-    backgroundCharacters,
-    faceVisibilityExpected:
-      input.shotType === "closeup" || input.shotType === "extreme_closeup"
-        ? "priority"
-        : input.shotType === "medium"
-          ? "clear"
-          : input.shotType === "over_shoulder"
-            ? "partial"
-            : "none",
-    actionIntensity:
-      input.purpose === "action"
-        ? "high"
-        : input.purpose === "reaction" || input.purpose === "dialogue"
-          ? "low"
-          : "medium",
-    speakingPriority: (input.panel.dialogues ?? [])
-      .map((dialogue) => dialogue.speaker)
-      .concat(input.panel.dialogue?.speaker ? [input.panel.dialogue.speaker] : [])
-      .filter((speaker, index, all) => Boolean(speaker) && all.indexOf(speaker) === index),
-  };
-}
-
-function buildSceneKeyframeDraft(input: {
-  sceneId: string;
-  scene: { summary: string; location: string; characters: string[]; purpose?: string | null };
-  sceneBlueprint: SceneBlueprint;
-  stylePack?: {
-    renderFamily?: string | null;
-    lineWeight?: string | null;
-    shadingMode?: string | null;
-    contrastProfile?: string | null;
-    backgroundDensity?: string | null;
-    cameraLanguage?: string | null;
-  } | null;
-  persistentSceneExtras: Array<{ archetype: string; anchorSlot: string }>;
-}) {
-  const styleLine = [
-    input.stylePack?.renderFamily,
-    input.stylePack?.lineWeight,
-    input.stylePack?.shadingMode,
-    input.stylePack?.contrastProfile,
-  ].filter(Boolean).join(", ");
-  const extrasLine = input.persistentSceneExtras
-    .map((extra) => `${extra.archetype}:${extra.anchorSlot}`)
-    .slice(0, 5)
-    .join(", ");
-  const positivePrompt = [
-    styleLine || "premium manga scene keyframe",
-    "establishing scene keyframe",
-    `location: ${input.scene.location}`,
-    input.sceneBlueprint.promptBridge.sceneContextLine,
-    input.sceneBlueprint.promptBridge.environmentLine,
-    `characters present: ${input.scene.characters.join(", ")}`,
-    input.scene.purpose ? `scene purpose: ${input.scene.purpose}` : "",
-    input.scene.summary,
-    extrasLine ? `persistent extras: ${extrasLine}` : "",
-    "clear environment, readable architecture, balanced foreground midground background",
-  ].filter(Boolean).join(", ");
-  const negativePrompt = [
-    "empty background",
-    "studio backdrop",
-    "isolated portrait",
-    "blurred environment",
-  ].join(", ");
-  return {
-    positivePrompt,
-    negativePrompt,
-    environmentLock: {
-      location: input.scene.location,
-      summary: input.scene.summary,
-      extras: input.persistentSceneExtras,
-      requiredSignals: parseIntentEntities(`${input.scene.location} ${input.scene.summary}`, []).map((entity) => entity.name).slice(0, 6),
-    },
-    compositionArchetype: input.scene.purpose?.toLowerCase().includes("fight") ? "combat_establishing" : "story_scene",
-    involvedCharacterNames: input.scene.characters,
-  };
-}
-
-function extractSceneFactions(text: string) {
-  const normalized = text.toLowerCase();
-  const factions = [
-    "guilde",
-    "guild",
-    "armée",
-    "army",
-    "rebelles",
-    "rebels",
-    "survivors",
-    "survivants",
-    "corporation",
-    "ordre",
-    "clan",
-  ];
-  return factions.filter((item) => normalized.includes(item));
-}
-
-function inferSceneWeather(text: string) {
-  const normalized = text.toLowerCase();
-  if (/(pluie|rain|orage|storm)/.test(normalized)) return "rain";
-  if (/(neige|snow|blizzard)/.test(normalized)) return "snow";
-  if (/(poussière|dust|cendres|ash)/.test(normalized)) return "dust";
-  if (/(brouillard|mist|fog)/.test(normalized)) return "mist";
-  return null;
-}
-
-function inferSceneTimeOfDay(text: string) {
-  const normalized = text.toLowerCase();
-  if (/(nuit|night|moon)/.test(normalized)) return "night";
-  if (/(aube|dawn|sunrise)/.test(normalized)) return "dawn";
-  if (/(soir|sunset|crépuscule|coucher du soleil)/.test(normalized)) return "sunset";
-  return "day";
-}
-
-function getStorageClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  // Préférer service role key, fallback sur anon key (bucket public)
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, { auth: { persistSession: false } });
-}
-
-function isHttpImageUrl(url: string) {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "https:" || parsed.protocol === "http:";
-  } catch {
-    return false;
-  }
-}
-
-function isAlreadyStableStorageUrl(url: string) {
-  const supabaseBase = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (supabaseBase && url.startsWith(supabaseBase)) return true;
-  return false;
-}
-
-function isDataUrl(url: string) {
-  return url.startsWith("data:image/");
-}
-
-function uniq(values: Array<string | null | undefined>) {
-  return [...new Set(values.filter((value): value is string => typeof value === "string" && value.length > 0))];
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-/**
- * Résout les panel blueprints premium effectifs pour un panel donné.
- * Priorité : job.input.panelBlueprints > studioSnapshot.productionPlan.panelBlueprints > null
- * Fallback : null (le pipeline utilisera les heuristiques génériques)
- */
-function resolveEffectivePanelBlueprints(opts: {
-  jobInput: PipelineJobInput;
-  studioSnapshot: { data?: { productionPlan?: { panelBlueprints?: unknown[] } } } | null;
-}): PanelBlueprintPremium[] {
-  // Priorité 1 : blueprints passés explicitement dans le job input
-  if (Array.isArray(opts.jobInput.panelBlueprints) && opts.jobInput.panelBlueprints.length > 0) {
-    return opts.jobInput.panelBlueprints as PanelBlueprintPremium[];
-  }
-  // Priorité 2 : blueprints depuis le snapshot studio persisté
-  const snapshotBlueprints = opts.studioSnapshot?.data?.productionPlan?.panelBlueprints;
-  if (Array.isArray(snapshotBlueprints) && snapshotBlueprints.length > 0) {
-    return snapshotBlueprints as PanelBlueprintPremium[];
-  }
-  return [];
-}
-
-/**
- * Trouve le blueprint premium correspondant à un panel donné (par beatId/sceneIndex + panelNumber).
- */
-function findPanelBlueprint(
-  blueprints: PanelBlueprintPremium[],
-  sceneIndex: number,
-  panelNumber: number,
-): PanelBlueprintPremium | undefined {
-  // Correspondance par panelNumber dans l'ordre des blueprints pour ce beat
-  const beatBlueprints = blueprints.filter((bp) => {
-    const bpBeatIndex = parseInt(bp.beatId?.split("_")[1] ?? "0", 10) - 1;
-    return bpBeatIndex === sceneIndex;
-  });
-  return beatBlueprints[panelNumber - 1] ?? beatBlueprints[0];
-}
-
-function normalizeCreativeControls(
-  value: Partial<CreativityControls> | undefined,
-  canonStrictness: number | null | undefined,
-): CreativityControls {
-  const input = value ?? {};
-  const clamp = (raw: number | undefined, fallback: number) =>
-    Math.max(0, Math.min(100, Number.isFinite(raw) ? Number(raw) : fallback));
-  return {
-    noveltyLevel: clamp(input.noveltyLevel, 55),
-    worldStrictness: clamp(input.worldStrictness, canonStrictness ?? 85),
-    visualExoticism: clamp(input.visualExoticism, 50),
-    npcVariety: clamp(input.npcVariety, 60),
-    environmentRichness: clamp(input.environmentRichness, 78),
-  };
-}
-
-function looksLikeBflDelivery(url: string) {
-  try {
-    const u = new URL(url);
-    return u.hostname.startsWith("delivery-") && u.hostname.endsWith(".bfl.ai");
-  } catch {
-    return false;
-  }
-}
-
-async function persistImageIfNeeded(opts: {
-  imageUrl: string;
-  projectId: string;
-  chapterId: string;
-  sceneImageId: string;
-}) {
-  const client = getStorageClient();
-
-  const canPersistHttp =
-    isHttpImageUrl(opts.imageUrl) && !looksLikeBflDelivery(opts.imageUrl) && !isAlreadyStableStorageUrl(opts.imageUrl);
-  const mustPersist = isDataUrl(opts.imageUrl) || looksLikeBflDelivery(opts.imageUrl) || canPersistHttp;
-  if (!mustPersist) return { ok: true as const, url: opts.imageUrl, persisted: false as const };
-
-  if (!client) {
-    console.warn(`[pipeline:persist] WARN no Supabase client (NEXT_PUBLIC_SUPABASE_URL=${!!process.env.NEXT_PUBLIC_SUPABASE_URL} SERVICE_ROLE=${!!process.env.SUPABASE_SERVICE_ROLE_KEY}) – storing temporary FAL URL for ${opts.sceneImageId}`);
-    return {
-      ok: true as const,
-      url: opts.imageUrl,
-      persisted: false as const,
-      temporary: true as const,
-      warning: "Stockage non configuré. Image temporaire: elle peut expirer.",
-    };
-  }
-
-  let bytes: Uint8Array;
-  let contentType = "image/jpeg";
-
-  if (isDataUrl(opts.imageUrl)) {
-    const commaIdx = opts.imageUrl.indexOf(",");
-    if (commaIdx <= 0) return { ok: false as const, error: "data URL invalide" };
-    const header = opts.imageUrl.slice(0, commaIdx);
-    const b64 = opts.imageUrl.slice(commaIdx + 1);
-    const ct = header.split(";")[0]?.slice("data:".length);
-    if (ct?.startsWith("image/")) contentType = ct;
-    bytes = Uint8Array.from(Buffer.from(b64, "base64"));
-  } else {
-    const res = await fetch(opts.imageUrl);
-    if (!res.ok) return { ok: false as const, error: `download failed ${res.status}` };
-    const buf = new Uint8Array(await res.arrayBuffer());
-    bytes = buf;
-    const ct = res.headers.get("content-type");
-    if (ct?.startsWith("image/")) contentType = ct;
-  }
-
-  const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
-  const filePath = `projects/${opts.projectId}/chapters/${opts.chapterId}/panels/${opts.sceneImageId}.${ext}`;
-
-  // Essayer plusieurs buckets dans l'ordre de préférence
-  const bucketsToTry = [
-    process.env.STORAGE_BUCKET,
-    "MyManga",
-    "mymanga-images",
-    "manga-images",
-  ].filter(Boolean) as string[];
-
-  // Dédupliquer
-  const uniqueBuckets = [...new Set(bucketsToTry)];
-
-  for (const bucket of uniqueBuckets) {
-    // Tenter de créer le bucket s'il n'existe pas (ignore l'erreur si déjà existant)
-    try {
-      await client.storage.createBucket(bucket, { public: false });
-    } catch { /* bucket existe déjà, c'est ok */ }
-
-    const up = await client.storage.from(bucket).upload(filePath, bytes, {
-      contentType,
-      upsert: true,
-      cacheControl: "31536000",
-    });
-
-    if (up.error) {
-      console.warn(`[pipeline:persist] bucket=${bucket} failed: ${up.error.message}`);
-      continue;
-    }
-
-    const publicUrl = client.storage.from(bucket).getPublicUrl(filePath).data.publicUrl;
-    console.log(`[pipeline:persist] OK bucket=${bucket} → ${publicUrl.slice(0, 80)}`);
-    return { ok: true as const, url: publicUrl, persisted: true as const };
-  }
-
-  // Tous les buckets ont échoué → mode dégradé avec URL temporaire FAL
-  console.error(`[pipeline:persist] All buckets failed for ${opts.sceneImageId} – using temporary FAL URL`);
-  return { ok: true as const, url: opts.imageUrl, persisted: false as const, temporary: true as const, warning: "all_buckets_failed" };
-}
-
-export async function setJobProgress(jobId: string, step: JobStep, status: "running" | "completed" | "failed") {
-  const job = await prisma.job.findUnique({ where: { id: jobId } });
-  if (!job) return;
-  const output = (job.output as Record<string, unknown>) ?? {};
-  const previousSteps = Array.isArray(output.steps) ? (output.steps as JobStep[]) : [];
-  const nextSteps = [
-    ...previousSteps.filter((existing) => existing.key !== step.key),
-    { ...step, status },
-  ];
-  await prisma.job.update({
-    where: { id: jobId },
-    data: {
-      status: "running",
-      startedAt: status === "running" ? (job.startedAt ?? new Date()) : job.startedAt,
-      output: {
-        ...output,
-        currentStep: step.key,
-        steps: nextSteps,
-      },
-    },
-  });
-}
-
-async function mergeJobOutput(jobId: string, patch: Record<string, unknown>) {
-  const job = await prisma.job.findUnique({ where: { id: jobId } });
-  if (!job) return;
-  const output = (job.output as Record<string, unknown>) ?? {};
-  await prisma.job.update({
-    where: { id: jobId },
-    data: {
-      output: ({
-        ...output,
-        ...patch,
-      } as unknown) as Prisma.InputJsonValue,
-    },
-  });
-}
-
-function buildRoutingContext(
-  intensityLayer: string,
-  panel: StoryboardPanel,
-  panelContract: {
-    purpose?: string;
-    shotType?: "wide" | "medium" | "closeup" | "extreme_closeup" | "over_shoulder";
-    cameraAngle?: string;
-    npcPresence?: string[];
-    npcGroupPresence?: string[];
-    creaturePresence?: string[];
-    mustShowLocationSignals?: string[];
-  } | undefined,
-  stylePack: { backgroundDensity?: string | null } | null | undefined,
-  hasCanonRef: boolean,
-  adultEngine?: "realistic" | "fantasy",
-  panelCharacterRoles: string[] = [],
-  panelCharacterImportanceTiers: Array<"MAIN_HERO" | "SECONDARY_CORE" | "IMPORTANT_SUPPORTING_CHARACTER" | "RECURRING_NPC" | "BACKGROUND_EXTRA"> = [],
-  chapterLookProfileMode?: string | null,
-  beatEventType?: string | null,
-): RoutingContext {
-  const text = `${panel.camera} ${panel.caption} ${panel.prompt}`.toLowerCase();
-  const heroPresent = panelCharacterRoles.some((role) => /hero|protagon|main_hero|héros|heros/i.test(role));
-  const shotType = panelContract?.shotType ?? (/(wide|establishing|panorama|vue d'ensemble)/.test(text)
-    ? "wide"
-    : /(over shoulder|over-shoulder|par-dessus l'épaule)/.test(text)
-      ? "over_shoulder"
-      : /(extreme close)/.test(text)
-        ? "extreme_closeup"
-        : /(close-up|closeup|gros plan)/.test(text)
-          ? "closeup"
-          : "medium");
-  return {
-    mode: "PANEL_DRAFT",
-    contentIntensityLayer: intensityLayer,
-    adultEngine,
-    isNewCharacter: false,
-    hasCanonReferences: hasCanonRef,
-    characterCountInScene: panel.characters.length,
-    panelCharacterRoles,
-    panelCharacterImportanceTiers,
-    heroPresent,
-    heroFocus: heroPresent && (shotType === "closeup" || shotType === "extreme_closeup"),
-    purpose: panelContract?.purpose,
-    npcCount: (panelContract?.npcPresence?.length ?? 0) > 0 || /(crowd|guard|merchant|passant|client|audience|foule|garde)/.test(text) ? 1 : 0,
-    creatureCount: (panelContract?.creaturePresence?.length ?? 0) > 0 || /(creature|monster|spirit|dragon|familiar|beast|mutant)/.test(text) ? 1 : 0,
-    hasNpcGroup: (panelContract?.npcGroupPresence?.length ?? 0) > 0,
-    hasCreatureGroup: (panelContract?.creaturePresence?.length ?? 0) > 1,
-    shotType,
-    cameraAngle: panelContract?.cameraAngle,
-    environmentPriority:
-      (panelContract?.mustShowLocationSignals?.length ?? 0) >= 2
-      || /(environment|decor|décor|background|ruins|city|forest|garden|lab|arena|crowd|school|campus|courtyard)/.test(text)
-        ? "high"
-        : panel.characters.length >= 2
-          ? "medium"
-          : "low",
-    locationComplexity: Math.min(30, (panelContract?.mustShowLocationSignals?.length ?? 0) * 6),
-    environmentDensityRequired:
-      stylePack?.backgroundDensity === "high" || (panelContract?.shotType === "wide")
-        ? "high"
-        : stylePack?.backgroundDensity === "low"
-          ? "low"
-          : "medium",
-    continuityWeight: hasCanonRef ? 70 : 35,
-    scenePurpose: panel.caption,
-    styleBackgroundDensity: stylePack?.backgroundDensity ?? null,
-    styleReferenceRequired: hasCanonRef || /(style|render family|ink|shading)/.test(text),
-    needsInpaint: false,
-    needsPoseVariation: false,
-    preferPhotorealCover: false,
-    explicitBlocked: intensityLayer === "RESTRICTED_BLOCKED_VISUAL",
-    goreStylizedMature:
-      intensityLayer === "MATURE_DRAMA" ||
-      intensityLayer === "MATURE_VISUAL" ||
-      intensityLayer === "ADULT_EXPLICIT",
-    chapterLookProfileMode: chapterLookProfileMode ?? null,
-    beatEventType: beatEventType ?? null,
-  };
-}
-
-function inferRequiredSceneExtras(scene: {
-  summary: string;
-  location: string;
-  characters: string[];
-}) {
-  const text = `${scene.summary} ${scene.location}`.toLowerCase();
-  const extras: Array<{ archetype: "bartender" | "client" | "guard" | "server" | "crowd" | "merchant" | "passerby" | "other"; anchorSlot: string }> = [];
-  if (/(taverne|bar|auberge|café|cafe)/.test(text)) {
-    extras.push({ archetype: "bartender", anchorSlot: "service-counter" });
-    extras.push({ archetype: "client", anchorSlot: "ambient-left" });
-  }
-  if (/(marché|market|bazaar|boutique)/.test(text)) {
-    extras.push({ archetype: "merchant", anchorSlot: "stall-front" });
-    extras.push({ archetype: "passerby", anchorSlot: "lane-depth" });
-  }
-  if (/(prison|surveillance|checkpoint|guard|garde|palais|banque)/.test(text)) {
-    extras.push({ archetype: "guard", anchorSlot: "security-edge" });
-  }
-  if (/(arène|arena|foule|crowd|festival)/.test(text)) {
-    extras.push({ archetype: "crowd", anchorSlot: "backdrop-crowd" });
-  }
-  if (/(lycée|lycee|école|ecole|school|campus|cour de récré|cour du lycée|classe)/.test(text)) {
-    extras.push({ archetype: "crowd", anchorSlot: "student-yard" });
-    extras.push({ archetype: "passerby", anchorSlot: "corridor-depth" });
-  }
-  if (/(moque|ridicul|humili|entouré de ses amis|autour de ses amis|raillerie)/.test(text)) {
-    extras.push({ archetype: "crowd", anchorSlot: "mocking-ring" });
-  }
-  if (extras.length === 0 && scene.characters.length <= 2) {
-    extras.push({ archetype: "passerby", anchorSlot: "ambient-depth" });
-  }
-  return extras.slice(0, 3);
-}
-
-function computeChapterQualityReport(
-  rows: Array<{
-    consistencyScore: number | null;
-    metadata: unknown;
-  }>,
-) {
-  return computeChapterQualityReportShared(rows);
-}
-
-type LoadedLoraAttachment = {
-  id: string;
-  enabled: boolean;
-  weight: number;
-  characterId: string | null;
-  lora: {
-    id: string;
-    name: string;
-    status: string;
-    weightsMeta: unknown;
-  };
-};
-
-type LoadedCharacterForPipeline = {
-  id: string;
-  name: string;
-  roleType?: string | null;
-  objective?: string | null;
-  fear?: string | null;
-  biography?: string | null;
-  traits?: string[];
-  flaws?: string[];
-  gender: string | null;
-  appearance: string | null;
-  hairColor: string | null;
-  eyeColor: string | null;
-  outfitDefault: string | null;
-  canonicalImageUrl: string | null;
-  canonSignatureText: string | null;
-  forbiddenVisualDrift: unknown;
-  bodyDetails: string | null;
-  wardrobeDetails: string | null;
-  visualProfile: Record<string, unknown>;
-  bodyState?: Record<string, unknown>;
-  wardrobeProfile?: Record<string, unknown>;
-  speechProfile?: Record<string, unknown>;
-  continuityProfile?: Record<string, unknown>;
-  characterFingerprint?: Record<string, unknown> | null;
-  visualRefUrls: string[];
-  entityKind?: string | null;
-  speciesLabel?: string | null;
-  dialogueMode?: string | null;
-  recurrencePolicy?: string | null;
-};
-
-async function queueAutoLoraTrainingIfEligible(input: {
-  projectId: string;
-  characters: LoadedCharacterForPipeline[];
-  loraAttachments: LoadedLoraAttachment[];
-}) {
-  const readyByCharId = new Set<string>();
-  const trainingByCharId = new Set<string>();
-
-  for (const att of input.loraAttachments) {
-    if (!att.characterId) continue;
-    const meta = att.lora.weightsMeta as Record<string, unknown>;
-    const hasWeights = typeof meta.loraUrl === "string" && meta.loraUrl.length > 0;
-    if (att.enabled && att.lora.status === "active" && hasWeights) {
-      readyByCharId.add(att.characterId);
-      continue;
-    }
-    if (att.lora.status === "training" || att.lora.status === "queued") {
-      trainingByCharId.add(att.characterId);
-    }
-  }
-
-  const candidates = input.characters
-    .filter((c) => c.visualRefUrls.length >= 3)
-    .filter((c) => !readyByCharId.has(c.id))
-    .filter((c) => !trainingByCharId.has(c.id))
-    .slice(0, 2);
-
-  if (candidates.length === 0) return 0;
-
-  for (const candidate of candidates) {
-    const triggerWord = buildTriggerWord(candidate.name, input.projectId);
-    const seedRefs = candidate.visualRefUrls.slice(0, 20);
-    const lora = await prisma.loraModel.create({
-      data: {
-        projectId: input.projectId,
-        provider: "fal",
-        externalId: triggerWord,
-        name: `LoRA ${candidate.name}`,
-        status: "training",
-        weightsMeta: {
-          autoQueued: true,
-          triggerWord,
-          characterId: candidate.id,
-          imageCount: seedRefs.length,
-          queuedAt: new Date().toISOString(),
-        } as Prisma.InputJsonValue,
-      },
-    });
-
-    await prisma.loraAttachment.create({
-      data: {
-        loraId: lora.id,
-        projectId: input.projectId,
-        characterId: candidate.id,
-        weight: 1,
-        enabled: false,
-      },
-    });
-
-    console.log(`[auto-lora] queued character=${candidate.name} refs=${seedRefs.length}`);
-
-    void (async () => {
-      const result = await trainCharacterLora({
-        prisma,
-        projectId: input.projectId,
-        characterId: candidate.id,
-        characterName: candidate.name,
-        triggerWord,
-        imageUrls: seedRefs,
-        imageTypes: seedRefs.map(() => "generated_primary"),
-        steps: 300,
-      });
-      if (!result.ok) {
-        await prisma.loraModel.update({
-          where: { id: lora.id },
-          data: {
-            status: "error",
-            weightsMeta: {
-              autoQueued: true,
-              triggerWord,
-              characterId: candidate.id,
-              imageCount: seedRefs.length,
-              error: result.error ?? "training_failed",
-              readiness: result.readiness ?? null,
-              failedAt: new Date().toISOString(),
-            } as Prisma.InputJsonValue,
-          },
-        });
-        console.error(`[auto-lora] failed character=${candidate.name} error=${result.error ?? "unknown"}`);
-        return;
-      }
-
-      await prisma.loraModel.update({
-        where: { id: lora.id },
-        data: {
-          status: "active",
-          weightsMeta: {
-            autoQueued: true,
-            triggerWord,
-            characterId: candidate.id,
-            imageCount: seedRefs.length,
-            loraUrl: result.loraUrl,
-            configUrl: result.configUrl ?? null,
-            requestId: result.requestId ?? null,
-            jobId: result.jobId ?? null,
-            previewImages: result.previewImages ?? [],
-            trainingAssetId: result.trainingAssetId ?? null,
-            readiness: result.readiness ?? null,
-            trainedAt: new Date().toISOString(),
-          } as Prisma.InputJsonValue,
-        },
-      });
-      await prisma.loraAttachment.updateMany({
-        where: { loraId: lora.id, characterId: candidate.id, projectId: input.projectId },
-        data: { enabled: true, weight: 1 },
-      });
-      console.log(`[auto-lora] ready character=${candidate.name}`);
-    })().catch((error) => {
-      const message = error instanceof Error ? error.message : "auto_lora_background_error";
-      console.error(`[auto-lora] background crash character=${candidate.name} error=${message}`);
-    });
-  }
-
-  return candidates.length;
-}
-
-function syncVisualsAfterNarrativePass(bundle: PipelineBundle): PipelineBundle {
-  const pages = bundle.storyboard.pages;
-  const scenes = bundle.script.scenes;
-  const beats = bundle.outline.beats;
-
-  const ROLE_CAMERAS: Record<string, string[]> = {
-    establishing: ["wide establishing shot", "medium shot", "close-up on face", "medium shot", "wide shot", "medium shot"],
-    escalation: ["medium shot", "over-the-shoulder shot", "close-up on face", "low angle shot", "medium shot", "extreme close-up on eyes"],
-    confrontation: ["medium shot", "close-up on face", "low angle dynamic shot", "extreme close-up on eyes", "over-the-shoulder shot", "dutch angle shot"],
-    revelation: ["medium shot", "slow zoom close-up", "extreme close-up shocked eyes", "wide shot consequences", "over-the-shoulder shot", "high angle distant shot"],
-    aftermath: ["wide establishing shot", "medium shot", "close-up on face", "medium shot", "wide shot", "medium shot"],
-    cliffhanger: ["medium shot", "close-up on face", "low angle shot", "extreme close-up on eyes", "silhouette shot", "dramatic wide shot"],
-  };
-
-  const updatedPages = pages.map((page, pageIndex) => {
-    const scene = scenes[pageIndex];
-    const beat = beats[pageIndex];
-    if (!scene || !beat) return page;
-
-    const beatRaw = beat as Record<string, unknown>;
-    const role = (typeof beatRaw.pageRole === "string" ? beatRaw.pageRole : "escalation") as string;
-    const roleCams = ROLE_CAMERAS[role] ?? ROLE_CAMERAS.escalation;
-
-    const updatedPanels = page.panels.map((panel, panelIndex) => {
-      const camera = roleCams[panelIndex] ?? roleCams[panelIndex % roleCams.length] ?? "medium shot";
-      return { ...panel, camera };
-    });
-
-    return { ...page, panels: updatedPanels };
-  });
-
-  return {
-    ...bundle,
-    storyboard: { ...bundle.storyboard, pages: updatedPages },
-  };
-}
-
-function enforceBundleIntegrity(bundle: PipelineBundle): { bundle: PipelineBundle; notes: string[] } {
-  const notes: string[] = [];
-  const scenes = [...bundle.script.scenes];
-  const pages = [...bundle.storyboard.pages];
-
-  const alignedCount = Math.min(scenes.length, pages.length);
-  if (scenes.length !== pages.length) {
-    notes.push(`alignment_fixed: scenes=${scenes.length} pages=${pages.length} => ${alignedCount}`);
-  }
-
-  const safeScenes = scenes.slice(0, alignedCount);
-  const safePages = pages.slice(0, alignedCount).map((page, pageIndex) => {
-    const scene = safeScenes[pageIndex];
-    const originalPanels = Array.isArray(page.panels) ? page.panels : [];
-    const normalizedPanels = originalPanels
-      .slice(0, 6)
-      .map((panel, panelIndex) => {
-        const speaker = panel.dialogue?.speaker?.trim();
-        const normalizedCharacters = [...new Set((panel.characters ?? []).filter(Boolean))];
-        if (speaker && !/narrateur|narration/i.test(speaker)) {
-          const hasSpeaker = normalizedCharacters.some((c) => c.toLowerCase() === speaker.toLowerCase());
-          if (!hasSpeaker) normalizedCharacters.push(speaker);
-        }
-        return {
-          ...panel,
-          panelNumber: panelIndex + 1,
-          sceneId: scene?.id ?? panel.sceneId,
-          characters: normalizedCharacters.length > 0 ? normalizedCharacters : (scene?.characters ?? []),
-        };
-      });
-
-    if (normalizedPanels.length < 4 && scene) {
-      notes.push(`panel_floor_applied: page=${pageIndex + 1}`);
-      while (normalizedPanels.length < 4) {
-        const fallbackPanel = normalizedPanels[normalizedPanels.length - 1] ?? normalizedPanels[0];
-        if (fallbackPanel) {
-          normalizedPanels.push({
-            ...fallbackPanel,
-            panelNumber: normalizedPanels.length + 1,
-            caption: `${scene.summary}`,
-            dialogue: undefined,
-            narration: scene.summary,
-          });
-        } else {
-          normalizedPanels.push({
-            panelNumber: normalizedPanels.length + 1,
-            sceneId: scene.id,
-            beatId: `fallback_${pageIndex + 1}_${normalizedPanels.length + 1}`,
-            caption: scene.summary,
-            prompt: scene.summary,
-            negativePrompt: "",
-            camera: "medium shot",
-            characters: scene.characters.slice(0, 2),
-            mood: "dramatic",
-            narration: scene.summary,
-            textScale: "normal",
-          });
-        }
-      }
-    }
-
-    return {
-      ...page,
-      pageNumber: pageIndex + 1,
-      panels: normalizedPanels,
-    };
-  });
-
-  return {
-    bundle: {
-      ...bundle,
-      script: { ...bundle.script, scenes: safeScenes },
-      storyboard: {
-        ...bundle.storyboard,
-        pageCount: safePages.length,
-        pages: safePages,
-      },
-    },
-    notes,
-  };
-}
 
 export async function runFullChapterPipelineFromJob(jobId: string) {
   // Diagnostic de configuration au démarrage du pipeline
@@ -2735,6 +1970,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
 
     let generatedCount = 0;
     let failedCount = 0;
+    const failedShots: Array<{ id: string; item: PlannedImage }> = [];
     const sceneKeyframeUrlCache = new Map<string, Promise<string | null>>();
 
     async function persistFalTraceEntry(input: {
@@ -3697,9 +2933,12 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       for (let start = 0; start < roundBatch.length; start += maxParallelImageGenerations) {
         const chunk = roundBatch.slice(start, start + maxParallelImageGenerations);
         const results = await Promise.all(chunk.map(processOneImage));
-        for (const r of results) {
-          if (r === "ok") generatedCount++;
-          else failedCount++;
+        for (let ri = 0; ri < results.length; ri++) {
+          if (results[ri] === "ok") generatedCount++;
+          else {
+            failedCount++;
+            failedShots.push({ id: chunk[ri]!.sceneImageId, item: chunk[ri]! });
+          }
         }
       }
       await setJobProgress(
@@ -3722,6 +2961,101 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       },
       failedCount === plannedImages.length ? "failed" : "completed",
     );
+
+    // ── Recovery pass — garantir le quota minimal d'images ──────────────────
+    const minimumImages = (typeof (chapter as Record<string, unknown>).minimumImages === "number"
+      ? (chapter as Record<string, unknown>).minimumImages as number
+      : 75);
+    const missingCount = minimumImages - generatedCount;
+    let recoveredCount = 0;
+
+    if (missingCount > 0 && failedShots.length > 0) {
+      console.log(`[pipeline:recovery] ${missingCount} images manquantes — relance de ${Math.min(missingCount, failedShots.length)} shots en mode dégradé`);
+      await setJobProgress(jobId, { key: "recovery_pass", label: `Récupération ${missingCount} images manquantes...` }, "running");
+
+      for (const failedShot of failedShots.slice(0, missingCount)) {
+        try {
+          const recoveryResult = await runRoutedImageGeneration(
+            {
+              mode: "PANEL_DRAFT",
+              contentIntensityLayer: intensityLayer,
+              isNewCharacter: false,
+              hasCanonReferences: false,
+              characterCountInScene: failedShot.item.panel.characters?.length ?? 1,
+              needsInpaint: false,
+              needsPoseVariation: false,
+              preferPhotorealCover: false,
+              explicitBlocked: false,
+              goreStylizedMature: false,
+            },
+            {
+              mode: "PANEL_DRAFT",
+              positivePrompt: failedShot.item.panel.prompt,
+              negativePrompt: failedShot.item.panel.negativePrompt,
+              width: 768,
+              height: 1024,
+              referenceImageUrls: [],
+              providerParams: {
+                contentIntensityLayer: intensityLayer,
+                mode: "PANEL_DRAFT",
+                referencePolicy: "NONE",
+                panelCategory: "CHARACTER_IN_SCENE",
+                scenePass: "single_pass",
+                panelCriticality: "low",
+              },
+            },
+          );
+
+          if (recoveryResult.ok) {
+            const persisted = await persistImageIfNeeded({
+              imageUrl: recoveryResult.result.imageUrl,
+              projectId,
+              chapterId,
+              sceneImageId: failedShot.id,
+            });
+            if (persisted.ok) {
+              recoveredCount++;
+              await prisma.sceneImage.update({
+                where: { id: failedShot.id },
+                data: {
+                  status: "completed",
+                  imageUrl: persisted.url,
+                  persistedUrl: persisted.persisted ? persisted.url : null,
+                  provider: recoveryResult.result.provider,
+                  model: recoveryResult.result.model,
+                  failureReason: null,
+                  metadata: ({
+                    ...failedShot.item.baseMetadata,
+                    recoveryPass: true,
+                    sourceUrl: recoveryResult.result.imageUrl,
+                  } as unknown) as Prisma.InputJsonValue,
+                },
+              });
+            }
+          }
+        } catch {
+          console.warn(`[pipeline:recovery] shot recovery failed for ${failedShot.id}`);
+        }
+      }
+
+      console.log(`[pipeline:recovery] recovered=${recoveredCount}/${missingCount} failedShots=${failedShots.length}`);
+      await setJobProgress(jobId, { key: "recovery_pass", label: `${recoveredCount} images récupérées` }, "completed");
+
+      generatedCount += recoveredCount;
+      failedCount = Math.max(0, failedCount - recoveredCount);
+    }
+
+    console.log(`[pipeline:chapter-summary] ${JSON.stringify({
+      chapterId,
+      targetImages: minimumImages,
+      plannedShots: plannedImages.length,
+      attemptedShots: plannedImages.length,
+      succeededShots: generatedCount - recoveredCount,
+      recoveredShots: recoveredCount,
+      failedShots: failedCount,
+      finalImages: generatedCount,
+      status: generatedCount >= minimumImages ? "COMPLETED" : "FAILED_INCOMPLETE",
+    })}`);
 
     // ── Couverture de chapitre (hero shot) ────────────────────────────────
     let coverUrl: string | null = null;

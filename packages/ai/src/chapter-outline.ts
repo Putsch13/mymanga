@@ -130,6 +130,7 @@ export type ChapterOutlineContext = {
   previousSummary: string | null;
   previousCliffhanger: string | null;
   seriesSynopsis?: string | null;
+  targetBeats?: number;
 };
 
 export type ChapterOutlineGenerationResult = {
@@ -487,7 +488,15 @@ Chaque beat DOIT contenir :
       - setupPayoffHooks = tableau de { hookId, label, kind: "setup"|"foreshadowing"|"echo"|"payoff", targetBeatHint?, resolved? }
 
 Langue : français. Les beats sont des étapes narratives courtes (pas de dialogue complet).
-Nombre de beats : produis entre 3 et 10 beats (selon la profondeur nécessaire pour ce chapitre), chacun avec un summary et un turn nettement distincts des autres — aucun doublon ni paraphrase paresseuse.
+Nombre de beats : tu DOIS produire exactement ${ctx.targetBeats ?? 10} story beats, chacun avec un summary et un turn nettement distincts des autres — aucun doublon ni paraphrase paresseuse.
+Chaque beat DOIT être visuellement actionnable et dépeindre un moment concret.
+INTERDIT d'utiliser des beats abstraits de remplissage tels que "la tension monte", "les enjeux augmentent", ou "la pression s'intensifie" à moins qu'ils ne soient liés à une action visible spécifique.
+Chaque beat DOIT inclure :
+- participants (qui agit)
+- action visible (ce qu'ils font concrètement)
+- tonalité émotionnelle
+- contexte spatial (où ça se passe)
+- ce qui change à la fin du beat
 INTERDIT d'utiliser des summaries « placeholders » génériques qui ne font que nommer une phase (ex. titres vides du type « Montée en pression », « Escalade », « Point de basculement », « Réaction en chaîne », « Nouvelle donne », « Tension maximale » sans événement concret lié au cast et aux lieux fournis). Chaque summary doit décrire une action ou une information spécifique à CE chapitre.
 ${genreDirectorBlock}
 RÈGLES DE RYTHME MANGA :

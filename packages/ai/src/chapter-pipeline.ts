@@ -972,6 +972,7 @@ export async function generateChapterBundle(input: {
         previousSummary: previous?.summary ?? null,
         previousCliffhanger: previous?.cliffhanger ?? null,
         seriesSynopsis: input.context.seriesSynopsis ?? null,
+        targetBeats: 10,
       });
   if (outlineResult.degradedStatus !== "FULLY_OPERATIONAL") {
     console.warn(
@@ -1032,12 +1033,12 @@ export async function generateChapterBundle(input: {
         const lastLocation = lastBeat?.location ?? dominantLocation;
         const lastSummaryBase = lastBeat?.summary?.slice(0, 80) ?? input.userIntent.slice(0, 80);
         const STRETCH_PHASES: string[] = [
-          `Suite directe : ${lastSummaryBase} — la situation évolue.`,
-          `Complication : un nouvel élément complique l'objectif de ${mainCast[0] ?? "le héros"}.`,
-          `Pression narrative : les enjeux montent autour de ${lastLocation}.`,
-          `Décision : ${mainCast[0] ?? "le héros"} doit choisir une voie malgré l'incertitude.`,
-          `Conséquence : l'action précédente produit un effet visible sur le monde.`,
-          `Pivot : la dynamique change — ce qui semblait fixe devient instable.`,
+          `Les conséquences de ${lastSummaryBase} deviennent physiquement visibles autour de ${lastLocation}.`,
+          `${mainCast[0] ?? "Le héros"} fait face à un obstacle concret qui bloque sa progression.`,
+          `Un personnage secondaire intervient — son action change la dynamique de la scène à ${lastLocation}.`,
+          `${mainCast[0] ?? "Le héros"} prend une décision visible : un geste, un mouvement, un choix physique.`,
+          `L'environnement réagit : ${lastLocation} se transforme ou révèle un nouvel élément.`,
+          `Confrontation directe : ${mainCast[0] ?? "le héros"} et son adversaire se retrouvent face à face.`,
         ];
         return stretchToCount(rawOutlineBeats, TARGET_PAGES, (index) => ({
           id: "beat_" + (index + 1),

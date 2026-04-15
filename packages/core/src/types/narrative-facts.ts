@@ -158,6 +158,7 @@ export interface PanelBlueprintPremium {
   mayShowCharacterIds?: string[];
   mustShowEnemy: boolean;
   requiredNpcCount: number;
+  requiredSubjects?: string[];
   requiredProps: RequiredProp[];
   optionalProps?: RequiredProp[];
   /** Obligations de présence (spec P0.1) */

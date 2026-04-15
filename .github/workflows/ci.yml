@@ -30,8 +30,32 @@ jobs:
       - name: Generate Prisma client
         run: pnpm --filter @manga-ai-studio/db exec prisma generate
 
-      - name: TypeScript typecheck
+      - name: TypeScript typecheck (core)
+        run: pnpm --filter @manga-ai-studio/core exec tsc --noEmit
+
+      - name: TypeScript typecheck (ai)
+        run: pnpm --filter @manga-ai-studio/ai exec tsc --noEmit
+
+      - name: TypeScript typecheck (workflow)
+        run: pnpm --filter @manga-ai-studio/workflow exec tsc --noEmit
+
+      - name: TypeScript typecheck (web)
         run: pnpm --filter @manga-ai-studio/web exec tsc --noEmit
+
+      - name: Unit tests (core)
+        run: pnpm --filter @manga-ai-studio/core test
+
+      - name: Unit tests (ai)
+        run: pnpm --filter @manga-ai-studio/ai test
+
+      - name: Unit tests (workflow)
+        run: pnpm --filter @manga-ai-studio/workflow test
+
+      - name: Unit tests (world)
+        run: pnpm --filter @manga-ai-studio/world test
+
+      - name: Unit tests (continuity)
+        run: pnpm --filter @manga-ai-studio/continuity test
 
       - name: Build
         run: pnpm --filter @manga-ai-studio/web build

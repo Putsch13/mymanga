@@ -90,6 +90,56 @@ export function normalizeRequestedFalModel(
   return { model: FAL_MODEL_TEXT, numSteps: 28, usedSchnell: false };
 }
 
+interface ReferenceMetadata {
+  assetKind?: string;
+  sourceType?: string;
+}
+
+const EXCLUDED_REFERENCE_PATTERNS = [
+  /\/sceneKeyframes\//i,
+  /\/backgrounds\//i,
+  /\/locations\//i,
+  /\/environments\//i,
+  /\/keyframes\//i,
+  /\/scene_/i,
+  /\/env_/i,
+  /\/bg_/i,
+];
+
+export function isValidCharacterReference(
+  referenceUrl?: string | null,
+  metadata?: ReferenceMetadata,
+): { valid: boolean; reason: string } {
+  if (!referenceUrl || referenceUrl.trim() === "") {
+    return { valid: false, reason: "empty_url" };
+  }
+
+  if (metadata?.assetKind) {
+    if (metadata.assetKind === "character_reference" || metadata.assetKind === "character_portrait") {
+      return { valid: true, reason: "metadata_character" };
+    }
+    if (["scene_keyframe", "background", "location", "environment"].includes(metadata.assetKind)) {
+      return { valid: false, reason: `metadata_excluded_${metadata.assetKind}` };
+    }
+  }
+
+  for (const pattern of EXCLUDED_REFERENCE_PATTERNS) {
+    if (pattern.test(referenceUrl)) {
+      return { valid: false, reason: "url_pattern_excluded" };
+    }
+  }
+
+  if (/\/characters\//i.test(referenceUrl)) {
+    return { valid: true, reason: "url_characters_path" };
+  }
+
+  if (/\/portraits?\//i.test(referenceUrl) || /\/avatars?\//i.test(referenceUrl)) {
+    return { valid: true, reason: "url_portrait_path" };
+  }
+
+  return { valid: false, reason: "no_character_signal" };
+}
+
 export function buildFalGenerationRequest(input: GenerateImageInput) {
   const isMature =
     input.providerParams?.contentIntensityLayer === "MATURE_DRAMA" ||
@@ -129,7 +179,16 @@ export function buildFalGenerationRequest(input: GenerateImageInput) {
           scale: referencePolicy === "LIGHT" ? Math.min(0.55, lora.scale ?? 0.85) : lora.scale ?? 0.85,
         }));
   const useLora = effectiveLoras.length > 0;
-  const useRedux = !useLora && Boolean(referenceUrl) && referencePolicy === "STRONG" && panelCategory === "CHARACTER_LOCK";
+  const referenceCheck = isValidCharacterReference(
+    referenceUrl,
+    typeof input.providerParams?.referenceMetadata === "object" ? input.providerParams.referenceMetadata as ReferenceMetadata : undefined,
+  );
+  const useRedux = !useLora && Boolean(referenceUrl) && referencePolicy === "STRONG" && panelCategory === "CHARACTER_LOCK" && referenceCheck.valid;
+
+  if (panelCategory === "CHARACTER_LOCK" && referenceUrl && !referenceCheck.valid) {
+    console.log(`[fal:redux-guard] Redux DISABLED — reason=${referenceCheck.reason} url=${referenceUrl?.slice(0, 80)} panelCategory=${panelCategory} → fallback text2img`);
+  }
+
   const useLoraWithRef = useLora && Boolean(referenceUrl);
   const target = normalizeRequestedFalModel(
     typeof input.providerParams?.model === "string" ? input.providerParams.model : null,
@@ -211,6 +270,7 @@ export async function runFalGenerationJob(apiKey: string | undefined, input: Gen
       strategy,
       model: request.target.model,
       usedSchnell: request.target.usedSchnell ?? false,
+      reduxEnabled: request.mode === "img2img" && request.target.model.includes("redux"),
       imageSize: typeof request.imageSize === "string" ? request.imageSize : `${request.imageSize.width}x${request.imageSize.height}`,
       referencePolicy: request.referencePolicy,
       panelCategory: request.panelCategory,
