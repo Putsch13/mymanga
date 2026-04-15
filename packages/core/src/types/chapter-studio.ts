@@ -385,11 +385,11 @@ export const productionPlanAdjustmentSchema = z.object({
 export type ProductionPlanAdjustment = z.infer<typeof productionPlanAdjustmentSchema>;
 
 export const productionPlanSchema = z.object({
-  pageCount: z.number().int().positive(),
-  pages: z.array(productionPlanPageSchema).min(1),
+  pageCount: z.number().int().min(0).default(0),
+  pages: z.array(productionPlanPageSchema).default([]),
   panelsPerPage: z.array(z.number().int().min(1)).default([]),
-  estimatedImages: z.number().int().min(0),
-  targetImages: z.number().int().min(0),
+  estimatedImages: z.number().int().min(0).default(0),
+  targetImages: z.number().int().min(0).default(0),
   minimumImages: z.number().int().min(0).default(55),
   criticalPanels: z.array(z.string()).default([]),
   lockedCharacters: z.array(z.string()).default([]),

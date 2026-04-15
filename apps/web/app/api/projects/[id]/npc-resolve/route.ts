@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import OpenAI from "openai";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { NPC_ONTOLOGY, resolveNpcWithAiFallback } from "@manga-ai-studio/world";
+
+const openai = process.env.OPENAI_API_KEY ? new OpenAI() : null;
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -26,25 +29,34 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
   const scored = NPC_ONTOLOGY.map((entry) => {
     let score = 0;
-    const targets = [...entry.tags, ...entry.universes, ...entry.tones, entry.label, entry.role ?? ""].map((s) => s.toLowerCase());
-    for (const word of desc.split(/\s+/)) {
-      if (word.length < 3) continue;
-      for (const t of targets) {
-        if (t.includes(word) || word.includes(t)) score++;
+    const words = desc.split(/\s+/).filter(w => w.length >= 3);
+
+    if (entry.label.toLowerCase().split(/[\s/]+/).some(lw => words.some(w => lw.includes(w) || w.includes(lw)))) {
+      score += 8;
+    }
+    if (entry.role && words.some(w => entry.role!.toLowerCase().includes(w) || w.includes(entry.role!.toLowerCase()))) {
+      score += 6;
+    }
+    for (const word of words) {
+      for (const tag of entry.tags) {
+        if (tag.toLowerCase() === word) score += 4;
+        else if (tag.toLowerCase().includes(word)) score += 2;
       }
     }
     if (entry.universes.some((u) => universe.includes(u.toLowerCase()))) score += 3;
     if (entry.tones.some((t) => tone.includes(t.toLowerCase()))) score += 2;
+
     return { entry, score };
   })
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, 3);
 
-  const confidence = scored.length > 0 ? Math.min(scored[0]!.score / 10, 1) : 0;
+  const confidence = scored.length > 0 ? Math.min(scored[0]!.score / 15, 1) : 0;
+  const forceAI = !scored[0] || scored[0].score < 4;
   const best = scored[0]?.entry;
 
-  if (best && confidence > 0.4) {
+  if (best && confidence > 0.3 && !forceAI) {
     return NextResponse.json({
       strategy: scored.length > 1 ? "catalog_blend" : "catalog_match",
       confidence,
@@ -58,8 +70,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     });
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
+  if (!openai) {
     if (best) {
       return NextResponse.json({
         strategy: "catalog_fallback",
@@ -90,22 +101,13 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const aiNpc = await resolveNpcWithAiFallback(
       { rawDescription: body.rawDescription, universe, tone, sceneLocation: body.sceneLocation },
       async (messages) => {
-        const res = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model: "gpt-4o-mini",
-            messages,
-            response_format: { type: "json_object" },
-            max_tokens: 400,
-          }),
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages,
+          response_format: { type: "json_object" },
+          max_tokens: 400,
         });
-        if (!res.ok) throw new Error(`OpenAI ${res.status}`);
-        const data = await res.json() as { choices: Array<{ message: { content: string } }> };
-        return data.choices[0]?.message?.content ?? "{}";
+        return completion.choices[0]?.message?.content ?? "{}";
       },
     );
 

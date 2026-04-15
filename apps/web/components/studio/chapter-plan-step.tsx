@@ -5,6 +5,7 @@ import { AlertTriangle, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { FieldTooltip } from "@/components/ui/field-tooltip";
 import { Label } from "@/components/ui/label";
 import type { OutlineProgressionIssue } from "@/lib/outline-progression-guard";
 import { NarrativeContractCard } from "./narrative-contract-card";
@@ -131,7 +132,13 @@ export function ChapterPlanStep({
         </CardHeader>
         <CardContent className="grid gap-4 lg:grid-cols-2">
           <div className="space-y-2">
-            <Label>Objectif émotionnel</Label>
+            <div className="flex items-center gap-1">
+              <Label>Objectif émotionnel</Label>
+              <FieldTooltip
+                text="Ce que le lecteur doit ressentir à la fin du chapitre."
+                example="Tension insoutenable / Soulagement inattendu"
+              />
+            </div>
             <Input
               data-testid="studio-emotional-goal"
               data-studio-field="studio-emotional-goal"
@@ -157,7 +164,13 @@ export function ChapterPlanStep({
             />
           </div>
           <div className="space-y-2">
-            <Label>Conflit central</Label>
+            <div className="flex items-center gap-1">
+              <Label>Conflit central</Label>
+              <FieldTooltip
+                text="L'obstacle principal qui structure le chapitre."
+                example="Le héros doit choisir entre deux loyautés."
+              />
+            </div>
             <Input
               data-testid="studio-central-conflict"
               data-studio-field="studio-central-conflict"

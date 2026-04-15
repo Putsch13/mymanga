@@ -7,6 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buildChapterStudioListItem } from "@/lib/chapter-studio";
 import { ChapterStatusBadge } from "@/components/studio/chapter-status-badge";
+import { DeleteChapterButton } from "@/components/projects/delete-chapter-button";
+
+const STATUS_LABELS: Record<string, string> = {
+  draft: "Brouillon",
+  generating: "Génération en cours",
+  generated: "Généré",
+  published: "Publié",
+  archived: "Archivé",
+  failed: "Échoué",
+};
 
 export const dynamic = "force-dynamic";
 
@@ -80,7 +90,12 @@ export default async function ProjectChaptersPage({ params }: Props) {
                     <ChapterStatusBadge status={studio.studioStatus} />
                   </div>
                 </div>
-                <div className="flex shrink-0 gap-2">
+                <div className="flex shrink-0 items-center gap-2">
+                  <DeleteChapterButton
+                    projectId={projectId}
+                    chapterId={c.id}
+                    chapterTitle={c.title ?? `Chapitre ${c.chapterNumber}`}
+                  />
                   <Button asChild size="sm" variant="outline" className="gap-1">
                     <Link href={`/projects/${projectId}/chapters/${c.id}/edit`}>
                       <Sparkles className="h-4 w-4" />
@@ -89,15 +104,22 @@ export default async function ProjectChaptersPage({ params }: Props) {
                   </Button>
                   <Button asChild size="sm" className="gap-1">
                     <Link href={`/projects/${projectId}/chapters/${c.id}/read`}>
-                    <BookOpen className="h-4 w-4" />
-                    Lire
+                      <BookOpen className="h-4 w-4" />
+                      Lire
                     </Link>
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="text-xs text-muted-foreground">
-                Statut runtime : {c.status} · Cible {studio.readinessReport.imageCounts.targetImages} images · Acceptées {studio.readinessReport.imageCounts.acceptedImages}
-                {c.cliffhanger ? ` · Cliffhanger : ${c.cliffhanger.slice(0, 80)}…` : ""}
+              <CardContent className="text-xs text-muted-foreground space-y-1">
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  <span>{STATUS_LABELS[c.status] ?? c.status}</span>
+                  {studio.readinessReport.imageCounts.targetImages > 0 && (
+                    <span>🎨 {studio.readinessReport.imageCounts.acceptedImages} / {studio.readinessReport.imageCounts.targetImages} images</span>
+                  )}
+                  {c.cliffhanger && (
+                    <span className="truncate max-w-xs">📌 {c.cliffhanger.slice(0, 80)}…</span>
+                  )}
+                </div>
               </CardContent>
             </Card>
           )})

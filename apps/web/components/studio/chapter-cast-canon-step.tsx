@@ -6,6 +6,7 @@ import { Loader2, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { FieldTooltip } from "@/components/ui/field-tooltip";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { CharacterPicker } from "./character-picker";
@@ -271,7 +272,13 @@ export function ChapterCastCanonStep({
         <CardContent className="space-y-6">
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="space-y-2">
-              <Label>Décor principal</Label>
+              <div className="flex items-center gap-1">
+                <Label>Décor principal</Label>
+                <FieldTooltip
+                  text="Le lieu dominant de la scène. Utilisé pour les backgrounds."
+                  example="Ruines d'une tour — nuit / Marché couvert"
+                />
+              </div>
               <Input
                 data-testid="studio-location"
                 data-studio-field="studio-location"
@@ -281,7 +288,13 @@ export function ChapterCastCanonStep({
               />
             </div>
             <div className="space-y-2">
-              <Label>Continuité essentielle</Label>
+              <div className="flex items-center gap-1">
+                <Label>Continuité essentielle</Label>
+                <FieldTooltip
+                  text="Notes essentielles de continuité avec les chapitres précédents."
+                  example="Ryuu porte son katana brisé"
+                />
+              </div>
               <TagInput
                 values={draft.chapterCanon?.continuityNotes ?? []}
                 onChange={(v) => updateCanon({ continuityNotes: v })}

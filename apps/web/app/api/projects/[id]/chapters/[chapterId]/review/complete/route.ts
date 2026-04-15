@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ZodError } from "zod";
 import { aggregateChapterImageCounts, buildChapterReadinessReport, resolveChapterRuntimeStatus } from "@manga-ai-studio/core";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
@@ -17,6 +18,7 @@ export async function POST(_req: Request, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return unauthorized();
 
+  try {
   const { id: projectId, chapterId } = await ctx.params;
   const chapter = await prisma.chapter.findFirst({
     where: { id: chapterId, projectId, project: { userId: user.id } },
@@ -160,4 +162,16 @@ export async function POST(_req: Request, ctx: Ctx) {
     acceptedImages: imageCounts.acceptedImages,
     status: runtimeStatus === "PUBLISHED" ? "published" : "review_required",
   });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      const summary = error.errors
+        .map((e) => (e.path.length ? `${e.path.join(".")}: ${e.message}` : e.message))
+        .join(" · ");
+      return validationError(
+        summary || "Les données du chapitre ou du studio sont invalides. Vérifie l’outline et réessaie.",
+        error.flatten(),
+      );
+    }
+    throw error;
+  }
 }

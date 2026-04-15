@@ -13,16 +13,16 @@ type Props = {
 };
 
 const projectNav = (id: string) => [
-  { href: `/projects/${id}`, label: "Overview" },
-  { href: `/projects/${id}/bible`, label: "Bible" },
-  { href: `/projects/${id}/characters`, label: "Characters" },
-  { href: `/projects/${id}/canon`, label: "Canon" },
+  { href: `/projects/${id}/chapters`, label: "Chapitres" },
+  { href: `/projects/${id}`, label: "Vue d'ensemble" },
+  { href: `/projects/${id}/characters`, label: "Personnages" },
   { href: `/projects/${id}/style`, label: "Style visuel" },
-  { href: `/projects/${id}/chapters`, label: "Chapters" },
+  { href: `/projects/${id}/canon`, label: "Canon" },
+  { href: `/projects/${id}/bible`, label: "Bible" },
   { href: `/projects/${id}/pipeline`, label: "Pipeline" },
   { href: `/projects/${id}/assets`, label: "Assets" },
-  { href: `/projects/${id}/settings`, label: "Settings" },
-  { href: `/projects/${id}/history`, label: "History" },
+  { href: `/projects/${id}/settings`, label: "Réglages" },
+  { href: `/projects/${id}/history`, label: "Historique" },
 ];
 
 export default async function ProjectStudioLayout({ children, params }: Props) {

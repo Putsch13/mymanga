@@ -4,6 +4,7 @@ import type { ChapterCreativeControls, ChapterReadinessIssue, ChapterStudioData 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { FieldTooltip } from "@/components/ui/field-tooltip";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { PLOT_OPTIONS } from "./chapter-studio-flow";
@@ -62,7 +63,13 @@ export function ChapterBriefStep({
         <CardContent className="space-y-6">
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="space-y-2">
-              <Label>Titre de travail</Label>
+              <div className="flex items-center gap-1">
+                <Label>Titre de travail</Label>
+                <FieldTooltip
+                  text="Le titre provisoire utilisé pendant la création. Il peut changer."
+                  example="L'Éveil du Traître / La Nuit des Lames"
+                />
+              </div>
               <Input
                 data-testid="studio-working-title"
                 data-studio-field="studio-working-title"
@@ -76,8 +83,12 @@ export function ChapterBriefStep({
               />
             </div>
             <div className="space-y-2">
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <Label>Pitch du chapitre</Label>
+                <FieldTooltip
+                  text="Décris en 1-2 phrases ce qui se passe dans ce chapitre. C'est la boussole de l'IA."
+                  example="Le héros affronte son mentor dans les ruines."
+                />
                 <span className="text-xs text-rose-400">*requis</span>
               </div>
               <Textarea
@@ -98,8 +109,12 @@ export function ChapterBriefStep({
 
           {/* Conflit principal — sorti du mode expert car requis pour la génération */}
           <div className="space-y-2">
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <Label>Conflit principal du chapitre</Label>
+              <FieldTooltip
+                text="L'obstacle concret que le héros doit surmonter dans CE chapitre."
+                example="Lyra doit choisir entre sauver son ami et révéler son secret."
+              />
               <span className="text-xs text-rose-400">*requis</span>
             </div>
             <Input
@@ -145,7 +160,13 @@ export function ChapterBriefStep({
             <summary className="cursor-pointer text-sm font-medium">Réglages avancés (optionnel)</summary>
             <div className="mt-4 space-y-4">
               <div className="space-y-2">
-                <Label>Place dans l’arc narratif</Label>
+                <div className="flex items-center gap-1">
+                  <Label>Place dans l’arc narratif</Label>
+                  <FieldTooltip
+                    text="Où en est-on dans le récit global ? Aide l'IA à doser la tension."
+                    example="Milieu d'arc — montée en tension"
+                  />
+                </div>
                 <Input
                   data-studio-field="studio-arc-position"
                   placeholder="Ex. : Milieu d’arc, montée en tension"

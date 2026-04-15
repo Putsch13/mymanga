@@ -418,3 +418,29 @@ export async function PATCH(req: Request, ctx: Ctx) {
   });
   return NextResponse.json({ chapter });
 }
+
+export async function DELETE(_req: Request, ctx: Ctx) {
+  const user = await getAppUser();
+  if (!user) return unauthorized();
+  const { id: projectId, chapterId } = await ctx.params;
+  const chapter = await prisma.chapter.findFirst({
+    where: { id: chapterId, projectId, project: { userId: user.id } },
+    select: { id: true },
+  });
+  if (!chapter) return notFound();
+
+  await prisma.chapter.delete({ where: { id: chapterId } });
+
+  const remaining = await prisma.chapter.findMany({
+    where: { projectId },
+    orderBy: { chapterNumber: "asc" },
+    select: { id: true },
+  });
+  await Promise.all(
+    remaining.map((c, i) =>
+      prisma.chapter.update({ where: { id: c.id }, data: { chapterNumber: i + 1 } })
+    )
+  );
+
+  return NextResponse.json({ success: true, deletedId: chapterId });
+}

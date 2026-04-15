@@ -212,7 +212,16 @@ export async function PATCH(req: Request, ctx: Ctx) {
   const chapter = await getOwnedChapter(user.id, projectId, chapterId);
   if (!chapter) return notFound();
 
-  const body = patchSchema.parse(await req.json());
+  const rawBody = await req.json();
+  const parsed = patchSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    console.error("[studio PATCH] schema validation failed:", JSON.stringify(parsed.error.issues.slice(0, 3)));
+    return NextResponse.json(
+      { error: "invalid_payload", details: parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`) },
+      { status: 400 }
+    );
+  }
+  const body = parsed.data;
   const snapshot = patchChapterStudioSnapshot(chapter.outline, body.data, {
     chapterNumber: chapter.chapterNumber,
     chapterTitle: chapter.title,

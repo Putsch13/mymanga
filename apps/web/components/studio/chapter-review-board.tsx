@@ -143,6 +143,7 @@ export function ChapterReviewBoard(input: {
   const [report, setReport] = useState<QAReportResponse["report"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
   const [comparePanels, setComparePanels] = useState<Record<string, boolean>>({});
   const [filters, setFilters] = useState<FilterState>({
     status: "all",
@@ -195,14 +196,20 @@ export function ChapterReviewBoard(input: {
 
   async function completeReview() {
     setActionMessage(null);
-    const response = await fetch(`/api/projects/${input.projectId}/chapters/${input.chapterId}/review/complete`, {
-      method: "POST",
-    });
-    const data = (await response.json().catch(() => ({}))) as { error?: string; message?: string; details?: unknown };
-    if (response.ok) {
-      setActionMessage("Revue clôturée.");
-    } else {
-      setActionMessage(data.message ?? data.error ?? "La clôture de review a échoué.");
+    setReviewError(null);
+    try {
+      const response = await fetch(`/api/projects/${input.projectId}/chapters/${input.chapterId}/review/complete`, {
+        method: "POST",
+      });
+      const data = (await response.json().catch(() => ({}))) as { error?: string; message?: string; details?: unknown };
+      if (response.ok) {
+        setReviewError(null);
+        setActionMessage("Revue clôturée.");
+      } else {
+        setReviewError(data.message ?? data.error ?? "La clôture de review a échoué.");
+      }
+    } catch {
+      setReviewError("Impossible de joindre le serveur. Réessaie dans un instant.");
     }
     await refresh();
   }
@@ -221,8 +228,13 @@ export function ChapterReviewBoard(input: {
           <div data-testid="review-accepted-images"><p className="text-muted-foreground">Acceptées</p><p>{report?.imageCounts.acceptedImages ?? "-"}</p></div>
           <div data-testid="review-missing-images"><p className="text-muted-foreground">Manquantes</p><p>{report?.imageCounts.missingImages ?? "-"}</p></div>
           <div><p className="text-muted-foreground">Critiques sans QA</p><p>{report?.criticalPanelsMissingQA ?? "-"}</p></div>
-          <div className="flex items-end justify-end">
+          <div className="flex flex-col items-end justify-end gap-1">
             <Button data-testid="review-complete-button" onClick={completeReview} disabled={loading}>Clôturer la review</Button>
+            {reviewError ? (
+              <p data-testid="review-complete-error" className="max-w-[min(100%,20rem)] text-right text-xs text-destructive">
+                {reviewError}
+              </p>
+            ) : null}
           </div>
         </CardContent>
       </Card>

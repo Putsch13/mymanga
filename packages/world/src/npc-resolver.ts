@@ -118,11 +118,20 @@ export async function resolveNpcWithAiFallback(
   },
   openaiChat: (messages: Array<{ role: "system" | "user"; content: string }>) => Promise<string>,
 ): Promise<AiGeneratedNpc> {
-  const system = `Tu es un expert en design de personnages manga.
-À partir d'une description libre, génère un personnage secondaire (PNJ) cohérent avec l'univers.
-Réponds UNIQUEMENT avec un objet JSON valide, sans markdown, sans explication.
-Champs requis : label (string, FR), role (string, 1 mot EN), visualCues (string[], 3 items FR),
-interactionHooks (string[], 3 items FR), promptFragment (string, EN, max 15 mots), narrativeHook (string, FR, 1 phrase).`;
+  const system = `Tu es un expert en design de personnages manga japonais.
+À partir d'une description libre (parfois un seul mot comme "garde", "voleur", "médecin"),
+génère un PNJ secondaire PRÉCIS et COHÉRENT avec l'univers donné.
+
+RÈGLE ABSOLUE : si la description contient un rôle clair ("garde", "soldat", "marchand", "médecin", etc.),
+le champ "label" DOIT refléter CE rôle. Ne jamais substituer un archétype générique différent.
+
+Réponds UNIQUEMENT avec un objet JSON valide. Champs :
+- label : string (FR) — le type exact de personnage décrit
+- role : string (1 mot EN) — son fonction narrative
+- visualCues : string[] (3 items FR) — détails visuels distinctifs et cohérents avec le rôle
+- interactionHooks : string[] (3 items FR) — façons dont ce personnage peut interagir dans la scène
+- promptFragment : string (EN, max 15 mots) — description pour prompt image
+- narrativeHook : string (FR, 1 phrase) — comment il s'intègre dans la scène`;
 
   const user = `Description : "${input.rawDescription}"
 Univers : ${input.universe}

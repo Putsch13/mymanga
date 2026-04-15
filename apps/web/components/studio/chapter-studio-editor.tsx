@@ -51,6 +51,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
   const [autofillResult, setAutofillResult] = useState<{ meta: AutofillMeta; appliedFields: string[]; unresolvedQuestions: string[] } | null>(null);
   const [characterCatalog, setCharacterCatalog] = useState<CharacterCatalogEntry[]>([]);
   const [progressionIssues, setProgressionIssues] = useState<OutlineProgressionIssue[]>([]);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const isFirstChapter = snapshot?.data?.intent?.chapterNumber === 1;
   const [expertMode, setExpertMode] = useState(!isFirstChapter);
   const autosaveRef = useRef<number | null>(null);
@@ -102,26 +103,38 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
 
   const save = useCallback(async (nextDraft: ChapterStudioData, step = activeStudioStep) => {
     setSaving(true);
-    const res = await fetch(`/api/projects/${projectId}/chapters/${chapterId}/studio`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        currentStep: step,
-        transitionReason: "autosave",
-        data: nextDraft,
-      }),
-    });
-    const json = await res.json();
-    const nextSnapshot = json.snapshot as ChapterStudioSnapshot;
-    setSnapshot(nextSnapshot);
-    setDraft({
-      ...nextSnapshot.data,
-      selectedPlotLabel: nextSnapshot.data.selectedPlotLabel ?? nextDraft.selectedPlotLabel ?? "bold",
-      creativityControls: normalizeCreativeControls(nextSnapshot.data.creativityControls ?? nextDraft.creativityControls),
-    });
-    setActiveStudioStep(step);
-    setSaving(false);
-    setMessage("Brouillon studio sauvegardé.");
+    setSaveError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/chapters/${chapterId}/studio`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentStep: step,
+          transitionReason: "autosave",
+          data: nextDraft,
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        setSaveError((errData as { message?: string }).message ?? "La sauvegarde a échoué. Vos modifications ne sont pas enregistrées.");
+        setSaving(false);
+        return;
+      }
+      const json = await res.json();
+      const nextSnapshot = json.snapshot as ChapterStudioSnapshot;
+      setSnapshot(nextSnapshot);
+      setDraft({
+        ...nextSnapshot.data,
+        selectedPlotLabel: nextSnapshot.data.selectedPlotLabel ?? nextDraft.selectedPlotLabel ?? "bold",
+        creativityControls: normalizeCreativeControls(nextSnapshot.data.creativityControls ?? nextDraft.creativityControls),
+      });
+      setActiveStudioStep(step);
+      setSaving(false);
+      setMessage("Brouillon studio sauvegardé.");
+    } catch {
+      setSaveError("Erreur réseau — la sauvegarde a échoué.");
+      setSaving(false);
+    }
   }, [activeStudioStep, chapterId, projectId]);
 
   const updateDraft = useCallback((next: ChapterStudioData, step = activeStudioStep) => {
@@ -224,16 +237,25 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
   }, [chapterId, draft, goToFlowStep, projectId, save, snapshot?.data.intent?.chapterNumber]);
 
   const handleIssueAction = useCallback(async (issue: ChapterReadinessIssue) => {
-    if (issue.action === "generate_outline") {
-      goToFlowStep("plan", issue.field, issue.step);
-      await generateOutlines();
-      return;
+    try {
+      if (issue.action === "generate_outline") {
+        goToFlowStep("plan", issue.field, issue.step);
+        setGeneratingOutline(true);
+        try {
+          await generateOutlines();
+        } finally {
+          setGeneratingOutline(false);
+        }
+        return;
+      }
+      if (issue.action === "open_generation" || issue.action === "open_review") {
+        goToFlowStep("generation_review", issue.field, issue.step);
+        return;
+      }
+      goToFlowStep(mapStudioStepToFlowStep(issue.step), issue.field, issue.step);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Erreur lors de l'action corrective");
     }
-    if (issue.action === "open_generation" || issue.action === "open_review") {
-      goToFlowStep("generation_review", issue.field, issue.step);
-      return;
-    }
-    goToFlowStep(mapStudioStepToFlowStep(issue.step), issue.field, issue.step);
   }, [generateOutlines, goToFlowStep]);
 
   const runAutofill = useCallback(async (mode: "all_missing" | "repair_readiness" | "brief") => {
@@ -346,6 +368,13 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
       />
 
       <div className="space-y-6">
+        {saveError && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-destructive flex items-center justify-between">
+            <span>{saveError}</span>
+            <button onClick={() => setSaveError(null)} className="ml-2 opacity-60 hover:opacity-100">✕</button>
+          </div>
+        )}
+
         {/* Bandeau onboarding si premier chapitre sans personnages */}
         <ChapterOnboardingBanner
           projectId={projectId}

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { FieldTooltip } from "@/components/ui/field-tooltip";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
@@ -211,12 +212,24 @@ export default function NewProjectPage() {
             {step === 1 && (
               <>
                 <div className="space-y-2">
-                  <Label htmlFor="title">Titre *</Label>
+                  <div className="flex items-center gap-1">
+                    <Label htmlFor="title">Titre *</Label>
+                    <FieldTooltip
+                      text="Le titre public de ton manga. Il apparaît sur le projet et peut évoluer."
+                      example="Les Cendres de Lyra"
+                    />
+                  </div>
                   <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex : Les Cendres de Lyra" required />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="pitch">Pitch (1-2 phrases)</Label>
+                  <div className="flex items-center gap-1">
+                    <Label htmlFor="pitch">Pitch (1-2 phrases)</Label>
+                    <FieldTooltip
+                      text="En une ou deux phrases, résume l’accroche et le conflit central de l’histoire."
+                      example="Dans une cité flottante, une apprentie ingénieure découvre que les dieux sont une imposture."
+                    />
+                  </div>
                   <Textarea id="pitch" value={pitch} onChange={(e) => setPitch(e.target.value)} rows={3}
                     placeholder="Dans un monde où la magie est interdite, une jeune rebelle découvre qu'elle en est la dernière gardienne." />
                 </div>
@@ -302,7 +315,13 @@ export default function NewProjectPage() {
             {step === 2 && (
               <>
                 <div className="space-y-2">
-                  <Label>Ton narratif</Label>
+                  <div className="flex items-center gap-1">
+                    <Label>Ton narratif</Label>
+                    <FieldTooltip
+                      text="L’ambiance générale des dialogues et de la narration (sérieux, léger, oppressant…)."
+                      example="Sombre et brutal / Mélancolique et poétique"
+                    />
+                  </div>
                   <Input value={tone} onChange={(e) => setTone(e.target.value)} placeholder="Ex : sombre et brutal" />
                   <div className="flex flex-wrap gap-1.5 pt-1">
                     {TONE_PRESETS.map((t) => (
@@ -326,7 +345,13 @@ export default function NewProjectPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Style visuel</Label>
+                  <div className="flex items-center gap-1">
+                    <Label>Style visuel</Label>
+                    <FieldTooltip
+                      text="Les références visuelles pour guider la génération d’images (trait, encrage, références d’artistes…)."
+                      example="Encre noire détaillée, style seinen / Aquarelle douce, shōjo"
+                    />
+                  </div>
                   <Input value={visualStyle} onChange={(e) => setVisualStyle(e.target.value)} placeholder="Ex : encre noire détaillée, style seinen" />
                   <div className="flex flex-wrap gap-1.5 pt-1">
                     {VISUAL_PRESETS.map((v) => (
