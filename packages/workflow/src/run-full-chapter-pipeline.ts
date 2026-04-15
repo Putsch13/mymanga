@@ -439,7 +439,7 @@ async function persistImageIfNeeded(opts: {
   return { ok: true as const, url: opts.imageUrl, persisted: false as const, temporary: true as const, warning: "all_buckets_failed" };
 }
 
-async function setJobProgress(jobId: string, step: JobStep, status: "running" | "completed" | "failed") {
+export async function setJobProgress(jobId: string, step: JobStep, status: "running" | "completed" | "failed") {
   const job = await prisma.job.findUnique({ where: { id: jobId } });
   if (!job) return;
   const output = (job.output as Record<string, unknown>) ?? {};
@@ -1641,20 +1641,31 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             redundancyRisk: 18,
           };
           const facts = inferNarrativeFactsFromBeat(productionBeat, narrativeCtx);
-          let finalFacts = facts;
-          const beatIsComplex = (beat.characters?.length ?? 0) > 1 || facts.length < 2;
-          const hasNoEnemyFact = !facts.some((f) => f.type === "enemy_presence");
+
+          const { inferAdditionalFactsFromSemantics, mergeNarrativeFacts } = await import("@manga-ai-studio/ai");
+          const semanticFacts = inferAdditionalFactsFromSemantics(productionBeat, facts);
+          const factsWithSemantics = semanticFacts.length > 0
+            ? mergeNarrativeFacts(facts, semanticFacts)
+            : facts;
+
+          if (semanticFacts.length > 0) {
+            console.log(`[pipeline:semantic-facts] beat=${productionBeat.beatId} +${semanticFacts.length} facts from semantics`);
+          }
+
+          let finalFacts = factsWithSemantics;
+          const beatIsComplex = (beat.characters?.length ?? 0) > 1 || factsWithSemantics.length < 2;
+          const hasNoEnemyFact = !factsWithSemantics.some((f) => f.type === "enemy_presence");
 
           if (beatIsComplex || hasNoEnemyFact) {
             try {
-              const { enrichNarrativeFactsWithLLM, mergeNarrativeFacts } = await import("@manga-ai-studio/ai");
+              const { enrichNarrativeFactsWithLLM } = await import("@manga-ai-studio/ai");
               const llmFacts = await enrichNarrativeFactsWithLLM(
                 productionBeat,
-                facts,
+                factsWithSemantics,
                 { ...narrativeCtx, universeType },
               );
               if (llmFacts && llmFacts.length > 0) {
-                finalFacts = mergeNarrativeFacts(facts, llmFacts);
+                finalFacts = mergeNarrativeFacts(factsWithSemantics, llmFacts);
                 console.log(`[pipeline:llm-facts] beat=${productionBeat.beatId} +${llmFacts.length} facts from LLM`);
               }
             } catch {

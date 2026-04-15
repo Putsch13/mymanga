@@ -1,8 +1,13 @@
-import type { PipelineContext, PipelineNarrativeResult, PipelineQAResult } from "../pipeline-types";
+import type {
+  PipelineContext,
+  PipelineNarrativeResult,
+  PipelineQAResult,
+} from "../pipeline-types";
 
 /**
  * Passe QA : vision QA sur panels critiques, quality report, release gate.
- * TODO: Extraire depuis run-full-chapter-pipeline.ts lignes 3500-3700
+ * Actuellement intégrée dans la passe image (computeChapterQualityReport).
+ * À extraire séparément quand la passe image sera isolée.
  */
 export async function runQAPass(
   _ctx: PipelineContext,

@@ -109,10 +109,21 @@ export async function enrichNarrativeFactsWithLLM(
 
   const existingTypes = new Set(existingFacts.map((f) => f.type));
 
+  const antagonistLine = context.antagonistNames?.length
+    ? `Antagonistes connus du projet : ${context.antagonistNames.join(", ")}
+RÈGLE : si un de ces noms apparaît dans le beat → enemy_presence automatique (confiance 1.0).`
+    : "";
+
+  const heroLine = context.heroCharacterId
+    ? `Héros du projet (ne pas marquer comme ennemi) : ID=${context.heroCharacterId}`
+    : "";
+
   const userPrompt = `Beat narratif à analyser :
 "${beatText}"
 
 Contexte : genre=${context.projectGenre ?? "non spécifié"}, univers=${context.universeType ?? "non spécifié"}
+${antagonistLine}
+${heroLine}
 
 Faits déjà détectés par heuristiques : ${JSON.stringify([...existingTypes])}
 
@@ -136,7 +147,8 @@ Retourne un JSON avec cette structure exacte :
   "hasMysticalContext": true/false
 }
 
-N'inclus dans "facts" QUE les types qui ne sont PAS déjà dans la liste des faits détectés, sauf si tu as une confiance > 0.9 pour confirmer.`;
+N'inclus dans "facts" QUE les types absents des faits détectés, sauf confiance > 0.9.
+Si un antagoniste nommé est présent dans le beat, inclure enemy_presence avec confidence=1.0.`;
 
   try {
     const response = await openai.chat.completions.create({
