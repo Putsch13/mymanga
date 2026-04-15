@@ -49,11 +49,18 @@ function detectBeatType(beat: ProductionBeat, facts: NarrativeFact[]): BeatType 
 
   if (hasAction && hasEnemy) return "combat";
   if (hasReveal) return "reveal";
-  if (/(infiltr|furtif|stealth|silhouette|garde|guard|surveillance)/.test(text)) return "infiltration";
-  if (hasCrowd && /(marché|market|rue|street|arène|arena|foule|crowd)/.test(text)) return "public_scene";
-  if (hasMovement && /(fuite|fuis|chase|poursuite|pursuit)/.test(text)) return "chase";
-  if (hasDialogue && /(tension|menace|confronte|confrontation|ultimatum)/.test(text)) return "tense_dialogue";
-  if (/(émotion|emotion|pleure|cries|larmes|tears|réalise|realizes)/.test(text)) return "emotional";
+  if (/(infiltr|furtif|stealth|silhouette|surveillance|ruse|discrétion)/.test(text) && hasEnemy)
+    return "infiltration";
+  if (/(infiltr|furtif|stealth|silhouette|ruse|discrétion)/.test(text)) return "infiltration";
+  if (hasCrowd && /(marché|market|rue|street|arène|arena|foule|crowd|place|cité|ville)/.test(text))
+    return "public_scene";
+  if (hasMovement && /(fuite|fuis|chase|poursuite|pursuit|course-poursuite)/.test(text)) return "chase";
+  if (hasDialogue && (hasEnemy || /(tension|menace|confronte|ultimatum)/.test(text)))
+    return "tense_dialogue";
+  if (/(émotion|emotion|pleure|cries|larmes|tears|réalise|realizes|choc|honte|tristesse)/.test(text))
+    return "emotional";
+  if (hasEnemy && hasDialogue) return "tense_dialogue";
+  if (hasEnemy) return "combat";
 
   return "generic";
 }

@@ -416,7 +416,7 @@ export type ProductionPlan = z.infer<typeof productionPlanSchema>;
 export const chapterImageCountSchema = z.object({
   estimatedImages: z.number().int().min(0).default(0),
   targetImages: z.number().int().min(0).default(0),
-  minimumImages: z.number().int().min(0).default(55),
+  minimumImages: z.number().int().min(0).default(75),
   generatedImages: z.number().int().min(0).default(0),
   acceptedImages: z.number().int().min(0).default(0),
   rejectedImages: z.number().int().min(0).default(0),

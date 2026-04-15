@@ -129,19 +129,34 @@ export function enforceShotDiversity(
 
   for (const violation of report.violations) {
     if (violation.type === "hero_over_represented") {
+      const rotationMap = ["environment", "npc", "reaction", "prop"] as const;
+      const shotTypeMap: Record<string, string> = {
+        environment: "wide", npc: "medium", reaction: "medium", prop: "closeup",
+      };
+      const purposeMap: Record<string, string> = {
+        environment: "environment establishing — rythme visuel",
+        npc: "personnages secondaires / antagonistes — présence dans la scène",
+        reaction: "reaction — second personnage",
+        prop: "insert objet / détail narratif",
+      };
+      const cutawayMap: Record<string, string> = {
+        environment: "environment", npc: "none", reaction: "reaction", prop: "prop_insert",
+      };
+
       for (const idx of violation.affectedPanelIndices) {
         const original = corrected[idx];
         if (!original) continue;
-        const newFocus = idx % 2 === 0 ? "environment" : "reaction";
+        const newFocus = rotationMap[idx % rotationMap.length] ?? "environment";
+
         corrected[idx] = {
           ...original,
           subjectFocus: newFocus as PanelBlueprintPremium["subjectFocus"],
           heroCenterAllowed: false,
-          shotType: newFocus === "environment" ? "wide" : "medium",
-          purpose: newFocus === "environment"
-            ? "environment establishing — rythme visuel"
-            : "reaction — second personnage",
-          cutawayType: (newFocus === "environment" ? "environment" : "reaction") as PanelBlueprintPremium["cutawayType"],
+          shotType: shotTypeMap[newFocus] ?? "wide",
+          purpose: purposeMap[newFocus] ?? "cutaway",
+          cutawayType: (cutawayMap[newFocus] ?? "none") as PanelBlueprintPremium["cutawayType"],
+          requiredNpcCount: newFocus === "npc" ? Math.max(1, original.requiredNpcCount) : original.requiredNpcCount,
+          mustShowEnemy: newFocus === "npc" && original.mustShowEnemy ? true : original.mustShowEnemy,
         };
         report.corrections.push({
           panelIndex: idx,
@@ -152,6 +167,32 @@ export function enforceShotDiversity(
           reason: "hero_over_represented — conversion pour diversité manga",
         });
       }
+    }
+  }
+
+  // Correcteur npcRatio trop bas → injection panel NPC forcé
+  const finalReport = analyzeShotDiversity(corrected);
+  if (finalReport.npcRatio < MANGA_SHOT_BUDGET.MIN_NPC_RATIO) {
+    const candidateIdx = corrected.findIndex(
+      b => b.subjectFocus === "reaction" && !b.heroCenterAllowed
+    );
+    if (candidateIdx >= 0) {
+      const original = corrected[candidateIdx]!;
+      corrected[candidateIdx] = {
+        ...original,
+        subjectFocus: "npc",
+        purpose: "personnages secondaires obligatoires — diversité NPC",
+        requiredNpcCount: Math.max(2, original.requiredNpcCount),
+        cutawayType: "none" as PanelBlueprintPremium["cutawayType"],
+      };
+      report.corrections.push({
+        panelIndex: candidateIdx,
+        originalSubjectFocus: original.subjectFocus,
+        newSubjectFocus: "npc",
+        originalShotType: original.shotType,
+        newShotType: original.shotType,
+        reason: "npc_missing — injection panel NPC obligatoire",
+      });
     }
   }
 

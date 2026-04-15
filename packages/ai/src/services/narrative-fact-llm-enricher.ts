@@ -40,31 +40,49 @@ interface LLMNarrativeAnalysis {
 // ─── Prompt système ───────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `Tu es un analyseur de beats narratifs pour manga.
-Ton rôle : extraire les faits visuels obligatoires depuis un texte narratif,
-même si les mots utilisés sont indirects, passifs, ou idiomatiques.
+Ton rôle : extraire les faits visuels OBLIGATOIRES depuis un texte narratif.
+Tu dois comprendre les expressions indirectes, passives, idiomatiques et les
+conventions spécifiques aux genres manga/anime.
+
+MAPPINGS CULTURELS OBLIGATOIRES :
+- "militaire", "armée", "caserne", "régiment" → npc_presence (soldats visibles)
+- "gardes", "sentinelles", "patrouille", "milice" + agression → enemy_presence
+- "chasseur de primes", "assassin", "ennemi juré", "rival" → enemy_presence
+- "foule en colère", "attroupement", "manifestation" → npc_presence + threat
+- "village", "cité", "académie", "dojo", "monastère" → npc_presence implicite
+- "est attaqué", "se fait malmener", "subit" (passif d'agression) → action + enemy_presence
+- "traqué", "pourchassé", "encerclé" → movement + enemy_presence + threat
+- "l'appréhende", "le capture", "les neutralise" → action + enemy_presence
+- "robot", "androïde", "golem", "démon", "monstre" + agression → enemy_presence
+- "magie", "pouvoir", "transformation", "éveil" → reveal + mystical
+
+MAPPINGS PAR GENRE :
+- Fantasy : gardes = knights/guards enemy | magie = reveal
+- Cyberpunk : sécurité/drone = enemy_presence | piratage = prop_usage(laptop)
+- Shonen combat : rival = enemy_presence | entraînement = action
+- Thriller : surveillance = observation | piège = threat + enemy_presence
+- Militaire : ennemi = enemy_presence | escouade alliée = npc_presence
+- Historique : samouraï/ninja ennemi = enemy_presence | clan = npc_presence
 
 Tu dois détecter :
-- action : combat, attaque, mouvement physique violent, duel
-- dialogue : conversation, échange verbal, monologue, discours
-- prop_usage : utilisation d'objet (téléphone, arme, outil, appareil)
-- prop_presence : objet présent mais pas forcément utilisé
-- enemy_presence : antagoniste, menace, ennemi, rival, adversaire
-- npc_presence : foule, groupe, personnages secondaires, témoins, villageois, gardes, soldats
-- reaction : choc émotionnel, surprise, peur, honte, désespoir, colère
-- reveal : révélation, découverte, démasquage, vérité qui éclate
-- threat : danger imminent, menace, piège, pression
-- movement : déplacement, fuite, poursuite, traversée
-- location_emphasis : lieu important à montrer visuellement
-- observation : surveillance, espionnage, regard, observation
+- action : combat, attaque, mouvement physique violent
+- dialogue : échange verbal, monologue
+- prop_usage : utilisation d'objet (arme, téléphone, outil)
+- prop_presence : objet présent mais passif
+- enemy_presence : tout antagoniste, menace, ennemi, rival, garde hostile
+- npc_presence : foule, groupe, personnages secondaires, témoins, soldats, gardes
+- reaction : choc émotionnel, surprise, peur, désespoir, colère
+- reveal : révélation, découverte, vérité qui éclate
+- threat : danger imminent, menace, piège
+- movement : déplacement, fuite, poursuite
+- location_emphasis : lieu important à montrer
+- observation : surveillance, espionnage
 
-RÈGLES IMPORTANTES :
-- "reçoit un appel" = prop_usage + phone
-- "pirate le système" = prop_usage + laptop/terminal
-- "reste figé de choc" = reaction
-- "villageois regardent" = npc_presence
-- "l'ennemi surgit" = enemy_presence
+RÈGLES :
 - Formes passives comptent : "est attaqué" = action + enemy_presence
-- Expressions idiomatiques comptent : "perd ses mots" = reaction
+- "se faire [verbe d'agression]" = action + enemy_presence
+- Un personnage nommé comme ennemi dans le contexte → enemy_presence automatique
+- "soldats ennemis" vs "soldats alliés" : les alliés = npc_presence, les ennemis = enemy_presence
 
 Réponds UNIQUEMENT en JSON valide, sans markdown.`;
 

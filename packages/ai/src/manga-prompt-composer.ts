@@ -90,6 +90,8 @@ export interface PanelPromptInput {
   shotType?: string | null;
   cutawayType?: string | null;
   subjectFocus?: string | null;
+  /** Aligné sur le blueprint panel : autorise le héros au centre pour les plans réaction héros */
+  heroCenterAllowed?: boolean | null;
   cameraAngle?: string | null;
   /** IMG-4 : type de beat narratif pour les effets manga */
   beatType?: string | null;
@@ -389,20 +391,27 @@ export function buildNpcMemoryBlock(recurringNpcs: Array<{ label: string; shortV
 
 function buildCompositionDirective(blueprint: { subjectFocus: string; heroCenterAllowed?: boolean }): string {
   const focus = blueprint.subjectFocus;
-  if (focus === "environment") {
+
+  if (focus === "environment" || focus === "aftermath") {
     return "COMPOSITION: Le personnage principal NE DOIT PAS être au centre. Plan large sur le décor, l'architecture ou l'atmosphère. Si des personnages apparaissent, ils sont petits, en silhouette ou en arrière-plan.";
   }
   if (focus === "npc") {
-    return "COMPOSITION: Centré sur les personnages secondaires ou la foule. Le héros principal est absent ou en arrière-plan flou.";
+    return "COMPOSITION: Centré sur les personnages secondaires ou la foule. Le héros principal est absent ou en arrière-plan flou. Montrer les visages, réactions et postures des NPC.";
+  }
+  if (focus === "enemy") {
+    return "COMPOSITION: L'antagoniste ou le garde est le sujet principal. Cadrage menaçant, contre-plongée ou angle bas. Le héros est absent ou en réaction floue en arrière-plan.";
+  }
+  if (focus === "group") {
+    return "COMPOSITION: Plan de groupe — héros ET antagoniste dans le même cadre. Tension spatiale entre les deux camps clairement lisible.";
   }
   if (focus === "prop") {
-    return "COMPOSITION: Insert sur un objet, une arme, un symbole ou un détail de décor. Pas de visage humain en sujet principal.";
+    return "COMPOSITION: Insert sur un objet, une arme, un symbole ou un détail de décor. Pas de visage humain en sujet principal. Cadrage serré, mise au point nette sur l'objet.";
   }
   if (focus === "reaction" && !blueprint.heroCenterAllowed) {
-    return "COMPOSITION: Plan de réaction sur un personnage AUTRE que le héros principal. Émotion visible.";
+    return "COMPOSITION: Plan de réaction sur un personnage AUTRE que le héros principal. Émotion visible : surprise, peur, colère, tristesse.";
   }
-  if (focus === "aftermath") {
-    return "COMPOSITION: Plan large sur les conséquences visuelles de l'action. Aucun personnage en position héroïque.";
+  if (focus === "reaction" && blueprint.heroCenterAllowed) {
+    return "COMPOSITION: Gros plan sur la réaction du personnage principal. Expression émotionnelle intense, lisible, premier plan.";
   }
   return "";
 }
@@ -540,7 +549,7 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
   if (input.subjectFocus) {
     const compositionDirective = buildCompositionDirective({
       subjectFocus: input.subjectFocus,
-      heroCenterAllowed: false,
+      heroCenterAllowed: input.heroCenterAllowed ?? false,
     });
     if (compositionDirective) {
       addSection("compositionDirective", "Composition Directive", compositionDirective);

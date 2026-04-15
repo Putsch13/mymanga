@@ -1594,6 +1594,12 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       try {
         const { buildPanelBlueprintsFromBeat, inferNarrativeFactsFromBeat, inferRequiredPropsFromBeat } = await import("@manga-ai-studio/ai");
         const heroCharacterId = rawCharacters.find((c) => /hero|protagon|main/i.test(c.roleType ?? ""))?.id ?? null;
+        const knownUniverseTypes = ["ninja","cyberpunk","post_apo","school_life","mecha","fantasy","military","medical","urban","generic"] as const;
+        type UniverseType = (typeof knownUniverseTypes)[number];
+        const rawGenre = context.project.primaryGenre ?? "";
+        const universeType: UniverseType | undefined = (knownUniverseTypes as readonly string[]).includes(rawGenre)
+          ? (rawGenre as UniverseType)
+          : undefined;
         const blueprintContext = {
           heroCharacterId: heroCharacterId ?? undefined,
           chapterNumber,
@@ -1604,6 +1610,13 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           projectGenre: context.project.primaryGenre ?? null,
           projectTone: context.project.tone ?? null,
           heroCharacterId,
+          universeType,
+          antagonistIds: rawCharacters
+            .filter((c) => c.roleType === "antagonist" || c.roleType === "villain" || c.roleType === "rival")
+            .map((c) => c.id),
+          antagonistNames: rawCharacters
+            .filter((c) => c.roleType === "antagonist" || c.roleType === "villain" || c.roleType === "rival")
+            .map((c) => c.name),
         };
         let pageCounter = 1;
         let panelCounter = 1;
@@ -1628,13 +1641,27 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             redundancyRisk: 18,
           };
           const facts = inferNarrativeFactsFromBeat(productionBeat, narrativeCtx);
-          const knownUniverseTypes = ["ninja","cyberpunk","post_apo","school_life","mecha","fantasy","military","medical","urban","generic"] as const;
-          type UniverseType = typeof knownUniverseTypes[number];
-          const rawGenre = context.project.primaryGenre ?? "";
-          const universeType: UniverseType | undefined = (knownUniverseTypes as readonly string[]).includes(rawGenre)
-            ? rawGenre as UniverseType
-            : undefined;
-          const props = inferRequiredPropsFromBeat(productionBeat, facts, {
+          let finalFacts = facts;
+          const beatIsComplex = (beat.characters?.length ?? 0) > 1 || facts.length < 2;
+          const hasNoEnemyFact = !facts.some((f) => f.type === "enemy_presence");
+
+          if (beatIsComplex || hasNoEnemyFact) {
+            try {
+              const { enrichNarrativeFactsWithLLM, mergeNarrativeFacts } = await import("@manga-ai-studio/ai");
+              const llmFacts = await enrichNarrativeFactsWithLLM(
+                productionBeat,
+                facts,
+                { ...narrativeCtx, universeType },
+              );
+              if (llmFacts && llmFacts.length > 0) {
+                finalFacts = mergeNarrativeFacts(facts, llmFacts);
+                console.log(`[pipeline:llm-facts] beat=${productionBeat.beatId} +${llmFacts.length} facts from LLM`);
+              }
+            } catch {
+              console.warn(`[pipeline:llm-facts] LLM enrichment failed for beat=${productionBeat.beatId}`);
+            }
+          }
+          const props = inferRequiredPropsFromBeat(productionBeat, finalFacts, {
             universeType,
             projectGenre: context.project.primaryGenre ?? undefined,
             projectTone: context.project.tone ?? undefined,
@@ -1642,7 +1669,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           });
           const beatBlueprints = buildPanelBlueprintsFromBeat(
             productionBeat,
-            facts,
+            finalFacts,
             props,
             blueprintContext,
             pageCounter,

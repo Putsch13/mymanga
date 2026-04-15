@@ -24,6 +24,8 @@ export interface NarrativeExtractionContext {
   universeType?: string | null;
   characterIds?: string[];
   heroCharacterId?: string | null;
+  antagonistIds?: string[];
+  antagonistNames?: string[];
   recentContinuityEvents?: Array<{
     eventType: string;
     summary: string | null;
@@ -207,6 +209,25 @@ const CONFRONTATION_SIGNALS = [
   "se bat contre", "se batte contre",
   "faces", "duels", "fights", "confronts", "opposes", "standoff",
   "showdown", "clash", "face-off",
+  "arrête", "arrêtent", "arrêter", "interpelle", "interpellent", "interpeller",
+  "malmène", "malmènent", "malmener", "maltraite", "maltraitent",
+  "agresse", "agressent", "agresser",
+  "appréhende", "appréhendent", "appréhender",
+  "capture", "capturent", "capturer",
+  "attrape", "attrapent", "attraper de force",
+  "pourchasse", "pourchassent", "pourchasser",
+  "traque", "traquent", "traquer",
+  "encercle", "encerclent", "encercler",
+  "menace directement", "menacent directement",
+  "brutalise", "brutalisent", "brutaliser",
+  "frappe", "frappent",
+  "immobilise", "immobilisent",
+  "détient", "détiennent", "détenir de force",
+  "empoigne", "empoignent",
+  "saisit de force", "saisissent de force",
+  "arrests", "apprehends", "captures", "chases", "pursues",
+  "surrounds", "blocks passage", "attacks", "grabs", "detains",
+  "restrains", "manhandles", "brutalizes", "intercepts", "ambushes",
 ];
 
 const CROWD_SIGNALS = [
@@ -493,6 +514,27 @@ export function inferNarrativeFactsFromBeat(
       evidenceStrength: 0.8,
       source: "inference",
       notes: ["crowd/public scene detected"],
+    });
+  }
+
+  const guardNouns =
+    /(gardes?|guards?|soldats?|soldiers?|milice|militia|police|gendarmes?|sécurité)/i;
+  const hostileContext = matchesAny(text, CONFRONTATION_SIGNALS);
+  const hasHostileGuard = guardNouns.test(text) && hostileContext;
+
+  if (hasHostileGuard && !facts.some((f) => f.type === "enemy_presence")) {
+    facts.push({
+      id: generateId("fact_hostile_guard", beat.beatId, idx++),
+      beatId: beat.beatId,
+      type: "enemy_presence",
+      actorIds: beat.involvedCharacters ?? [],
+      targetIds: [],
+      propCandidates: [],
+      locationSignals: beat.environmentContext ?? [],
+      requiredVisibility: "must_show",
+      evidenceStrength: 0.9,
+      source: "inference",
+      notes: ["hostile guard context: guard noun + confrontation signal"],
     });
   }
 
