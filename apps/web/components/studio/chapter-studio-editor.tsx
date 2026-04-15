@@ -454,6 +454,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
             issues={castCanonIssues}
             warningItems={castCanonWarnings}
             characterCatalog={characterCatalog}
+            projectId={projectId}
             onIssueAction={handleIssueAction}
             onUpdateDraft={updateDraft}
             onContinue={() => goToFlowStep("plan")}

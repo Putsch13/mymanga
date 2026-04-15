@@ -19,6 +19,22 @@ const STYLES: Record<ChapterStudioStatus, string> = {
   PUBLISHED: "bg-green-500/10 text-green-200 border-green-400/30",
 };
 
+const LABELS: Record<ChapterStudioStatus, string> = {
+  DRAFT: "Brouillon",
+  NARRATIVE_CONTRACT_READY: "Direction narrative prête",
+  CANON_READY: "Canon prêt",
+  OUTLINE_EDITORIAL_READY: "Outline éditorial prêt",
+  OUTLINE_PRODUCTION_READY: "Outline production prêt",
+  PRODUCTION_PLAN_READY: "Plan de production prêt",
+  READY_FOR_GENERATION: "Prêt à générer",
+  GENERATING: "Génération en cours",
+  GENERATION_PARTIAL: "Chapitre incomplet",
+  QA_REVIEW: "En attente de validation",
+  NEEDS_FIXES: "Corrections requises",
+  COMPLETED: "Terminé",
+  PUBLISHED: "Publié",
+};
+
 export function ChapterStatusBadge({ status }: { status: ChapterStudioStatus }) {
-  return <Badge variant="outline" className={STYLES[status]}>{status.replaceAll("_", " ")}</Badge>;
+  return <Badge variant="outline" className={STYLES[status]}>{LABELS[status]}</Badge>;
 }

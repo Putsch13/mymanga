@@ -5,7 +5,7 @@ export function NarrativeContractCard({ contract }: { contract: ChapterNarrative
   return (
     <Card className="border-border/60 bg-card/40">
       <CardHeader>
-        <CardTitle className="text-base">Narrative Contract</CardTitle>
+        <CardTitle className="text-base">Direction narrative</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-3 text-sm sm:grid-cols-2">
         <div>

@@ -5,7 +5,7 @@ export function QAResultCard({ report }: { report: ChapterQAReport | null | unde
   return (
     <Card className="border-border/60 bg-card/40">
       <CardHeader>
-        <CardTitle className="text-base">QA Summary</CardTitle>
+        <CardTitle className="text-base">Résumé qualité</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
         <div className="grid gap-3 sm:grid-cols-3">

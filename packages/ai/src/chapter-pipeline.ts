@@ -303,7 +303,7 @@ function stretchToCount<T>(items: T[], count: number, fallbackFactory: (index: n
   if (items.length >= count) return items.slice(0, count);
   const next = [...items];
   for (let i = items.length; i < count; i++) {
-    next.push(items[i % Math.max(items.length, 1)] ?? fallbackFactory(i));
+    next.push(fallbackFactory(i));
   }
   return next;
 }

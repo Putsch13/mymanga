@@ -47,7 +47,7 @@ export function ProductionPlanCard({ plan, productionOutlineSource }: {
     <Card className="border-border/60 bg-card/40">
       {showLegacyWarning && (
         <div className="rounded-t-lg border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-600 font-medium">
-          ⚠ Legacy contract detected — regenerate premium contract
+          ⚠ Contrat hérité détecté — régénérez le plan de production
         </div>
       )}
       <CardHeader>
@@ -190,7 +190,7 @@ export function ProductionPlanCard({ plan, productionOutlineSource }: {
             {/* Panel blueprints count */}
             {Array.isArray(plan?.panelBlueprints) && (
               <div>
-                <p className="text-muted-foreground">Blueprints de panels</p>
+                <p className="text-muted-foreground">Panels planifiés</p>
                 <p className="font-semibold">
                   {plan.panelBlueprints.length > 0 ? (
                     <span className="text-green-600">{plan.panelBlueprints.length} panels planifiés</span>

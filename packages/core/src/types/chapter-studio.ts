@@ -824,53 +824,87 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
     action: "focus_field",
   });
 
-  if (snapshot.data.editorialOutline?.beats.length) completedSteps.push("editorial_outline");
-  else addBlocker({
-    id: "missing_editorial_outline",
-    step: "editorial_outline",
-    field: null,
-    message: "L’outline éditorial n’est pas prêt.",
-    ctaLabel: "Générer outline & plan",
-    action: "generate_outline",
-  });
+  const hasEditorialOutline = (snapshot.data.editorialOutline?.beats?.length ?? 0) > 0;
+  const productionBeatsCount = snapshot.data.productionOutline?.beats?.length ?? 0;
+  const hasProductionOutline = productionBeatsCount >= 10;
 
-  if ((snapshot.data.productionOutline?.beats.length ?? 0) >= 10) completedSteps.push("production_outline");
-  else addBlocker({
-    id: "production_outline_too_short",
-    step: "production_outline",
-    field: null,
-    message: "L’outline de production doit contenir au moins 10 beats.",
-    ctaLabel: "Régénérer l’outline de production",
-    action: "generate_outline",
-  });
-
-  if (snapshot.data.productionPlan) completedSteps.push("production_plan");
-  else addBlocker({
-    id: "missing_production_plan",
-    step: "production_plan",
-    field: null,
-    message: "Le plan de production n’a pas encore été calculé.",
-    ctaLabel: "Calculer le plan",
-    action: "generate_outline",
-  });
-
-  const imageCounts = normalizeChapterImageCounts({
-    estimatedImages: snapshot.data.productionPlan?.estimatedImages ?? 0,
-    targetImages: snapshot.data.productionPlan?.targetImages ?? 0,
-    minimumImages: snapshot.data.productionPlan?.minimumImages ?? 55,
-    acceptedImages: snapshot.data.readinessReport?.imageCounts.acceptedImages ?? 0,
-    generatedImages: snapshot.data.readinessReport?.imageCounts.generatedImages ?? 0,
-    rejectedImages: snapshot.data.readinessReport?.imageCounts.rejectedImages ?? 0,
-  });
-
-  if (imageCounts.targetImages < imageCounts.minimumImages) {
+  if (hasEditorialOutline) {
+    completedSteps.push("editorial_outline");
+  } else if (hasProductionOutline) {
+    completedSteps.push("editorial_outline");
+    addWarning({
+      id: "missing_editorial_outline",
+      step: "editorial_outline",
+      field: null,
+      message: "Le résumé éditorial n’a pas été généré, mais le plan détaillé est prêt.",
+      ctaLabel: "Régénérer",
+      action: "generate_outline",
+    });
+  } else {
     addBlocker({
-      id: "production_plan_under_minimum_images",
+      id: "missing_editorial_outline",
+      step: "editorial_outline",
+      field: null,
+      message: "L’outline éditorial n’est pas prêt.",
+      ctaLabel: "Générer outline & plan",
+      action: "generate_outline",
+    });
+  }
+
+  if (hasProductionOutline) {
+    completedSteps.push("production_outline");
+  } else if (productionBeatsCount > 0) {
+    completedSteps.push("production_outline");
+    addWarning({
+      id: "production_outline_too_short",
+      step: "production_outline",
+      field: null,
+      message: `L’outline de production a ${productionBeatsCount} beat(s), idéalement 10+.`,
+      ctaLabel: "Régénérer l’outline de production",
+      action: "generate_outline",
+    });
+  } else {
+    addBlocker({
+      id: "production_outline_too_short",
+      step: "production_outline",
+      field: null,
+      message: "L’outline de production doit contenir au moins 10 beats.",
+      ctaLabel: "Régénérer l’outline de production",
+      action: "generate_outline",
+    });
+  }
+
+  let imageCounts: ChapterImageCount;
+
+  if (snapshot.data.productionPlan) {
+    completedSteps.push("production_plan");
+    imageCounts = normalizeChapterImageCounts({
+      estimatedImages: snapshot.data.productionPlan.estimatedImages ?? 0,
+      targetImages: snapshot.data.productionPlan.targetImages ?? 0,
+      minimumImages: snapshot.data.productionPlan.minimumImages ?? 55,
+      acceptedImages: snapshot.data.readinessReport?.imageCounts.acceptedImages ?? 0,
+      generatedImages: snapshot.data.readinessReport?.imageCounts.generatedImages ?? 0,
+      rejectedImages: snapshot.data.readinessReport?.imageCounts.rejectedImages ?? 0,
+    });
+    if (imageCounts.targetImages < imageCounts.minimumImages) {
+      addWarning({
+        id: "production_plan_under_minimum_images",
+        step: "production_plan",
+        field: null,
+        message: `Le plan vise ${imageCounts.targetImages} images (minimum conseillé : ${imageCounts.minimumImages}).`,
+        ctaLabel: "Régénérer le plan",
+        action: "generate_outline",
+      });
+    }
+  } else {
+    imageCounts = normalizeChapterImageCounts(null);
+    addBlocker({
+      id: "missing_production_plan",
       step: "production_plan",
       field: null,
-      message: `Le plan vise ${imageCounts.targetImages} images, sous le minimum requis (${imageCounts.minimumImages}).`,
-      ctaLabel: "Corriger le plan de production",
-      action: snapshot.data.productionPlan ? "open_step" : "generate_outline",
+      message: "Le plan de production n’a pas encore été calculé.",
+      ctaLabel: "Générer outline & plan",
+      action: "generate_outline",
     });
   }
 

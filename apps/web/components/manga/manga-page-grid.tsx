@@ -1,8 +1,24 @@
 "use client";
 
 import type React from "react";
-import type { DemoMangaPage } from "@/lib/demo-data";
 import type { AnyPanelMood } from "./manga-panel";
+
+type DemoPanel = {
+  id: string;
+  size: "wide" | "tall" | "large" | "normal";
+  mood: string;
+  dialogue?: string;
+  speaker?: string;
+  narration?: string;
+  sfx?: string;
+  characters?: string[];
+};
+
+export type DemoMangaPage = {
+  id: string;
+  layout: "A" | "B" | "C" | "D" | "E";
+  panels: DemoPanel[];
+};
 import { MangaPanel } from "./manga-panel";
 
 // LAY-2 : configs CSS locales des templates de layout dynamique

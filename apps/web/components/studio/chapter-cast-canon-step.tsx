@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { ChapterReadinessIssue, ChapterStudioData } from "@manga-ai-studio/core";
+import { Loader2, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { CharacterPicker } from "./character-picker";
 import { TagInput } from "./tag-input";
 import { StudioInlineIssues } from "./studio-inline-issues";
@@ -22,6 +24,7 @@ export function ChapterCastCanonStep({
   issues,
   warningItems,
   characterCatalog,
+  projectId,
   onIssueAction,
   onUpdateDraft,
   onContinue,
@@ -30,6 +33,7 @@ export function ChapterCastCanonStep({
   issues: ChapterReadinessIssue[];
   warningItems: ChapterReadinessIssue[];
   characterCatalog?: CharacterCatalogEntry[];
+  projectId: string;
   onIssueAction: (issue: ChapterReadinessIssue) => void | Promise<void>;
   onUpdateDraft: (next: ChapterStudioData, step?: "characters" | "canon") => void;
   onContinue: () => void;
@@ -66,6 +70,54 @@ export function ChapterCastCanonStep({
         ...patch,
       },
     }, "characters");
+  }
+
+  const [npcRawDescription, setNpcRawDescription] = useState("");
+  const [resolvingNpc, setResolvingNpc] = useState(false);
+  const [resolvedNpcs, setResolvedNpcs] = useState<Array<{
+    label: string;
+    promptFragment: string;
+    narrativeHook: string;
+    strategy: string;
+  }>>([]);
+
+  async function handleResolveNpc() {
+    if (!npcRawDescription.trim() || resolvingNpc) return;
+    setResolvingNpc(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/npc-resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rawDescription: npcRawDescription,
+          universe: "fantasy",
+          tone: "épique",
+        }),
+      });
+      if (!res.ok) throw new Error("resolve failed");
+      const data = await res.json() as {
+        topMatch?: { label: string; visualCues: string[]; interactionHooks: string[] };
+        promptFragment?: string;
+        narrativeHook?: string;
+        strategy?: string;
+      };
+      if (data.topMatch) {
+        setResolvedNpcs(prev => [
+          ...prev,
+          {
+            label: data.topMatch!.label,
+            promptFragment: data.promptFragment ?? data.topMatch!.visualCues.slice(0, 2).join(", "),
+            narrativeHook: data.narrativeHook ?? data.topMatch!.interactionHooks[0] ?? "",
+            strategy: data.strategy ?? "catalog_match",
+          },
+        ]);
+        setNpcRawDescription("");
+      }
+    } catch {
+      // silencieux — l'utilisateur peut réessayer
+    } finally {
+      setResolvingNpc(false);
+    }
   }
 
   function updateCanon(patch: Partial<NonNullable<ChapterStudioData["chapterCanon"]>>) {
@@ -237,6 +289,60 @@ export function ChapterCastCanonStep({
                 dataStudioField="studio-continuity-notes"
               />
             </div>
+          </div>
+
+          {/* PNJ libres — résolution IA */}
+          <div className="space-y-3 rounded-xl border border-border/60 bg-card/40 p-4">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-accent" />
+              <p className="text-sm font-medium">PNJ &amp; figurants</p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Décris librement les personnages secondaires présents dans cette scène.
+              L&apos;IA les mappe sur des archétypes cohérents avec ton univers.
+            </p>
+            <Textarea
+              placeholder="Ex : un vieux gardien borgne qui cache quelque chose, une foule hostile, un enfant qui observe…"
+              value={npcRawDescription}
+              onChange={e => setNpcRawDescription(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void handleResolveNpc(); }}
+              rows={2}
+              className="resize-none text-sm"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void handleResolveNpc()}
+              disabled={resolvingNpc || !npcRawDescription.trim()}
+              className="gap-1.5"
+            >
+              {resolvingNpc
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <Sparkles className="h-3 w-3" />}
+              {resolvingNpc ? "Analyse…" : "Analyser"}
+            </Button>
+
+            {resolvedNpcs.length > 0 && (
+              <div className="space-y-2">
+                {resolvedNpcs.map((npc, i) => (
+                  <div key={i} className="flex items-start gap-2 rounded-lg border border-border/40 bg-background/30 p-3">
+                    <div className="flex-1 space-y-1">
+                      <p className="text-xs font-medium">{npc.label}</p>
+                      <p className="text-[11px] text-muted-foreground italic">{npc.narrativeHook}</p>
+                      <p className="text-[11px] text-muted-foreground">Visuels : {npc.promptFragment}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setResolvedNpcs(prev => prev.filter((_, j) => j !== i))}
+                      className="text-muted-foreground/50 hover:text-muted-foreground transition-colors mt-0.5"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <details className="rounded-xl border border-border/60 bg-background/30 p-4">

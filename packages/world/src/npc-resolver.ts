@@ -95,3 +95,58 @@ export async function resolveNpcWithAI(
     return local;
   }
 }
+
+export type AiGeneratedNpc = {
+  label: string;
+  role: string;
+  visualCues: string[];
+  interactionHooks: string[];
+  promptFragment: string;
+  narrativeHook: string;
+};
+
+/**
+ * Fallback IA pour les descriptions hors catalogue.
+ * openaiChat est injecté pour éviter d'importer openai dans le package world.
+ */
+export async function resolveNpcWithAiFallback(
+  input: {
+    rawDescription: string;
+    universe: string;
+    tone: string;
+    sceneLocation?: string;
+  },
+  openaiChat: (messages: Array<{ role: "system" | "user"; content: string }>) => Promise<string>,
+): Promise<AiGeneratedNpc> {
+  const system = `Tu es un expert en design de personnages manga.
+À partir d'une description libre, génère un personnage secondaire (PNJ) cohérent avec l'univers.
+Réponds UNIQUEMENT avec un objet JSON valide, sans markdown, sans explication.
+Champs requis : label (string, FR), role (string, 1 mot EN), visualCues (string[], 3 items FR),
+interactionHooks (string[], 3 items FR), promptFragment (string, EN, max 15 mots), narrativeHook (string, FR, 1 phrase).`;
+
+  const user = `Description : "${input.rawDescription}"
+Univers : ${input.universe}
+Ton : ${input.tone}
+${input.sceneLocation ? `Lieu de la scène : ${input.sceneLocation}` : ""}
+
+Génère le JSON du PNJ.`;
+
+  const raw = await openaiChat([
+    { role: "system", content: system },
+    { role: "user", content: user },
+  ]);
+
+  try {
+    const clean = raw.replace(/```json|```/g, "").trim();
+    return JSON.parse(clean) as AiGeneratedNpc;
+  } catch {
+    return {
+      label: input.rawDescription.slice(0, 40),
+      role: "unknown",
+      visualCues: [],
+      interactionHooks: [],
+      promptFragment: input.rawDescription.slice(0, 60),
+      narrativeHook: `Un personnage intrigant : ${input.rawDescription.slice(0, 60)}`,
+    };
+  }
+}

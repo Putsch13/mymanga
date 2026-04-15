@@ -11,6 +11,14 @@ const LOCK_TONE: Record<CanonLockStrength, string> = {
   NONE: "border-slate-400/30 bg-slate-500/10 text-slate-200",
 };
 
+const LOCK_LABELS: Record<CanonLockStrength, string> = {
+  HARD_LOCK: "Verrouillé",
+  STRONG: "Fort",
+  MEDIUM: "Moyen",
+  LIGHT: "Léger",
+  NONE: "Libre",
+};
+
 export function CanonLockBadge({ strength }: { strength: CanonLockStrength }) {
-  return <Badge variant="outline" className={LOCK_TONE[strength]}>{strength.replace("_", " ")}</Badge>;
+  return <Badge variant="outline" className={LOCK_TONE[strength]}>{LOCK_LABELS[strength]}</Badge>;
 }

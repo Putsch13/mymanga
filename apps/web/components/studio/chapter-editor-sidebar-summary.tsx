@@ -94,7 +94,7 @@ export function ChapterEditorSidebarSummary({
                 ) : null}
                 {warningItems.length > 0 ? (
                   <p className="text-xs text-amber-600 dark:text-amber-400">
-                    {warningItems.length} warning{warningItems.length > 1 ? "s" : ""}
+                    {warningItems.length} avertissement{warningItems.length > 1 ? "s" : ""}
                   </p>
                 ) : null}
               </div>
