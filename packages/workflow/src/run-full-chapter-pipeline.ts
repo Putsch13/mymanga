@@ -69,10 +69,14 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     project?.settings?.canonStrictness,
   );
 
+  const pipelineVersion = project?.settings?.pipelineVersion === "v2" ? "v2" : "v1";
+
   await prisma.job.update({
     where: { id: jobId },
-    data: { status: "running", startedAt: job.startedAt ?? new Date() },
+    data: { status: "running", startedAt: job.startedAt ?? new Date(), pipelineVersion },
   });
+
+  console.log(`[pipeline:T12] pipelineVersion=${pipelineVersion} project=${projectId} job=${jobId}`);
 
   try {
     // LoRA auto non bloquant: on queue l'entraînement, sans retarder le chapitre courant.
@@ -112,7 +116,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
 
     // ── Passes narratives : contexte, bundle, cohérence, persistance, continuité ──
     const narrativeResult = await runNarrativePass(
-      { jobId, chapterId, projectId, userId: "", chapterNumber },
+      { jobId, chapterId, projectId, userId: "", chapterNumber, pipelineVersion },
       {
         chapter,
         project,
@@ -144,6 +148,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       plannedImages,
       chapterLookProfile,
       canonRefByName,
+      loraByCharId,
       loraByCharName,
       validatedSceneSnapshots,
       kernelValidationWarnings,
@@ -168,6 +173,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         chapterLookProfile,
         canonRefByName,
         loraByCharName,
+        loraByCharId,
         effectiveCreativeControls,
       },
     );

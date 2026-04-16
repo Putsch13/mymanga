@@ -60,6 +60,7 @@ import {
   buildSceneKeyframeDraft,
   inferRequiredSceneExtras,
 } from "../pipeline-scene-builder";
+import { buildPanelCast } from "../build-panel-cast";
 import { buildStableImageReference } from "../stable-image-refs";
 import {
   extractSceneFactions,
@@ -112,7 +113,6 @@ export type NarrativePassResult = {
   loraByCharName: Map<string, any>;
   validatedSceneSnapshots: any[];
   kernelValidationWarnings: string[];
-  debugPanel: boolean;
   effectiveCreativeControls: any;
 };
 
@@ -250,7 +250,22 @@ export async function runNarrativePass(
       projectId,
       beforeChapterNumber: chapterNumber,
     });
+    // T06: kernel is canonical — validate coherence before overwriting
     if (continuityKernel.characterStates.length > 0) {
+      const { validateKernelCoherence } = await import("@manga-ai-studio/continuity");
+      const coherenceResult = validateKernelCoherence(
+        continuityKernel,
+        previousCanonState ? { characterStates: previousCanonState.characterStates as any[] } : null,
+      );
+      if (!coherenceResult.coherent) {
+        console.warn(`[continuity:T06] kernel divergence detected: ${coherenceResult.divergences.length} fields differ`);
+        for (const d of coherenceResult.divergences.slice(0, 5)) {
+          console.warn(`  [divergence] ${d.characterName}.${d.field}: kernel=${JSON.stringify(d.kernelValue)} vs canon=${JSON.stringify(d.chapterCanonValue)} → resolved to ${d.resolvedTo}`);
+        }
+      }
+      if (coherenceResult.warnings.length > 0) {
+        console.warn(`[continuity:T06] warnings: ${coherenceResult.warnings.join(", ")}`);
+      }
       previousCharacterStates.splice(0, previousCharacterStates.length, ...continuityKernel.characterStates);
     }
 
@@ -278,12 +293,18 @@ export async function runNarrativePass(
       Array.isArray((premiumProductionOutline as { beats?: unknown[] }).beats) &&
       ((premiumProductionOutline as { beats?: unknown[] }).beats?.length ?? 0) > 0;
 
-    const approvedOutlineForBundle = hasPremiumOutline
-      ? parseApprovedOutline(chapterOutlineRecord.approvedOutline)
-        ?? buildLegacyApprovedOutlineFromStudio(studioSnapshot!)
-      : studioSnapshot
-        ? buildLegacyApprovedOutlineFromStudio(studioSnapshot) ?? parseApprovedOutline(chapterOutlineRecord.approvedOutline)
-        : parseApprovedOutline(chapterOutlineRecord.approvedOutline);
+    // B11: simplified outline resolution — clear priority chain
+    const approvedOutlineForBundle = (() => {
+      if (hasPremiumOutline) {
+        return parseApprovedOutline(chapterOutlineRecord.approvedOutline)
+          ?? buildLegacyApprovedOutlineFromStudio(studioSnapshot!);
+      }
+      if (studioSnapshot) {
+        return buildLegacyApprovedOutlineFromStudio(studioSnapshot)
+          ?? parseApprovedOutline(chapterOutlineRecord.approvedOutline);
+      }
+      return parseApprovedOutline(chapterOutlineRecord.approvedOutline);
+    })();
 
     const effectivePanelBlueprints = resolveEffectivePanelBlueprints({
       jobInput: jobInput as PipelineJobInput,
@@ -405,50 +426,52 @@ export async function runNarrativePass(
         console.log(`[pipeline] npc_promotion: creating ${toPromote.length} characters: ${toPromote.join(", ")}`);
       }
 
+      const { resolveEntity } = await import("@manga-ai-studio/ai");
       for (const pnjName of toPromote) {
         try {
-          const slug = pnjName.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-").slice(0, 40) + `-${Date.now()}`;
+          const slug = pnjName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
           const scenesWithPnj = revisedBundle.script.scenes.filter((s: any) => (s.characters ?? []).includes(pnjName));
           const contextHint = scenesWithPnj[0]?.summary?.slice(0, 200) ?? "";
-          const entityProfile = inferEntityProfile({
+
+          const storyBible = await prisma.storyBible.findUnique({ where: { projectId } });
+          const glossary = Array.isArray(storyBible?.glossary) ? storyBible.glossary as { term: string; description?: string; visualCore?: string; entityKind?: string }[] : [];
+          const entityProfile = await resolveEntity({
             name: pnjName,
             contextText: contextHint,
-            hint: intentEntityByName.get(pnjName.toLowerCase()) ?? null,
+            projectId,
+            glossary,
+            projectBible: storyBible?.summary ?? null,
           });
 
-          const newChar = await prisma.character.create({
-            data: {
-              projectId,
+          const entityRoleType = entityProfile.entityKind === "human" || entityProfile.entityKind === "named_npc"
+            ? "pnj"
+            : entityProfile.entityKind;
+
+          const charData = {
               name: pnjName,
-              slug,
-              roleType:
-                entityProfile.entityKind === "animal"
-                  ? "animal"
-                  : entityProfile.entityKind === "monster"
-                    ? "monster"
-                    : entityProfile.entityKind === "creature"
-                      ? "creature"
-                      : entityProfile.entityKind === "spirit"
-                        ? "spirit"
-                        : entityProfile.entityKind === "construct"
-                          ? "construct"
-                          : "pnj",
+              roleType: entityRoleType,
               status: "alive",
               autoGenerated: true,
               appearance: [
                 entityProfile.speciesLabel ? `${entityProfile.speciesLabel}` : null,
-                entityProfile.roleHint ? `${entityProfile.roleHint}` : null,
+                entityProfile.typicalAppearance || null,
+                entityProfile.canonicalVisualCore || null,
                 scenesWithPnj[0]?.location ? `lié à ${scenesWithPnj[0].location}` : null,
-                contextHint ? `contexte: ${contextHint}` : null,
               ].filter(Boolean).join(", ") || null,
               continuityProfile: {
                 entityKind: entityProfile.entityKind,
                 speciesLabel: entityProfile.speciesLabel,
                 dialogueMode: entityProfile.dialogueMode,
                 recurrencePolicy: entityProfile.recurrencePolicy,
-                roleHint: entityProfile.roleHint,
+                canonicalVisualCore: entityProfile.canonicalVisualCore,
+                source: entityProfile.source,
+                confidence: entityProfile.confidence,
               },
-            },
+          };
+          const newChar = await prisma.character.upsert({
+            where: { projectId_slug: { projectId, slug } },
+            create: { projectId, slug, ...charData },
+            update: { autoGenerated: true, updatedAt: new Date() },
           });
 
           rawCharacters.push({
@@ -458,7 +481,7 @@ export async function runNarrativePass(
             objective: scenesWithPnj[0]?.summary?.slice(0, 160) ?? null,
             fear: null as string | null,
             biography: contextHint ? `PNJ introduit dans le contexte suivant : ${contextHint}` : null,
-            traits: [entityProfile.roleHint ?? "pnj récurrent"].filter(Boolean) as string[],
+            traits: [entityProfile.typicalAppearance || "pnj récurrent"].filter(Boolean) as string[],
             flaws: [] as string[],
             gender: null as string | null,
             appearance: (newChar.appearance as string | null) ?? null,
@@ -479,7 +502,9 @@ export async function runNarrativePass(
               speciesLabel: entityProfile.speciesLabel,
               dialogueMode: entityProfile.dialogueMode,
               recurrencePolicy: entityProfile.recurrencePolicy,
-              roleHint: entityProfile.roleHint,
+              canonicalVisualCore: entityProfile.canonicalVisualCore,
+              source: entityProfile.source,
+              confidence: entityProfile.confidence,
               introLocation: scenesWithPnj[0]?.location ?? null,
             } as Record<string, unknown>,
             characterFingerprint: null as Record<string, unknown> | null,
@@ -519,6 +544,13 @@ export async function runNarrativePass(
       "completed",
     );
 
+    // T04: early declarations for blueprint diagnostics (assigned in blueprint generation block below)
+    let blueprintSource: "studio_premium" | "dynamic_llm" | "dynamic_heuristic" | "MISSING" =
+      effectivePanelBlueprints.length > 0 ? "studio_premium" : "MISSING";
+    const orphanedBeatIds: string[] = [];
+    // T07: early declaration for shot plan (assigned after blueprint generation)
+    let chapterShotPlan: import("@manga-ai-studio/core").ChapterShotPlan | null = null;
+
     // ── Étape 3 : Persistance chapitre + scènes + images planifiées ────────
     await setJobProgress(
       jobId,
@@ -531,7 +563,12 @@ export async function runNarrativePass(
       ...revisedBundle.outline,
       operationalStatus: revisedBundle.generationDiagnostics.operationalStatus,
       degradedModes: revisedBundle.generationDiagnostics.degradedModes,
-      generationDiagnostics: revisedBundle.generationDiagnostics.outline,
+      generationDiagnostics: {
+        ...revisedBundle.generationDiagnostics.outline,
+        blueprintSource,
+        orphanedBeatIds: orphanedBeatIds.length > 0 ? orphanedBeatIds : undefined,
+      },
+      shotPlan: chapterShotPlan ?? undefined,
     };
     const chapterScript: Prisma.InputJsonValue = {
       ...revisedBundle.script,
@@ -553,9 +590,8 @@ export async function runNarrativePass(
     const studioLookProfileRaw = studioSnapshot?.data?.chapterLookProfile;
     const chapterLookProfile: ChapterLookProfile = resolveChapterLookProfile(
       studioLookProfileRaw?.mode ?? null,
-      studioLookProfileRaw?.mode ?? undefined,
     );
-    const debugPanel = process.env.MANGA_DEBUG_PANEL === "true";
+    const _debugPanelLegacy = process.env.MANGA_DEBUG_PANEL === "true";
 
     // ── SceneAnchor : construire une ancre par scène ──────────────────────────
     const sceneAnchorByIndex = new Map<number, SceneAnchor>();
@@ -593,45 +629,48 @@ export async function runNarrativePass(
     );
 
     let finalPanelBlueprints = effectivePanelBlueprints;
+
     if (finalPanelBlueprints.length === 0 && revisedBundle.outline.beats.length > 0) {
       console.log(`[pipeline] b3-1 generating panel blueprints dynamically for ${revisedBundle.outline.beats.length} beats`);
-      try {
-        const { buildPanelBlueprintsFromBeat, inferNarrativeFactsFromBeat, inferRequiredPropsFromBeat } = await import("@manga-ai-studio/ai");
-        const heroCharacterId = rawCharacters.find((c) => /hero|protagon|main/i.test(c.roleType ?? ""))?.id ?? null;
-        const knownUniverseTypes = ["ninja","cyberpunk","post_apo","school_life","mecha","fantasy","military","medical","urban","generic"] as const;
-        type UniverseType = (typeof knownUniverseTypes)[number];
-        const rawGenre = context.project.primaryGenre ?? "";
-        const universeType: UniverseType | undefined = (knownUniverseTypes as readonly string[]).includes(rawGenre)
-          ? (rawGenre as UniverseType)
-          : undefined;
-        const blueprintContext = {
-          heroCharacterId: heroCharacterId ?? undefined,
-          chapterNumber,
-          projectGenre: context.project.primaryGenre ?? undefined,
-          projectTone: context.project.tone ?? undefined,
-          antagonistNames: rawCharacters
-            .filter((c) => c.roleType === "antagonist" || c.roleType === "villain" || c.roleType === "rival")
-            .map((c) => c.name),
-          antagonistIds: rawCharacters
-            .filter((c) => c.roleType === "antagonist" || c.roleType === "villain" || c.roleType === "rival")
-            .map((c) => c.id),
-        };
-        const narrativeCtx = {
-          projectGenre: context.project.primaryGenre ?? null,
-          projectTone: context.project.tone ?? null,
-          heroCharacterId,
-          universeType,
-          antagonistIds: rawCharacters
-            .filter((c) => c.roleType === "antagonist" || c.roleType === "villain" || c.roleType === "rival")
-            .map((c) => c.id),
-          antagonistNames: rawCharacters
-            .filter((c) => c.roleType === "antagonist" || c.roleType === "villain" || c.roleType === "rival")
-            .map((c) => c.name),
-        };
-        let pageCounter = 1;
-        let panelCounter = 1;
-        const allDynamicBlueprints: typeof finalPanelBlueprints = [];
-        for (const beat of revisedBundle.outline.beats) {
+      const { buildPanelBlueprintsFromBeat, inferNarrativeFactsFromBeat, inferRequiredPropsFromBeat } = await import("@manga-ai-studio/ai");
+      const heroCharacterId = rawCharacters.find((c) => /hero|protagon|main/i.test(c.roleType ?? ""))?.id ?? null;
+      const knownUniverseTypes = ["ninja","cyberpunk","post_apo","school_life","mecha","fantasy","military","medical","urban","generic"] as const;
+      type UniverseType = (typeof knownUniverseTypes)[number];
+      const rawGenre = context.project.primaryGenre ?? "";
+      const universeType: UniverseType | undefined = (knownUniverseTypes as readonly string[]).includes(rawGenre)
+        ? (rawGenre as UniverseType)
+        : undefined;
+      const blueprintContext = {
+        heroCharacterId: heroCharacterId ?? undefined,
+        chapterNumber,
+        projectGenre: context.project.primaryGenre ?? undefined,
+        projectTone: context.project.tone ?? undefined,
+        antagonistNames: rawCharacters
+          .filter((c) => c.roleType === "antagonist" || c.roleType === "villain" || c.roleType === "rival")
+          .map((c) => c.name),
+        antagonistIds: rawCharacters
+          .filter((c) => c.roleType === "antagonist" || c.roleType === "villain" || c.roleType === "rival")
+          .map((c) => c.id),
+      };
+      const narrativeCtx = {
+        projectGenre: context.project.primaryGenre ?? null,
+        projectTone: context.project.tone ?? null,
+        heroCharacterId,
+        universeType,
+        antagonistIds: rawCharacters
+          .filter((c) => c.roleType === "antagonist" || c.roleType === "villain" || c.roleType === "rival")
+          .map((c) => c.id),
+        antagonistNames: rawCharacters
+          .filter((c) => c.roleType === "antagonist" || c.roleType === "villain" || c.roleType === "rival")
+          .map((c) => c.name),
+      };
+      let pageCounter = 1;
+      let panelCounter = 1;
+      let usedLlmEnrichment = false;
+      const allDynamicBlueprints: typeof finalPanelBlueprints = [];
+
+      for (const beat of revisedBundle.outline.beats) {
+        try {
           const productionBeat = {
             beatId: beat.id,
             summary: beat.summary,
@@ -650,8 +689,11 @@ export async function runNarrativePass(
             indispensabilityScore: 72,
             redundancyRisk: 18,
           };
+
+          // Step 1: heuristic facts
           const facts = inferNarrativeFactsFromBeat(productionBeat, narrativeCtx);
 
+          // Step 2: semantic enrichment
           const { inferAdditionalFactsFromSemantics, mergeNarrativeFacts } = await import("@manga-ai-studio/ai");
           const semanticFacts = inferAdditionalFactsFromSemantics(productionBeat, facts);
           const factsWithSemantics = semanticFacts.length > 0
@@ -662,32 +704,33 @@ export async function runNarrativePass(
             console.log(`[pipeline:semantic-facts] beat=${productionBeat.beatId} +${semanticFacts.length} facts from semantics`);
           }
 
+          // Step 3: LLM enrichment — systématique, pas conditionnel
           let finalFacts = factsWithSemantics;
-          const beatIsComplex = (beat.characters?.length ?? 0) > 1 || factsWithSemantics.length < 2;
-          const hasNoEnemyFact = !factsWithSemantics.some((f: any) => f.type === "enemy_presence");
-
-          if (beatIsComplex || hasNoEnemyFact) {
-            try {
-              const { enrichNarrativeFactsWithLLM } = await import("@manga-ai-studio/ai");
-              const llmFacts = await enrichNarrativeFactsWithLLM(
-                productionBeat,
-                factsWithSemantics,
-                { ...narrativeCtx, universeType },
-              );
-              if (llmFacts && llmFacts.length > 0) {
-                finalFacts = mergeNarrativeFacts(factsWithSemantics, llmFacts);
-                console.log(`[pipeline:llm-facts] beat=${productionBeat.beatId} +${llmFacts.length} facts from LLM`);
-              }
-            } catch {
-              console.warn(`[pipeline:llm-facts] LLM enrichment failed for beat=${productionBeat.beatId}`);
+          try {
+            const { enrichNarrativeFactsWithLLM } = await import("@manga-ai-studio/ai");
+            const llmFacts = await enrichNarrativeFactsWithLLM(
+              productionBeat,
+              factsWithSemantics,
+              { ...narrativeCtx, universeType },
+            );
+            if (llmFacts && llmFacts.length > 0) {
+              finalFacts = mergeNarrativeFacts(factsWithSemantics, llmFacts);
+              usedLlmEnrichment = true;
+              console.log(`[pipeline:llm-facts] beat=${productionBeat.beatId} +${llmFacts.length} facts from LLM`);
             }
+          } catch {
+            console.warn(`[pipeline:llm-facts] LLM enrichment failed for beat=${productionBeat.beatId}, using heuristic facts`);
           }
+
+          // Step 4: props
           const props = inferRequiredPropsFromBeat(productionBeat, finalFacts, {
             universeType,
             projectGenre: context.project.primaryGenre ?? undefined,
             projectTone: context.project.tone ?? undefined,
             heroCharacterId: heroCharacterId ?? undefined,
           });
+
+          // Step 5: blueprints
           const beatBlueprints = buildPanelBlueprintsFromBeat(
             productionBeat,
             finalFacts,
@@ -700,14 +743,19 @@ export async function runNarrativePass(
           pageCounter += Math.ceil(beatBlueprints.length / 3);
           panelCounter += beatBlueprints.length;
 
+          // Step 6: persist props
           const propsToSave = props.filter((p: { mustBeVisible?: boolean; narrativeRole?: string | null }) =>
             p.mustBeVisible !== false &&
             (p.narrativeRole === "action_tool" || p.narrativeRole === "payoff" || p.narrativeRole === "threat"),
           );
           if (propsToSave.length > 0) {
-            const carrierCharId = productionBeat.involvedCharacters?.[0]
-              ? rawCharacters.find((rc: any) => rc.name === productionBeat.involvedCharacters?.[0])?.id ?? null
-              : heroCharacterId;
+            const firstInvolved = productionBeat.involvedCharacters?.[0];
+            const carrierCharId = firstInvolved
+              ? rawCharacters.find((rc: any) => rc.name === firstInvolved)?.id ?? null
+              : null;
+            if (!carrierCharId && firstInvolved) {
+              console.warn(`[pipeline] prop carrier "${firstInvolved}" not found in rawCharacters — props not persisted`);
+            }
             if (carrierCharId) {
               await Promise.allSettled(
                 propsToSave.map((prop: { canonicalName: string; category?: string; narrativeRole?: string | null }) =>
@@ -733,18 +781,31 @@ export async function runNarrativePass(
               );
             }
           }
+        } catch (beatErr) {
+          const msg = beatErr instanceof Error ? beatErr.message : "beat_blueprint_error";
+          console.warn(`[pipeline] blueprint generation failed for beat=${beat.id}: ${msg}`);
+          orphanedBeatIds.push(beat.id);
         }
-        if (allDynamicBlueprints.length > 0) {
-          finalPanelBlueprints = allDynamicBlueprints;
-          console.log(`[pipeline] b3-1 generated ${finalPanelBlueprints.length} blueprints dynamically`);
+      }
+
+      if (allDynamicBlueprints.length > 0) {
+        finalPanelBlueprints = allDynamicBlueprints;
+        blueprintSource = usedLlmEnrichment ? "dynamic_llm" : "dynamic_heuristic";
+        console.log(`[pipeline] b3-1 generated ${finalPanelBlueprints.length} blueprints dynamically (source=${blueprintSource})`);
+        if (orphanedBeatIds.length > 0) {
+          console.warn(`[pipeline] partial_success: ${orphanedBeatIds.length} beats orphaned: ${orphanedBeatIds.join(", ")}`);
         }
-      } catch (blueprintErr) {
-        const bpMsg = blueprintErr instanceof Error ? blueprintErr.message : "blueprint_error";
-        console.warn(`[pipeline] b3-1 blueprint generation failed (non-blocking): ${bpMsg}`);
       }
     }
 
-    // Shot diversity enforcement
+    if (finalPanelBlueprints.length === 0 && revisedBundle.outline.beats.length > 0) {
+      blueprintSource = "MISSING";
+      const errMsg = `[pipeline] FATAL: 0 blueprints generated for ${revisedBundle.outline.beats.length} beats — pipeline cannot proceed without blueprints`;
+      console.error(errMsg);
+      throw new Error("missing_blueprints: no panel blueprints could be generated from any source");
+    }
+
+    // Shot diversity enforcement (legacy) + ShotPlan director
     if (finalPanelBlueprints.length > 0) {
       const { blueprints: diversifiedBlueprints, report: diversityReport } =
         enforceShotDiversity(finalPanelBlueprints);
@@ -756,6 +817,52 @@ export async function runNarrativePass(
         console.warn("[pipeline:shot-diversity] violations:", diversityReport.violations.map((v: any) => v.type));
       }
       finalPanelBlueprints = diversifiedBlueprints;
+    }
+
+    // T07: Chapter ShotPlan — plan de coupe bout en bout
+    try {
+      const { directShotPlan } = await import("@manga-ai-studio/ai");
+      const antagonists = rawCharacters
+        .filter((c: any) => /antagonist|villain|rival/i.test(c.roleType ?? ""))
+        .map((c: any) => ({ characterId: c.id, name: c.name, role: "antagonist" as const }));
+      const heroes = rawCharacters
+        .filter((c: any) => /hero|protagon|main/i.test(c.roleType ?? ""))
+        .map((c: any) => ({ characterId: c.id, name: c.name, role: "hero" as const }));
+      const importantNpcs = rawCharacters
+        .filter((c: any) => /mentor|deuteragonist|secondary|important/i.test(c.roleType ?? ""))
+        .map((c: any, i: number) => ({ characterId: c.id, name: c.name, role: "important_npc" as const, firstAppearanceSceneIndex: i }));
+
+      chapterShotPlan = directShotPlan({
+        beats: revisedBundle.outline.beats.map((b: any) => ({
+          id: b.id,
+          pageRole: b.pageRole ?? b.purpose,
+          characters: b.characters,
+          location: b.location,
+          summary: b.summary,
+        })),
+        genreMode: chapterGenreMode,
+        importantCharacters: [...heroes, ...antagonists, ...importantNpcs],
+      });
+      console.log(`[pipeline:shot-plan] pages=${chapterShotPlan.pages.length} rhythm=${chapterShotPlan.rhythm} emphasis=${chapterShotPlan.emphasis.length}`);
+    } catch (shotPlanErr) {
+      console.warn(`[pipeline:shot-plan] directShotPlan failed, attempting heuristic fallback: ${shotPlanErr instanceof Error ? shotPlanErr.message : shotPlanErr}`);
+      try {
+        const { directShotPlan: fallbackShotPlan } = await import("@manga-ai-studio/ai");
+        chapterShotPlan = fallbackShotPlan({
+          beats: revisedBundle.outline.beats.map((b: any) => ({
+            id: b.id,
+            pageRole: b.pageRole ?? "standard",
+            characters: b.characters ?? [],
+            location: b.location,
+            summary: b.summary ?? "",
+          })),
+          genreMode: "standard",
+          importantCharacters: [],
+        });
+        console.log(`[pipeline:shot-plan] heuristic fallback OK: pages=${chapterShotPlan.pages.length} rhythm=${chapterShotPlan.rhythm}`);
+      } catch (fallbackErr) {
+        console.error(`[pipeline:shot-plan] CRITICAL: both directShotPlan and heuristic fallback failed: ${fallbackErr instanceof Error ? fallbackErr.message : fallbackErr}`);
+      }
     }
 
     const plannedImages: PlannedImage[] = [];
@@ -778,18 +885,12 @@ export async function runNarrativePass(
         },
       });
 
-        await tx.sceneImage.deleteMany({ where: { scene: { chapterId } } });
-        await tx.chapterScene.deleteMany({ where: { chapterId } });
-
         for (let index = 0; index < revisedBundle.script.scenes.length; index++) {
           const scene = revisedBundle.script.scenes[index];
           if (!scene) continue;
 
           const romanceDirection = romanceDirectionByScene.get(index);
-          const createdScene = await tx.chapterScene.create({
-            data: {
-              chapterId,
-              sceneNumber: index + 1,
+          const sceneData = {
               title: scene.title,
               summary: scene.summary,
               script: scene as unknown as Prisma.InputJsonValue,
@@ -816,41 +917,59 @@ export async function runNarrativePass(
                     }
                   : null,
               },
-            },
+          };
+          const createdScene = await tx.chapterScene.upsert({
+            where: { chapterId_sceneNumber: { chapterId, sceneNumber: index + 1 } },
+            create: { chapterId, sceneNumber: index + 1, ...sceneData },
+            update: sceneData,
           });
 
+          // T09: derive page layout from ShotPlan (per page, not per beat)
           try {
-            const { resolvePageLayout } = await import("@manga-ai-studio/ai");
-            const beatForLayout = revisedBundle.outline.beats[index];
-            const totalBeats = revisedBundle.outline.beats.length;
-            const beatHints = {
-              pageRole: (beatForLayout?.pageRole ?? "escalation") as "establishing" | "escalation" | "confrontation" | "revelation" | "aftermath" | "cliffhanger" | "dialogue" | "action" | "transition",
-              emotionalDelta: typeof (beatForLayout as { emotionalDelta?: number })?.emotionalDelta === "number"
-                ? ((beatForLayout as { emotionalDelta?: number }).emotionalDelta as number)
-                : (beatForLayout?.pageRole === "revelation" || beatForLayout?.pageRole === "cliffhanger" ? 2 : 0),
-              cutawayType: null,
-              subjectFocus: null,
-              panelCount: finalPanelBlueprints.filter((bp) => {
-                const bpRec = bp as unknown as Record<string, unknown>;
-                const bpPage = typeof bpRec.pageNumber === "number" ? bpRec.pageNumber : null;
-                return bpPage === null || bpPage === index + 1;
-              }).length || 4,
-            };
-            const layoutDecision = resolvePageLayout(beatHints, {
-              isFirst: index === 0,
-              isLast: index === totalBeats - 1,
-              beatIndex: index,
-              totalBeats,
-            });
-            await tx.chapterScene.update({
-              where: { id: createdScene.id },
-              data: {
-                pageLayoutTemplate: layoutDecision.template,
-                dramaticWeight: layoutDecision.dramaticWeight,
-                isSplashPage: layoutDecision.template === "splash",
-                isDoublePage: layoutDecision.isDoublePage,
-              },
-            });
+            const shotPlanPage = chapterShotPlan?.pages.find((p) => p.pageNumber === index + 1);
+            if (shotPlanPage) {
+              await tx.chapterScene.update({
+                where: { id: createdScene.id },
+                data: {
+                  pageLayoutTemplate: shotPlanPage.template,
+                  dramaticWeight: shotPlanPage.respirationPanel != null ? 0.6 : 0.8,
+                  isSplashPage: shotPlanPage.template === "splash",
+                  isDoublePage: shotPlanPage.template === "double_page",
+                },
+              });
+            } else {
+              const { resolvePageLayout } = await import("@manga-ai-studio/ai");
+              const beatForLayout = revisedBundle.outline.beats[index];
+              const totalBeats = revisedBundle.outline.beats.length;
+              const beatHints = {
+                pageRole: (beatForLayout?.pageRole ?? "escalation") as "establishing" | "escalation" | "confrontation" | "revelation" | "aftermath" | "cliffhanger" | "dialogue" | "action" | "transition",
+                emotionalDelta: typeof (beatForLayout as { emotionalDelta?: number })?.emotionalDelta === "number"
+                  ? ((beatForLayout as { emotionalDelta?: number }).emotionalDelta as number)
+                  : (beatForLayout?.pageRole === "revelation" || beatForLayout?.pageRole === "cliffhanger" ? 2 : 0),
+                cutawayType: null,
+                subjectFocus: null,
+                panelCount: finalPanelBlueprints.filter((bp) => {
+                  const bpRec = bp as unknown as Record<string, unknown>;
+                  const bpPage = typeof bpRec.pageNumber === "number" ? bpRec.pageNumber : null;
+                  return bpPage === null || bpPage === index + 1;
+                }).length || 4,
+              };
+              const layoutDecision = resolvePageLayout(beatHints, {
+                isFirst: index === 0,
+                isLast: index === totalBeats - 1,
+                beatIndex: index,
+                totalBeats,
+              });
+              await tx.chapterScene.update({
+                where: { id: createdScene.id },
+                data: {
+                  pageLayoutTemplate: layoutDecision.template,
+                  dramaticWeight: layoutDecision.dramaticWeight,
+                  isSplashPage: layoutDecision.template === "splash",
+                  isDoublePage: layoutDecision.isDoublePage,
+                },
+              });
+            }
           } catch (layoutErr) {
             console.warn(`[pipeline] layout_decision_failed (non-blocking): ${layoutErr instanceof Error ? layoutErr.message : layoutErr}`);
           }
@@ -1102,7 +1221,7 @@ export async function runNarrativePass(
                     continuityKernel.arcRegistry.find((arc: any) => arc.status !== "closed")?.currentState ?? null,
                     ...continuityKernel.eventLog.slice(0, 3).map((event: any) => event.description),
                     ...previousCharacterStates
-                      .filter((state) => panel.characters.includes(state.identity.stableName ?? ""))
+                      .filter((state) => state.identity.stableName != null && panel.characters.includes(state.identity.stableName))
                       .flatMap((state) => state.continuityObligations),
                   ]),
                 },
@@ -1160,6 +1279,24 @@ export async function runNarrativePass(
                 shotType: panelContract.shotType,
                 purpose: panelContract.purpose,
               });
+
+              const bpRec = panelPremiumBlueprint as Record<string, unknown> | undefined;
+              const panelCast = buildPanelCast({
+                panelCharacterNames: panel.characters ?? [],
+                rawCharacters: rawCharacters as any[],
+                subjectFocus: (bpRec?.subjectFocus as string | undefined) ?? null,
+                speakerName: (bpRec?.speakerAnchorCharacterId as string | undefined)
+                  ? rawCharacters.find((rc: any) => rc.id === bpRec?.speakerAnchorCharacterId)?.name ?? null
+                  : null,
+                propCarrierNames: [],
+                blueprintMustShowIds: Array.isArray(bpRec?.mustShowCharacterIds)
+                  ? (bpRec.mustShowCharacterIds as string[])
+                  : [],
+                blueprintMayShowIds: Array.isArray(bpRec?.mayShowCharacterIds)
+                  ? (bpRec.mayShowCharacterIds as string[])
+                  : [],
+              });
+
               const panelIntentCard: PanelIntentCard = buildPanelIntentCard({
                 purpose: panelContract.purpose,
                 mood: panel.mood,
@@ -1293,7 +1430,17 @@ export async function runNarrativePass(
                             ? ("light" as const)
                             : ("none" as const),
                       recurringMemory,
-                      bodyDetails: c.bodyDetails,
+                      bodyDetails: (() => {
+                        const parts: string[] = [];
+                        if (c.bodyDetails) parts.push(c.bodyDetails);
+                        try {
+                          const { buildBodyStatePromptConstraints, loadOrCreateBodyState } = require("@manga-ai-studio/ai");
+                          const bodyState = loadOrCreateBodyState(c.bodyState);
+                          const constraints = buildBodyStatePromptConstraints(c.name, bodyState);
+                          if (constraints) parts.push(constraints);
+                        } catch { /* physical events module unavailable */ }
+                        return parts.length > 0 ? parts.join("; ") : null;
+                      })(),
                       wardrobeDetails: (() => {
                         const baseParts: string[] = [];
                         if (c.wardrobeDetails) baseParts.push(c.wardrobeDetails);
@@ -1467,27 +1614,38 @@ export async function runNarrativePass(
                   : panelContract;
               })(),
               panelCharacterPlan,
+              panelCast,
               sceneBlueprint,
               effectiveCreativeControls,
               visualPriority: panelContract.purpose === "reveal" ? "critical" : panelContract.shotType === "closeup" ? "high" : "medium",
               chapterLookProfileMode: chapterLookProfile.mode,
               intentCard: panelIntentCard,
               sceneAnchor: panelSceneAnchor,
-              ...(debugPanel ? {
-                panelDebugTrace: {
-                  sourceBeat: panel.caption ?? scene.summary.slice(0, 80),
-                  panelIntent: panelIntentCard.beatEventType,
-                  promptDigest: composedPositive?.slice(0, 120) ?? "",
-                  refsRequested: [],
-                  refsUsed: [],
-                  refsIgnored: [],
-                  charactersExpected: panel.characters,
-                  styleProfileExpected: chapterLookProfile.styleFamily,
+              panelDebugTrace: {
+                sourceBeatId: revisedBundle.outline.beats[index]?.id ?? null,
+                panelCastSummary: panelCast ? {
+                  focus: panelCast.focus?.name ?? null,
+                  supporting: panelCast.supporting.map((m: any) => m.name),
+                  background: panelCast.background.map((m: any) => m.name),
+                } : null,
+                shotPlan: {
+                  shotType: panelContract.shotType ?? null,
+                  cameraAngle: null,
+                  cutawayType: (panelContract as Record<string, unknown>).cutawayType as string | null ?? null,
                 },
-              } : {}),
+                subjectFocus: (panelContract as Record<string, unknown>).subjectFocus as string | null ?? null,
+                refsUsed: [],
+                lorasUsed: [],
+                promptDigest: composedPositive?.slice(0, 240) ?? "",
+                negativeDigest: composedNegative?.slice(0, 120) ?? "",
+                entityResolutions: [],
+                qualityGateResult: null,
+                rerollHistory: [],
+              },
               ...(objectStateTimeline.length > 0 ? {
                 objectStateBeat: objectStateTimeline.filter((frame) => {
-                  const bpBeatIndex = parseInt(frame.beatId?.split("_")[1] ?? "0", 10) - 1;
+                  const beatNumMatch = frame.beatId?.match(/(\d+)/);
+                  const bpBeatIndex = beatNumMatch ? parseInt(beatNumMatch[1], 10) - 1 : -1;
                   return bpBeatIndex === index;
                 }),
               } : {}),
@@ -1539,11 +1697,15 @@ export async function runNarrativePass(
               },
             };
 
-            const created = await tx.sceneImage.create({
-              data: {
-                sceneId: createdScene.id,
-                panelNumber: panel.panelNumber,
-                renderingMode: "PANEL_DRAFT",
+            const existingImage = await tx.sceneImage.findUnique({
+              where: { sceneId_panelNumber: { sceneId: createdScene.id, panelNumber: panel.panelNumber } },
+              select: { id: true, userValidatedAt: true },
+            });
+
+            const panelDebugTraceData = (baseMetadata as Record<string, unknown>).panelDebugTrace ?? null;
+
+            const imageData = {
+                renderingMode: "PANEL_DRAFT" as const,
                 sceneKeyframeId: sceneKeyframe.id,
                 prompt: composedPositive,
                 negativePrompt: composedNegative,
@@ -1552,8 +1714,28 @@ export async function runNarrativePass(
                 height: PANEL_DRAFT_SIZE.height,
                 referenceImageIds: panelCanonRefs as unknown as Prisma.InputJsonValue,
                 metadata: baseMetadata as unknown as Prisma.InputJsonValue,
-              },
-            });
+                panelCast: panelCast as unknown as Prisma.InputJsonValue,
+                debugTrace: (panelDebugTraceData ?? null) as unknown as Prisma.InputJsonValue,
+            };
+
+            let created: { id: string };
+            if (existingImage?.userValidatedAt) {
+              created = existingImage;
+              await tx.sceneImage.update({
+                where: { id: existingImage.id },
+                data: {
+                  metadata: baseMetadata as unknown as Prisma.InputJsonValue,
+                  panelCast: panelCast as unknown as Prisma.InputJsonValue,
+                  debugTrace: (panelDebugTraceData ?? null) as unknown as Prisma.InputJsonValue,
+                },
+              });
+            } else {
+              created = await tx.sceneImage.upsert({
+                where: { sceneId_panelNumber: { sceneId: createdScene.id, panelNumber: panel.panelNumber } },
+                create: { sceneId: createdScene.id, panelNumber: panel.panelNumber, ...imageData },
+                update: imageData,
+              });
+            }
 
             plannedImages.push({
               sceneImageId: created.id,
@@ -1564,7 +1746,7 @@ export async function runNarrativePass(
           }
         }
       },
-      { timeout: 60_000, maxWait: 15_000 },
+      { timeout: 120_000, maxWait: 30_000 },
     );
     await setJobProgress(
       jobId,
@@ -1612,6 +1794,30 @@ export async function runNarrativePass(
           sceneNumber: index + 1,
           sceneStateData,
         });
+
+        // F03/F04: Physical events detection & body state persistence
+        try {
+          const { detectPhysicalEvents, applyPhysicalEvents, loadOrCreateBodyState } = await import("@manga-ai-studio/ai");
+          const sceneText = [scene.summary, ...(scene.dialogue ?? []).map((d: any) => d.text ?? d.line ?? "")].filter(Boolean).join(" ");
+          for (const charName of (scene.characters ?? [])) {
+            const charRecord = rawCharacters.find((c: any) => c.name === charName);
+            if (!charRecord) continue;
+            const events = detectPhysicalEvents(sceneText, charName, chapterId, sceneDbRecord.id);
+            if (events.length > 0) {
+              const currentBodyState = loadOrCreateBodyState(charRecord.bodyState);
+              const updatedBodyState = applyPhysicalEvents(currentBodyState, events);
+              await prisma.character.update({
+                where: { id: charRecord.id },
+                data: { bodyState: updatedBodyState as any },
+              });
+              charRecord.bodyState = updatedBodyState as any;
+              console.log(`[pipeline:physical-events] ${charName}: ${events.map(e => `${e.type}(${e.bodyPart})`).join(", ")}`);
+            }
+          }
+        } catch (physErr) {
+          console.warn(`[pipeline:physical-events] detection failed (non-blocking): ${physErr instanceof Error ? physErr.message : physErr}`);
+        }
+
         const sceneSnapshot = buildSceneSnapshot({
           kernel: continuityKernel,
           chapterId,
@@ -1697,7 +1903,12 @@ export async function runNarrativePass(
     const loraByCharName = new Map<string, { url: string; triggerWord: string; scale: number }>();
     for (const c of rawCharacters) {
       const lora = loraByCharId.get(c.id);
-      if (lora) loraByCharName.set(c.name, lora);
+      if (lora) {
+        if (loraByCharName.has(c.name)) {
+          console.warn(`[pipeline:R06] loraByCharName collision: "${c.name}" already mapped — prefer loraByCharId for id=${c.id}`);
+        }
+        loraByCharName.set(c.name, lora);
+      }
     }
 
   return {
@@ -1721,7 +1932,6 @@ export async function runNarrativePass(
     loraByCharName,
     validatedSceneSnapshots,
     kernelValidationWarnings,
-    debugPanel,
     effectiveCreativeControls,
   };
 }

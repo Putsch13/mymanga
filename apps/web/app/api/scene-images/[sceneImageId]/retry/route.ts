@@ -71,6 +71,11 @@ export async function POST(req: Request, ctx: Ctx) {
   const characters = Array.isArray(metadata.characters) ? (metadata.characters as string[]) : [];
   const savedReferenceIds = Array.isArray(img.referenceImageIds) ? (img.referenceImageIds as string[]) : [];
 
+  const panelCastData = (img.panelCast ?? metadata.panelCast) as {
+    focus?: { characterId: string; name: string } | null;
+    supporting?: Array<{ characterId: string; name: string }>;
+  } | null;
+
   // Reconstruire les LoRAs actifs du projet pour ce panel
   const loraAttachments = await prisma.loraAttachment.findMany({
     where: { projectId, enabled: true },
@@ -89,7 +94,11 @@ export async function POST(req: Request, ctx: Ctx) {
     where: { projectId },
     select: { id: true, name: true, characterFingerprint: true },
   });
-  const panelLoras = characters
+  const castOrderedNames = panelCastData
+    ? [panelCastData.focus?.name, ...(panelCastData.supporting ?? []).map((m) => m.name)].filter((n): n is string => Boolean(n))
+    : characters;
+  const loraSourceNames = castOrderedNames.length > 0 ? castOrderedNames : characters;
+  const panelLoras = loraSourceNames
     .map((name) => {
       const c = projectChars.find((pc) => pc.name === name);
       return c ? loraByCharId.get(c.id) : undefined;
@@ -228,11 +237,49 @@ export async function POST(req: Request, ctx: Ctx) {
     ? (studioData!.productionPlan as Record<string, unknown>).premiumReadinessScore
     : null;
 
-  // Legacy hints for the 5 original modes
+  // Build character-specific retry hints from panelCast + fingerprints
+  const targetCharacterId = new URL(req.url).searchParams.get("targetCharacterId");
+
+  function buildCharacterRetryHints(): { positive: string; negative: string } {
+    const target = targetCharacterId
+      ? projectChars.find((pc) => pc.id === targetCharacterId)
+      : panelCastData?.focus
+        ? projectChars.find((pc) => pc.id === panelCastData.focus!.characterId)
+        : projectChars.find((pc) => characters.includes(pc.name));
+
+    if (!target) {
+      return {
+        positive: "preserve character identity, same face, same hair, same outfit, strict continuity",
+        negative: "wrong hair color, wrong outfit, inconsistent face, identity drift",
+      };
+    }
+
+    const fp = target.characterFingerprint && typeof target.characterFingerprint === "object"
+      ? target.characterFingerprint as Record<string, unknown>
+      : null;
+    const hairColor = typeof fp?.hairColor === "string" ? fp.hairColor : null;
+    const eyeColor = typeof fp?.eyeColor === "string" ? fp.eyeColor : null;
+    const gender = typeof fp?.gender === "string" ? fp.gender : null;
+    const appearance = typeof fp?.appearance === "string" ? fp.appearance : null;
+
+    const traits = [
+      hairColor ? `hair (${hairColor})` : null,
+      eyeColor ? `eyes (${eyeColor})` : null,
+      appearance ? appearance.slice(0, 80) : null,
+    ].filter(Boolean).join(", ");
+
+    return {
+      positive: `preserve ${target.name}'s face${traits ? `, ${traits}` : ""}; strict identity lock on ${target.name}${gender ? `, ${gender}` : ""}`,
+      negative: `wrong face for ${target.name}, identity drift, generic anime face replacing ${target.name}${hairColor ? `, wrong hair color for ${target.name}` : ""}`,
+    };
+  }
+
+  const characterHints = retryMode === "character" ? buildCharacterRetryHints() : null;
+
   const legacyPositiveAugment = retryMode === "environment"
     ? "readable environment, strong background, visible architecture, clear foreground midground background"
     : retryMode === "character"
-      ? "same hero face, same hair, same outfit, preserve continuity"
+      ? characterHints!.positive
       : retryMode === "interaction"
         ? "clear body language, readable interaction, characters connected to environment"
         : retryMode === "style"
@@ -243,7 +290,7 @@ export async function POST(req: Request, ctx: Ctx) {
   const legacyNegativeAugment = retryMode === "environment"
     ? "empty background, studio backdrop, flat grey backdrop, blurry environment"
     : retryMode === "character"
-      ? "wrong hair color, wrong outfit, inconsistent face"
+      ? characterHints!.negative
       : retryMode === "interaction"
         ? "weak social interaction, disconnected characters"
         : retryMode === "style"

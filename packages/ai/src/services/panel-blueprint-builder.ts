@@ -509,15 +509,27 @@ export function buildPanelBlueprintsFromBeat(
     const mustShowCharacterIds: string[] = [];
     const mayShowCharacterIds: string[] = [];
 
-    if (template.heroCenterAllowed && context.heroCharacterId) {
+    if (beat.involvedCharacters && beat.involvedCharacters.length > 0) {
+      const focus = template.subjectFocus;
+      if (focus === "hero" && context.heroCharacterId) {
+        mustShowCharacterIds.push(context.heroCharacterId);
+        mayShowCharacterIds.push(...beat.involvedCharacters.filter((id) => id !== context.heroCharacterId).slice(0, 2));
+      } else if (focus === "enemy" && context.antagonistIds?.length) {
+        mustShowCharacterIds.push(...context.antagonistIds.slice(0, 1));
+        mayShowCharacterIds.push(...beat.involvedCharacters.filter((id) => !context.antagonistIds?.includes(id)).slice(0, 2));
+      } else {
+        mayShowCharacterIds.push(...beat.involvedCharacters.slice(0, 3));
+      }
+    } else if (template.heroCenterAllowed && context.heroCharacterId) {
       mustShowCharacterIds.push(context.heroCharacterId);
-    } else if (beat.involvedCharacters && beat.involvedCharacters.length > 0) {
-      mayShowCharacterIds.push(...beat.involvedCharacters.slice(0, 2));
     }
 
     let speakerAnchorCharacterId: string | null = null;
     if (template.dialogueCarrier === "speaker_visible" && speakerFact) {
-      speakerAnchorCharacterId = speakerFact.actorIds[0] ?? context.heroCharacterId ?? null;
+      speakerAnchorCharacterId = speakerFact.actorIds[0] ?? null;
+      if (!speakerAnchorCharacterId) {
+        console.warn(`[blueprint] speaker_visible but no actorId on speakerFact for beat=${beat.beatId}`);
+      }
     }
 
     const requiredSubjects: string[] = [];

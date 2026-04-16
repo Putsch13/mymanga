@@ -4,7 +4,6 @@ import {
   detectVisualDrift,
   validateGeneratedPanel,
   getFalImageSizePreset,
-  getPremiumImageSize,
   computeFalSceneAssessment,
   validatePreflightPanel,
   runPanelQualityGate,
@@ -40,8 +39,7 @@ import type { PipelineContext } from "../pipeline-types";
 
 const STD_NEGATIVE =
   "blurry, deformed hands, extra limbs, wrong hair color, inconsistent outfit, bad anatomy, watermark, text overlay, low quality, duplicate character";
-const PANEL_DRAFT_SIZE = getPremiumImageSize("PANEL_DRAFT");
-void PANEL_DRAFT_SIZE;
+
 
 type PlannedImage = {
   sceneImageId: string;
@@ -68,6 +66,7 @@ export async function runImageGenerationPass(
     chapterLookProfile: any;
     canonRefByName: Map<string, any>;
     loraByCharName: Map<string, any>;
+    loraByCharId?: Map<string, any>;
     effectiveCreativeControls: any;
   },
 ) {
@@ -88,6 +87,7 @@ export async function runImageGenerationPass(
     chapterLookProfile,
     canonRefByName,
     loraByCharName,
+    loraByCharId,
   } = input;
 
     await setJobProgress(
@@ -350,15 +350,33 @@ export async function runImageGenerationPass(
     // COST-2 : cache des décors purs (environment panels) pour éviter de regénérer le même décor
     const environmentImageCache = new Map<string, string>(); // key: location+mood → imageUrl
 
+    // R08: Anti-repetition — track prompt hashes per scene to detect duplicate prompts
+    const promptHashByScene = new Map<string, string>(); // key: sceneId → last prompt hash (truncated)
+
     async function processOneImage(item: PlannedImage): Promise<"ok" | "fail"> {
       const panelCharacterNames: string[] = item.panel.characters ?? [];
-      const canonRef = panelCharacterNames.map((n) => canonRefByName.get(n)).find(Boolean) ?? null;
+      const itemPanelCast = item.baseMetadata.panelCast as { focus?: { name: string } | null; supporting?: Array<{ name: string }> } | undefined;
+      const castOrderedNames = itemPanelCast
+        ? [itemPanelCast.focus?.name, ...(itemPanelCast.supporting ?? []).map((m) => m.name)].filter((n): n is string => Boolean(n))
+        : panelCharacterNames;
+      const canonRef = castOrderedNames.map((n) => canonRefByName.get(n)).find(Boolean) ?? null;
       const sceneKeyframeUrl = await ensureSceneKeyframeUrl(item);
 
-      const panelLoras = panelCharacterNames
-        .map((n) => loraByCharName.get(n))
-        .filter((l): l is { url: string; triggerWord: string; scale: number } => Boolean(l))
-        .slice(0, 2);
+      // R06: prefer loraByCharId (avoids homonym collision) with panelCast characterId, fallback to name
+      const itemPanelCastFull = item.baseMetadata.panelCast as { focus?: { characterId?: string; name: string } | null; supporting?: Array<{ characterId?: string; name: string }> } | undefined;
+      const panelLoras = (() => {
+        if (loraByCharId && itemPanelCastFull) {
+          const castMembers = [itemPanelCastFull.focus, ...(itemPanelCastFull.supporting ?? [])].filter(Boolean) as Array<{ characterId?: string; name: string }>;
+          return castMembers
+            .map((m) => (m.characterId ? loraByCharId.get(m.characterId) : loraByCharName.get(m.name)) ?? null)
+            .filter((l): l is { url: string; triggerWord: string; scale: number } => Boolean(l))
+            .slice(0, 2);
+        }
+        return castOrderedNames
+          .map((n) => loraByCharName.get(n))
+          .filter((l): l is { url: string; triggerWord: string; scale: number } => Boolean(l))
+          .slice(0, 2);
+      })();
 
       const sceneRefs: string[] = sceneKeyframeUrl ? [sceneKeyframeUrl] : [];
       const sceneReferenceTrace = sceneKeyframeUrl
@@ -759,13 +777,31 @@ export async function runImageGenerationPass(
         };
 
         const baseReferencePolicy = strategy.panelCategory === "ESTABLISHING_ENVIRONMENT" ? "NONE" : (strategy.referencePolicy ?? "LIGHT");
+
+        // R08: Anti-repetition — detect identical consecutive prompts within a scene
+        let effectivePrompt = item.panel.prompt;
+        let antiRepeatSeed: number | undefined;
+        const promptHash = (effectivePrompt ?? "").slice(0, 200);
+        const sceneId = String(item.baseMetadata.sceneId ?? "");
+        const prevHash = promptHashByScene.get(sceneId);
+        if (prevHash && prevHash === promptHash && promptHash.length > 0) {
+          antiRepeatSeed = Math.floor(Math.random() * 2147483647);
+          const shotVariation = item.baseMetadata.panelDebugTrace && typeof (item.baseMetadata.panelDebugTrace as Record<string, unknown>).shotPlan === "object"
+            ? `, ${((item.baseMetadata.panelDebugTrace as Record<string, unknown>).shotPlan as Record<string, unknown>)?.cameraAngle ?? "different angle"}`
+            : ", slightly different camera angle";
+          effectivePrompt = (effectivePrompt ?? "") + shotVariation;
+          console.log(`[pipeline:anti-repeat] panel ${item.panel.panelNumber} hash collision with previous in scene ${sceneId}, applying seed=${antiRepeatSeed}`);
+        }
+        promptHashByScene.set(sceneId, promptHash);
+
         let bestAttempt = await validateAttempt(
           await generateAttempt({
             scenePass: strategy.panelCategory === "ESTABLISHING_ENVIRONMENT" ? "scene_base" : "character_reinforcement",
             referencePolicy: baseReferencePolicy,
-            positivePrompt: item.panel.prompt,
+            positivePrompt: effectivePrompt,
             negativePrompt: item.panel.negativePrompt,
             sizePreset: strategy.sizePreset,
+            seed: antiRepeatSeed,
           }),
           baseReferencePolicy,
         );
@@ -1004,17 +1040,30 @@ export async function runImageGenerationPass(
           bestAttempt.validation.requiredReroll
           || (bestAttempt.validation.qaWasRequired === true && bestAttempt.validation.qaWasExecuted !== true);
 
+        const existingDebugTrace = (item.baseMetadata as Record<string, unknown>).panelDebugTrace as Record<string, unknown> | undefined;
+        const enrichedDebugTrace = existingDebugTrace ? {
+          ...existingDebugTrace,
+          refsUsed: characterRefs.map((r: any) => r.resolvedUrl ?? r.url ?? "").filter(Boolean),
+          lorasUsed: panelLoras.map((l: any) => ({ url: l.url, triggerWord: l.triggerWord, scale: l.scale })),
+          qualityGateResult: {
+            driftScore: bestAttempt.drift.score,
+            driftPass: bestAttempt.drift.pass,
+            validationScore: bestAttempt.validationScore,
+          },
+          rerollHistory: rerollCount > 0 ? [{ count: rerollCount, kind: bestAttempt.rerollKind ?? null }] : [],
+        } : null;
+
         await prisma.sceneImage.update({
           where: { id: item.sceneImageId },
           data: {
             imageUrl: persisted.url,
-            // B1-3 : stocker l'URL persistée (Supabase) séparément de l'URL temporaire fal.ai
             persistedUrl: persisted.persisted ? persisted.url : null,
             provider: finalProvider,
             model: finalModel,
             status: shouldBlockForReview ? "blocked" : "completed",
             consistencyScore: combinedConsistencyScore,
             routingDecision: finalRouting as unknown as Prisma.InputJsonValue,
+            ...(enrichedDebugTrace ? { debugTrace: enrichedDebugTrace as unknown as Prisma.InputJsonValue } : {}),
             metadata: ({
               ...item.baseMetadata,
               generationLog: finalLog,

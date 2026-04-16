@@ -1,14 +1,10 @@
 "use client";
 
-/**
- * READ-3 — WebtoonLazyScroll : scroll infini avec lazy loading via IntersectionObserver.
- * Précharge les images 300px avant qu'elles entrent dans le viewport.
- */
-
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { MangaPanel } from "./manga-panel";
 import type { AnyPanelMood } from "./manga-panel";
-import { BookOpen } from "lucide-react";
+
+/* ── Types ─────────────────────────────────────────────────────── */
 
 interface WebtoonPanel {
   id?: string;
@@ -36,6 +32,8 @@ interface WebtoonPanel {
     slotType?: "wide" | "tall" | "square" | "closeup" | "dialogue";
     targetAspectRatio?: string;
     layoutTemplate?: string;
+    isSplashPage?: boolean;
+    isDoublePage?: boolean;
   };
   pageIndex: number;
 }
@@ -51,26 +49,70 @@ interface WebtoonLazyScrollProps {
   retryingPanel?: string | null;
 }
 
+/* ── Helpers ───────────────────────────────────────────────────── */
 
-export function WebtoonLazyScroll({ pages }: WebtoonLazyScrollProps) {
+const PRELOAD_COUNT = 5;
+const ROOT_MARGIN = "400px 0px";
+
+function isSplash(panel: WebtoonPanel): boolean {
+  return !!(panel.layoutMeta?.isSplashPage || panel.layoutMeta?.isDoublePage);
+}
+
+function SceneSeparator({ index }: { index: number }) {
+  return (
+    <div className="flex flex-col items-center gap-3 py-6">
+      <div className="h-px w-2/3 bg-gradient-to-r from-transparent via-zinc-600 to-transparent" />
+      <span className="flex items-center gap-2 text-[11px] font-medium tracking-widest text-zinc-500 uppercase">
+        <span className="inline-block h-1.5 w-1.5 rounded-full bg-zinc-500" />
+        Scène {index}
+      </span>
+    </div>
+  );
+}
+
+function ChapterEnd() {
+  return (
+    <div className="flex flex-col items-center gap-4 pb-8 pt-12">
+      <div className="h-px w-1/2 bg-gradient-to-r from-transparent via-zinc-600 to-transparent" />
+      <p className="text-sm font-light tracking-wide text-zinc-500">
+        Fin du chapitre
+      </p>
+    </div>
+  );
+}
+
+function PanelSkeleton({ aspectRatio }: { aspectRatio: string }) {
+  return (
+    <div
+      className="w-full animate-pulse rounded-2xl bg-neutral-900/80"
+      style={{ aspectRatio }}
+    />
+  );
+}
+
+/* ── Main component ────────────────────────────────────────────── */
+
+export default function WebtoonLazyScroll({ pages }: WebtoonLazyScrollProps) {
   const observerRef = useRef<IntersectionObserver | null>(null);
   const [visiblePanels, setVisiblePanels] = useState<Set<string>>(new Set());
+  const [revealedPanels, setRevealedPanels] = useState<Set<string>>(new Set());
 
-  // Initialiser le premier écran visible
+  // Preload first N panels immediately
   useEffect(() => {
-    const initialVisible = new Set<string>();
+    const initial = new Set<string>();
     let count = 0;
     outer: for (const page of pages) {
       for (const [pIdx, panel] of page.panels.entries()) {
-        initialVisible.add(panel.id ?? `0-${pIdx}`);
-        count++;
-        if (count >= 4) break outer; // Précharger les 4 premiers panels immédiatement
+        initial.add(panel.id ?? `0-${pIdx}`);
+        if (++count >= PRELOAD_COUNT) break outer;
       }
     }
-    setVisiblePanels(initialVisible);
+    setVisiblePanels(initial);
+    // Reveal first panels with a tiny delay so the transition plays
+    requestAnimationFrame(() => setRevealedPanels(initial));
   }, [pages]);
 
-  // IntersectionObserver pour le lazy loading
+  // IntersectionObserver — lazy load + reveal trigger
   useEffect(() => {
     observerRef.current = new IntersectionObserver(
       (entries) => {
@@ -83,86 +125,104 @@ export function WebtoonLazyScroll({ pages }: WebtoonLazyScrollProps) {
         });
         if (toAdd.length > 0) {
           setVisiblePanels((prev) => new Set([...prev, ...toAdd]));
+          requestAnimationFrame(() =>
+            setRevealedPanels((prev) => new Set([...prev, ...toAdd])),
+          );
         }
       },
-      { rootMargin: "350px 0px", threshold: 0 },
+      { rootMargin: ROOT_MARGIN, threshold: 0 },
     );
-
-    return () => {
-      observerRef.current?.disconnect();
-    };
+    return () => observerRef.current?.disconnect();
   }, []);
 
-  const registerEl = (el: HTMLDivElement | null) => {
-    if (el && observerRef.current) {
-      observerRef.current.observe(el);
-    }
-  };
+  const registerEl = useCallback((el: HTMLDivElement | null) => {
+    if (el && observerRef.current) observerRef.current.observe(el);
+  }, []);
+
+  // Flatten pages into a sequence of renderable items
+  let sceneCounter = 0;
+  let prevPageId: string | null = null;
 
   return (
-    <div className="mx-auto w-full max-w-[860px]">
-      <div className="space-y-12 md:space-y-16">
-        {pages.map((page, pageIdx) => (
-          <section
-            key={page.id ?? `page-${pageIdx}`}
-            className="space-y-4 rounded-[32px] border border-white/5 bg-white/[0.02] px-2 py-4 sm:px-4"
-          >
-            {/* Badge page sticky */}
-            <div className="sticky top-3 z-20 mx-auto flex w-fit items-center gap-2 rounded-full border border-white/10 bg-black/60 px-3 py-1 text-xs text-stone-200 backdrop-blur">
-              <BookOpen className="h-3.5 w-3.5 text-accent" />
-              <span>Page {pageIdx + 1}</span>
-            </div>
+    <div className="relative mx-auto w-full max-w-[860px]">
+      {/* Top fade gradient */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-24 bg-gradient-to-b from-black/60 to-transparent" />
 
-            {/* Panels avec lazy loading */}
-            <div className="space-y-6 md:space-y-8">
+      <div className="space-y-5 md:space-y-7">
+        {pages.map((page, pageIdx) => {
+          const showSeparator = prevPageId !== null && page.id !== prevPageId;
+          if (showSeparator) sceneCounter++;
+          prevPageId = page.id;
+          const separatorIdx = sceneCounter;
+
+          return (
+            <div key={page.id ?? `page-${pageIdx}`}>
+              {showSeparator && <SceneSeparator index={separatorIdx} />}
+
               {page.panels.map((panel, panelIdx) => {
                 const panelKey = panel.id ?? `${pageIdx}-${panelIdx}`;
                 const isLoaded = visiblePanels.has(panelKey);
-                const aspectRatio = panel.layoutMeta?.targetAspectRatio ?? "3/4";
-                const [w, h] = aspectRatio.split(/[:/]/).map(Number);
-                const aspectNum = (w && h) ? `${w}/${h}` : "3/4";
+                const isRevealed = revealedPanels.has(panelKey);
+                const splash = isSplash(panel);
+
+                const raw = panel.layoutMeta?.targetAspectRatio ?? "3/4";
+                const [w, h] = raw.split(/[:/]/).map(Number);
+                const aspectNum = w && h ? `${w}/${h}` : "3/4";
 
                 return (
                   <div
-                    key={panel.id ?? `${pageIdx}-${panelIdx}`}
+                    key={panelKey}
                     ref={registerEl}
-                    data-panel-id={panel.id ?? `${pageIdx}-${panelIdx}`}
+                    data-panel-id={panelKey}
+                    className={`transition-all duration-700 ease-out ${
+                      isRevealed
+                        ? "translate-y-0 opacity-100"
+                        : "translate-y-6 opacity-0"
+                    } ${!splash ? "px-2 sm:px-4" : ""}`}
+                    style={{ marginBottom: "1.25rem" }}
                   >
                     {isLoaded ? (
-                      <MangaPanel
-                        mood={panel.mood ?? "dramatic"}
-                        imageUrl={panel.imageUrl}
-                        status={panel.status}
-                        provider={panel.provider}
-                        model={panel.model}
-                        error={panel.error ?? undefined}
-                        sceneImageId={panel.sceneImageId ?? panel.id ?? ""}
-                        dialogue={typeof panel.dialogue === "object" && panel.dialogue !== null ? panel.dialogue.text : undefined}
-                        dialogues={panel.dialogues}
-                        speaker={panel.speaker ?? undefined}
-                        narration={panel.narration ?? undefined}
-                        sfx={panel.sfx ?? undefined}
-                        caption={panel.caption ?? undefined}
-                        textScale={panel.textScale}
-                        renderMeta={panel.renderMeta}
-                        layoutMeta={panel.layoutMeta}
-                        renderMode="webtoon"
-                        panelIndex={panelIdx}
-                      />
+                      <div className={splash ? "" : "overflow-hidden rounded-2xl border border-white/5"}>
+                        <MangaPanel
+                          mood={panel.mood ?? "dramatic"}
+                          imageUrl={panel.imageUrl}
+                          status={panel.status}
+                          provider={panel.provider}
+                          model={panel.model}
+                          error={panel.error ?? undefined}
+                          sceneImageId={panel.sceneImageId ?? panel.id ?? ""}
+                          dialogue={
+                            typeof panel.dialogue === "object" && panel.dialogue !== null
+                              ? panel.dialogue.text
+                              : undefined
+                          }
+                          dialogues={panel.dialogues}
+                          speaker={panel.speaker ?? undefined}
+                          narration={panel.narration ?? undefined}
+                          sfx={panel.sfx ?? undefined}
+                          caption={panel.caption ?? undefined}
+                          textScale={panel.textScale}
+                          renderMeta={panel.renderMeta}
+                          layoutMeta={panel.layoutMeta}
+                          renderMode="webtoon"
+                          panelIndex={panelIdx}
+                        />
+                      </div>
                     ) : (
-                      // Skeleton placeholder avec aspect ratio correct
-                      <div
-                        className="w-full rounded-lg bg-neutral-900 animate-pulse"
-                        style={{ aspectRatio: aspectNum }}
-                      />
+                      <PanelSkeleton aspectRatio={aspectNum} />
                     )}
                   </div>
                 );
               })}
             </div>
-          </section>
-        ))}
+          );
+        })}
+
+        <ChapterEnd />
       </div>
     </div>
   );
 }
+
+export { WebtoonLazyScroll };
+export type { WebtoonLazyScrollProps, WebtoonPage, WebtoonPanel };

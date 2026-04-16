@@ -302,6 +302,8 @@ model ProjectSettings {
   dialogueDensity    Int      @default(0)
   maxTokensPerJob    Int      @default(10000)
   canonStrictness    Int      @default(80)
+  /// T12 : feature flag pipeline version
+  pipelineVersion    String   @default("v1")
 }
 
 model StylePack {
@@ -650,6 +652,8 @@ model ChapterScene {
   npcVisualProfiles NpcVisualProfile[]
   falTraces  FalTrace[]
   sceneState SceneState?
+
+  @@unique([chapterId, sceneNumber])
 }
 
 model SceneImage {
@@ -683,7 +687,15 @@ model SceneImage {
   maxRetries         Int             @default(2)
   // B1-3 : URL persistée dans Supabase (stable, pas temporaire fal.ai)
   persistedUrl       String?
+  /// T03 : contrat unique "qui est dans ce panel et pourquoi" — source de vérité cast
+  panelCast          Json?
+  /// T08 : panels validés par l'utilisateur ne sont pas écrasés lors de la régénération
+  userValidatedAt    DateTime?
+  /// T13 : debug trace always persisted per panel
+  debugTrace         Json?
   falTraces          FalTrace[]
+
+  @@unique([sceneId, panelNumber])
 }
 
 model MediaAsset {
@@ -953,6 +965,8 @@ model Job {
   startedAt          DateTime?
   finishedAt         DateTime?
   createdAt          DateTime  @default(now())
+  /// T12 : tag pipeline version for A/B comparison
+  pipelineVersion    String    @default("v1")
 }
 
 model Wallet {
@@ -1246,5 +1260,27 @@ model SpeciesArchetype {
   updatedAt        DateTime @updatedAt
 
   @@unique([projectId, labelNormalized])
+  @@index([projectId])
+}
+
+// T05 — EntityCanonCache : cache LLM de résolution d'entités inconnues
+model EntityCanonCache {
+  id                  String   @id @default(cuid())
+  projectId           String
+  canonicalName       String
+  entityKind          String
+  speciesLabel        String?
+  dialogueMode        String
+  recurrencePolicy    String
+  typicalAppearance   String   @default("")
+  canonicalVisualCore String   @default("")
+  confidence          Float
+  source              String
+  appearanceCount     Int      @default(0)
+  firstSeenChapterId  String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([projectId, canonicalName])
   @@index([projectId])
 }

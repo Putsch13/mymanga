@@ -10,3 +10,5 @@ export * from "./visual-persistence";
 export * from "./chapter-studio";
 export * from "./chapter-look-profile";
 export * from "./narrative-facts";
+export * from "./panel-cast";
+export * from "./shot-plan";
