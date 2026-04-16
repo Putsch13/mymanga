@@ -23,7 +23,7 @@ describe("premium image targets — 75 minimum", () => {
 
   it("pipeline defaults to 75 in recovery pass", () => {
     const source = fs.readFileSync(
-      path.resolve(__dirname, "run-full-chapter-pipeline.ts"),
+      path.resolve(__dirname, "passes/image-generation-pass.ts"),
       "utf-8",
     );
     // Find the minimumImages fallback in the recovery section
