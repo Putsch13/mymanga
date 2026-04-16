@@ -128,6 +128,7 @@ export function buildRoutingContext(
   panelCharacterImportanceTiers: Array<"MAIN_HERO" | "SECONDARY_CORE" | "IMPORTANT_SUPPORTING_CHARACTER" | "RECURRING_NPC" | "BACKGROUND_EXTRA"> = [],
   chapterLookProfileMode?: string | null,
   beatEventType?: string | null,
+  subjectFocus?: RoutingContext["subjectFocus"],
 ): RoutingContext {
   const text = `${panel.camera} ${panel.caption} ${panel.prompt}`.toLowerCase();
   const heroPresent = panelCharacterRoles.some((role) => /hero|protagon|main_hero|héros|heros/i.test(role));
@@ -186,6 +187,7 @@ export function buildRoutingContext(
       intensityLayer === "ADULT_EXPLICIT",
     chapterLookProfileMode: chapterLookProfileMode ?? null,
     beatEventType: beatEventType ?? null,
+    subjectFocus: subjectFocus ?? null,
   };
 }
 

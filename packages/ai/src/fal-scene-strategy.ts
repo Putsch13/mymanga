@@ -85,8 +85,16 @@ export function computeFalSceneAssessment(ctx: RoutingContext): FalSceneAssessme
     panelCategory = "CHARACTER_LOCK";
   } else if (ctx.needsInpaint || ctx.mode === "INPAINT_FIX" || ctx.needsPoseVariation || ctx.mode === "POSE_LOCK_VARIATION") {
     panelCategory = "LOCAL_FIX";
-  } else if (environmentCritical || crowdCritical || ctx.purpose === "establishing") {
+  } else if (ctx.subjectFocus === "environment" || ctx.subjectFocus === "aftermath") {
     panelCategory = "ESTABLISHING_ENVIRONMENT";
+  } else if (ctx.subjectFocus === "npc" || ctx.subjectFocus === "enemy" || ctx.subjectFocus === "group") {
+    panelCategory = "CHARACTER_IN_SCENE";
+  } else if (ctx.subjectFocus === "hero") {
+    panelCategory = "CHARACTER_LOCK";
+  } else if (environmentCritical || ctx.purpose === "establishing") {
+    panelCategory = "ESTABLISHING_ENVIRONMENT";
+  } else if (crowdCritical) {
+    panelCategory = "CHARACTER_IN_SCENE";
   }
 
   const sceneArchetype: FalBenchmarkSceneId | "generic" =

@@ -57,6 +57,10 @@ MAPPINGS CULTURELS OBLIGATOIRES :
 - "magie", "pouvoir", "transformation", "éveil" → reveal + mystical
 
 MAPPINGS PAR GENRE :
+- Fantasy / Magie : "révélation magique", "canaliser sa magie", "pouvoir magique" → reveal + prop_presence(magic_aura)
+- "maîtriser ses pouvoirs", "éveil de pouvoir" → action + reveal
+- "gardienne", "ancienne lignée", "héritier(e)" → reveal + emotional_reaction
+- "lumière magique", "éclair", "aura", "énergie" → prop_presence(magic_aura), location_emphasis
 - Fantasy : gardes = knights/guards enemy | magie = reveal
 - Cyberpunk : sécurité/drone = enemy_presence | piratage = prop_usage(laptop)
 - Shonen combat : rival = enemy_presence | entraînement = action

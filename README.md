@@ -56,9 +56,12 @@ Monorepo full-stack pour generer des chapitres manga/webtoon coherents avec memo
 ### Images & Vision QA
 - Provider principal : fal.ai (FLUX dev, LoRA, Redux)
 - Secondaires : Runware, BFL, Stability
-- Routing scene-first avec complexite, reference policy, categories de panel
-- Vision QA auto-activee sur panels critiques (environment/continuity critical, complexite >= 0.8)
-- Rerolls cibles : decor, fidelite personnage, interaction, style, composition
+- Routing scene-first avec `subjectFocus` du blueprint (hero, npc, enemy, environment, group) prioritaire sur les heuristiques
+- `crowdCritical` route vers `CHARACTER_IN_SCENE` (pas `ESTABLISHING_ENVIRONMENT`)
+- Vision QA auto-activee sur panels critiques, throttle 80 appels/min
+- Rerolls cibles : decor, fidelite personnage, interaction (seulement si vision QA executee), style, composition
+- Detection effets magiques : signaux dans le fact extractor, section dediee dans le prompt composer
+- Drift detector : word-boundary matching pour eviter les faux positifs de genre
 
 ### Autofill IA
 - Completion automatique des champs manquants du studio

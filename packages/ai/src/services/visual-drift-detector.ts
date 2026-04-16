@@ -135,7 +135,7 @@ function normalize(value: string): string {
 }
 
 function includesWord(text: string, words: string[]) {
-  return words.some((word) => text.includes(` ${word} `) || text.startsWith(`${word} `) || text.endsWith(` ${word}`) || text === word);
+  return words.some((word) => new RegExp(`\\b${word}\\b`).test(text));
 }
 
 function splitTraitPhrases(value: string | null | undefined, limit = 3) {

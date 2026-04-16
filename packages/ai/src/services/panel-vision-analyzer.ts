@@ -28,6 +28,24 @@ function asStringArray(value: unknown) {
     : [];
 }
 
+let visionCallsThisMinute = 0;
+let visionWindowStart = Date.now();
+const VISION_MAX_PER_MINUTE = 80;
+
+async function throttledVisionCall<T>(fn: () => Promise<T>): Promise<T | null> {
+  const now = Date.now();
+  if (now - visionWindowStart > 60_000) {
+    visionCallsThisMinute = 0;
+    visionWindowStart = now;
+  }
+  if (visionCallsThisMinute >= VISION_MAX_PER_MINUTE) {
+    console.warn(`[panel-vision] throttled — ${visionCallsThisMinute} calls this minute`);
+    return null;
+  }
+  visionCallsThisMinute++;
+  return fn();
+}
+
 export async function analyzePanelWithVision(input: {
   imageUrl: string;
   heuristicReleaseScore: number;
@@ -100,7 +118,7 @@ export async function analyzePanelWithVision(input: {
   };
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const throttledResult = await throttledVisionCall(() => fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -132,7 +150,9 @@ export async function analyzePanelWithVision(input: {
           },
         ],
       }),
-    });
+    }));
+    if (!throttledResult) return null;
+    const response = throttledResult;
 
     if (!response.ok) {
       const errorText = await response.text();

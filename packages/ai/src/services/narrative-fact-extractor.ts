@@ -203,6 +203,16 @@ const REACTION_SIGNALS = [
   "speechless", "in disbelief", "overwhelmed",
 ];
 
+const MAGIC_SIGNALS = [
+  "magie", "magique", "pouvoir", "aura", "énergie", "sort", "incantation",
+  "lumière magique", "révélation magique", "éclair magique", "explosion magique",
+  "maîtriser ses pouvoirs", "canaliser", "gardienne magique", "gardien magique",
+  "éveil", "éveille", "transformation magique", "talisman", "artefact magique",
+  "spell", "magic", "power awakening", "energy blast", "glow", "supernatural",
+  "sorcellerie", "enchantement", "invocation", "rituel", "rune", "sceau magique",
+  "mana", "arcane", "mystique", "aura magique", "énergie magique",
+];
+
 const CONFRONTATION_SIGNALS = [
   "affronte", "affronter", "duel", "combat", "face à face",
   "confronte", "confronter", "s'oppose", "s'opposer",
@@ -497,6 +507,23 @@ export function inferNarrativeFactsFromBeat(
       evidenceStrength: 0.95,
       source: "inference",
       notes: ["confrontation signal detected"],
+    });
+  }
+
+  // Magie / pouvoirs / effets surnaturels
+  if (matchesAny(text, MAGIC_SIGNALS)) {
+    facts.push({
+      id: generateId("fact_magic", beat.beatId, idx++),
+      beatId: beat.beatId,
+      type: "reveal",
+      actorIds: beat.involvedCharacters ?? [],
+      targetIds: [],
+      propCandidates: ["magic_aura", "energy_blast", "magical_glow"],
+      locationSignals: beat.environmentContext ?? [],
+      requiredVisibility: "must_show",
+      evidenceStrength: 0.9,
+      source: "inference",
+      notes: ["magic/supernatural signal detected"],
     });
   }
 

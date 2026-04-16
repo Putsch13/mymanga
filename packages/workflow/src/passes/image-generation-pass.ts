@@ -10,6 +10,7 @@ import {
   runPanelQualityGate,
   getMaxRerolls,
   type StoryboardPanel,
+  type RoutingContext,
 } from "@manga-ai-studio/ai";
 import {
   classifyPanelCriticality,
@@ -511,6 +512,7 @@ export async function runImageGenerationPass(
           return "fail";
         }
         const itemIntentCardMeta = item.baseMetadata.intentCard as { beatEventType?: string } | undefined;
+        const blueprintMeta = item.baseMetadata.premiumBlueprint as Record<string, unknown> | undefined;
         const routingCtx = buildRoutingContext(
           intensityLayer,
           item.panel,
@@ -522,6 +524,7 @@ export async function runImageGenerationPass(
           panelCharacterTiers,
           typeof item.baseMetadata.chapterLookProfileMode === "string" ? item.baseMetadata.chapterLookProfileMode : chapterLookProfile.mode,
           itemIntentCardMeta?.beatEventType ?? null,
+          (blueprintMeta?.subjectFocus as RoutingContext["subjectFocus"]) ?? null,
         );
         const strategy = computeFalSceneAssessment(routingCtx);
         const panelCriticality = classifyPanelCriticality({
@@ -580,7 +583,7 @@ export async function runImageGenerationPass(
           return !(
             scores.backgroundPresenceScore < 0.62
             || scores.environmentReadabilityScore < 0.6
-            || (strategy.interactionCritical && scores.interactionScore < 0.58)
+            || (strategy.interactionCritical && scores.interactionScore < 0.58 && scores.visionScore !== null)
             || (schoolScene && /missing school architecture|generic background|fond vide/.test(visionFindings))
           );
         };
@@ -592,7 +595,7 @@ export async function runImageGenerationPass(
           const scores = validation.qualityScores;
           if (!scores) return "REROLL_COMPOSITION";
           if (scores.backgroundPresenceScore < 0.62 || scores.environmentReadabilityScore < 0.6) return "REROLL_ENVIRONMENT";
-          if (strategy.interactionCritical && scores.interactionScore < 0.58) return "REROLL_INTERACTION";
+          if (strategy.interactionCritical && scores.interactionScore < 0.58 && scores.visionScore !== null) return "REROLL_INTERACTION";
           if (!driftPass || validation.issues.some((issue) => issue.type === "missing_character" || issue.type === "wrong_hair" || issue.type === "wrong_outfit")) {
             return "REROLL_CHARACTER_FIDELITY";
           }

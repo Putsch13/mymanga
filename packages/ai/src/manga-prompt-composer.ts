@@ -510,6 +510,15 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     addSection("beatEffects", "Beat FX / Manga Effects", BEAT_TYPE_ADDONS[input.beatType]);
   }
 
+  // Magic / supernatural effects detection from action text
+  const magicKeywords = /\b(magi[ceq]|spell|aura|energy|glow|power|supernatural|incantation|sorcell|enchant|invoc|rituel|rune|arcane|mystique|mana)\b/i;
+  if (magicKeywords.test(input.action ?? "") || magicKeywords.test(input.sceneContext ?? "")) {
+    addSection("magicEffect", "Magic Effects",
+      "magical energy visible and readable, aura or glow effect emanating from character hands or body, " +
+      "speed lines from magic source, dramatic light burst, energy particles, mystical light rays, " +
+      "manga magical effect, screen tone burst for reveal, radial lines from power source");
+  }
+
   // STYLE-1 + IMG-3 : Style anchor renforcé — cohérence intra-chapitre obligatoire
   if (input.chapterStyleAnchor) {
     const styleEnforcement = [
