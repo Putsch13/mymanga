@@ -20,6 +20,8 @@ export interface PanelBlueprintContext {
   chapterNumber?: number;
   projectGenre?: string | null;
   projectTone?: string | null;
+  antagonistNames?: string[];
+  antagonistIds?: string[];
 }
 
 // ─── Détection du type de beat ────────────────────────────────────────────────
@@ -518,6 +520,20 @@ export function buildPanelBlueprintsFromBeat(
       speakerAnchorCharacterId = speakerFact.actorIds[0] ?? context.heroCharacterId ?? null;
     }
 
+    const requiredSubjects: string[] = [];
+    if (template.mustShowEnemy || (enemyFact !== undefined && idx === 0)) {
+      requiredSubjects.push("enemy", "guard", "soldier", "antagonist");
+      if (Array.isArray(context.antagonistNames)) {
+        requiredSubjects.push(...context.antagonistNames.slice(0, 2).map(n => n.toLowerCase()));
+      }
+    }
+    if (template.subjectFocus === "npc" || template.requiredNpcCount > 0) {
+      requiredSubjects.push("npc", "crowd");
+    }
+    if (template.subjectFocus === "environment" || template.subjectFocus === "aftermath") {
+      requiredSubjects.push("background", "environment");
+    }
+
     blueprints.push({
       panelId,
       beatId: beat.beatId,
@@ -548,6 +564,7 @@ export function buildPanelBlueprintsFromBeat(
       heroCenterAllowed: template.heroCenterAllowed,
       criticality: template.criticality,
       notes: [],
+      requiredSubjects,
     });
   });
 

@@ -340,8 +340,8 @@ export function detectVisualDrift(input: DriftCheckInput): DriftCheckResult {
   const conflictingTraits: DriftTraitMismatch[] = [];
   let hardTraitsMissing = 0;
 
-  if (input.usedLoras) score = Math.min(score + 8, 100);
-  if (input.usedRefs) score = Math.min(score + 7, 100);
+  if (input.usedLoras) score = Math.min(score + 10, 100);
+  if (input.usedRefs) score = Math.min(score + 8, 100);
 
   for (const character of input.characters) {
     const visualAnchors = [
@@ -475,13 +475,15 @@ export function detectVisualDrift(input: DriftCheckInput): DriftCheckResult {
   const sceneContinuityScore = computeSceneContinuityScore(normalizedPrompt, input.sceneAnchor);
   const chapterLookMismatch = styleDriftScore < 60;
 
-  // Score global pondéré
-  const globalScore = Math.round(
-    score * 0.5
-    + styleDriftScore * 0.2
-    + beatAlignmentScore * 0.2
-    + sceneContinuityScore * 0.1,
-  );
+  const hasExtraContext = !!input.chapterLookProfile || !!input.intentCard || !!input.sceneAnchor;
+  const globalScore = hasExtraContext
+    ? Math.round(
+        score * 0.5
+        + styleDriftScore * 0.2
+        + beatAlignmentScore * 0.2
+        + sceneContinuityScore * 0.1,
+      )
+    : score;
 
   const severity = scoreToSeverity(globalScore);
   const pass = globalScore >= 60 && conflictingTraits.length === 0 && !chapterLookMismatch;

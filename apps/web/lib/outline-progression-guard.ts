@@ -31,6 +31,8 @@ function extractKeywords(text: string): Set<string> {
     "que", "il", "elle", "ils", "elles", "je", "tu", "nous", "vous", "on",
     "par", "pour", "sur", "dans", "avec", "sans", "mais", "car", "donc",
     "ni", "ne", "pas", "plus", "très", "bien", "tout", "même", "alors",
+    "va", "fait", "dit", "voit", "peut", "doit", "veut", "sait", "vient",
+    "part", "reste", "tente",
   ]);
   return new Set(
     normalized.split(" ").filter((w) => w.length > 3 && !stopWords.has(w)),

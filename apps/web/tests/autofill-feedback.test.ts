@@ -91,12 +91,12 @@ describe("autofill/route — feedback clair", () => {
     expect(json.blockedMessage).toContain("pitch");
   });
 
-  it("bloque l'autofill all_missing si le pitch est trop court (< 10 chars)", async () => {
+  it("bloque l'autofill all_missing si le pitch est trop court (< 5 chars)", async () => {
     prismaMock.chapter.findFirst.mockResolvedValue({
       id: "ch1",
       chapterNumber: 1,
       title: "Chapitre 1",
-      outline: { studio: { data: { intent: { shortPitch: "court" } } } },
+      outline: { studio: { data: { intent: { shortPitch: "abc" } } } },
     });
 
     const res = await callAutofill({ mode: "all_missing", force: false });

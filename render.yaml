@@ -12,8 +12,6 @@ services:
     startCommand: pnpm --filter @manga-ai-studio/web start
     healthCheckPath: /api/diagnostics/public
     envVars:
-      - key: NODE_ENV
-        value: production
       - key: DATABASE_URL
         sync: false
       - key: NEXT_PUBLIC_SUPABASE_URL

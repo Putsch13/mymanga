@@ -66,7 +66,7 @@ export type RepeatWindow = {
 export function detectRepeatedBeatWindows(beats: string[]): RepeatWindow[] {
   const windows: RepeatWindow[] = [];
   // Seuils relevés pour éviter les faux positifs sur des beats de 8-12 mots
-  const DIRECT_REPEAT_THRESHOLD = 0.72; // était 0.65
+  const DIRECT_REPEAT_THRESHOLD = 0.68;
   const LOOP_THRESHOLD = 0.60;          // était 0.45 → faux positifs systématiques beat 7-9 vs beat 1-3
 
   for (let i = 1; i < beats.length; i++) {
