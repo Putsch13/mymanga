@@ -66,7 +66,6 @@ export async function runImageGenerationPass(
     plannedImages: any[];
     chapterLookProfile: any;
     canonRefByName: Map<string, any>;
-    loraByCharId: Map<string, any>;
     loraByCharName: Map<string, any>;
     effectiveCreativeControls: any;
   },

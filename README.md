@@ -34,7 +34,11 @@ Monorepo full-stack pour generer des chapitres manga/webtoon coherents avec memo
 - Moteur de resolution adaptatif : catalogue local + generation IA
 - Endpoint API `/api/projects/[id]/npc-resolve`
 
-### Pipeline chapitre
+### Pipeline chapitre (3 passes modulaires)
+- Orchestrateur mince (~220 lignes) : setup DB → 3 appels sequentiels
+- **Narrative pass** (~1730 lignes) : contexte projet, bundle (outline + script + storyboard), coherence, persistance scenes, continuity engine
+- **Image generation pass** (~1430 lignes) : boucle FAL, retry policy, shot compliance, coverage, recovery, cover art, quality report
+- **Memory pass** (~200 lignes) : canon warnings, snapshot, memoire persistante, continuity diff, finalisation job
 - Outline structuree avec arc promises, world consequences, setup/payoff hooks
 - 21 types de beats narratifs (setup, escalation, villain_introduction, flashback_trigger, body_horror_reveal…)
 - Modes narratifs : linear, flashback_framed, flash_forward_framed, in_medias_res
@@ -73,8 +77,12 @@ flowchart TB
   API --> ING[Inngest]
   API --> STRIPE[Stripe]
   DB --> MEM[Memory + Continuity]
-  MEM --> WF[Workflow chapitre]
-  WF --> IMG[Generation image + validation + reroll]
+  MEM --> ORCH[Orchestrateur pipeline]
+  ORCH --> NP[Narrative pass]
+  ORCH --> IP[Image generation pass]
+  ORCH --> MP[Memory pass]
+  NP --> IP
+  IP --> MP
 ```
 
 Stack :
@@ -93,7 +101,7 @@ Stack :
 MYMANGA/
 ├── apps/web/                   # App Next.js, UI et routes API
 ├── packages/ai/                # Prompts, image routing, QA vision, fingerprints, genre director
-├── packages/workflow/          # Pipeline chapitre complet
+├── packages/workflow/          # Pipeline chapitre (orchestrateur + 3 passes modulaires)
 ├── packages/world/             # SceneBlueprint, ontologies NPC/creatures, NPC resolver
 ├── packages/continuity/        # Canon, snapshots, diff, validation
 ├── packages/memory/            # RAG, scene extras, memoire persistante

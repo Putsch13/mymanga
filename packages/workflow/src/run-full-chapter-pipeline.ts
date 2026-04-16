@@ -142,17 +142,11 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       adultEngine,
       finalPanelBlueprints,
       plannedImages,
-      chapterGenreMode,
-      chapterGenreConfig,
       chapterLookProfile,
-      sceneAnchorByIndex,
-      romanceDirectionByScene,
       canonRefByName,
-      loraByCharId,
       loraByCharName,
       validatedSceneSnapshots,
       kernelValidationWarnings,
-      debugPanel,
     } = narrativeResult;
 
     // ── Étape 4 : Génération des images réelles via FAL ────────────────────
@@ -173,7 +167,6 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         plannedImages,
         chapterLookProfile,
         canonRefByName,
-        loraByCharId,
         loraByCharName,
         effectiveCreativeControls,
       },
