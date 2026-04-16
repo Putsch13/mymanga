@@ -13,11 +13,14 @@ export const FAL_MODEL_SCHNELL = "fal-ai/flux/schnell";
  * flux/dev ($0.025) uniquement pour les panels critical/high et les character refs.
  * Économie attendue : ~70% du coût image.
  */
+export const FAL_MODEL_REALISM = "fal-ai/flux-realism";
+
 export function resolveOptimalFalModel(
   criticality: string | null | undefined,
   panelCategory: string | null | undefined,
   referencePolicy: string | null | undefined,
   rerollKind: string | null | undefined,
+  contentIntensityLayer?: string | null,
 ): { model: string; numSteps: number; usedSchnell: boolean } {
   // Toujours flux/dev pour les panels critiques, les character locks, les refs fortes et la cover
   const forceHighQuality =
@@ -45,6 +48,11 @@ export function resolveOptimalFalModel(
     criticality === "low"
   ) {
     return { model: FAL_MODEL_SCHNELL, numSteps: 4, usedSchnell: true };
+  }
+
+  // ADULT_EXPLICIT text2img : flux-realism (moins filtré que flux/dev)
+  if (contentIntensityLayer === "ADULT_EXPLICIT") {
+    return { model: FAL_MODEL_REALISM, numSteps: 28, usedSchnell: false };
   }
 
   // Par défaut : flux/dev
@@ -141,10 +149,14 @@ export function isValidCharacterReference(
 }
 
 export function buildFalGenerationRequest(input: GenerateImageInput) {
+  const contentLayer = typeof input.providerParams?.contentIntensityLayer === "string"
+    ? input.providerParams.contentIntensityLayer
+    : null;
   const isMature =
-    input.providerParams?.contentIntensityLayer === "MATURE_DRAMA" ||
-    input.providerParams?.contentIntensityLayer === "MATURE_VISUAL" ||
-    input.providerParams?.contentIntensityLayer === "ADULT_EXPLICIT";
+    contentLayer === "MATURE_DRAMA" ||
+    contentLayer === "MATURE_VISUAL" ||
+    contentLayer === "ADULT_EXPLICIT";
+  const isExplicit = contentLayer === "ADULT_EXPLICIT";
   const isCover =
     String(input.providerParams?.mode ?? "").includes("COVER") ||
     String(input.providerParams?.mode ?? "").includes("LOCATION");
@@ -159,7 +171,7 @@ export function buildFalGenerationRequest(input: GenerateImageInput) {
   const panelCriticality = typeof input.providerParams?.panelCriticality === "string" ? input.providerParams.panelCriticality : null;
 
   // COST-1 : résolution du modèle optimal (schnell vs dev selon criticité)
-  const optimalModel = resolveOptimalFalModel(panelCriticality, panelCategory, referencePolicy, rerollKind);
+  const optimalModel = resolveOptimalFalModel(panelCriticality, panelCategory, referencePolicy, rerollKind, contentLayer);
 
   const translatedPositive = optimizePromptForFal(input.positivePrompt);
   const translatedNegative = buildFalNegativePrompt(input.negativePrompt);
@@ -202,6 +214,10 @@ export function buildFalGenerationRequest(input: GenerateImageInput) {
   const guidanceScale = isSchnell ? undefined : 3.9;
 
   let payload: Record<string, unknown>;
+  const safetyFields = isMature
+    ? { enable_safety_checker: false, ...(isMature ? { safety_tolerance: "6" } : {}) }
+    : { enable_safety_checker: true };
+
   if (useLora) {
     payload = {
       prompt: promptWithNeg,
@@ -209,7 +225,7 @@ export function buildFalGenerationRequest(input: GenerateImageInput) {
       num_inference_steps: numSteps,
       ...(guidanceScale !== undefined ? { guidance_scale: guidanceScale } : {}),
       num_images: 1,
-      enable_safety_checker: !isMature,
+      ...safetyFields,
       output_format: "jpeg",
       loras: effectiveLoras.map((l) => ({
         path: l.url,
@@ -228,7 +244,7 @@ export function buildFalGenerationRequest(input: GenerateImageInput) {
       num_inference_steps: numSteps,
       ...(guidanceScale !== undefined ? { guidance_scale: guidanceScale } : {}),
       num_images: 1,
-      enable_safety_checker: !isMature,
+      ...safetyFields,
       output_format: "jpeg",
       strength: 0.7,
     };
@@ -239,7 +255,7 @@ export function buildFalGenerationRequest(input: GenerateImageInput) {
       num_inference_steps: numSteps,
       ...(guidanceScale !== undefined ? { guidance_scale: guidanceScale } : {}),
       num_images: 1,
-      enable_safety_checker: !isMature,
+      ...safetyFields,
       output_format: "jpeg",
     };
   }

@@ -60,8 +60,10 @@ Monorepo full-stack pour generer des chapitres manga/webtoon coherents avec memo
 - `crowdCritical` route vers `CHARACTER_IN_SCENE` (pas `ESTABLISHING_ENVIRONMENT`)
 - Vision QA auto-activee sur panels critiques, throttle 80 appels/min
 - Rerolls cibles : decor, fidelite personnage, interaction (seulement si vision QA executee), style, composition
-- Detection effets magiques : signaux dans le fact extractor, section dediee dans le prompt composer
+- Detection effets magiques : signaux FR/EN dans le fact extractor, section dediee dans le prompt composer (pouvoir, gardienne, eveil, revelation…)
 - Drift detector : word-boundary matching pour eviter les faux positifs de genre
+- Log `[fal:routing]` pour tracer subjectFocus → panelCategory sur chaque panel
+- Contenu mature/adulte : `safety_tolerance: "6"` sur FAL, modele `flux-realism` pour ADULT_EXPLICIT, negative prompt adaptatif par layer
 
 ### Autofill IA
 - Completion automatique des champs manquants du studio

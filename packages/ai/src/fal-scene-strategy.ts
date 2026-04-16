@@ -141,6 +141,8 @@ export function computeFalSceneAssessment(ctx: RoutingContext): FalSceneAssessme
     panelCategory = "CHARACTER_LOCK";
   }
 
+  console.log(`[fal:routing] panel=${ctx.purpose ?? "unknown"} subjectFocus=${ctx.subjectFocus ?? "none"} crowd=${crowdCritical} env=${environmentCritical} → ${panelCategory}`);
+
   return {
     sceneArchetype,
     panelCategory,

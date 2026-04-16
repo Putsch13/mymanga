@@ -511,7 +511,7 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
   }
 
   // Magic / supernatural effects detection from action text
-  const magicKeywords = /\b(magi[ceq]|spell|aura|energy|glow|power|supernatural|incantation|sorcell|enchant|invoc|rituel|rune|arcane|mystique|mana)\b/i;
+  const magicKeywords = /\b(magi[ceq]|spell|aura|energy|glow|power|supernatural|incantation|sorcell|enchant|invoc|rituel|rune|arcane|mystique|mana|pouvoir|gardien|gardienne|[eé]veil|[eé]veille|r[eé]v[eè]le|r[eé]v[eé]lation|capacit[eé]|don)\b/i;
   if (magicKeywords.test(input.action ?? "") || magicKeywords.test(input.sceneContext ?? "")) {
     addSection("magicEffect", "Magic Effects",
       "magical energy visible and readable, aura or glow effect emanating from character hands or body, " +
