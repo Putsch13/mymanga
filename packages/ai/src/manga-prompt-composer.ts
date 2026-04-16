@@ -164,7 +164,7 @@ const INTENSITY_CONSTRAINTS: Record<string, string> = {
   // FIX-2 : MATURE_DRAMA autorise le gore stylisé, la violence dark manga et l'horreur
   MATURE_DRAMA: "dark manga style, stylized violence allowed, blood splatter manga ink style, dark seinen aesthetic, visceral action, dramatic wounds, intense combat damage, horror manga composition, mature dark themes",
   MATURE_VISUAL: "mature visual content, artistic nudity allowed, explicit violence, dark themes",
-  ADULT_EXPLICIT: "adult content, explicit artistic nudity, dark romance, explicit violence, extreme mature themes",
+  ADULT_EXPLICIT: "adult content, explicit artistic nudity, dark romance, explicit violence, extreme gore manga style, visceral wounds, blood splatter heavy, seinen extreme violence, visceral body horror manga, intense combat damage, no censorship manga style, extreme mature themes",
   RESTRICTED_BLOCKED_VISUAL: "BLOCKED",
 };
 
@@ -205,6 +205,7 @@ const MANGA_FRAMING_MAP: Record<string, string> = {
 // IMG-4 : Effets manga par type de beat
 const BEAT_TYPE_ADDONS: Record<string, string> = {
   combat: "speed lines, motion blur, impact burst, kinetic energy lines, manga action sfx styling",
+  action_gore: "speed lines, impact burst, blood splatter ink style, visceral wound detail, heavy manga gore sfx, body damage visible, extreme combat impact",
   chase: "speed lines, blur trail, motion streak, horizontal momentum lines, kinetic manga panel",
   revelation: "dramatic sunburst background, manga reveal panel, screen tone burst, radial lines emanating",
   emotional: "emotion screen tone, sparkle effects, soft diagonal screen tone, manga emotional moment",
@@ -212,6 +213,7 @@ const BEAT_TYPE_ADDONS: Record<string, string> = {
   confrontation: "dramatic impact lines, manga standoff panel, tension lines between figures",
   romance: "soft screen tone overlay, petal effects, warm hatching, manga romantic moment",
   comedy: "manga comedy panel, sweat drops, reaction lines, chibi exaggeration possible",
+  body_horror_reveal: "visceral body horror manga, grotesque transformation, ink splatter heavy, extreme detail flesh, horror manga composition",
 };
 
 // QUAL-1 : Vocabulaire gore spécifique par sous-genre dark

@@ -22,6 +22,15 @@ export function resolveOptimalFalModel(
   rerollKind: string | null | undefined,
   contentIntensityLayer?: string | null,
 ): { model: string; numSteps: number; usedSchnell: boolean } {
+  // Contenu explicite/mature visuel → flux-realism (moins filtré que flux/dev)
+  // Sauf CHARACTER_LOCK qui a besoin de flux/dev pour la fidélité personnage
+  if (
+    (contentIntensityLayer === "ADULT_EXPLICIT" || contentIntensityLayer === "MATURE_VISUAL") &&
+    panelCategory !== "CHARACTER_LOCK"
+  ) {
+    return { model: FAL_MODEL_REALISM, numSteps: 28, usedSchnell: false };
+  }
+
   // Toujours flux/dev pour les panels critiques, les character locks, les refs fortes et la cover
   const forceHighQuality =
     criticality === "critical" ||
@@ -48,11 +57,6 @@ export function resolveOptimalFalModel(
     criticality === "low"
   ) {
     return { model: FAL_MODEL_SCHNELL, numSteps: 4, usedSchnell: true };
-  }
-
-  // ADULT_EXPLICIT text2img : flux-realism (moins filtré que flux/dev)
-  if (contentIntensityLayer === "ADULT_EXPLICIT") {
-    return { model: FAL_MODEL_REALISM, numSteps: 28, usedSchnell: false };
   }
 
   // Par défaut : flux/dev
@@ -215,7 +219,7 @@ export function buildFalGenerationRequest(input: GenerateImageInput) {
 
   let payload: Record<string, unknown>;
   const safetyFields = isMature
-    ? { enable_safety_checker: false, ...(isMature ? { safety_tolerance: "6" } : {}) }
+    ? { enable_safety_checker: false, safety_tolerance: "6" }
     : { enable_safety_checker: true };
 
   if (useLora) {
