@@ -28,7 +28,7 @@ type Ctx = { params: Promise<{ id: string }> };
 const schema = z.object({
   userIntent: z.string().min(3),
   chapterId: z.string().optional(),
-  chapterNumber: z.number().int().positive().optional(),
+  chapterNumber: z.number().int().positive().optional().nullable(),
   focusCharacterIds: z.array(z.string()).optional(),
   selectedPlotLabel: z.enum(["safe", "bold", "shock"]).optional(),
   creativityControls: z.object({
