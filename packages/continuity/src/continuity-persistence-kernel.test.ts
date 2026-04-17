@@ -6,6 +6,7 @@ import {
   buildSceneSnapshot,
   deriveSceneEvents,
   materializeCanonStateFromChapterSnapshot,
+  prohibitionIsViolated,
   validateSceneSnapshotAgainstKernel,
 } from "./continuity-persistence-kernel";
 
@@ -241,6 +242,128 @@ describe("continuity persistence kernel", () => {
     expect(materialized.characterStates[0]?.currentState.possessions).toContain("journal");
     expect(materialized.worldState.activeLocations).toContain("Jardin des serres");
     expect(materialized.canonEvents.length).toBeGreaterThan(0);
+  });
+
+  it("BUG-19 — un objet regagné via un event propre ne déclenche plus de violation", () => {
+    const kernel = makeKernel();
+    // Ajoute un event de regain postérieur à la perte pour la clé rouge.
+    kernel.eventLog.push({
+      eventId: "evt-regain",
+      chapterId: "ch-1",
+      sceneId: "sc-3",
+      chapterNumber: 1,
+      sceneNumber: 3,
+      eventType: "inventory_change",
+      title: "Clé retrouvée",
+      description: "Luna retrouve la clé rouge dans une console cassée.",
+      actorIds: ["hero-1"],
+      location: "Laboratoire Omega",
+      consequences: [],
+      objectsGained: ["clé rouge"],
+      objectsLost: [],
+      injuriesApplied: [],
+      injuriesResolved: [],
+      relationshipChanges: [],
+      continuityFlags: [],
+      irreversible: false,
+      importance: "major",
+    });
+
+    const sceneStateData: SceneStateData = {
+      location: "Laboratoire Omega",
+      timeOfDay: "night",
+      mood: "tense",
+      dramaticGoal: "avancer",
+      conflictAxis: "survivre",
+      presentCharacterIds: ["hero-1"],
+      characterOverrides: [
+        {
+          characterId: "hero-1",
+          outfit: "hoodie bleu",
+          visibleInjuries: ["bras bandé"],
+          emotionalState: "déterminée",
+          props: ["clé rouge"],
+          poseRestrictions: [],
+        },
+      ],
+      continuityAnchors: [],
+      imageReferenceIds: [],
+      textConstraints: [],
+    };
+    const snapshot = buildSceneSnapshot({
+      kernel,
+      chapterId: "ch-2",
+      chapterNumber: 2,
+      sceneId: "scene-2",
+      sceneNumber: 1,
+      summary: "Luna glisse la clé rouge dans sa poche et repart.",
+      dramaticGoal: "avancer",
+      location: "Laboratoire Omega",
+      sceneStateData,
+      participantNames: ["Luna"],
+      sceneBlueprints: [],
+    });
+    const validation = validateSceneSnapshotAgainstKernel({ kernel, sceneSnapshot: snapshot });
+    expect(validation.accepted).toBe(true);
+    expect(
+      validation.issues.some(
+        (issue) => issue.type === "timeline_violation" && issue.message.includes("clé rouge"),
+      ),
+    ).toBe(false);
+  });
+
+  it("BUG-18 — prohibitionIsViolated ignore les occurrences niées", () => {
+    expect(prohibitionIsViolated("La cité sans magie reste calme.", "magie")).toBe(false);
+    expect(prohibitionIsViolated("Pas de résurrection possible ici.", "résurrection")).toBe(false);
+    expect(prohibitionIsViolated("Un mage invoque la magie interdite.", "magie")).toBe(true);
+    expect(prohibitionIsViolated("No magic works in this room.", "magic")).toBe(false);
+    expect(prohibitionIsViolated("He casts magic despite the ban.", "magic")).toBe(true);
+  });
+
+  it("BUG-18 — le validateur ne déclenche plus de lore_violation sur mention niée", () => {
+    const kernel = makeKernel();
+    const sceneStateData: SceneStateData = {
+      location: "Laboratoire Omega",
+      timeOfDay: "night",
+      mood: "tense",
+      dramaticGoal: "stabiliser",
+      conflictAxis: "paix",
+      presentCharacterIds: ["hero-1"],
+      characterOverrides: [
+        {
+          characterId: "hero-1",
+          outfit: "hoodie bleu",
+          visibleInjuries: ["bras bandé"],
+          emotionalState: "calme",
+          props: ["clé rouge"],
+          poseRestrictions: [],
+        },
+      ],
+      continuityAnchors: [],
+      imageReferenceIds: [],
+      textConstraints: [],
+    };
+    const snapshot = buildSceneSnapshot({
+      kernel,
+      chapterId: "ch-2",
+      chapterNumber: 2,
+      sceneId: "scene-2",
+      sceneNumber: 1,
+      summary: "Dans ce monde sans résurrection possible, Luna veille sur ses morts.",
+      dramaticGoal: "deuil",
+      location: "Laboratoire Omega",
+      sceneStateData,
+      participantNames: ["Luna"],
+      sceneBlueprints: [],
+    });
+    const validation = validateSceneSnapshotAgainstKernel({ kernel, sceneSnapshot: snapshot });
+    expect(
+      validation.issues.some(
+        (issue) =>
+          issue.type === "lore_violation"
+          && issue.message.includes("interdiction structurelle"),
+      ),
+    ).toBe(false);
   });
 
   it("prefers structured deltas over ambiguous prose for inventory and relationships", () => {

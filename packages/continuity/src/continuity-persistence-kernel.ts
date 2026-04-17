@@ -37,6 +37,31 @@ function textHasAny(text: string, needles: string[]) {
   return needles.some((needle) => normalized.includes(needle.toLowerCase()));
 }
 
+// BUG-18 : détecteur de violation structurelle tolérant à la négation.
+// Les structuralProhibitions sont rédigées comme des noms/concepts ("magie",
+// "résurrection"…). Un simple includes() trigger des faux positifs dès que
+// la prose MENTIONNE le concept sans le VIOLER ("sans magie", "pas de
+// résurrection ici"). On considère la prohibition comme violée uniquement
+// si au moins une occurrence n'est pas précédée d'une négation proche.
+const NEGATION_PATTERN = /\b(pas de|pas d'|sans|aucun[e]?s?|ni|jamais|interdit[e]?s?|no|without|never|forbidden|banned)\b/;
+export function prohibitionIsViolated(text: string, rule: string): boolean {
+  const normalized = text.toLowerCase();
+  const needle = rule.toLowerCase().trim();
+  if (!needle) return false;
+  let searchFrom = 0;
+  while (searchFrom < normalized.length) {
+    const idx = normalized.indexOf(needle, searchFrom);
+    if (idx < 0) return false;
+    const windowStart = Math.max(0, idx - 40);
+    const context = normalized.slice(windowStart, idx);
+    if (!NEGATION_PATTERN.test(context)) {
+      return true;
+    }
+    searchFrom = idx + needle.length;
+  }
+  return false;
+}
+
 function normalizeCharacterName(value: string) {
   return value.trim().toLowerCase();
 }
@@ -826,9 +851,30 @@ export function validateSceneSnapshotAgainstKernel(input: {
       (delta) => normalizeCharacterName(delta.characterName) === normalizeCharacterName(character.identity.stableName ?? character.characterId),
     );
 
-    const lostItems = input.kernel.eventLog
-      .filter((event) => event.actorIds.includes(character.characterId))
-      .flatMap((event) => event.objectsLost);
+    // BUG-19 fix : on accumulait `objectsLost` de tous les events passés
+    // mais on ignorait `objectsGained`. Un objet perdu au chapitre 3 puis
+    // légitimement regagné via un event propre au chapitre 5 déclenchait
+    // une fausse timeline_violation au chapitre 6 si le personnage en
+    // disposait toujours. On nette maintenant la liste en soustrayant les
+    // gains d'events qui suivent la dernière perte de chaque item.
+    const characterEvents = input.kernel.eventLog
+      .filter((event) => event.actorIds.includes(character.characterId));
+    const lastLossIndexByItem = new Map<string, number>();
+    const lastGainIndexByItem = new Map<string, number>();
+    characterEvents.forEach((event, idx) => {
+      for (const item of event.objectsLost) {
+        lastLossIndexByItem.set(item, idx);
+      }
+      for (const item of event.objectsGained) {
+        lastGainIndexByItem.set(item, idx);
+      }
+    });
+    const lostItems = [...lastLossIndexByItem.entries()]
+      .filter(([item, lossIdx]) => {
+        const gainIdx = lastGainIndexByItem.get(item);
+        return gainIdx === undefined || gainIdx < lossIdx;
+      })
+      .map(([item]) => item);
     const explicitGains = structuredDelta?.gainedItems ?? [];
     const regainedWithoutEvent = character.currentState.possessions.filter(
       (item) => lostItems.includes(item) && !explicitGains.includes(item) && !inferInventoryRegain(summaryText),
@@ -899,8 +945,13 @@ export function validateSceneSnapshotAgainstKernel(input: {
     );
   }
 
+  // BUG-18 fix : textHasAny(summaryText, [rule]) faisait un simple includes()
+  // sans contexte. Un text comme "la cité sans magie reste calme" déclenchait
+  // une violation critique parce qu'il contenait la sous-chaîne "magie"
+  // alors même que la prose la niait explicitement. On filtre désormais les
+  // matches précédés d'une négation proche (fenêtre de 40 chars).
   const prohibitions = input.kernel.worldState.structuralProhibitions;
-  if (prohibitions.some((rule) => textHasAny(summaryText, [rule]))) {
+  if (prohibitions.some((rule) => prohibitionIsViolated(summaryText, rule))) {
     issues.push(makeIssue("critical", "lore_violation", "La scène viole une interdiction structurelle du monde."));
   }
 
