@@ -14,6 +14,7 @@ import { buildChapterStructuredRuntimePrismaFields, readChapterStudioSnapshotFro
 import {
   assertPremiumContract,
   buildGenerationJobInputFromSnapshot,
+  InvalidBlueprintsError,
   resolveApprovedOutlineFromSnapshot,
 } from "@/lib/premium-chapter-contract";
 
@@ -202,24 +203,45 @@ export async function POST(_req: Request, ctx: Ctx) {
   });
 
   // Construire le job input premium — même helper que /pipeline
-  const jobInput = buildGenerationJobInputFromSnapshot({
-    chapterId,
-    source: "chapter_studio_launch",
-    snapshot,
-    approvedOutline,
-    selectedPlotLabel: snapshot.data.selectedPlotLabel ?? "bold",
-    creativityControls: snapshot.data.creativityControls as Record<string, unknown> | null ?? null,
-    focusCharacterIds: [],
-    estimateContext: estimateContext
-      ? {
-          targetChapterId: estimateContext.targetChapterId ?? null,
-          targetChapterNumber: estimateContext.targetChapterNumber ?? null,
-          estimateSource: estimateContext.estimateSource,
-          estimatedAt: estimateContext.estimatedAt,
-          divergenceDetected: !!(estimateContext.targetChapterId && estimateContext.targetChapterId !== chapterId),
-        }
-      : null,
-  });
+  let jobInput: Record<string, unknown>;
+  try {
+    jobInput = buildGenerationJobInputFromSnapshot({
+      chapterId,
+      source: "chapter_studio_launch",
+      snapshot,
+      approvedOutline,
+      selectedPlotLabel: snapshot.data.selectedPlotLabel ?? "bold",
+      creativityControls: snapshot.data.creativityControls as Record<string, unknown> | null ?? null,
+      focusCharacterIds: [],
+      estimateContext: estimateContext
+        ? {
+            targetChapterId: estimateContext.targetChapterId ?? null,
+            targetChapterNumber: estimateContext.targetChapterNumber ?? null,
+            estimateSource: estimateContext.estimateSource,
+            estimatedAt: estimateContext.estimatedAt,
+            divergenceDetected: !!(estimateContext.targetChapterId && estimateContext.targetChapterId !== chapterId),
+          }
+        : null,
+    });
+  } catch (err) {
+    // P1-3 : blueprints invalides = refus propre du lancement.
+    if (err instanceof InvalidBlueprintsError) {
+      console.warn(
+        `[launch] invalid_blueprints chapterId=${chapterId} total=${err.totalInvalid} sample=${JSON.stringify(err.invalidBlueprints.slice(0, 3))}`,
+      );
+      return NextResponse.json(
+        {
+          error: "invalid_blueprints",
+          code: err.code,
+          totalInvalid: err.totalInvalid,
+          invalidBlueprints: err.invalidBlueprints,
+          message: err.message,
+        },
+        { status: 422 },
+      );
+    }
+    throw err;
+  }
 
   const estimatedCost = await estimateChapterTextTokensFromRules();
 

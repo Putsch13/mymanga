@@ -3,6 +3,7 @@ import { z } from "zod";
 import { generateSpeech, selectVoiceForCharacter, type TtsVoice } from "@manga-ai-studio/ai";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { unauthorized } from "@/lib/api-response";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 const bodySchema = z.object({
   text: z.string().min(1).max(500),
@@ -15,6 +16,12 @@ const bodySchema = z.object({
 export async function POST(req: Request) {
   const user = await getAppUser();
   if (!user) return unauthorized();
+
+  // P1-6 : rate limit manquant jusqu'ici — TTS est coûteux en crédit OpenAI
+  const rl = await checkRateLimit(user.id, "tts");
+  if (!rl.ok) {
+    return NextResponse.json({ error: rl.message }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSecs) } });
+  }
 
   const body = bodySchema.parse(await req.json());
   const voice: TtsVoice = body.voice ?? selectVoiceForCharacter(body.roleType ?? null, body.gender ?? null);

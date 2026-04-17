@@ -38,29 +38,49 @@ export async function loadCharactersForPipeline(
   });
 
   const canonRefs: Record<string, StableImageReference> = {};
+  // P1-5 : on cherche en plus une ref *dédiée portrait* (metadata.slotType
+  // === "closeup"/"portrait" ou metadata.isPortrait / metadata.shotType ===
+  // "closeup"). Si trouvée, elle sera utilisée en priorité sur les panels
+  // closeup pour éviter le drift de visage quand la canonicalRef est full-body.
+  const faceCloseupRefs: Record<string, StableImageReference> = {};
+  const isCloseupRefMeta = (meta: unknown): boolean => {
+    if (!meta || typeof meta !== "object") return false;
+    const m = meta as Record<string, unknown>;
+    const slot = typeof m.slotType === "string" ? m.slotType.toLowerCase() : null;
+    const shot = typeof m.shotType === "string" ? m.shotType.toLowerCase() : null;
+    if (slot === "closeup" || slot === "portrait" || slot === "face") return true;
+    if (shot === "closeup" || shot === "extreme_closeup" || shot === "face") return true;
+    if (m.isPortrait === true || m.isFaceCloseup === true) return true;
+    return false;
+  };
+  const buildRefFromVisual = (v: typeof chars[number]["visualRefs"][number]) =>
+    buildStableImageReference({
+      assetId: v.mediaAsset?.id ?? v.mediaAssetId ?? null,
+      storageProvider: v.mediaAsset?.storageProvider ?? null,
+      bucket: v.mediaAsset?.bucket ?? null,
+      storageKey: v.mediaAsset?.storageKey ?? null,
+      publicUrl: v.mediaAsset?.publicUrl ?? v.imageUrl,
+      signedUrl: v.mediaAsset?.signedUrl ?? null,
+      falCdnUrl: v.mediaAsset?.falCdnUrl ?? null,
+      sourceUrl: v.imageUrl,
+      sourceType: v.mediaAssetId ? "media_asset" : "character_visual_ref",
+      checksum: v.mediaAsset?.sha256 ?? null,
+      metadata:
+        v.metadata && typeof v.metadata === "object"
+          ? (v.metadata as Record<string, unknown>)
+          : {},
+    });
   for (const c of chars) {
     const primaryRef = c.visualRefs.find((v) => v.isPrimary && (v.imageUrl || v.mediaAssetId || v.mediaAsset?.storageKey));
     const bestRef = primaryRef ?? c.visualRefs.find((v) => v.imageUrl || v.mediaAssetId || v.mediaAsset?.storageKey);
     if (bestRef) {
-      const stableRef = buildStableImageReference({
-        assetId: bestRef.mediaAsset?.id ?? bestRef.mediaAssetId ?? null,
-        storageProvider: bestRef.mediaAsset?.storageProvider ?? null,
-        bucket: bestRef.mediaAsset?.bucket ?? null,
-        storageKey: bestRef.mediaAsset?.storageKey ?? null,
-        publicUrl: bestRef.mediaAsset?.publicUrl ?? bestRef.imageUrl,
-        signedUrl: bestRef.mediaAsset?.signedUrl ?? null,
-        falCdnUrl: bestRef.mediaAsset?.falCdnUrl ?? null,
-        sourceUrl: bestRef.imageUrl,
-        sourceType: bestRef.mediaAssetId ? "media_asset" : "character_visual_ref",
-        checksum: bestRef.mediaAsset?.sha256 ?? null,
-        metadata:
-          bestRef.metadata && typeof bestRef.metadata === "object"
-            ? (bestRef.metadata as Record<string, unknown>)
-            : {},
-      });
-      if (stableRef) {
-        canonRefs[c.id] = stableRef;
-      }
+      const stableRef = buildRefFromVisual(bestRef);
+      if (stableRef) canonRefs[c.id] = stableRef;
+    }
+    const closeupRaw = c.visualRefs.find((v) => isCloseupRefMeta(v.metadata) && (v.imageUrl || v.mediaAssetId || v.mediaAsset?.storageKey));
+    if (closeupRaw) {
+      const closeupRef = buildRefFromVisual(closeupRaw);
+      if (closeupRef) faceCloseupRefs[c.id] = closeupRef;
     }
   }
 
@@ -104,6 +124,9 @@ export async function loadCharactersForPipeline(
       outfitDefault: typeof raw.outfitDefault === "string" ? raw.outfitDefault : null,
       canonicalImageUrl: canonRefs[c.id]?.sourceUrl ?? canonRefs[c.id]?.publicUrl ?? null,
       canonicalReference: canonRefs[c.id] ?? null,
+      // P1-5 : ref portrait dédiée (si présente parmi les visualRefs)
+      faceCloseupReference: faceCloseupRefs[c.id] ?? null,
+      faceCloseupImageUrl: faceCloseupRefs[c.id]?.sourceUrl ?? faceCloseupRefs[c.id]?.publicUrl ?? null,
       canonSignatureText: c.canonPack?.visualSignatureText ?? null,
       forbiddenVisualDrift: c.canonPack?.forbiddenVisualDrift ?? null,
       bodyDetails,

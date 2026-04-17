@@ -8,6 +8,7 @@ import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
 import { getOwnedProject } from "@/lib/ownership";
 import { repairGhostCharacters } from "@manga-ai-studio/core";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -29,6 +30,12 @@ const schema = z.object({
 export async function POST(req: Request, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return unauthorized();
+
+  // P1-6 : rate limit — autofill appelle l'IA sur brief/cast/plan (coûteux)
+  const rl = await checkRateLimit(user.id, "chapter-autofill");
+  if (!rl.ok) {
+    return NextResponse.json({ error: rl.message }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSecs) } });
+  }
 
   const { id: projectId, chapterId } = await ctx.params;
   const project = await getOwnedProject(user.id, projectId);

@@ -40,6 +40,7 @@ vi.mock("@manga-ai-studio/billing", () => ({
 
 vi.mock("@/lib/age-gate", () => ({
   canAccessMatureContent: () => true,
+  canBypassMatureContent: () => false,
   getAgeGateMessage: () => "blocked",
   projectRequiresAgeGate: () => false,
 }));

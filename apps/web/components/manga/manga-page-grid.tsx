@@ -20,21 +20,8 @@ export type DemoMangaPage = {
   panels: DemoPanel[];
 };
 import { MangaPanel } from "./manga-panel";
-
-// LAY-2 : configs CSS locales des templates de layout dynamique
-// (copie légère de PAGE_LAYOUT_CONFIGS — évite d'importer @manga-ai-studio/ai côté client)
-const PAGE_LAYOUT_CONFIGS: Record<string, { cssGridTemplate: string; cssGridAreas: string }> = {
-  splash:          { cssGridTemplate: "1fr",                          cssGridAreas: `"a"` },
-  double_spread:   { cssGridTemplate: "1fr 1fr",                      cssGridAreas: `"a b"` },
-  grid_2x2:        { cssGridTemplate: "1fr 1fr / 1fr 1fr",            cssGridAreas: `"a b" "c d"` },
-  grid_2x3:        { cssGridTemplate: "1fr 1fr / 1fr 1fr 1fr",        cssGridAreas: `"a b c" "d e f"` },
-  action_strip:    { cssGridTemplate: "1.5fr 1fr 1fr / 1fr 1fr 1fr",  cssGridAreas: `"a a b" "a a c" "d e f"` },
-  asymmetric_hero: { cssGridTemplate: "1.2fr 1fr / 1fr 1fr 1fr",      cssGridAreas: `"a a b" "a a c"` },
-  cinematic_bar:   { cssGridTemplate: "1fr 1fr 1fr / 1fr",            cssGridAreas: `"a" "b" "c"` },
-  focus_closeup:   { cssGridTemplate: "1.5fr 1fr / 1fr 1fr",          cssGridAreas: `"a a" "b c"` },
-  montage_rapid:   { cssGridTemplate: "1fr 1fr / 1fr 1fr 1fr 1fr",    cssGridAreas: `"a b c d" "e f g h"` },
-  vertical_strip:  { cssGridTemplate: "1fr / 1fr 1fr 1fr",            cssGridAreas: `"a b c"` },
-};
+import { PAGE_LAYOUT_CONFIGS, type PageLayoutTemplate } from "@manga-ai-studio/core";
+// P1-4 : source of truth unique (packages/core) — plus de copie locale.
 
 /**
  * Layout presets for manga pages (4–6 panels).
@@ -152,11 +139,10 @@ export interface UniversalPanel {
 }
 
 // LAY-2 : types étendus pour les nouveaux templates de layout
+// P1-4 : la partie dynamique (splash/double_spread/...) vient de core.
 export type ExtendedLayoutTemplate =
   | "A" | "B" | "C" | "D" | "E" | "F"  // Legacy
-  | "splash" | "double_spread" | "grid_2x2" | "grid_2x3"
-  | "action_strip" | "asymmetric_hero" | "cinematic_bar"
-  | "focus_closeup" | "montage_rapid" | "vertical_strip";
+  | PageLayoutTemplate;
 
 export interface UniversalMangaPage {
   id?: string;

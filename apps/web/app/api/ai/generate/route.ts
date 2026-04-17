@@ -5,7 +5,7 @@ import { decideImageRoute, runRoutedImageGeneration, resolveAdultEngine } from "
 import { estimateImageTokensFromRules, refundReservation, reserveTokens, settleReservedTokens } from "@manga-ai-studio/billing";
 import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
-import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
+import { canAccessMatureContent, canBypassMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
 import { paymentRequired, unauthorized, validationError } from "@/lib/api-response";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -53,12 +53,8 @@ export async function POST(req: Request) {
   ) {
     return validationError(getAgeGateMessage("MATURE"));
   }
-  if (
-    currentUser &&
-    canAccessMatureContent({ ageVerifiedAt: currentUser.ageVerifiedAt, email: currentUser.email }, currentUser.preferences) &&
-    currentUser.email?.toLowerCase() === "test@gmail.com"
-  ) {
-    console.warn(`[adult-bypass] test@gmail.com bypassed mature gate on /api/ai/generate${body.projectId ? ` project=${body.projectId}` : ""}`);
+  if (currentUser && canBypassMatureContent(currentUser.email)) {
+    console.warn(`[adult-bypass] ${currentUser.email} bypassed mature gate on /api/ai/generate${body.projectId ? ` project=${body.projectId}` : ""} (NODE_ENV=${process.env.NODE_ENV})`);
   }
 
   let projectForGeneration:
@@ -75,8 +71,8 @@ export async function POST(req: Request) {
     if (projectRequiresAgeGate(project.contentRating, project.intensityLayer) && !canAccessMatureContent(project.user, project.user.preferences)) {
       return validationError(getAgeGateMessage(project.contentRating));
     }
-    if (canAccessMatureContent(project.user, project.user.preferences) && project.user.email?.toLowerCase() === "test@gmail.com") {
-      console.warn(`[adult-bypass] test@gmail.com bypassed mature gate on /api/ai/generate project=${body.projectId}`);
+    if (canBypassMatureContent(project.user.email)) {
+      console.warn(`[adult-bypass] ${project.user.email} bypassed mature gate on /api/ai/generate project=${body.projectId} (NODE_ENV=${process.env.NODE_ENV})`);
     }
     projectForGeneration = {
       primaryGenre: project.primaryGenre,

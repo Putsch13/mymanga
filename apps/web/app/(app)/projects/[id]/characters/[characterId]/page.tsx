@@ -15,6 +15,7 @@ import { CharacterBodyConfig } from "@/components/characters/character-body-conf
 import { CharacterWardrobeConfig } from "@/components/characters/character-wardrobe-config";
 import { CharacterSpeechConfig } from "@/components/characters/character-speech-config";
 import { CharacterCanonLocks } from "@/components/characters/character-canon-locks";
+import { CharacterCanonEvolution } from "@/components/characters/character-canon-evolution";
 import { CharacterPreviewCard } from "@/components/characters/character-preview-card";
 import { Loader2, Wand2 } from "lucide-react";
 import { safeFetch } from "@/lib/safe-fetch";
@@ -380,6 +381,7 @@ export default function CharacterDetailPage() {
             <TabsTrigger value="wardrobe">Tenue</TabsTrigger>
             <TabsTrigger value="speech">Voix</TabsTrigger>
             <TabsTrigger value="canon">Canon</TabsTrigger>
+            <TabsTrigger value="evolution">Évolution</TabsTrigger>
           </TabsList>
 
           {/* IDENTITÉ */}
@@ -727,6 +729,21 @@ export default function CharacterDetailPage() {
                     </pre>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="evolution">
+            <Card className="border-border/60 bg-card/50">
+              <CardHeader>
+                <CardTitle>Évolution canonique cross-chapitre</CardTitle>
+                <CardDescription>
+                  Suivi visuel et narratif du personnage chapitre par chapitre (drift, événements,
+                  changements canon).
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <CharacterCanonEvolution characterId={character.id} />
               </CardContent>
             </Card>
           </TabsContent>

@@ -9,7 +9,7 @@ import {
   detectVisualDrift,
 } from "@manga-ai-studio/ai";
 import { getAppUser } from "@/lib/auth/get-app-user";
-import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
+import { canAccessMatureContent, canBypassMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
 import { notFound, unauthorized, validationError } from "@/lib/api-response";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
@@ -103,8 +103,8 @@ export async function POST(req: Request, ctx: Ctx) {
   if (projectRequiresAgeGate(projectForGate.contentRating, projectForGate.intensityLayer) && !canAccessMatureContent(projectForGate.user, projectForGate.user.preferences)) {
     return validationError(getAgeGateMessage(projectForGate.contentRating));
   }
-  if (canAccessMatureContent(projectForGate.user, projectForGate.user.preferences) && projectForGate.user.email?.toLowerCase() === "test@gmail.com") {
-    console.warn(`[adult-bypass] test@gmail.com bypassed mature gate on /api/scene-images/${sceneImageId}/retry`);
+  if (canBypassMatureContent(projectForGate.user.email)) {
+    console.warn(`[adult-bypass] ${projectForGate.user.email} bypassed mature gate on /api/scene-images/${sceneImageId}/retry (NODE_ENV=${process.env.NODE_ENV})`);
   }
 
   if (!img.prompt) {

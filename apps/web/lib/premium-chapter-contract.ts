@@ -607,24 +607,54 @@ function validateBlueprint(bp: Record<string, unknown>): { valid: boolean; issue
   return { valid: issues.length === 0, issues };
 }
 
+/**
+ * P1-3 — Erreur bloquante levée quand un ou plusieurs blueprints sont invalides.
+ * Avant : on filtrait silencieusement et on continuait → le user croyait avoir
+ * 75 cases alors que N avaient disparu. Maintenant : on refuse de lancer la
+ * pipeline et on demande une régénération du plan.
+ */
+export class InvalidBlueprintsError extends Error {
+  readonly code = "INVALID_BLUEPRINTS";
+  readonly invalidBlueprints: Array<{ panelNumber: number | null; issues: string[] }>;
+  readonly totalInvalid: number;
+
+  constructor(invalid: Array<{ panelNumber: number | null; issues: string[] }>) {
+    super(
+      `Plan de production invalide : ${invalid.length} blueprint(s) non-conforme(s). ` +
+        `Retourne dans le studio pour régénérer le plan.`,
+    );
+    this.name = "InvalidBlueprintsError";
+    this.invalidBlueprints = invalid;
+    this.totalInvalid = invalid.length;
+  }
+}
+
 export function buildGenerationJobInputFromSnapshot(opts: GenerationJobInputOptions): Record<string, unknown> {
   const { snapshot, approvedOutline } = opts;
   const pp = snapshot.data.productionPlan;
   const po = snapshot.data.productionOutline;
   const rawBlueprints = Array.isArray(pp?.panelBlueprints) ? pp.panelBlueprints : [];
 
-  // Garde-fous : filtrer les blueprints invalides, logger les problèmes
+  // P1-3 : blueprint invalide = erreur bloquante. Plus de filtre silencieux.
+  // On remonte la liste détaillée au caller (launch / pipeline route) qui
+  // renvoie un 422 exploitable par le studio.
   const panelBlueprints: unknown[] = [];
+  const invalidBlueprints: Array<{ panelNumber: number | null; issues: string[] }> = [];
   for (const bp of rawBlueprints) {
     const bpRecord = bp as Record<string, unknown>;
     const { valid, issues } = validateBlueprint(bpRecord);
     if (valid) {
       panelBlueprints.push(bp);
     } else {
-      console.warn(
-        `[buildGenerationJobInput] blueprint_invalid panelNumber=${bpRecord.panelNumber ?? "?"} issues=${issues.join(", ")} — skipping`,
+      const panelNumber = typeof bpRecord.panelNumber === "number" ? bpRecord.panelNumber : null;
+      invalidBlueprints.push({ panelNumber, issues });
+      console.error(
+        `[buildGenerationJobInput] blueprint_invalid panelNumber=${panelNumber ?? "?"} issues=${issues.join(", ")}`,
       );
     }
+  }
+  if (invalidBlueprints.length > 0) {
+    throw new InvalidBlueprintsError(invalidBlueprints);
   }
 
   // BUG-24 fix : si le plan persisté a moins de panels que le minimum requis

@@ -237,6 +237,15 @@ export function buildFalGenerationRequest(input: GenerateImageInput) {
     : promptWithLoras;
   const effectiveReferenceUrls = referencePolicy === "NONE" ? [] : (input.referenceImageUrls ?? []);
   const referenceUrl = effectiveReferenceUrls.length > 0 ? effectiveReferenceUrls[0] : null;
+  // DIFF-4 : IP-Adapter multi-image.
+  // Les modèles Fal compatibles (flux-pro/redux, flux-ip-adapter) acceptent une liste
+  // d'image_urls pour pondérer simultanément plusieurs références (canon + closeup + action, etc.).
+  // On dédoublonne, on limite à 4 (au-delà les poids diluent trop la direction), et on place la
+  // ref principale en tête pour que les modèles qui lisent la première URL (cas redux classique)
+  // gardent la même sortie qu'avant.
+  const MAX_IP_ADAPTER_REFS = 4;
+  const ipAdapterReferenceUrls = Array.from(new Set(effectiveReferenceUrls.filter(Boolean))).slice(0, MAX_IP_ADAPTER_REFS);
+  const hasMultipleRefs = ipAdapterReferenceUrls.length > 1;
   const effectiveLoras =
     referencePolicy === "NONE"
       ? []
@@ -289,6 +298,12 @@ export function buildFalGenerationRequest(input: GenerateImageInput) {
     if (useLoraWithRef && referenceUrl) {
       payload.image_url = referenceUrl;
       payload.strength = referencePolicy === "LIGHT" ? 0.28 : 0.55;
+      // DIFF-4 : en LoRA + multi-ref, on expose aussi l'array complet. Les modèles
+      // qui supportent l'IP-Adapter le consomment ; les autres ignorent silencieusement.
+      if (hasMultipleRefs) {
+        payload.image_urls = ipAdapterReferenceUrls;
+        payload.reference_images = ipAdapterReferenceUrls;
+      }
     }
   } else if (useRedux) {
     payload = {
@@ -302,6 +317,12 @@ export function buildFalGenerationRequest(input: GenerateImageInput) {
       output_format: "jpeg",
       strength: 0.7,
     };
+    // DIFF-4 : même principe pour Redux — exposer l'array complet pour les déclinaisons
+    // IP-Adapter (flux-pro/redux-ipa, flux-redux-multi).
+    if (hasMultipleRefs) {
+      payload.image_urls = ipAdapterReferenceUrls;
+      payload.reference_images = ipAdapterReferenceUrls;
+    }
   } else {
     payload = {
       prompt: promptWithNeg,
@@ -326,6 +347,7 @@ export function buildFalGenerationRequest(input: GenerateImageInput) {
     scenePass,
     imageSize,
     effectiveReferenceUrls,
+    ipAdapterReferenceUrls,
     translatedPositive,
     translatedNegative,
     mode: (useLoraWithRef || useRedux) ? "img2img" : "text2img",
@@ -346,6 +368,7 @@ export async function runFalGenerationJob(apiKey: string | undefined, input: Gen
       panelCategory: request.panelCategory,
       scenePass: request.scenePass,
       refs: request.effectiveReferenceUrls,
+      ipAdapterRefs: request.ipAdapterReferenceUrls,
       positivePrompt: input.positivePrompt,
       optimizedPrompt: request.translatedPositive,
       negativePrompt: request.translatedNegative,

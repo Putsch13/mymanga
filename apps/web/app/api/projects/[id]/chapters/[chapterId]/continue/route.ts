@@ -4,8 +4,9 @@ import { prisma } from "@manga-ai-studio/db";
 import { runChapterOutlineFromJob, sendChapterOutlineJobRequested } from "@manga-ai-studio/workflow";
 import { buildContinuationContext } from "@manga-ai-studio/continuity";
 import { getAppUser } from "@/lib/auth/get-app-user";
-import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
+import { canAccessMatureContent, canBypassMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
 import { notFound, unauthorized, validationError } from "@/lib/api-response";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -22,6 +23,13 @@ const bodySchema = z.object({
 export async function POST(req: Request, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return unauthorized();
+
+  // P1-6 : rate limit — cette route déclenche un outline AI coûteux
+  const rl = await checkRateLimit(user.id, "chapter-outline");
+  if (!rl.ok) {
+    return NextResponse.json({ error: rl.message }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSecs) } });
+  }
+
   const { id: projectId, chapterId } = await ctx.params;
   const project = await prisma.project.findFirst({
     where: { id: projectId, userId: user.id },
@@ -31,8 +39,8 @@ export async function POST(req: Request, ctx: Ctx) {
   if (projectRequiresAgeGate(project.contentRating, project.intensityLayer) && !canAccessMatureContent(project.user, project.user.preferences)) {
     return validationError(getAgeGateMessage(project.contentRating));
   }
-  if (canAccessMatureContent(project.user, project.user.preferences) && project.user.email?.toLowerCase() === "test@gmail.com") {
-    console.warn(`[adult-bypass] test@gmail.com bypassed mature gate on /api/projects/${projectId}/chapters/${chapterId}/continue`);
+  if (canBypassMatureContent(project.user.email)) {
+    console.warn(`[adult-bypass] ${project.user.email} bypassed mature gate on /api/projects/${projectId}/chapters/${chapterId}/continue (NODE_ENV=${process.env.NODE_ENV})`);
   }
   const chapter = await prisma.chapter.findFirst({ where: { id: chapterId, projectId } });
   if (!chapter) return notFound();

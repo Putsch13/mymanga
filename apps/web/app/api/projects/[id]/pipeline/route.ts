@@ -5,7 +5,7 @@ import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { prisma } from "@manga-ai-studio/db";
 import { runFullChapterPipelineFromJob, sendChapterGenerateRequested } from "@manga-ai-studio/workflow";
 import { getAppUser } from "@/lib/auth/get-app-user";
-import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
+import { canAccessMatureContent, canBypassMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
 import { notFound, unauthorized, badRequest, validationError } from "@/lib/api-response";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -13,6 +13,7 @@ import { readChapterStudioSnapshotFromOutline } from "@/lib/chapter-studio";
 import {
   assertPremiumContract,
   buildGenerationJobInputFromSnapshot,
+  InvalidBlueprintsError,
   resolveApprovedOutlineFromSnapshot,
 } from "@/lib/premium-chapter-contract";
 import type { Prisma } from "@manga-ai-studio/db";
@@ -74,8 +75,8 @@ export async function POST(req: Request, ctx: Ctx) {
   if (projectRequiresAgeGate(project.contentRating, project.intensityLayer) && !canAccessMatureContent(project.user, project.user.preferences)) {
     return validationError(getAgeGateMessage(project.contentRating));
   }
-  if (canAccessMatureContent(project.user, project.user.preferences) && project.user.email?.toLowerCase() === "test@gmail.com") {
-    console.warn(`[adult-bypass] test@gmail.com bypassed mature gate on /api/projects/${projectId}/pipeline`);
+  if (canBypassMatureContent(project.user.email)) {
+    console.warn(`[adult-bypass] ${project.user.email} bypassed mature gate on /api/projects/${projectId}/pipeline (NODE_ENV=${process.env.NODE_ENV})`);
   }
   const body = bodySchema.parse(await req.json());
   const chapter = await prisma.chapter.findFirst({
@@ -179,16 +180,37 @@ export async function POST(req: Request, ctx: Ctx) {
   );
 
   // Construire le job input premium — même helper que /launch
-  const jobInput = buildGenerationJobInputFromSnapshot({
-    chapterId: body.chapterId,
-    source: "pipeline_route",
-    snapshot,
-    approvedOutline,
-    selectedPlotLabel: selectedPlotLabel ?? "bold",
-    creativityControls: (creativityControls ?? null) as Record<string, unknown> | null,
-    focusCharacterIds,
-    estimateContext: null,
-  });
+  let jobInput: Record<string, unknown>;
+  try {
+    jobInput = buildGenerationJobInputFromSnapshot({
+      chapterId: body.chapterId,
+      source: "pipeline_route",
+      snapshot,
+      approvedOutline,
+      selectedPlotLabel: selectedPlotLabel ?? "bold",
+      creativityControls: (creativityControls ?? null) as Record<string, unknown> | null,
+      focusCharacterIds,
+      estimateContext: null,
+    });
+  } catch (err) {
+    // P1-3 : blueprints invalides = refus propre du lancement.
+    if (err instanceof InvalidBlueprintsError) {
+      console.warn(
+        `[pipeline] invalid_blueprints chapterId=${body.chapterId} total=${err.totalInvalid} sample=${JSON.stringify(err.invalidBlueprints.slice(0, 3))}`,
+      );
+      return NextResponse.json(
+        {
+          error: "invalid_blueprints",
+          code: err.code,
+          totalInvalid: err.totalInvalid,
+          invalidBlueprints: err.invalidBlueprints,
+          message: err.message,
+        },
+        { status: 422 },
+      );
+    }
+    throw err;
+  }
 
   const estimatedCost = await estimateChapterTextTokensFromRules();
   const job = await prisma.job.create({

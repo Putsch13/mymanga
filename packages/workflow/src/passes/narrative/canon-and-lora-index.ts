@@ -16,6 +16,8 @@ export type LoraIndexEntry = { url: string; triggerWord: string; scale: number }
 
 export interface CanonAndLoraIndex {
   canonRefByName: Map<string, StableImageReference>;
+  // P1-5 : ref portrait dédiée par character (closeup visage)
+  faceCloseupRefByName: Map<string, StableImageReference>;
   loraByCharId: Map<string, LoraIndexEntry>;
   loraByCharName: Map<string, LoraIndexEntry>;
 }
@@ -26,6 +28,7 @@ export function buildCanonAndLoraIndex(input: {
     name: string;
     canonicalImageUrl?: string | null;
     canonicalReference?: StableImageReference | null;
+    faceCloseupReference?: StableImageReference | null;
   }>;
   loraAttachments: Array<{
     characterId: string | null;
@@ -41,6 +44,7 @@ export function buildCanonAndLoraIndex(input: {
   const { rawCharacters, loraAttachments } = input;
 
   const canonRefByName = new Map<string, StableImageReference>();
+  const faceCloseupRefByName = new Map<string, StableImageReference>();
   for (const c of rawCharacters) {
     const ref =
       c.canonicalReference
@@ -52,6 +56,11 @@ export function buildCanonAndLoraIndex(input: {
           })
         : null);
     if (ref) canonRefByName.set(c.name, ref);
+    // P1-5 : fallback doux — si pas de ref closeup dédiée, on laisse vide
+    // (le pipeline bascule alors sur la canonicalReference).
+    if (c.faceCloseupReference) {
+      faceCloseupRefByName.set(c.name, c.faceCloseupReference);
+    }
   }
 
   const loraByCharId = new Map<string, LoraIndexEntry>();
@@ -77,5 +86,5 @@ export function buildCanonAndLoraIndex(input: {
     }
   }
 
-  return { canonRefByName, loraByCharId, loraByCharName };
+  return { canonRefByName, faceCloseupRefByName, loraByCharId, loraByCharName };
 }

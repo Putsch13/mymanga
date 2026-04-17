@@ -8,6 +8,7 @@ import {
   validatePreflightPanel,
   runPanelQualityGate,
   getMaxRerolls,
+  scoreImageSimilarity,
   type StoryboardPanel,
   type RoutingContext,
 } from "@manga-ai-studio/ai";
@@ -67,6 +68,8 @@ export async function runImageGenerationPass(
     plannedImages: any[];
     chapterLookProfile: any;
     canonRefByName: Map<string, any>;
+    // P1-5 : ref portrait dédiée par character (injectée par canon-and-lora-index)
+    faceCloseupRefByName?: Map<string, any>;
     loraByCharName: Map<string, any>;
     loraByCharId?: Map<string, any>;
     effectiveCreativeControls: any;
@@ -88,6 +91,7 @@ export async function runImageGenerationPass(
     plannedImages,
     chapterLookProfile,
     canonRefByName,
+    faceCloseupRefByName,
     loraByCharName,
     loraByCharId,
   } = input;
@@ -357,6 +361,26 @@ export async function runImageGenerationPass(
       }
       if ((cutawayFocus || npcFocus) && canonRef && canonRef === heroCanonRef) {
         canonRef = null;
+      }
+
+      // P1-5 : si le panel est un closeup ET qu'on a une ref portrait dédiée
+      // pour le focus, on la substitue à la canonicalReference (souvent full-body).
+      const itemShotType = (item.baseMetadata.panelContract as { shotType?: string } | undefined)?.shotType ?? null;
+      const isCloseupPanel = itemShotType === "closeup" || itemShotType === "extreme_closeup" || itemShotType === "face";
+      if (isCloseupPanel && faceCloseupRefByName && focusName) {
+        const dedicatedCloseup = faceCloseupRefByName.get(focusName);
+        if (dedicatedCloseup) {
+          canonRef = dedicatedCloseup;
+        }
+      } else if (isCloseupPanel && faceCloseupRefByName && !focusName) {
+        // Pas de focus nommé — tenter sur le premier cast
+        for (const n of castOrderedNames) {
+          const dedicated = faceCloseupRefByName.get(n);
+          if (dedicated) {
+            canonRef = dedicated;
+            break;
+          }
+        }
       }
       const sceneKeyframeUrl = await ensureSceneKeyframeUrl(item);
 
@@ -1131,12 +1155,80 @@ export async function runImageGenerationPass(
                 },
               })
             : null;
-        const combinedConsistencyScore =
+
+        // MOAT-2 : scoring image-image (vision réelle vs canon ref).
+        // On prend le focus character + sa canonical reference pour détecter
+        // un drift visuel qui passerait à travers le filtre symbolique.
+        // Skipped si pas de OPENAI_API_KEY ou pas de canonRef HTTP(S).
+        const imageSimilarity = await (async () => {
+          try {
+            if (!persisted.url || !/^https?:\/\//i.test(persisted.url)) return null;
+            const canonRefUrl =
+              canonRef?.publicUrl
+              ?? canonRef?.signedUrl
+              ?? canonRef?.sourceUrl
+              ?? canonRef?.falCdnUrl
+              ?? null;
+            if (!canonRefUrl || !/^https?:\/\//i.test(canonRefUrl)) return null;
+            const focusCharName = focusName ?? castOrderedNames[0] ?? null;
+            if (!focusCharName) return null;
+            const focusRaw = rawCharacters.find((c: any) => c.name === focusCharName);
+            const score = await scoreImageSimilarity({
+              generatedImageUrl: persisted.url,
+              canonicalReferenceUrl: canonRefUrl,
+              characterName: focusCharName,
+              expectedHairColor: focusRaw?.hairColor ?? null,
+              expectedOutfit: focusRaw?.outfitDefault ?? null,
+            });
+            if (score.skipped) {
+              return { skipped: score.skipped, characterName: focusCharName };
+            }
+            if (score.overallScore < 0.55) {
+              console.warn(
+                `[image-similarity] STRONG drift panel=${item.sceneImageId} char=${focusCharName} overall=${score.overallScore.toFixed(2)} face=${score.faceScore.toFixed(2)} hair=${score.hairScore.toFixed(2)} outfit=${score.outfitScore.toFixed(2)}`,
+              );
+            } else if (score.overallScore < 0.7) {
+              console.log(
+                `[image-similarity] moderate drift panel=${item.sceneImageId} char=${focusCharName} overall=${score.overallScore.toFixed(2)}`,
+              );
+            }
+            return {
+              characterName: focusCharName,
+              overallScore: score.overallScore,
+              faceScore: score.faceScore,
+              hairScore: score.hairScore,
+              outfitScore: score.outfitScore,
+              confidence: score.confidence,
+              findings: score.findings,
+              model: score.model,
+            };
+          } catch (err) {
+            console.warn(
+              `[image-similarity] exception panel=${item.sceneImageId} ${err instanceof Error ? err.message : String(err)}`,
+            );
+            return null;
+          }
+        })();
+
+        const baseCombinedScore =
           bestAttempt.validationDetails?.qualityScores?.releaseScore != null
             ? visualConsistency
               ? (bestAttempt.validationDetails.qualityScores.releaseScore + visualConsistency.overall) / 2
               : bestAttempt.validationDetails.qualityScores.releaseScore
             : bestAttempt.drift.score;
+
+        // Si on a un score image-image utilisable, on l'incorpore (poids 25%) au combinedScore
+        // afin que le drift visuel pur affecte la note de panel.
+        const combinedConsistencyScore = (() => {
+          if (
+            imageSimilarity
+            && typeof (imageSimilarity as Record<string, unknown>).overallScore === "number"
+          ) {
+            const sim = (imageSimilarity as { overallScore: number }).overallScore;
+            return baseCombinedScore * 0.75 + sim * 0.25;
+          }
+          return baseCombinedScore;
+        })();
         // Vision QA indisponible = avertissement (pas bloquant) pour ne pas freezer tous les panels critiques
         // quand la vision est désactivée.
         // IMPORTANT: on NE bloque PAS l'affichage d'une image existante ; status="blocked" fait que
@@ -1158,6 +1250,7 @@ export async function runImageGenerationPass(
             validationScore: bestAttempt.validationScore,
           },
           rerollHistory: rerollCount > 0 ? [{ count: rerollCount, kind: bestAttempt.rerollKind ?? null }] : [],
+          imageSimilarity: imageSimilarity ?? null,
         } : null;
 
         await prisma.sceneImage.update({
@@ -1212,6 +1305,7 @@ export async function runImageGenerationPass(
                 });
               })(),
               promptVisualConsistency: visualConsistency,
+              imageSimilarityScore: imageSimilarity ?? null,
               validationScore: bestAttempt.validationScore,
               validationDetails: bestAttempt.validationDetails,
               panelCriticality: bestAttempt.validation.panelCriticality,

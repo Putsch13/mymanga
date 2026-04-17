@@ -9,6 +9,7 @@ import { buildSceneAnchorPromptBlock } from "./services/scene-anchor";
 import type { PanelIntentCard } from "./services/panel-intent-card";
 import { buildPanelIntentPromptBlock, buildPanelIntentNegativeBlock } from "./services/panel-intent-card";
 import { getPropVisualDescriptor } from "./services/prop-visual-library";
+import { getStylePreset, stylePresetExtraTerms } from "./style-presets";
 
 export interface CharacterRef {
   name: string;
@@ -99,6 +100,12 @@ export interface PanelPromptInput {
   referenceImageUrls?: string[] | null;
   /** STYLE-1 : politique d'application de la référence de style */
   referencePolicy?: "LIGHT" | "STRONG" | null;
+  /**
+   * DIFF-3 : slug d'un style preset (ex: "shonen_classic", "cyberpunk_neon").
+   * Si renseigné, le preset enrichit le stylePack et ajoute des termes positifs/négatifs.
+   * Voir `STYLE_PRESETS` pour la liste complète.
+   */
+  stylePresetSlug?: string | null;
 }
 
 export interface ComposedPrompt {
@@ -369,9 +376,23 @@ function describeCharacter(c: CharacterRef, mode: "full" | "supporting" = "full"
   return parts.join(", ");
 }
 
-function resolveVisualStyle(stylePack?: StylePackRef | null): string {
-  if (!stylePack) return "detailed manga art, professional manga panel";
+function resolveVisualStyle(stylePack?: StylePackRef | null, stylePresetSlug?: string | null): string {
+  // DIFF-3 : un preset renseigné prend la priorité sur le stylePack libre
+  // (le preset est considéré comme une intention explicite utilisateur).
+  const preset = getStylePreset(stylePresetSlug ?? null);
   const parts: string[] = [];
+
+  if (preset) {
+    parts.push(preset.visualStyle);
+    // Complète avec les hints du stylePack projet si disjoints du preset
+    if (stylePack?.anatomyBias) parts.push(`anatomy bias ${stylePack.anatomyBias}`);
+    if (stylePack?.backgroundDensity) parts.push(`background density ${stylePack.backgroundDensity}`);
+    if (stylePack?.cameraLanguage) parts.push(`camera language ${stylePack.cameraLanguage}`);
+    parts.push("manga panel");
+    return parts.join(", ");
+  }
+
+  if (!stylePack) return "detailed manga art, professional manga panel";
   if (stylePack.visualStyle) parts.push(stylePack.visualStyle);
   else if (stylePack.description) parts.push(stylePack.description);
   else if (stylePack.name) parts.push(`${stylePack.name} style`);
@@ -467,7 +488,7 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     throw new Error("Content blocked: RESTRICTED_BLOCKED_VISUAL layer");
   }
 
-  const visualStyle = resolveVisualStyle(input.stylePack);
+  const visualStyle = resolveVisualStyle(input.stylePack, input.stylePresetSlug);
   const moodDesc = MOOD_DESCRIPTORS[input.mood] ?? "dramatic manga panel";
   const cameraDesc =
     CAMERA_DESCRIPTORS[input.camera] ?? `${input.camera}, manga composition`;
@@ -592,6 +613,18 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     2,
   );
   addSection("renderingMood", "Rendering / Inking / Mood", `Style: ${visualStyle}. ${intensityNote && layer !== "GENERAL_SAFE" ? `Content boundaries: ${intensityNote}.` : ""}`, 2);
+
+  // DIFF-3 : termes positifs additionnels du style preset (si un preset est choisi).
+  // Priorité 3 (contextuel) — premiers tronqués en cas de dépassement budget.
+  const stylePresetExtras = stylePresetExtraTerms(input.stylePresetSlug);
+  if (stylePresetExtras.positive.length > 0) {
+    addSection(
+      "stylePresetExtras",
+      "Style Preset Reinforcement",
+      stylePresetExtras.positive.join(", "),
+      3,
+    );
+  }
 
   // A04: contexte univers (P4 décoratif — tronqué en premier si dépassement budget).
   if (input.environmentHint && input.environmentHint.length > 50) {
@@ -851,6 +884,11 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
   if (input.intentCard) {
     const intentNeg = buildPanelIntentNegativeBlock(input.intentCard);
     if (intentNeg) negative += `, ${intentNeg}`;
+  }
+
+  // DIFF-3 : termes négatifs additionnels du style preset (ex: cyberpunk → "medieval, rural").
+  if (stylePresetExtras.negative.length > 0) {
+    negative += `, ${stylePresetExtras.negative.join(", ")}`;
   }
 
   return {

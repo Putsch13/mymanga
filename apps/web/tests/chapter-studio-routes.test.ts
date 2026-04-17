@@ -52,6 +52,7 @@ vi.mock("@/lib/analytics", () => ({
 
 vi.mock("@/lib/age-gate", () => ({
   canAccessMatureContent: () => true,
+  canBypassMatureContent: () => false,
   getAgeGateMessage: () => "blocked",
   projectRequiresAgeGate: () => false,
 }));

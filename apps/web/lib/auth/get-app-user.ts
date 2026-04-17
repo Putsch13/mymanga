@@ -8,6 +8,16 @@ const DEV_EMAIL = "dev@manga-ai.studio";
 const FORCED_ADMIN_EMAILS = ["test@gmail.com"];
 const FORCED_UNLIMITED_EMAILS = ["test@gmail.com"];
 
+/**
+ * P1-6 : les listes "FORCED" (admin + unlimited) sont des backdoors de développement.
+ * En production, on n'y fait confiance QUE si le flag explicite est positionné,
+ * sinon on s'appuie uniquement sur ADMIN_EMAILS / ADMIN_UNLIMITED_EMAILS.
+ */
+function forcedListsAllowed(): boolean {
+  if (process.env.NODE_ENV !== "production") return true;
+  return process.env.ENABLE_FORCED_ADMIN_EMAILS === "true";
+}
+
 function emailInEnvList(email: string, raw: string): boolean {
   const list = raw
     .split(",")
@@ -18,14 +28,16 @@ function emailInEnvList(email: string, raw: string): boolean {
 
 function isAdminEmail(email: string): boolean {
   const configured = process.env.ADMIN_EMAILS ?? process.env.ADMIN_EMAIL ?? "";
-  return FORCED_ADMIN_EMAILS.includes(email.toLowerCase()) || (configured.trim() ? emailInEnvList(email, configured) : false);
+  const forced = forcedListsAllowed() && FORCED_ADMIN_EMAILS.includes(email.toLowerCase());
+  return forced || (configured.trim() ? emailInEnvList(email, configured) : false);
 }
 
 export function isUnlimitedAdminEmail(email: string | null | undefined): boolean {
   if (!email) return false;
   const normalized = email.toLowerCase();
-  const configured = process.env.ADMIN_UNLIMITED_EMAILS ?? FORCED_UNLIMITED_EMAILS.join(",");
-  return FORCED_UNLIMITED_EMAILS.includes(normalized) || emailInEnvList(normalized, configured);
+  const configured = process.env.ADMIN_UNLIMITED_EMAILS ?? "";
+  const forced = forcedListsAllowed() && FORCED_UNLIMITED_EMAILS.includes(normalized);
+  return forced || (configured.trim() ? emailInEnvList(normalized, configured) : false);
 }
 
 async function getOrCreateDevUser(): Promise<User> {

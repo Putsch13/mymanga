@@ -2,19 +2,18 @@
  * LAY-1 — Dramatic Layout Resolver
  * Calcule dynamiquement le template de mise en page d'une page manga
  * selon l'intensité dramatique du beat.
+ *
+ * P1-4 : les DONNÉES de layout (table CSS + areas/weights/ratios) sont
+ * désormais dans `@manga-ai-studio/core` (`page-layout-configs.ts`) pour
+ * être partagées avec le composant client `MangaPageGrid` sans duplication.
  */
 
-export type PageLayoutTemplate =
-  | "splash"           // 1 panel pleine page — beat révélation, ouverture chapitre
-  | "double_spread"    // 2 panels sur double page — action climax
-  | "grid_2x2"         // 4 panels égaux — dialogue posé
-  | "grid_2x3"         // 6 panels — rythme standard
-  | "action_strip"     // 1 grand + 4 petits en strip — combat
-  | "asymmetric_hero"  // 1 grand gauche + 2 petits droite — focus héros
-  | "cinematic_bar"    // 3 panels horizontaux panoramiques — paysage / révélation lieu
-  | "focus_closeup"    // 1 très grand + 2 petits réaction — émotion
-  | "montage_rapid"    // 8 petits panels — flash-back / time-lapse
-  | "vertical_strip";  // 3 panels verticaux — chase / chute
+import {
+  PAGE_LAYOUT_CONFIGS as SHARED_PAGE_LAYOUT_CONFIGS,
+  type PageLayoutTemplate as SharedPageLayoutTemplate,
+} from "@manga-ai-studio/core";
+
+export type PageLayoutTemplate = SharedPageLayoutTemplate;
 
 export interface PanelSizeSpec {
   panelIndex: number;
@@ -62,85 +61,9 @@ export interface ChapterPositionHints {
 }
 
 // ─── Configs CSS Grid par template ────────────────────────────────────────────
+// Ré-export depuis `@manga-ai-studio/core` (source of truth partagée client/serveur).
 
-export const PAGE_LAYOUT_CONFIGS: Record<PageLayoutTemplate, {
-  cssGridTemplate: string;
-  cssGridAreas: string;
-  areas: string[];
-  panelWeights: number[];
-  defaultAspectRatios: string[];
-}> = {
-  splash: {
-    cssGridTemplate: "1fr",
-    cssGridAreas: `"a"`,
-    areas: ["a"],
-    panelWeights: [1],
-    defaultAspectRatios: ["3:4"],
-  },
-  double_spread: {
-    cssGridTemplate: "1fr 1fr",
-    cssGridAreas: `"a b"`,
-    areas: ["a", "b"],
-    panelWeights: [0.5, 0.5],
-    defaultAspectRatios: ["3:4", "3:4"],
-  },
-  grid_2x2: {
-    cssGridTemplate: "1fr 1fr / 1fr 1fr",
-    cssGridAreas: `"a b" "c d"`,
-    areas: ["a", "b", "c", "d"],
-    panelWeights: [0.25, 0.25, 0.25, 0.25],
-    defaultAspectRatios: ["1:1", "1:1", "1:1", "1:1"],
-  },
-  grid_2x3: {
-    cssGridTemplate: "1fr 1fr / 1fr 1fr 1fr",
-    cssGridAreas: `"a b c" "d e f"`,
-    areas: ["a", "b", "c", "d", "e", "f"],
-    panelWeights: [0.167, 0.167, 0.167, 0.167, 0.167, 0.167],
-    defaultAspectRatios: ["3:4", "3:4", "3:4", "3:4", "3:4", "3:4"],
-  },
-  action_strip: {
-    cssGridTemplate: "1.5fr 1fr 1fr / 1fr 1fr 1fr",
-    cssGridAreas: `"a a b" "a a c" "d e f"`,
-    areas: ["a", "b", "c", "d", "e", "f"],
-    panelWeights: [0.40, 0.15, 0.15, 0.10, 0.10, 0.10],
-    defaultAspectRatios: ["4:3", "3:4", "3:4", "1:1", "1:1", "1:1"],
-  },
-  asymmetric_hero: {
-    cssGridTemplate: "1.2fr 1fr / 1fr 1fr 1fr",
-    cssGridAreas: `"a a b" "a a c"`,
-    areas: ["a", "b", "c"],
-    panelWeights: [0.50, 0.25, 0.25],
-    defaultAspectRatios: ["3:4", "1:1", "1:1"],
-  },
-  cinematic_bar: {
-    cssGridTemplate: "1fr 1fr 1fr / 1fr",
-    cssGridAreas: `"a" "b" "c"`,
-    areas: ["a", "b", "c"],
-    panelWeights: [0.33, 0.34, 0.33],
-    defaultAspectRatios: ["16:9", "16:9", "16:9"],
-  },
-  focus_closeup: {
-    cssGridTemplate: "1.5fr 1fr / 1fr 1fr",
-    cssGridAreas: `"a a" "b c"`,
-    areas: ["a", "b", "c"],
-    panelWeights: [0.60, 0.20, 0.20],
-    defaultAspectRatios: ["2:1", "1:1", "1:1"],
-  },
-  montage_rapid: {
-    cssGridTemplate: "1fr 1fr / 1fr 1fr 1fr 1fr",
-    cssGridAreas: `"a b c d" "e f g h"`,
-    areas: ["a", "b", "c", "d", "e", "f", "g", "h"],
-    panelWeights: Array(8).fill(0.125),
-    defaultAspectRatios: Array(8).fill("3:4"),
-  },
-  vertical_strip: {
-    cssGridTemplate: "1fr / 1fr 1fr 1fr",
-    cssGridAreas: `"a b c"`,
-    areas: ["a", "b", "c"],
-    panelWeights: [0.33, 0.34, 0.33],
-    defaultAspectRatios: ["1:2", "1:2", "1:2"],
-  },
-};
+export const PAGE_LAYOUT_CONFIGS = SHARED_PAGE_LAYOUT_CONFIGS;
 
 // ─── Résolution principale ─────────────────────────────────────────────────────
 

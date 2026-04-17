@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildFalNegativePrompt } from "./fal-adapter-shared";
+import { buildFalGenerationRequest, buildFalNegativePrompt } from "./fal-adapter-shared";
 
 /**
  * BUG-02 regression tests : l'ancienne implémentation filtrait 90% du négatif
@@ -132,5 +132,88 @@ describe("buildFalNegativePrompt — BUG-02 drift guards priorisation", () => {
     const photos = out.match(/photorealistic/g);
     expect(empties?.length).toBe(1);
     expect(photos?.length).toBe(1);
+  });
+});
+
+/**
+ * DIFF-4 — vérifie la propagation multi-ref (IP-Adapter style) dans le payload Fal.
+ */
+describe("buildFalGenerationRequest — DIFF-4 multi-image refs", () => {
+  it("reste mono-ref si une seule URL canon est fournie (pas de image_urls dans le payload)", () => {
+    const req = buildFalGenerationRequest({
+      positivePrompt: "hero in action",
+      negativePrompt: "",
+      referenceImageUrls: ["https://example.com/characters/hero-canon.jpg"],
+      providerParams: { referencePolicy: "STRONG", panelCategory: "CHARACTER_LOCK" },
+    });
+    expect(req.effectiveReferenceUrls).toEqual(["https://example.com/characters/hero-canon.jpg"]);
+    expect(req.ipAdapterReferenceUrls).toEqual(["https://example.com/characters/hero-canon.jpg"]);
+    expect((req.payload as Record<string, unknown>).image_urls).toBeUndefined();
+    expect((req.payload as Record<string, unknown>).reference_images).toBeUndefined();
+  });
+
+  it("expose image_urls et reference_images quand plusieurs refs sont données (IP-Adapter)", () => {
+    // Les URLs doivent contenir "/characters/" pour passer le guard isValidCharacterReference
+    // qui gate l'activation du mode Redux (img2img).
+    const refs = [
+      "https://example.com/characters/hero-canon.jpg",
+      "https://example.com/characters/hero-closeup.jpg",
+      "https://example.com/characters/hero-action.jpg",
+    ];
+    const req = buildFalGenerationRequest({
+      positivePrompt: "hero closeup",
+      negativePrompt: "",
+      referenceImageUrls: refs,
+      providerParams: { referencePolicy: "STRONG", panelCategory: "CHARACTER_LOCK" },
+    });
+    expect(req.ipAdapterReferenceUrls.length).toBeGreaterThanOrEqual(2);
+    const payload = req.payload as Record<string, unknown>;
+    expect(payload.image_urls).toEqual(req.ipAdapterReferenceUrls);
+    expect(payload.reference_images).toEqual(req.ipAdapterReferenceUrls);
+    expect(payload.image_url).toBe(refs[0]);
+  });
+
+  it("cappe à 4 refs max pour éviter la dilution des poids IP-Adapter", () => {
+    const refs = Array.from({ length: 8 }, (_, i) => `https://example.com/characters/ref-${i}.jpg`);
+    const req = buildFalGenerationRequest({
+      positivePrompt: "scene",
+      negativePrompt: "",
+      referenceImageUrls: refs,
+      providerParams: { referencePolicy: "STRONG", panelCategory: "CHARACTER_LOCK" },
+    });
+    expect(req.ipAdapterReferenceUrls.length).toBe(4);
+  });
+
+  it("dédoublonne les refs en conservant l'ordre d'origine", () => {
+    const refs = [
+      "https://example.com/characters/a.jpg",
+      "https://example.com/characters/b.jpg",
+      "https://example.com/characters/a.jpg",
+      "https://example.com/characters/c.jpg",
+    ];
+    const req = buildFalGenerationRequest({
+      positivePrompt: "scene",
+      negativePrompt: "",
+      referenceImageUrls: refs,
+      providerParams: { referencePolicy: "STRONG", panelCategory: "CHARACTER_LOCK" },
+    });
+    expect(req.ipAdapterReferenceUrls).toEqual([
+      "https://example.com/characters/a.jpg",
+      "https://example.com/characters/b.jpg",
+      "https://example.com/characters/c.jpg",
+    ]);
+  });
+
+  it("ignore les refs si referencePolicy=NONE", () => {
+    const req = buildFalGenerationRequest({
+      positivePrompt: "scene",
+      negativePrompt: "",
+      referenceImageUrls: ["https://example.com/characters/a.jpg", "https://example.com/characters/b.jpg"],
+      providerParams: { referencePolicy: "NONE" },
+    });
+    expect(req.effectiveReferenceUrls).toEqual([]);
+    expect(req.ipAdapterReferenceUrls).toEqual([]);
+    const payload = req.payload as Record<string, unknown>;
+    expect(payload.image_urls).toBeUndefined();
   });
 });

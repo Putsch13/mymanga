@@ -110,6 +110,8 @@ export type NarrativePassResult = {
   sceneAnchorByIndex: Map<number, unknown>;
   romanceDirectionByScene: Map<number, unknown>;
   canonRefByName: Map<string, unknown>;
+  // P1-5 : ref portrait dédiée par character (pour closeups)
+  faceCloseupRefByName: Map<string, unknown>;
   loraByCharId: Map<string, unknown>;
   loraByCharName: Map<string, unknown>;
   validatedSceneSnapshots: unknown[];
@@ -2005,7 +2007,7 @@ export async function runNarrativePass(
 
     // ── Étape 3b : Index refs canon et LoRA par personnage ────────────────
     // Extrait dans ./narrative/canon-and-lora-index.ts pour lisibilité.
-    const { canonRefByName, loraByCharId, loraByCharName } = buildCanonAndLoraIndex({
+    const { canonRefByName, faceCloseupRefByName, loraByCharId, loraByCharName } = buildCanonAndLoraIndex({
       rawCharacters,
       loraAttachments,
     });
@@ -2027,6 +2029,7 @@ export async function runNarrativePass(
     sceneAnchorByIndex,
     romanceDirectionByScene,
     canonRefByName,
+    faceCloseupRefByName,
     loraByCharId,
     loraByCharName,
     validatedSceneSnapshots,

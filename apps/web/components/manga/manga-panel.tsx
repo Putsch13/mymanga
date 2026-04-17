@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { PanelEditOverlay } from "./panel-edit-overlay";
 
 export type PanelMoodLegacy =
   | "night-rain"
@@ -274,6 +275,11 @@ type Props = {
   className?: string;
   style?: React.CSSProperties;
   panelIndex?: number;
+  /**
+   * DIFF-2 : active la UI d'édition au niveau du panel (overlay avec Redraw / Wide / Closeup / Toggle bubbles).
+   * Désactivé par défaut : reader et webtoon restent en mode lecture seule.
+   */
+  editable?: boolean;
 };
 
 export function MangaPanel({
@@ -299,7 +305,9 @@ export function MangaPanel({
   className,
   style,
   panelIndex,
+  editable = false,
 }: Props) {
+  const [bubblesHidden, setBubblesHidden] = useState(false);
   const bg = MOOD_BG[mood] ?? MOOD_BG["dramatic"];
   const isPending = !imageUrl && (status === "planned" || status === "pending");
   const isFailed = !imageUrl && (status === "failed" || status === "blocked");
@@ -408,7 +416,7 @@ export function MangaPanel({
               />
             )}
 
-            {allDialogues.length > 0 && (
+            {allDialogues.length > 0 && !bubblesHidden && (
               <svg
                 className="pointer-events-none absolute inset-0 z-10 h-full w-full"
                 viewBox="0 0 100 100"
@@ -522,6 +530,14 @@ export function MangaPanel({
           </div>
         )}
       </div>
+
+      {editable && sceneImageId ? (
+        <PanelEditOverlay
+          sceneImageId={sceneImageId}
+          bubblesHidden={bubblesHidden}
+          onToggleBubbles={() => setBubblesHidden((prev) => !prev)}
+        />
+      ) : null}
 
       {/* Fallback text strip ONLY when no image (panels being generated) */}
       {!showOverlayText && (narration || hasDialogue || sfx) && (

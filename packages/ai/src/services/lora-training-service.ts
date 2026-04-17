@@ -28,6 +28,9 @@ export interface LoraReadinessReport {
   portraitRatio: number;
   fullBodyRatio: number;
   reasons: string[];
+  /** MOAT-3 : true si on entraîne avec un dataset minimaliste (3-4 refs).
+   *  Le mode low-data augmente automatiquement steps et caption augmentation. */
+  lowDataMode: boolean;
 }
 
 export interface LoraTrainingResult {
@@ -43,8 +46,33 @@ export interface LoraTrainingResult {
   error?: string;
 }
 
-async function buildTrainingZip(input: LoraTrainingInput) {
+function buildAugmentedCaption(
+  triggerWord: string,
+  characterName: string,
+  imageType: string | undefined,
+  index: number,
+): string {
+  const lowerType = (imageType ?? "").toLowerCase();
+  const isPortrait = /portrait|face|closeup|head/.test(lowerType);
+  const isFullBody = /full|body|three_quarter|pose|outfit/.test(lowerType);
+  const viewHint = isPortrait
+    ? "portrait shot, face visible, expressive eyes"
+    : isFullBody
+      ? "full body shot, full outfit visible, character pose"
+      : "manga character shot";
+  // Léger jitter de phrasing pour éviter overfitting sur la même phrase de caption
+  const variants = [
+    "manga character, consistent design, clean lineart",
+    "manga style, model sheet quality, consistent character",
+    "anime/manga character, official artwork style, consistent design",
+  ];
+  const phrasing = variants[index % variants.length];
+  return `${triggerWord}, ${characterName}, ${viewHint}, ${phrasing}`;
+}
+
+async function buildTrainingZip(input: LoraTrainingInput, lowDataMode: boolean) {
   const zip = new JSZip();
+  const types = input.imageTypes ?? [];
   for (const [index, url] of input.imageUrls.slice(0, 20).entries()) {
     const response = await fetch(url);
     if (!response.ok) {
@@ -60,10 +88,39 @@ async function buildTrainingZip(input: LoraTrainingInput) {
           : "jpg";
     const baseName = String(index + 1).padStart(3, "0");
     zip.file(`images/${baseName}.${ext}`, bytes);
-    zip.file(
-      `captions/${baseName}.txt`,
-      `${input.triggerWord}, ${input.characterName}, manga character, consistent design`,
+    const caption = buildAugmentedCaption(
+      input.triggerWord,
+      input.characterName,
+      types[index],
+      index,
     );
+    zip.file(`captions/${baseName}.txt`, caption);
+  }
+  // MOAT-3 low-data mode : on duplique chaque image avec une caption alternative
+  // pour artificiellement enrichir le signal de training quand le dataset est <= 4 refs.
+  if (lowDataMode) {
+    const refs = input.imageUrls.slice(0, 20);
+    for (const [index, url] of refs.entries()) {
+      const response = await fetch(url);
+      if (!response.ok) continue;
+      const bytes = Buffer.from(await response.arrayBuffer());
+      const contentType = response.headers.get("content-type") ?? "image/jpeg";
+      const ext =
+        contentType.includes("png")
+          ? "png"
+          : contentType.includes("webp")
+            ? "webp"
+            : "jpg";
+      const dupName = `${String(index + 1).padStart(3, "0")}_aug`;
+      zip.file(`images/${dupName}.${ext}`, bytes);
+      const caption = buildAugmentedCaption(
+        input.triggerWord,
+        input.characterName,
+        types[index],
+        index + 1,
+      );
+      zip.file(`captions/${dupName}.txt`, caption);
+    }
   }
   return Buffer.from(await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }));
 }
@@ -81,10 +138,20 @@ export function computeLoraReadiness(input: Pick<LoraTrainingInput, "imageUrls" 
   const count = input.imageUrls.length;
   const portraitRatio = count > 0 ? portraitCount / count : 0;
   const fullBodyRatio = count > 0 ? fullBodyCount / count : 0;
-  const minImagesOk = count >= 4;
+  // MOAT-3 : abaissement du seuil minimal de 4 → 3 refs.
+  // Le mode low-data compense via training steps boostés et caption augmentation.
+  const minImagesOk = count >= 3;
+  const lowDataMode = count >= 3 && count <= 4;
+  // En low-data on EXIGE quand même 2 vues distinctes (sinon le LoRA overfit
+  // sur le visage et ne sait plus dessiner le corps, ou inversement).
   const diversityOk = distinctBuckets.size >= 2;
-  const ratioOk = portraitRatio <= 0.8 && fullBodyRatio >= 0.15;
-  const consistencyOk = count >= 6 || (portraitCount >= 2 && fullBodyCount >= 1);
+  // En low-data, on exige au moins 1 portrait ET 1 full-body (le ratio classique est trop strict pour 3 refs).
+  const ratioOk = lowDataMode
+    ? portraitCount >= 1 && fullBodyCount >= 1
+    : portraitRatio <= 0.8 && fullBodyRatio >= 0.15;
+  const consistencyOk = lowDataMode
+    ? portraitCount >= 1 && fullBodyCount >= 1
+    : count >= 6 || (portraitCount >= 2 && fullBodyCount >= 1);
   const score = [
     minImagesOk ? 0.3 : 0,
     diversityOk ? 0.25 : 0,
@@ -96,6 +163,7 @@ export function computeLoraReadiness(input: Pick<LoraTrainingInput, "imageUrls" 
     diversityOk ? null : "view_diversity_too_low",
     ratioOk ? null : "portrait_full_body_ratio_unbalanced",
     consistencyOk ? null : "dataset_visual_consistency_too_low",
+    lowDataMode ? "low_data_mode_compensation_active" : null,
   ].filter((reason): reason is string => Boolean(reason));
   return {
     score,
@@ -106,6 +174,7 @@ export function computeLoraReadiness(input: Pick<LoraTrainingInput, "imageUrls" 
     portraitRatio,
     fullBodyRatio,
     reasons,
+    lowDataMode,
   };
 }
 
@@ -119,7 +188,9 @@ export async function trainCharacterLora(input: LoraTrainingInput): Promise<Lora
   }
 
   const readiness = computeLoraReadiness(input);
-  if (readiness.score < 0.6) {
+  // MOAT-3 : seuil de score abaissé à 0.55 pour permettre l'entraînement low-data
+  // (3 refs peuvent atteindre score 0.6-0.8 si bien réparties portrait/full-body).
+  if (readiness.score < 0.55) {
     return {
       ok: false,
       readiness,
@@ -128,7 +199,7 @@ export async function trainCharacterLora(input: LoraTrainingInput): Promise<Lora
   }
 
   try {
-    const zipBuffer = await buildTrainingZip(input);
+    const zipBuffer = await buildTrainingZip(input, readiness.lowDataMode);
     const storage = createFalStorageService(input.prisma, apiKey);
     const trainingAsset = await storage.uploadReferenceZip({
       projectId: input.projectId,
@@ -139,6 +210,16 @@ export async function trainCharacterLora(input: LoraTrainingInput): Promise<Lora
       fileName: `${input.triggerWord}-dataset.zip`,
     });
     const falClient = createFalJobClient(apiKey);
+    // MOAT-3 : low-data mode → steps boostés (700 vs 300), learning_rate diminué
+    // pour compenser le risque d'overfitting sur un dataset minuscule.
+    const effectiveSteps = input.steps ?? (readiness.lowDataMode ? 700 : 300);
+    const effectiveLearningRate = readiness.lowDataMode ? 0.00006 : 0.0001;
+    const effectiveRank = readiness.lowDataMode ? 12 : 16;
+    if (readiness.lowDataMode) {
+      console.log(
+        `[lora-training] low_data_mode active char=${input.characterId} refs=${input.imageUrls.length} steps=${effectiveSteps} lr=${effectiveLearningRate} rank=${effectiveRank}`,
+      );
+    }
     const result = await falClient.submitAndPoll({
       model: FAL_LORA_TRAINING_MODEL,
       mode: "lora_training",
@@ -148,9 +229,9 @@ export async function trainCharacterLora(input: LoraTrainingInput): Promise<Lora
       input: {
         images_data_url: trainingAsset.falCdnUrl ?? trainingAsset.publicUrl,
         trigger_word: input.triggerWord,
-        steps: input.steps ?? 300,
-        learning_rate: 0.0001,
-        rank: 16,
+        steps: effectiveSteps,
+        learning_rate: effectiveLearningRate,
+        rank: effectiveRank,
         is_style: false,
         is_input_format_already_preprocessed: false,
       },

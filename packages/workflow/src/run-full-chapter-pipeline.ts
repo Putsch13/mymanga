@@ -9,6 +9,7 @@ import { loadCharactersForPipeline } from "./pipeline-db-loader";
 import { runMemoryPass } from "./passes/memory-pass";
 import { runImageGenerationPass } from "./passes/image-generation-pass";
 import { runNarrativePass } from "./passes/narrative-pass";
+import { assertPremiumContractFromChapter } from "./passes/assert-premium-contract-guard";
 
 export { setJobProgress } from "./pipeline-job";
 
@@ -47,6 +48,36 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
 
   if (!chapter) {
     return { ok: false as const, error: "invalid_job" };
+  }
+
+  // P1-1 : défense en profondeur — si le job a été créé hors launch/pipeline
+  // (run-now direct, retry manuel, flow interne), on revalide ici le contrat
+  // premium avant d'engager le moindre coût LLM/image.
+  const contractGuard = assertPremiumContractFromChapter(chapter.outline, chapter.minimumImages);
+  if (!contractGuard.ok) {
+    console.error(
+      `[pipeline:P1-1] premium_contract_incomplete chapterId=${job.chapterId} missing=${contractGuard.missing.join(" | ")}`,
+    );
+    await prisma.job.update({
+      where: { id: jobId },
+      data: {
+        status: "failed",
+        finishedAt: new Date(),
+        output: {
+          error: "premium_contract_incomplete",
+          missing: contractGuard.missing,
+          warnings: contractGuard.warnings,
+          message:
+            "Le contrat premium du chapitre est incomplet. Retourne dans le studio pour régénérer le plan avant de relancer la pipeline.",
+        } as never,
+      },
+    });
+    return { ok: false as const, error: "premium_contract_incomplete" };
+  }
+  if (contractGuard.warnings.length > 0) {
+    console.warn(
+      `[pipeline:P1-1] premium_contract_warnings chapterId=${job.chapterId} warnings=${contractGuard.warnings.join(" | ")}`,
+    );
   }
 
   const projectId = job.projectId;
@@ -148,6 +179,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       plannedImages,
       chapterLookProfile,
       canonRefByName,
+      faceCloseupRefByName,
       loraByCharId,
       loraByCharName,
       validatedSceneSnapshots,
@@ -172,6 +204,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         plannedImages,
         chapterLookProfile,
         canonRefByName,
+        faceCloseupRefByName,
         loraByCharName,
         loraByCharId,
         effectiveCreativeControls,

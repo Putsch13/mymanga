@@ -14,6 +14,7 @@ vi.mock("@/lib/auth/get-app-user", () => ({ getAppUser: getAppUserMock }));
 vi.mock("@/lib/ownership", () => ({ getOwnedChapter: getOwnedChapterMock }));
 vi.mock("@/lib/age-gate", () => ({
   canAccessMatureContent: () => true,
+  canBypassMatureContent: () => false,
   getAgeGateMessage: () => "blocked",
   projectRequiresAgeGate: () => false,
 }));

@@ -33,6 +33,8 @@ export type LoadedCharacterForPipeline = {
   eyeColor: string | null;
   outfitDefault: string | null;
   canonicalImageUrl: string | null;
+  // P1-5 : ref portrait dédiée (closeup visage) si disponible
+  faceCloseupImageUrl?: string | null;
   canonSignatureText: string | null;
   forbiddenVisualDrift: unknown;
   bodyDetails: string | null;

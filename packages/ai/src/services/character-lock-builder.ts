@@ -14,6 +14,18 @@ type BuilderInput = {
   triggerWord?: string | null;
   loraUrl?: string | null;
   canonicalRefUrls?: string[];
+  /**
+   * P1-5 — Ref portrait dédiée (closeup visage).
+   * Doit pointer vers un crop/rendu spécifiquement portrait. Si absent,
+   * on retombe sur `canonicalRefUrls[0]` mais on loggue un warn pour
+   * signaler qu'aucune ref closeup dédiée n'existe pour ce character.
+   */
+  faceCloseupRefUrl?: string | null;
+  /**
+   * P1-5 — Ref action/full-body dédiée (pose dynamique).
+   * Fallback sur canonicalRefUrls[1] puis [0].
+   */
+  actionRefUrl?: string | null;
   currentState?: Record<string, unknown>;
   version?: number;
 };
@@ -67,7 +79,53 @@ export function buildCharacterVisualLock(input: BuilderInput): CharacterVisualLo
       scars: safeString(bodyState.scarsCurrent) ? [safeString(bodyState.scarsCurrent)] : [],
     },
     ageVariant: safeString(visualProfile.ageVariant) || undefined,
-    faceCloseupRef: (input.canonicalRefUrls ?? [])[0] ?? undefined,
-    actionRef: (input.canonicalRefUrls ?? [])[1] ?? (input.canonicalRefUrls ?? [])[0] ?? undefined,
+    faceCloseupRef: resolveFaceCloseupRef(input),
+    actionRef: resolveActionRef(input),
   };
+}
+
+/**
+ * P1-5 — Résout la ref portrait dédiée.
+ * Priorité : paramètre explicite `faceCloseupRefUrl` > canonicalRefUrls[0] (avec warn).
+ */
+function resolveFaceCloseupRef(input: BuilderInput): string | undefined {
+  const explicit = safeString(input.faceCloseupRefUrl);
+  if (explicit) return explicit;
+  const fallback = (input.canonicalRefUrls ?? [])[0];
+  if (fallback) {
+    console.warn(
+      `[character-lock:P1-5] character=${input.characterId} no_dedicated_face_closeup_ref — fallback canonicalRefUrls[0] (peut être full-body, risque de drift sur closeups)`,
+    );
+    return fallback;
+  }
+  return undefined;
+}
+
+/**
+ * P1-5 — Résout la ref action dédiée.
+ * Priorité : actionRefUrl > canonicalRefUrls[1] > canonicalRefUrls[0].
+ */
+function resolveActionRef(input: BuilderInput): string | undefined {
+  const explicit = safeString(input.actionRefUrl);
+  if (explicit) return explicit;
+  const refs = input.canonicalRefUrls ?? [];
+  return refs[1] ?? refs[0] ?? undefined;
+}
+
+/**
+ * P1-5 — Helper pour consommateurs pipeline (image generation) : préfixe la
+ * faceCloseupRef en tête de la liste de refs pour un panel closeup.
+ * Renvoie la liste nouvelle si une ref portrait dédiée existe ET diffère
+ * déjà de la première entrée ; sinon la liste originale inchangée.
+ */
+export function prependFaceCloseupRefForCloseup(
+  shotType: string | null | undefined,
+  baseRefs: string[],
+  visualLock: { faceCloseupRef?: string | null | undefined } | null | undefined,
+): string[] {
+  if (!visualLock?.faceCloseupRef) return baseRefs;
+  const isCloseup = shotType === "closeup" || shotType === "extreme_closeup" || shotType === "face";
+  if (!isCloseup) return baseRefs;
+  if (baseRefs[0] === visualLock.faceCloseupRef) return baseRefs;
+  return [visualLock.faceCloseupRef, ...baseRefs.filter((r) => r !== visualLock.faceCloseupRef)];
 }

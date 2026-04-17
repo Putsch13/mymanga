@@ -10,11 +10,17 @@ interface RateLimitEntry { count: number; resetAt: number; }
 const memoryStore = new Map<string, RateLimitEntry>();
 
 const CONFIGS = {
-  pipeline:        { requests: 5,  window: "1 h" as const },
-  generate_visual: { requests: 15, window: "1 h" as const },
-  continue:        { requests: 20, window: "1 h" as const },
-  train_lora:      { requests: 2,  window: "1 d" as const },
-  tts:             { requests: 50, window: "1 h" as const },
+  pipeline:             { requests: 5,  window: "1 h" as const },
+  generate_visual:      { requests: 15, window: "1 h" as const },
+  continue:             { requests: 20, window: "1 h" as const },
+  train_lora:           { requests: 2,  window: "1 d" as const },
+  tts:                  { requests: 50, window: "1 h" as const },
+  // P1-6 : buckets dédiés aux endpoints AI qui étaient sans garde
+  "chapter-outline":    { requests: 20, window: "1 h" as const },
+  "chapter-autofill":   { requests: 30, window: "1 h" as const },
+  "character-ai-suggest": { requests: 15, window: "1 h" as const },
+  "scene-image-retry":  { requests: 30, window: "1 h" as const },
+  "ai-generate":        { requests: 30, window: "1 h" as const },
 };
 
 type RateLimitAction = keyof typeof CONFIGS;
