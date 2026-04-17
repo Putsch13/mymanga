@@ -488,7 +488,7 @@ function sanitizeCharacterState(
       location: typeof currentStateRec.location === "string" ? currentStateRec.location : base.currentState.location,
       outfit: typeof currentStateRec.outfit === "string" ? currentStateRec.outfit : base.currentState.outfit,
       injuries: asStringArray(currentStateRec.injuries),
-      fatigue: typeof currentStateRec.fatigue === "string" ? currentStateRec.fatigue : base.currentState.fatigue,
+      fatigue: typeof currentStateRec.fatigue === "number" ? currentStateRec.fatigue : base.currentState.fatigue,
       emotion: typeof currentStateRec.emotion === "string" ? currentStateRec.emotion : base.currentState.emotion,
       objective: typeof currentStateRec.objective === "string" ? currentStateRec.objective : base.currentState.objective,
       possessions: asStringArray(currentStateRec.possessions),
