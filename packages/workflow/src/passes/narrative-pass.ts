@@ -154,6 +154,7 @@ export async function runNarrativePass(
   const selectedPlotLabel = input.selectedPlotLabel;
   const focusCharacterIds = input.focusCharacterIds;
   const jobInput = input.jobInput;
+  let warnedMalformedCharacterState = false;
 
   // ── Étape 1 : Contexte projet ──────────────────────────────────────────
     await setJobProgress(jobId, { key: "build_context", label: "Contexte projet" }, "running");
@@ -1290,8 +1291,20 @@ export async function runNarrativePass(
                     continuityKernel.arcRegistry.find((arc: any) => arc.status !== "closed")?.currentState ?? null,
                     ...continuityKernel.eventLog.slice(0, 3).map((event: any) => event.description),
                     ...previousCharacterStates
-                      .filter((state) => state.identity.stableName != null && panel.characters.includes(state.identity.stableName))
-                      .flatMap((state) => state.continuityObligations),
+                      .filter((state) => {
+                        const stableName = (state as any)?.identity?.stableName;
+                        if (typeof stableName !== "string" || stableName.length === 0) {
+                          if (!warnedMalformedCharacterState) {
+                            warnedMalformedCharacterState = true;
+                            console.warn(
+                              `[pipeline] malformed_character_state_missing_identity jobId=${jobId} chapterId=${chapterId} — skipping continuityObligations injection`,
+                            );
+                          }
+                          return false;
+                        }
+                        return panel.characters.includes(stableName);
+                      })
+                      .flatMap((state) => Array.isArray((state as any)?.continuityObligations) ? (state as any).continuityObligations : []),
                   ]),
                 },
                 premiumContract: panelPremiumBlueprint

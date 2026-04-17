@@ -407,6 +407,99 @@ function mapContinuityEventToLedger(event: {
   };
 }
 
+function sanitizeCharacterState(
+  raw: unknown,
+  fallbackCharacter: {
+    id: string;
+    name: string;
+    roleType: string | null;
+    emotionalState: string | null;
+    objective: string | null;
+    fear: string | null;
+    outfitDefault?: string | null;
+    hairColor?: string | null;
+    eyeColor?: string | null;
+    traits?: unknown;
+    biography?: string | null;
+  } | null,
+): CharacterState | null {
+  const rec = asRecord(raw);
+  const characterId = typeof rec.characterId === "string" ? rec.characterId : fallbackCharacter?.id ?? null;
+  if (!characterId) return null;
+
+  const identityRec = asRecord(rec.identity);
+  const stableName =
+    typeof identityRec.stableName === "string" && identityRec.stableName.trim().length > 0
+      ? identityRec.stableName
+      : (fallbackCharacter?.name ?? characterId);
+  const roleType =
+    typeof identityRec.roleType === "string"
+      ? identityRec.roleType
+      : (fallbackCharacter?.roleType ?? null);
+
+  const base = buildFallbackCharacterState({
+    id: characterId,
+    name: stableName,
+    roleType,
+    emotionalState: fallbackCharacter?.emotionalState ?? null,
+    objective: fallbackCharacter?.objective ?? null,
+    fear: fallbackCharacter?.fear ?? null,
+    outfitDefault: fallbackCharacter?.outfitDefault ?? null,
+    hairColor: fallbackCharacter?.hairColor ?? null,
+    eyeColor: fallbackCharacter?.eyeColor ?? null,
+    traits: fallbackCharacter?.traits ?? [],
+    biography: fallbackCharacter?.biography ?? null,
+  });
+
+  const appearanceLockedRec = asRecord(rec.appearanceLocked);
+  const psychologicalCanonRec = asRecord(rec.psychologicalCanon);
+  const physicalCanonRec = asRecord(rec.physicalCanon);
+  const currentStateRec = asRecord(rec.currentState);
+
+  return {
+    ...base,
+    characterId,
+    identity: { stableName, roleType },
+    appearanceLocked: {
+      ...base.appearanceLocked,
+      hairColor: typeof appearanceLockedRec.hairColor === "string" ? appearanceLockedRec.hairColor : base.appearanceLocked.hairColor,
+      eyeColor: typeof appearanceLockedRec.eyeColor === "string" ? appearanceLockedRec.eyeColor : base.appearanceLocked.eyeColor,
+      silhouette: typeof appearanceLockedRec.silhouette === "string" ? appearanceLockedRec.silhouette : base.appearanceLocked.silhouette,
+      scars: asStringArray(appearanceLockedRec.scars),
+      tattoos: asStringArray(appearanceLockedRec.tattoos),
+      fixedAccessories: asStringArray(appearanceLockedRec.fixedAccessories),
+      forbiddenVisualDrift: asStringArray(appearanceLockedRec.forbiddenVisualDrift),
+    },
+    psychologicalCanon: {
+      ...base.psychologicalCanon,
+      coreTraits: asStringArray(psychologicalCanonRec.coreTraits),
+      fears: asStringArray(psychologicalCanonRec.fears),
+      motivations: asStringArray(psychologicalCanonRec.motivations),
+      speechRules: asStringArray(psychologicalCanonRec.speechRules),
+    },
+    physicalCanon: {
+      ...base.physicalCanon,
+      baselineOutfit: typeof physicalCanonRec.baselineOutfit === "string" ? physicalCanonRec.baselineOutfit : base.physicalCanon.baselineOutfit,
+      allowedOutfitVariations: asStringArray(physicalCanonRec.allowedOutfitVariations),
+      bodyMarkers: asStringArray(physicalCanonRec.bodyMarkers),
+    },
+    currentState: {
+      ...base.currentState,
+      location: typeof currentStateRec.location === "string" ? currentStateRec.location : base.currentState.location,
+      outfit: typeof currentStateRec.outfit === "string" ? currentStateRec.outfit : base.currentState.outfit,
+      injuries: asStringArray(currentStateRec.injuries),
+      fatigue: typeof currentStateRec.fatigue === "string" ? currentStateRec.fatigue : base.currentState.fatigue,
+      emotion: typeof currentStateRec.emotion === "string" ? currentStateRec.emotion : base.currentState.emotion,
+      objective: typeof currentStateRec.objective === "string" ? currentStateRec.objective : base.currentState.objective,
+      possessions: asStringArray(currentStateRec.possessions),
+      knowledge: asStringArray(currentStateRec.knowledge),
+      obligations: asStringArray(currentStateRec.obligations),
+    },
+    continuityObligations: asStringArray(rec.continuityObligations),
+    relationshipStates: Array.isArray(rec.relationshipStates) ? (rec.relationshipStates as CharacterState["relationshipStates"]) : base.relationshipStates,
+  };
+}
+
 export async function loadContinuityKernel(
   prisma: PrismaClient,
   input: { projectId: string; beforeChapterNumber?: number },
@@ -453,23 +546,52 @@ export async function loadContinuityKernel(
     primaryGenre: project.primaryGenre,
     relationships: project.relationships,
   });
-  const characterStates = latestCanon?.characterStates
-    ? (latestCanon.characterStates as CharacterState[])
-    : project.characters.map((character) =>
-        buildFallbackCharacterState({
-          id: character.id,
-          name: character.name,
-          roleType: character.roleType,
-          emotionalState: character.emotionalState,
-          objective: character.objective,
-          fear: character.fear,
-          outfitDefault: character.outfitDefault,
-          hairColor: character.hairColor,
-          eyeColor: character.eyeColor,
-          traits: character.traits,
-          biography: character.biography,
-        }),
-      );
+  const fallbackById = new Map(project.characters.map((c) => ([
+    c.id,
+    {
+      id: c.id,
+      name: c.name,
+      roleType: c.roleType,
+      emotionalState: c.emotionalState,
+      objective: c.objective,
+      fear: c.fear,
+      outfitDefault: c.outfitDefault,
+      hairColor: c.hairColor,
+      eyeColor: c.eyeColor,
+      traits: c.traits,
+      biography: c.biography,
+    },
+  ] as const)));
+
+  const rawLoadedStates: unknown[] =
+    latestCanon?.characterStates && Array.isArray(latestCanon.characterStates)
+      ? (latestCanon.characterStates as unknown[])
+      : [];
+
+  const characterStates: CharacterState[] =
+    rawLoadedStates.length > 0
+      ? rawLoadedStates
+          .map((item) => {
+            const rec = asRecord(item);
+            const id = typeof rec.characterId === "string" ? rec.characterId : null;
+            return sanitizeCharacterState(item, id ? (fallbackById.get(id) ?? null) : null);
+          })
+          .filter((s): s is CharacterState => Boolean(s))
+      : project.characters.map((character) =>
+          buildFallbackCharacterState({
+            id: character.id,
+            name: character.name,
+            roleType: character.roleType,
+            emotionalState: character.emotionalState,
+            objective: character.objective,
+            fear: character.fear,
+            outfitDefault: character.outfitDefault,
+            hairColor: character.hairColor,
+            eyeColor: character.eyeColor,
+            traits: character.traits,
+            biography: character.biography,
+          }),
+        );
   const locationStates = project.locations.map(buildLocationState);
   const relationshipGraph: RelationshipGraphEdge[] = project.relationships.map((relationship) => ({
     sourceCharacterId: relationship.sourceCharacterId,
