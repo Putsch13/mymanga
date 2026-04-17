@@ -18,11 +18,7 @@ import {
   type ProjectContextForChapter,
 } from "@manga-ai-studio/ai";
 import {
-  buildLegacyApprovedOutlineFromStudio,
-  chapterStudioSnapshotSchema,
   getCharacterTierPolicy,
-  parseApprovedOutline,
-  resolveEffectiveProductionSource,
   resolveCharacterImportanceTier,
   resolveChapterLookProfile,
   enforceShotDiversity,
@@ -31,12 +27,7 @@ import {
 } from "@manga-ai-studio/core";
 import {
   buildPanelIntentCard,
-  buildSceneAnchor,
-  composeProjectStyleAnchor,
-  type MainCastAnchor,
   type PanelIntentCard,
-  type RecurringNpcAnchor,
-  type SceneAnchor,
 } from "@manga-ai-studio/ai";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import {
@@ -49,12 +40,10 @@ import {
   buildSceneSnapshot,
   buildSceneState,
   deriveSceneEvents,
-  loadContinuityKernel,
   persistSceneState,
   persistValidatedSceneContinuity,
   validateSceneSnapshotAgainstKernel,
   applySceneEventsToKernel,
-  type CharacterState,
 } from "@manga-ai-studio/continuity";
 import { buildSceneBlueprint, type SceneBlueprint } from "@manga-ai-studio/world";
 import { buildPanelContract } from "../build-panel-contract";
@@ -65,6 +54,14 @@ import {
 } from "../pipeline-scene-builder";
 import { buildPanelCast } from "../build-panel-cast";
 import { buildStableImageReference } from "../stable-image-refs";
+import { buildCanonAndLoraIndex } from "./narrative/canon-and-lora-index";
+import { buildSceneAnchorsByIndex } from "./narrative/scene-anchor-builder";
+import {
+  buildChapterContextDocument,
+  buildNpcMemoryContext,
+} from "./narrative/chapter-context-document";
+import { loadPreviousCanonStateAndKernel } from "./narrative/canon-state-loader";
+import { resolveStudioBundle } from "./narrative/studio-bundle-resolver";
 import {
   extractSceneFactions,
   inferSceneWeather,
@@ -198,46 +195,15 @@ export async function runNarrativePass(
       `(hors personnages principaux — cf. context.characters=${context.characters.length})`,
     );
 
-    const npcMemoryContext = recurringNpcs.length > 0
-      ? `\nPNJ RÉCURRENTS DU PROJET (visuels à respecter si réapparition) :\n` +
-        recurringNpcs.map(n =>
-          `- ${n.label} (${n.appearanceCount} apparitions) : ${n.shortVisualCore}` +
-          (n.outfitSignature ? ` | Tenue : ${n.outfitSignature}` : "") +
-          (n.speciesLabel ? ` | Espèce : ${n.speciesLabel}` : "")
-        ).join("\n")
-      : "";
-
-    const contextDocument = [
-      `Projet: ${context.project.title}`,
-      context.project.pitch ? `Pitch: ${context.project.pitch}` : "",
-      context.project.description ? `Description: ${context.project.description}` : "",
-      context.project.primaryGenre ? `Genre: ${context.project.primaryGenre}` : "",
-      context.project.subGenres?.length ? `Sous-genres: ${context.project.subGenres.join(", ")}` : "",
-      context.storyBible?.summary ? `Bible: ${context.storyBible.summary}` : "",
-      context.characters.length
-        ? `Personnages:\n${context.characters
-            .slice(0, 6)
-            .map((character) => `- ${character.name} | ${character.roleType ?? "rôle?"} | obj: ${character.objective ?? "n/a"} | peur: ${character.fear ?? "n/a"}`)
-            .join("\n")}`
-        : "",
-      context.recentMemory.length
-        ? `Mémoire récente:\n${context.recentMemory
-            .map((memory) => memory.narrativeSummary)
-            .filter(Boolean)
-            .slice(0, 3)
-            .join("\n")}`
-        : "",
-      context.retrievedDocs.length
-        ? `RAG:\n${context.retrievedDocs
-            .slice(0, 4)
-            .map((doc) => `${doc.title ?? doc.entityType ?? "doc"}: ${doc.content}`)
-            .join("\n")}`
-        : "",
+    const npcMemoryContext = buildNpcMemoryContext(recurringNpcs);
+    const contextDocument = buildChapterContextDocument({
+      project: context.project,
+      storyBible: context.storyBible ?? null,
+      characters: context.characters,
+      recentMemory: context.recentMemory,
+      retrievedDocs: context.retrievedDocs,
       npcMemoryContext,
-    ]
-      .filter(Boolean)
-      .join("\n\n")
-      .slice(0, 4200);
+    });
 
     await replaceRagDocument(prisma, {
       projectId,
@@ -248,39 +214,15 @@ export async function runNarrativePass(
       metadata: { chapterId, focusCharacterIds, selectedPlotLabel },
     });
     // ── Charger le canon state précédent (pour continuité) ─────────────────
-    const previousCanonState = await prisma.chapterCanonState.findFirst({
-      where: {
-        projectId,
-        chapterNumber: { lt: chapterNumber },
-      },
-      orderBy: { chapterNumber: "desc" },
-    });
-
-    const previousCharacterStates = previousCanonState?.characterStates
-      ? (previousCanonState.characterStates as CharacterState[])
-      : [];
-    let continuityKernel = await loadContinuityKernel(prisma, {
+    // Extrait dans ./narrative/canon-state-loader.ts — inclut la validation T06
+    // de cohérence kernel vs canon précédent.
+    const canonBundle = await loadPreviousCanonStateAndKernel(prisma, {
       projectId,
-      beforeChapterNumber: chapterNumber,
+      chapterNumber,
     });
-    // T06: kernel is canonical — validate coherence before overwriting
-    if (continuityKernel.characterStates.length > 0) {
-      const { validateKernelCoherence } = await import("@manga-ai-studio/continuity");
-      const coherenceResult = validateKernelCoherence(
-        continuityKernel,
-        previousCanonState ? { characterStates: previousCanonState.characterStates as any[] } : null,
-      );
-      if (!coherenceResult.coherent) {
-        console.warn(`[continuity:T06] kernel divergence detected: ${coherenceResult.divergences.length} fields differ`);
-        for (const d of coherenceResult.divergences.slice(0, 5)) {
-          console.warn(`  [divergence] ${d.characterName}.${d.field}: kernel=${JSON.stringify(d.kernelValue)} vs canon=${JSON.stringify(d.chapterCanonValue)} → resolved to ${d.resolvedTo}`);
-        }
-      }
-      if (coherenceResult.warnings.length > 0) {
-        console.warn(`[continuity:T06] warnings: ${coherenceResult.warnings.join(", ")}`);
-      }
-      previousCharacterStates.splice(0, previousCharacterStates.length, ...continuityKernel.characterStates);
-    }
+    const previousCanonState = canonBundle.previousCanonState;
+    const previousCharacterStates = canonBundle.previousCharacterStates;
+    let continuityKernel = canonBundle.continuityKernel;
 
     await setJobProgress(jobId, { key: "build_context", label: "Contexte projet" }, "completed");
 
@@ -291,33 +233,12 @@ export async function runNarrativePass(
       "running",
     );
     const chapterOutlineRecord = asRecord(chapter.outline);
-    const studioSnapshotResult = chapterStudioSnapshotSchema.safeParse(chapterOutlineRecord.studio);
-    const studioSnapshot = studioSnapshotResult.success ? studioSnapshotResult.data : null;
-    const productionSource = studioSnapshot
-      ? resolveEffectiveProductionSource(studioSnapshot)
-      : { source: "missing", fallbackUsed: true, legacyBridgeUsed: true };
-
-    const premiumProductionOutline = studioSnapshot?.data?.productionOutline;
-    const hasPremiumOutline =
-      premiumProductionOutline &&
-      typeof premiumProductionOutline === "object" &&
-      "source" in premiumProductionOutline &&
-      premiumProductionOutline.source !== "legacy_adapted" &&
-      Array.isArray((premiumProductionOutline as { beats?: unknown[] }).beats) &&
-      ((premiumProductionOutline as { beats?: unknown[] }).beats?.length ?? 0) > 0;
-
-    // B11: simplified outline resolution — clear priority chain
-    const approvedOutlineForBundle = (() => {
-      if (hasPremiumOutline) {
-        return parseApprovedOutline(chapterOutlineRecord.approvedOutline)
-          ?? buildLegacyApprovedOutlineFromStudio(studioSnapshot!);
-      }
-      if (studioSnapshot) {
-        return buildLegacyApprovedOutlineFromStudio(studioSnapshot)
-          ?? parseApprovedOutline(chapterOutlineRecord.approvedOutline);
-      }
-      return parseApprovedOutline(chapterOutlineRecord.approvedOutline);
-    })();
+    // Résolution priorité premium outline / legacy studio bridge / parsed approved outline.
+    // Extrait dans ./narrative/studio-bundle-resolver.ts.
+    const studioBundleResolved = resolveStudioBundle(chapterOutlineRecord);
+    const studioSnapshot = studioBundleResolved.studioSnapshot;
+    const productionSource = studioBundleResolved.productionSource;
+    const approvedOutlineForBundle = studioBundleResolved.approvedOutlineForBundle;
 
     const effectivePanelBlueprints = resolveEffectivePanelBlueprints({
       jobInput: jobInput as PipelineJobInput,
@@ -617,83 +538,19 @@ export async function runNarrativePass(
     const _debugPanelLegacy = process.env.MANGA_DEBUG_PANEL === "true";
 
     // ── SceneAnchor : construire une ancre ENRICHIE par scène ─────────────────
-    // DIAG-D (Option 1 — anchor-by-scene). On calcule UNE SEULE FOIS par scène :
-    //  - styleAnchor projet (constant, hors boucle)
-    //  - establishedLocationBrief (match du lieu de la scène sur knownLocations)
-    //  - mainCastAnchors (apparence canonique des personnages principaux présents)
-    //  - recurringNpcAnchors (top-3 PNJ secondaires promus, priorisation lieu)
-    // Tous les panels de la scène réutilisent le même anchor → zéro coût supplémentaire.
-    const projectStyleAnchor = composeProjectStyleAnchor({
-      genre: context.project.primaryGenre,
-      tone: context.project.tone ?? null,
-      visualStyle: context.project.visualStyle ?? null,
+    // DIAG-D (Option 1 — anchor-by-scene). Construction extraite dans
+    // ./narrative/scene-anchor-builder.ts. Zéro coût supplémentaire par panel.
+    const sceneAnchorByIndex = buildSceneAnchorsByIndex({
+      scenes: revisedBundle.script.scenes,
+      project: {
+        primaryGenre: context.project.primaryGenre,
+        tone: context.project.tone ?? null,
+        visualStyle: context.project.visualStyle ?? null,
+      },
+      knownLocations,
+      rawCharacters,
+      recurringNpcs,
     });
-
-    const normalizeLocName = (name: string): string =>
-      name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
-    const locationBriefByName = new Map<string, string>();
-    for (const loc of knownLocations) {
-      const brief = loc.establishedVisualBrief ?? loc.visualBrief ?? null;
-      if (!brief) continue;
-      locationBriefByName.set(normalizeLocName(loc.name), brief);
-    }
-
-    const buildMainCastAnchor = (charName: string): MainCastAnchor | null => {
-      const rc = rawCharacters.find((c) => c.name === charName);
-      if (!rc) return null;
-      const bits: string[] = [];
-      if (rc.gender) bits.push(rc.gender);
-      if (rc.age) bits.push(`~${rc.age}y`);
-      if (rc.hairColor) bits.push(`${rc.hairColor} hair`);
-      if (rc.eyeColor) bits.push(`${rc.eyeColor} eyes`);
-      if (rc.outfitDefault) bits.push(`signature outfit: ${rc.outfitDefault}`);
-      if (rc.appearance) bits.push(rc.appearance);
-      if (bits.length === 0) return null;
-      return {
-        name: rc.name,
-        shortVisualCore: bits.join(", ").slice(0, 240),
-      };
-    };
-
-    const topRecurringNpcs: RecurringNpcAnchor[] = recurringNpcs.slice(0, 5).map((n) => ({
-      label: n.label,
-      shortVisualCore: n.shortVisualCore,
-      outfitSignature: n.outfitSignature ?? null,
-    }));
-
-    const sceneAnchorByIndex = new Map<number, SceneAnchor>();
-    for (let idx = 0; idx < revisedBundle.script.scenes.length; idx++) {
-      const scene = revisedBundle.script.scenes[idx];
-      if (!scene) continue;
-
-      const normalizedSceneLoc = normalizeLocName(scene.location);
-      let establishedLocationBrief: string | null = null;
-      for (const [locKey, brief] of locationBriefByName.entries()) {
-        if (normalizedSceneLoc.includes(locKey) || locKey.includes(normalizedSceneLoc)) {
-          establishedLocationBrief = brief;
-          break;
-        }
-      }
-
-      const mainCastAnchors = scene.characters
-        .slice(0, 4)
-        .map((n) => buildMainCastAnchor(n))
-        .filter((x): x is MainCastAnchor => x !== null);
-
-      const anchor = buildSceneAnchor({
-        sceneId: `scene_${idx + 1}`,
-        castLineup: scene.characters.slice(0, 4),
-        location: scene.location,
-        mood: scene.purpose ?? "dramatic",
-        weather: inferSceneWeather(scene.summary) ?? undefined,
-        timeOfDay: inferSceneTimeOfDay(scene.summary) ?? undefined,
-        establishedLocationBrief,
-        mainCastAnchors,
-        recurringNpcAnchors: topRecurringNpcs.slice(0, 3),
-        styleAnchor: projectStyleAnchor,
-      });
-      sceneAnchorByIndex.set(idx, anchor);
-    }
 
     // ── Romance director : pré-calculer la direction pour les scènes émotionnelles ──
     const romanceDirectionByScene = new Map<number, ReturnType<typeof directRomanceDramaScene>>();
@@ -2132,38 +1989,11 @@ export async function runNarrativePass(
     }
 
     // ── Étape 3b : Index refs canon et LoRA par personnage ────────────────
-    const canonRefByName = new Map<string, StableImageReference>();
-    for (const c of rawCharacters) {
-      const ref =
-        (c as { canonicalReference?: StableImageReference | null }).canonicalReference
-        ?? ((c.canonicalImageUrl
-          ? buildStableImageReference({
-              publicUrl: c.canonicalImageUrl,
-              sourceUrl: c.canonicalImageUrl,
-              sourceType: "legacy_url",
-            })
-          : null));
-      if (ref) canonRefByName.set(c.name, ref);
-    }
-    const loraByCharId = new Map<string, { url: string; triggerWord: string; scale: number }>();
-    for (const att of loraAttachments) {
-      const meta = att.lora.weightsMeta as Record<string, unknown>;
-      const loraUrl = typeof meta.loraUrl === "string" ? meta.loraUrl : null;
-      const triggerWord = typeof meta.triggerWord === "string" ? meta.triggerWord : att.lora.name;
-      if (loraUrl && att.characterId && att.enabled && att.lora.status === "active") {
-        loraByCharId.set(att.characterId, { url: loraUrl, triggerWord, scale: att.weight });
-      }
-    }
-    const loraByCharName = new Map<string, { url: string; triggerWord: string; scale: number }>();
-    for (const c of rawCharacters) {
-      const lora = loraByCharId.get(c.id);
-      if (lora) {
-        if (loraByCharName.has(c.name)) {
-          console.warn(`[pipeline:R06] loraByCharName collision: "${c.name}" already mapped — prefer loraByCharId for id=${c.id}`);
-        }
-        loraByCharName.set(c.name, lora);
-      }
-    }
+    // Extrait dans ./narrative/canon-and-lora-index.ts pour lisibilité.
+    const { canonRefByName, loraByCharId, loraByCharName } = buildCanonAndLoraIndex({
+      rawCharacters,
+      loraAttachments,
+    });
 
   return {
     context,
