@@ -53,15 +53,21 @@ const GENRE_TARGETS: Record<string, { wide: number; medium: number; closeup: num
 };
 const DEFAULT_TARGETS = { wide: 0.20, medium: 0.35, closeup: 0.30, cutaway: 0.15, rhythm: "standard" as Rhythm };
 
+// BUG-17 fix : noms alignés sur le vocabulaire reader (PAGE_LAYOUT_CONFIGS).
+// Avant, "grid_4"/"grid_6"/"asymmetric"/"double_page" n'étaient reconnus par
+// aucun consommateur → layout legacy A-F par fallback. Ici on mappe chaque
+// pageRole vers un template effectivement rendu par <MangaPageGrid>.
+// `cliffhanger` adopte double_spread : c'est le seul rôle qui émet cette valeur,
+// autrement "double_spread" ne sortait jamais du pipeline.
 const ROLE_TO_PAGE: Record<string, { pageTemplate: PageTemplate; emphasisDevice: string | null }> = {
-  establishing: { pageTemplate: "grid_4", emphasisDevice: null },
-  escalation: { pageTemplate: "grid_6", emphasisDevice: null },
-  confrontation: { pageTemplate: "asymmetric", emphasisDevice: null },
+  establishing: { pageTemplate: "grid_2x2", emphasisDevice: null },
+  escalation: { pageTemplate: "grid_2x3", emphasisDevice: null },
+  confrontation: { pageTemplate: "asymmetric_hero", emphasisDevice: null },
   revelation: { pageTemplate: "splash", emphasisDevice: "splash" },
-  aftermath: { pageTemplate: "grid_4", emphasisDevice: "silence_beat" },
-  cliffhanger: { pageTemplate: "asymmetric", emphasisDevice: "extreme_closeup" },
-  dialogue: { pageTemplate: "grid_4", emphasisDevice: null },
-  action: { pageTemplate: "asymmetric", emphasisDevice: null },
+  aftermath: { pageTemplate: "grid_2x2", emphasisDevice: "silence_beat" },
+  cliffhanger: { pageTemplate: "double_spread", emphasisDevice: "extreme_closeup" },
+  dialogue: { pageTemplate: "grid_2x2", emphasisDevice: null },
+  action: { pageTemplate: "action_strip", emphasisDevice: null },
   transition: { pageTemplate: "vertical_strip", emphasisDevice: "cutaway_insert" },
 };
 

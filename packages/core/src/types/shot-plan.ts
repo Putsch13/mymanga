@@ -12,9 +12,27 @@ export const panelShotPlanSchema = z.object({
 });
 export type PanelShotPlan = z.infer<typeof panelShotPlanSchema>;
 
+// BUG-17 fix : le vocabulaire template du ShotPlan est désormais aligné sur celui
+// du reader (`PAGE_LAYOUT_CONFIGS` dans apps/web/components/manga/manga-page-grid.tsx
+// et `PageLayoutTemplate` dans packages/ai/src/services/page-layout-engine.ts).
+// Avant : le ShotPlan émettait "grid_4"/"grid_6"/"asymmetric"/"double_page" qui
+// n'étaient reconnus par aucun des deux consommateurs → le `pageLayoutTemplate`
+// persisté en DB ne matchait aucune config reader → fallback silencieux sur
+// les layouts legacy A-F, rendant le LayoutEngine inutile.
 export const pageShotPlanSchema = z.object({
   pageNumber: z.number(),
-  template: z.enum(["splash", "double_page", "grid_4", "grid_6", "asymmetric", "vertical_strip"]),
+  template: z.enum([
+    "splash",
+    "double_spread",
+    "grid_2x2",
+    "grid_2x3",
+    "asymmetric_hero",
+    "vertical_strip",
+    "action_strip",
+    "cinematic_bar",
+    "focus_closeup",
+    "montage_rapid",
+  ]),
   panels: z.array(panelShotPlanSchema),
   respirationPanel: z.number().nullable(),
 });

@@ -12,8 +12,18 @@ import { repairGhostCharacters } from "@manga-ai-studio/core";
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
 const schema = z.object({
-  mode: z.enum(["brief", "cast_canon", "plan", "all_missing", "repair_readiness"]),
+  mode: z.enum([
+    "brief",
+    "cast_canon",
+    "plan",
+    "all_missing",
+    "repair_readiness",
+    // BUG-16 : réécriture ciblée d'un beat — nécessite targetBeatId, accepte userInstructions.
+    "rewrite_beat",
+  ]),
   force: z.boolean().optional().default(false),
+  targetBeatId: z.string().optional(),
+  userInstructions: z.string().max(500).optional(),
 });
 
 export async function POST(req: Request, ctx: Ctx) {
@@ -40,6 +50,14 @@ export async function POST(req: Request, ctx: Ctx) {
     body = schema.parse(await req.json());
   } catch {
     return NextResponse.json({ error: "Requête invalide — mode autofill non reconnu." }, { status: 400 });
+  }
+
+  // BUG-16 : validation spécifique au mode rewrite_beat.
+  if (body.mode === "rewrite_beat" && !body.targetBeatId) {
+    return NextResponse.json(
+      { error: "Le mode rewrite_beat nécessite un targetBeatId." },
+      { status: 400 },
+    );
   }
 
   const outlineRecord = (chapter.outline ?? {}) as Record<string, unknown>;
@@ -107,6 +125,8 @@ export async function POST(req: Request, ctx: Ctx) {
     currentData,
     context,
     force: body.force,
+    targetBeatId: body.targetBeatId,
+    userInstructions: body.userInstructions,
   });
 
   const appliedFields = result.appliedFields ?? [];

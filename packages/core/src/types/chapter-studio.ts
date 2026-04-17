@@ -531,7 +531,7 @@ export type ChapterEntityRegistry = z.infer<typeof chapterEntityRegistrySchema>;
 export const autofillMetaSchema = z.object({
   source: z.literal("ai_autofill"),
   generatedAt: z.string(),
-  mode: z.enum(["brief", "cast_canon", "plan", "all_missing", "repair_readiness"]),
+  mode: z.enum(["brief", "cast_canon", "plan", "all_missing", "repair_readiness", "rewrite_beat"]),
   confidence: z.number().min(0).max(1).default(0.5),
   assumptions: z.array(z.string()).default([]),
   appliedFields: z.array(z.string()).default([]),

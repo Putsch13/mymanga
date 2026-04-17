@@ -92,6 +92,39 @@ describe("directShotPlan", () => {
     expect(antagPanel?.cameraAngle).toBe("low");
   });
 
+  it("BUG-17 : templates alignés sur le vocabulaire reader (PAGE_LAYOUT_CONFIGS)", () => {
+    const plan = directShotPlan({
+      beats: COMBAT_BEATS,
+      genreMode: "shonen",
+      importantCharacters: CHARS,
+    });
+    const READER_TEMPLATES = new Set([
+      "splash",
+      "double_spread",
+      "grid_2x2",
+      "grid_2x3",
+      "action_strip",
+      "asymmetric_hero",
+      "cinematic_bar",
+      "focus_closeup",
+      "montage_rapid",
+      "vertical_strip",
+    ]);
+    for (const page of plan.pages) {
+      expect(READER_TEMPLATES.has(page.template)).toBe(true);
+    }
+  });
+
+  it("BUG-17 : cliffhanger → double_spread (template désormais effectivement émis)", () => {
+    const plan = directShotPlan({
+      beats: COMBAT_BEATS,
+      genreMode: "shonen",
+      importantCharacters: CHARS,
+    });
+    const cliffhangerPage = plan.pages[4];
+    expect(cliffhangerPage.template).toBe("double_spread");
+  });
+
   it("genre romance → rhythm contemplative", () => {
     const plan = directShotPlan({
       beats: [

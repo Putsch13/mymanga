@@ -1024,7 +1024,7 @@ export async function runNarrativePass(
                   pageLayoutTemplate: shotPlanPage.template,
                   dramaticWeight: shotPlanPage.respirationPanel != null ? 0.6 : 0.8,
                   isSplashPage: shotPlanPage.template === "splash",
-                  isDoublePage: shotPlanPage.template === "double_page",
+                  isDoublePage: shotPlanPage.template === "double_spread",
                 },
               });
             } else {
