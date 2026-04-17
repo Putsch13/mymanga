@@ -85,6 +85,11 @@ export async function POST(_req: Request, ctx: Ctx) {
     return badRequest("Aucun outline validé n'est disponible pour lancer la génération.");
   }
 
+  // BUG-22 fix : resolveApprovedOutlineFromSnapshot peut reconstruire l'outline depuis
+  // productionOutline (fallback) sans l'écrire dans chapterOutlineRecord. On synchronise
+  // l'objet en mémoire pour que assertPremiumContract le voit correctement.
+  chapterOutlineRecord.approvedOutline = approvedOutline as unknown as Record<string, unknown>;
+
   // Vérifier le contrat premium complet avant lancement
   const contractCheck = assertPremiumContract(snapshot, chapterOutlineRecord);
   if (!contractCheck.ok) {

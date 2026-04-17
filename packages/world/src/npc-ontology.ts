@@ -1,5 +1,6 @@
 import type { OntologyEntry, ProceduralEntity, SceneBlueprintInput } from "./types";
 import { createSeededRng } from "./seeded-rng";
+import { isEntryUniverseCompatible } from "./universe-compatibility";
 
 export const NPC_ONTOLOGY: OntologyEntry[] = [
   {
@@ -646,6 +647,12 @@ export const NPC_ONTOLOGY: OntologyEntry[] = [
 ];
 
 function matchScore(entry: OntologyEntry, input: SceneBlueprintInput) {
+  // BUG-20 : filtre DUR d'univers. Sans cela, un NPC fantasy/post-apo pouvait être
+  // sélectionné dans un projet cyberpunk grâce au bonus rarity + tone match.
+  if (!isEntryUniverseCompatible(entry, input.style.universe)) {
+    return 0;
+  }
+
   const haystacks = [
     input.style.universe.toLowerCase(),
     input.style.tone.toLowerCase(),
@@ -656,7 +663,9 @@ function matchScore(entry: OntologyEntry, input: SceneBlueprintInput) {
   if (entry.universes.some((u) => haystacks[0].includes(u.toLowerCase()))) score += 4;
   if (entry.tones.some((t) => haystacks[1].includes(t.toLowerCase()))) score += 3;
   if (entry.tags.some((t) => haystacks[2].includes(t.toLowerCase()) || haystacks[3].includes(t.toLowerCase()))) score += 2;
-  score += Math.max(0, 6 - entry.rarity);
+  // Bonus rarity plafonné (2 au lieu de 5 max) pour éviter qu'il compense à lui seul
+  // l'absence totale de match univers/tone/tags.
+  score += Math.max(0, Math.min(2, 6 - entry.rarity));
   return score;
 }
 

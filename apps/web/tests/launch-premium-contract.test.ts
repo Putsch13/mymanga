@@ -46,6 +46,11 @@ vi.mock("@/lib/age-gate", () => ({
 
 vi.mock("@manga-ai-studio/ai", () => ({
   computeShotVarietyBudget: () => ({ varietyScore: 0.8, missingShots: [] }),
+  // BUG-24 : expandBlueprintsToMinimum est appelé par buildGenerationJobInputFromSnapshot
+  // pour étendre les plans stale à la volée. En test, on renvoie simplement les blueprints
+  // tels quels (la logique d'expansion est testée indépendamment dans panel-blueprint-builder.test.ts).
+  expandBlueprintsToMinimum: (blueprints: unknown[]) => blueprints,
+  buildPremiumChapterContractAsync: async () => ({ productionOutline: {}, productionPlan: {}, panelBlueprints: [], coverage: {} }),
 }));
 
 // Mock readChapterStudioSnapshotFromOutline pour retourner directement le snapshot premium

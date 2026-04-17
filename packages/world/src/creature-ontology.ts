@@ -1,5 +1,6 @@
 import type { OntologyEntry, ProceduralEntity, SceneBlueprintInput } from "./types";
 import { createSeededRng } from "./seeded-rng";
+import { isEntryUniverseCompatible } from "./universe-compatibility";
 
 export const CREATURE_ONTOLOGY: OntologyEntry[] = [
   {
@@ -293,6 +294,11 @@ export const CREATURE_ONTOLOGY: OntologyEntry[] = [
 ];
 
 function scoreCreature(entry: OntologyEntry, input: SceneBlueprintInput) {
+  // BUG-20 : filtre DUR d'univers. Sans cela, des créatures fantasy/horreur pouvaient
+  // apparaître dans un projet cyberpunk simplement grâce à visualExoticism >= 60 (+2).
+  if (!isEntryUniverseCompatible(entry, input.style.universe)) {
+    return 0;
+  }
   const text = `${input.narrative.sceneSummary} ${input.narrative.panelIntent}`.toLowerCase();
   let score = 0;
   if (entry.universes.some((u) => input.style.universe.toLowerCase().includes(u.toLowerCase()))) score += 4;

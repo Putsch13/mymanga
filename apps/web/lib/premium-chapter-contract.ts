@@ -11,7 +11,8 @@ import {
   type ProductionOutline,
   type ProductionPlan,
 } from "@manga-ai-studio/core";
-import { buildPremiumChapterContractAsync } from "@manga-ai-studio/ai";
+import { buildPremiumChapterContractAsync, expandBlueprintsToMinimum } from "@manga-ai-studio/ai";
+import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
 
 // ─── Constante canonique des champs premium ───────────────────────────────────
 
@@ -626,6 +627,26 @@ export function buildGenerationJobInputFromSnapshot(opts: GenerationJobInputOpti
     }
   }
 
+  // BUG-24 fix : si le plan persisté a moins de panels que le minimum requis
+  // (ex: plan antérieur au fix BUG-01 avec 40 panels au lieu de 75), on étend
+  // à la volée côté job input plutôt que d'exiger une régénération complète.
+  // Ça garantit que la génération d'images respecte toujours le contrat de 75
+  // cases, même pour des chapitres planifiés avant ce correctif.
+  const minimumImages = typeof pp?.minimumImages === "number" && pp.minimumImages > 0
+    ? pp.minimumImages
+    : 75;
+  let effectiveBlueprints = panelBlueprints;
+  if (panelBlueprints.length > 0 && panelBlueprints.length < minimumImages) {
+    const beforeCount = panelBlueprints.length;
+    effectiveBlueprints = expandBlueprintsToMinimum(
+      panelBlueprints as PanelBlueprintPremium[],
+      minimumImages,
+    ) as unknown[];
+    console.warn(
+      `[buildGenerationJobInput] panelBlueprints_expanded ${beforeCount} → ${effectiveBlueprints.length} (min=${minimumImages}) — plan stale détecté, expansion à la volée`,
+    );
+  }
+
   const input: Record<string, unknown> = {
     source: opts.source,
     chapterId: opts.chapterId,
@@ -635,8 +656,10 @@ export function buildGenerationJobInputFromSnapshot(opts: GenerationJobInputOpti
     approvedOutlineVersion: approvedOutline.approvalVersion,
     // Contrat premium complet
     productionOutline: po && po.source !== "legacy_adapted" ? po : undefined,
-    productionPlan: pp ?? undefined,
-    panelBlueprints: panelBlueprints.length > 0 ? panelBlueprints : undefined,
+    productionPlan: pp
+      ? ({ ...pp, panelBlueprints: effectiveBlueprints } as typeof pp)
+      : undefined,
+    panelBlueprints: effectiveBlueprints.length > 0 ? effectiveBlueprints : undefined,
     premiumReadinessScore: typeof pp?.premiumReadinessScore === "number" ? pp.premiumReadinessScore : undefined,
     focusBudget: pp?.focusBudget ?? undefined,
     focusDistribution: pp?.focusDistribution ?? undefined,

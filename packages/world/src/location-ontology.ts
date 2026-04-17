@@ -1,5 +1,6 @@
 import type { OntologyEntry, ProceduralEntity, SceneBlueprintInput } from "./types";
 import { createSeededRng } from "./seeded-rng";
+import { isEntryUniverseCompatible } from "./universe-compatibility";
 
 export const LOCATION_ONTOLOGY: OntologyEntry[] = [
   {
@@ -165,6 +166,12 @@ export const LOCATION_ONTOLOGY: OntologyEntry[] = [
 ];
 
 function scoreLocation(entry: OntologyEntry, input: SceneBlueprintInput) {
+  // BUG-20 : filtre DUR d'univers. Sans cela, une location desert/wasteland
+  // pouvait être sélectionnée dans un projet cyberpunk grâce au tag match (+4)
+  // quand la scène évoquait "ruine" ou "survie".
+  if (!isEntryUniverseCompatible(entry, input.style.universe)) {
+    return 0;
+  }
   const text = `${input.scene.location} ${input.narrative.sceneSummary}`.toLowerCase();
   let score = 0;
   if (entry.universes.some((u) => input.style.universe.toLowerCase().includes(u.toLowerCase()))) score += 4;

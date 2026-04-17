@@ -203,8 +203,25 @@ export function inferBeatEventType(
   purpose: string | null | undefined,
   mood: string | null | undefined,
   scenePurpose: string | null | undefined,
+  pageRole?: string | null | undefined,
 ): PanelBeatEventType {
   const text = `${purpose ?? ""} ${mood ?? ""} ${scenePurpose ?? ""}`.toLowerCase();
+
+  // BUG-25 : prioriser pageRole (signal fiable provenant de l'outline structuré).
+  // Sans cela, les regex trop larges (notamment "lieu" qui matche toute description
+  // FR d'endroit) retournaient "establishing" partout même pour des beats de
+  // confrontation ou de révélation.
+  if (pageRole) {
+    const role = pageRole.toLowerCase();
+    if (role === "revelation") return "reveal";
+    if (role === "confrontation" || role === "action") return "combat_turning_point";
+    if (role === "aftermath") return "aftermath";
+    if (role === "dialogue") return "dialogue_conflict";
+    if (role === "establishing") return "establishing";
+    if (role === "cliffhanger") return "tension";
+    if (role === "transition") return "approach";
+    if (role === "escalation") return "tension";
+  }
 
   if (/(combat.*turn|turning.*point|decisive.*blow|coup.*décisif|tournant)/.test(text)) return "combat_turning_point";
   if (/(reveal|révèle|découvert|twist|surprise)/.test(text)) return "reveal";
@@ -214,9 +231,12 @@ export function inferBeatEventType(
   if (/(dialogue|parle|dit|répond|confrontation.*verbale)/.test(text)) return "dialogue_conflict";
   if (/(silent|silence|sans.*parole|observation|contempl)/.test(text)) return "silent_beat";
   if (/(crowd|foule|public|spectators)/.test(text)) return "crowd_reaction";
-  if (/(establish|décor|lieu|wide.*shot|vue.*ensemble)/.test(text)) return "establishing";
+  // BUG-25 : resserrer le regex. "lieu" seul est trop commun en FR ("dans le lieu"
+  // présent dans presque toutes les descriptions de scène). Exiger un contexte
+  // d'établissement explicite.
+  if (/(establish(ing)?|establishing.shot|wide.?shot|vue d.ensemble|plan d.ensemble|décor général|paysage large)/.test(text)) return "establishing";
   if (/(approach|approche|arrive|walk|marche)/.test(text)) return "approach";
-  if (/(impact|frappe|strike|hit|coup|smash)/.test(text)) return "impact";
+  if (/(impact|frappe|strike|hit|smash)/.test(text)) return "impact";
   if (/(reaction|réaction|shock|choc|surprise)/.test(text)) return "reaction";
   if (/(tension|menace|threat|danger)/.test(text)) return "tension";
 
@@ -235,13 +255,30 @@ export function inferBeatEventType(
 export function inferPanelRole(
   purpose: string | null | undefined,
   beatEventType: PanelBeatEventType,
+  pageRole?: string | null | undefined,
 ): PanelRole {
   const text = (purpose ?? "").toLowerCase();
 
-  if (/(establish|décor|lieu)/.test(text)) return "setup";
+  // BUG-25 : prioriser pageRole (signal fiable de l'outline).
+  if (pageRole) {
+    const role = pageRole.toLowerCase();
+    if (role === "revelation") return "reveal";
+    if (role === "confrontation") return "confrontation";
+    if (role === "action") return "impact";
+    if (role === "aftermath") return "aftermath";
+    if (role === "establishing") return "setup";
+    if (role === "cliffhanger") return "tension";
+    if (role === "escalation") return "tension";
+    if (role === "dialogue") return "confrontation";
+    if (role === "transition") return "approach";
+  }
+
+  // BUG-25 : "lieu" enlevé — trop générique en FR (matche n'importe quelle
+  // description contenant "dans le lieu" / "au lieu").
+  if (/(establish(ing)?|décor général|vue d.ensemble)/.test(text)) return "setup";
   if (/(approach|arrive)/.test(text)) return "approach";
   if (/(tension|menace)/.test(text)) return "tension";
-  if (/(reveal|découvert)/.test(text)) return "reveal";
+  if (/(reveal|découvert|révèle)/.test(text)) return "reveal";
   if (/(confrontation|face.*à.*face)/.test(text)) return "confrontation";
   if (/(impact|frappe|strike)/.test(text)) return "impact";
   if (/(reaction|réaction)/.test(text)) return "reaction";
@@ -279,9 +316,11 @@ export function buildPanelIntentCard(input: {
   dialogueCount?: number;
   cameraShot?: string;
   cameraAngle?: string;
+  /** BUG-25 : pageRole du beat (establishing/confrontation/revelation/...) pour guider l'inférence. */
+  pageRole?: string | null | undefined;
 }): PanelIntentCard {
-  const beatEventType = inferBeatEventType(input.purpose, input.mood, input.scenePurpose);
-  const panelRole = inferPanelRole(input.purpose, beatEventType);
+  const beatEventType = inferBeatEventType(input.purpose, input.mood, input.scenePurpose, input.pageRole);
+  const panelRole = inferPanelRole(input.purpose, beatEventType, input.pageRole);
   const rules = BEAT_VISUAL_RULES[beatEventType];
 
   const hasSfx = Array.isArray(input.sfx) && input.sfx.length > 0;

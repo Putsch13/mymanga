@@ -61,6 +61,10 @@ const buildPremiumChapterContractAsyncMock = vi.fn();
 vi.mock("@manga-ai-studio/ai", () => ({
   buildPremiumChapterContract: buildPremiumChapterContractMock,
   buildPremiumChapterContractAsync: buildPremiumChapterContractAsyncMock,
+  // BUG-24 : expandBlueprintsToMinimum utilisé par buildGenerationJobInputFromSnapshot.
+  // Pass-through en test.
+  expandBlueprintsToMinimum: (blueprints: unknown[]) => blueprints,
+  computeShotVarietyBudget: () => ({ varietyScore: 0.8, missingShots: [] }),
 }));
 
 const patchChapterStudioSnapshotMock = vi.fn();

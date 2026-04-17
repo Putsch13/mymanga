@@ -345,7 +345,7 @@ function inferLocations(context: ProjectContextForChapter, userIntent?: string |
     if (normalized === "palais" || normalized === "trône" || normalized === "trone") return ["salle du trône en ruines", "salle du trône en ruines", "couloir du palais", "salle du trône en ruines"];
   }
 
-  const genre = (context.project.primaryGenre ?? "fantasy").toLowerCase();
+  const genre = (context.project.primaryGenre?.trim() || "generic").toLowerCase();
   if (genre.includes("cyber") || genre.includes("sci")) {
     return [
       "ruelle néon sous la pluie",
@@ -876,7 +876,7 @@ export async function generateChapterBundle(input: {
   const [locA, locB, locC, locD] = locations;
   const locAt = (i: number) => locations[i % Math.max(locations.length, 1)] ?? locA;
   const tone = input.context.project.tone ?? "dramatique";
-  const genre = (input.context.project.primaryGenre ?? "fantasy").toLowerCase();
+  const genre = (input.context.project.primaryGenre?.trim() || "generic").toLowerCase();
   const visualStyle = inferVisualStyle(input.context);
   const chapterGoal = input.approvedOutline?.summary ?? `Faire avancer l'intrigue autour de : ${input.userIntent}`;
   const selectedLabel = input.selectedPlotLabel ?? "bold";

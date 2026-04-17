@@ -8,3 +8,4 @@ export * from "./scene-blueprint";
 export * from "./property-validators";
 export * from "./qa-suites";
 export * from "./npc-resolver";
+export * from "./universe-compatibility";

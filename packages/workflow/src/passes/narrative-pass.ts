@@ -32,7 +32,10 @@ import {
 import {
   buildPanelIntentCard,
   buildSceneAnchor,
+  composeProjectStyleAnchor,
+  type MainCastAnchor,
   type PanelIntentCard,
+  type RecurringNpcAnchor,
   type SceneAnchor,
 } from "@manga-ai-studio/ai";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
@@ -186,7 +189,14 @@ export async function runNarrativePass(
     }).catch(() => [] as Array<{ name: string; description: string | null; visualBrief?: string | null; establishedVisualBrief?: string | null }>);
 
     const recurringNpcs = await loadProjectRecurringNpcs(prisma, projectId);
-    console.log(`[pipeline:npc-memory] ${recurringNpcs.length} PNJ récurrents chargés pour le projet`);
+    // BUG-23 : log clarifié. Ce compteur ne concerne QUE les PNJ secondaires promus
+    // (via NpcVisualProfile.promotionStatus in ["promoted", "locked"]). Les personnages
+    // principaux (Character) sont gérés séparément via context.characters et n'apparaissent
+    // jamais ici — afficher "0 PNJ" ici n'implique donc PAS une perte des personnages principaux.
+    console.log(
+      `[pipeline:npc-memory] ${recurringNpcs.length} PNJ secondaires promus chargés ` +
+      `(hors personnages principaux — cf. context.characters=${context.characters.length})`,
+    );
 
     const npcMemoryContext = recurringNpcs.length > 0
       ? `\nPNJ RÉCURRENTS DU PROJET (visuels à respecter si réapparition) :\n` +
@@ -606,11 +616,70 @@ export async function runNarrativePass(
     );
     const _debugPanelLegacy = process.env.MANGA_DEBUG_PANEL === "true";
 
-    // ── SceneAnchor : construire une ancre par scène ──────────────────────────
+    // ── SceneAnchor : construire une ancre ENRICHIE par scène ─────────────────
+    // DIAG-D (Option 1 — anchor-by-scene). On calcule UNE SEULE FOIS par scène :
+    //  - styleAnchor projet (constant, hors boucle)
+    //  - establishedLocationBrief (match du lieu de la scène sur knownLocations)
+    //  - mainCastAnchors (apparence canonique des personnages principaux présents)
+    //  - recurringNpcAnchors (top-3 PNJ secondaires promus, priorisation lieu)
+    // Tous les panels de la scène réutilisent le même anchor → zéro coût supplémentaire.
+    const projectStyleAnchor = composeProjectStyleAnchor({
+      genre: context.project.primaryGenre,
+      tone: context.project.tone ?? null,
+      visualStyle: context.project.visualStyle ?? null,
+    });
+
+    const normalizeLocName = (name: string): string =>
+      name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+    const locationBriefByName = new Map<string, string>();
+    for (const loc of knownLocations) {
+      const brief = loc.establishedVisualBrief ?? loc.visualBrief ?? null;
+      if (!brief) continue;
+      locationBriefByName.set(normalizeLocName(loc.name), brief);
+    }
+
+    const buildMainCastAnchor = (charName: string): MainCastAnchor | null => {
+      const rc = rawCharacters.find((c) => c.name === charName);
+      if (!rc) return null;
+      const bits: string[] = [];
+      if (rc.gender) bits.push(rc.gender);
+      if (rc.age) bits.push(`~${rc.age}y`);
+      if (rc.hairColor) bits.push(`${rc.hairColor} hair`);
+      if (rc.eyeColor) bits.push(`${rc.eyeColor} eyes`);
+      if (rc.outfitDefault) bits.push(`signature outfit: ${rc.outfitDefault}`);
+      if (rc.appearance) bits.push(rc.appearance);
+      if (bits.length === 0) return null;
+      return {
+        name: rc.name,
+        shortVisualCore: bits.join(", ").slice(0, 240),
+      };
+    };
+
+    const topRecurringNpcs: RecurringNpcAnchor[] = recurringNpcs.slice(0, 5).map((n) => ({
+      label: n.label,
+      shortVisualCore: n.shortVisualCore,
+      outfitSignature: n.outfitSignature ?? null,
+    }));
+
     const sceneAnchorByIndex = new Map<number, SceneAnchor>();
     for (let idx = 0; idx < revisedBundle.script.scenes.length; idx++) {
       const scene = revisedBundle.script.scenes[idx];
       if (!scene) continue;
+
+      const normalizedSceneLoc = normalizeLocName(scene.location);
+      let establishedLocationBrief: string | null = null;
+      for (const [locKey, brief] of locationBriefByName.entries()) {
+        if (normalizedSceneLoc.includes(locKey) || locKey.includes(normalizedSceneLoc)) {
+          establishedLocationBrief = brief;
+          break;
+        }
+      }
+
+      const mainCastAnchors = scene.characters
+        .slice(0, 4)
+        .map((n) => buildMainCastAnchor(n))
+        .filter((x): x is MainCastAnchor => x !== null);
+
       const anchor = buildSceneAnchor({
         sceneId: `scene_${idx + 1}`,
         castLineup: scene.characters.slice(0, 4),
@@ -618,6 +687,10 @@ export async function runNarrativePass(
         mood: scene.purpose ?? "dramatic",
         weather: inferSceneWeather(scene.summary) ?? undefined,
         timeOfDay: inferSceneTimeOfDay(scene.summary) ?? undefined,
+        establishedLocationBrief,
+        mainCastAnchors,
+        recurringNpcAnchors: topRecurringNpcs.slice(0, 3),
+        styleAnchor: projectStyleAnchor,
       });
       sceneAnchorByIndex.set(idx, anchor);
     }
@@ -1133,7 +1206,9 @@ export async function runNarrativePass(
                 factions: extractSceneFactions(scene.summary),
               },
               style: {
-                universe: context.project.primaryGenre ?? "fantasy",
+                // BUG-21 : ne pas fallback sur "fantasy" (contamine le scoring des ontologies
+                // pour un projet sans genre explicite). "generic" = famille neutre.
+                universe: context.project.primaryGenre?.trim() || "generic",
                 tone: context.project.tone ?? "dramatic",
                 visualStyle: project?.visualStyle ?? "manga",
                 renderFamily: stylePack?.renderFamily ?? undefined,
@@ -1268,7 +1343,8 @@ export async function runNarrativePass(
                   pageRole: revisedBundle.outline.beats[index]?.pageRole ?? null,
                 },
                 style: {
-                  universe: context.project.primaryGenre ?? "fantasy",
+                  // BUG-21 : "generic" plutôt que "fantasy" pour éviter leak thématique.
+                  universe: context.project.primaryGenre?.trim() || "generic",
                   tone: context.project.tone ?? "dramatique",
                   visualStyle: context.project.visualStyle ?? "manga",
                   renderFamily: stylePacks[0]?.renderFamily ?? null,
@@ -1441,6 +1517,9 @@ export async function runNarrativePass(
                 dialogueCount: (panel.dialogues?.length ?? 0) + (panel.dialogue ? 1 : 0),
                 cameraShot: panel.camera,
                 cameraAngle: panelContract.cameraAngle,
+                // BUG-25 : passer le pageRole du beat structuré (source fiable) pour
+                // éviter "establishing/setup" partout via regex sur texte libre.
+                pageRole: revisedBundle.outline.beats[index]?.pageRole ?? null,
               });
               const panelSceneAnchor = sceneAnchorByIndex.get(index) ?? null;
 
@@ -1659,7 +1738,10 @@ export async function runNarrativePass(
                 composeEnvironment({
                 location: scene.location,
                 mood: panel.mood,
-                genre: context.project.primaryGenre ?? "fantasy",
+                // BUG-21 : ne PLUS fallback sur "fantasy". Si le genre est null, on utilise
+                // un fallback neutre qui ne déclenche aucun flavor thématique parasite
+                // (plutôt que contaminer un projet cyberpunk avec "walled medieval city").
+                genre: context.project.primaryGenre?.trim() || "generic",
                 tone: context.project.tone ?? "dramatique",
                 visualStyle: context.project.visualStyle ?? "manga",
                 lore: typeof context.storyBible?.lore === "string" ? context.storyBible.lore : null,

@@ -1439,13 +1439,13 @@ export async function runImageGenerationPass(
     let coverUrl: string | null = null;
     try {
       const { composeCoverPrompt, inferCoverMood } = await import("@manga-ai-studio/ai");
-      const coverMood = inferCoverMood(context.project.tone ?? "dramatique", context.project.primaryGenre ?? "fantasy");
+      const coverMood = inferCoverMood(context.project.tone ?? "dramatique", context.project.primaryGenre?.trim() || "generic");
       const coverPrompt = composeCoverPrompt({
         chapterTitle: revisedBundle.outline.chapter_title ?? `Chapitre ${chapterNumber}`,
         chapterNumber,
         chapterSummary: revisedBundle.memory.narrativeSummary,
         cliffhanger: revisedBundle.outline.cliffhanger,
-        genre: context.project.primaryGenre ?? "fantasy",
+        genre: context.project.primaryGenre?.trim() || "generic",
         tone: context.project.tone ?? "dramatique",
         visualStyle: context.project.visualStyle ?? "manga",
         mood: coverMood,

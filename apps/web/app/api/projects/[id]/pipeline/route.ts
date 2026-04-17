@@ -129,6 +129,11 @@ export async function POST(req: Request, ctx: Ctx) {
     console.log(`[pipeline] approvedOutline persisted chapterId=${body.chapterId} beats=${approvedOutline.beats.length}`);
   }
 
+  // BUG-22 fix : synchroniser l'objet en mémoire avec ce qu'on vient de persister (ou ce qu'on
+  // a résolu via resolveApprovedOutlineFromSnapshot). Sans ça, assertPremiumContract lit un
+  // chapterOutlineRecord stale et remonte "approvedOutline.beats manquant ou vide" à tort.
+  chapterOutlineRecord.approvedOutline = approvedOutline as unknown as Record<string, unknown>;
+
   // Vérifier le contrat premium complet avant lancement
   const contractCheck = assertPremiumContract(snapshot, chapterOutlineRecord);
   if (!contractCheck.ok) {
