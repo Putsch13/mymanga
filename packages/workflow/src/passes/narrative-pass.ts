@@ -554,6 +554,8 @@ export async function runNarrativePass(
     const orphanedBeatIds: string[] = [];
     // T07: early declaration for shot plan (assigned after blueprint generation)
     let chapterShotPlan: import("@manga-ai-studio/core").ChapterShotPlan | null = null;
+    // NPC list built during shot-plan phase, re-used during panel-loop for character injection
+    let importantNpcs: Array<{ characterId: string; name: string; role: "important_npc"; firstAppearanceSceneIndex: number }> = [];
 
     // ── Étape 3 : Persistance chapitre + scènes + images planifiées ────────
     await setJobProgress(
@@ -832,9 +834,23 @@ export async function runNarrativePass(
       const heroes = rawCharacters
         .filter((c: any) => /hero|protagon|main/i.test(c.roleType ?? ""))
         .map((c: any) => ({ characterId: c.id, name: c.name, role: "hero" as const }));
-      const importantNpcs = rawCharacters
-        .filter((c: any) => /mentor|deuteragonist|secondary|important/i.test(c.roleType ?? ""))
-        .map((c: any, i: number) => ({ characterId: c.id, name: c.name, role: "important_npc" as const, firstAppearanceSceneIndex: i }));
+      // Inclut tous les PNJ importants et récurrents (pas seulement mentor/deuteragonist)
+      // firstAppearanceSceneIndex = index du premier beat où ce personnage est cité (pas l'index tableau)
+      const beats = revisedBundle.outline.beats as Array<{ id: string; characters?: string[] }>;
+      importantNpcs = rawCharacters
+        .filter((c: any) => /mentor|deuteragonist|secondary|important|recurring/i.test(c.roleType ?? ""))
+        .map((c: any) => {
+          const firstName = (c.name as string).toLowerCase().split(/\s/)[0] ?? "";
+          const firstBeatIdx = beats.findIndex((b) =>
+            (b.characters ?? []).some((bc) => bc.toLowerCase().includes(firstName)),
+          );
+          return {
+            characterId: c.id as string,
+            name: c.name as string,
+            role: "important_npc" as const,
+            firstAppearanceSceneIndex: firstBeatIdx >= 0 ? firstBeatIdx : 0,
+          };
+        });
 
       chapterShotPlan = directShotPlan({
         beats: revisedBundle.outline.beats.map((b: any) => ({
@@ -1158,6 +1174,24 @@ export async function runNarrativePass(
                 (panelContractBase as any).subjectFocus = shotPlanPanel.subjectFocus;
                 (panelContractBase as any).cutawayType = shotPlanPanel.cutawayType;
                 (panelContractBase as any).heroCenterAllowed = shotPlanPanel.heroCenterAllowed;
+
+                // C02b: si le shot plan demande un focus NPC mais que ce NPC n'est pas dans
+                // panel.characters (l'IA narrative ne l'a pas mis), on l'injecte depuis la
+                // scène pour qu'il soit bien décrit dans le Subject Lock du prompt.
+                if (
+                  shotPlanPanel.subjectFocus === "important_npc"
+                  && importantNpcs.length > 0
+                ) {
+                  for (const npc of importantNpcs) {
+                    if (
+                      scene.characters.includes(npc.name)
+                      && !panel.characters.includes(npc.name)
+                    ) {
+                      panel.characters = [...panel.characters, npc.name];
+                      break; // n'injecter qu'un seul NPC par panel
+                    }
+                  }
+                }
               }
 
               const panelBackgroundExtras = [
@@ -1316,10 +1350,12 @@ export async function runNarrativePass(
               });
 
               const bpRec = panelPremiumBlueprint as Record<string, unknown> | undefined;
+              // Utiliser le subjectFocus POST shot-plan (panelContract) pour être aligné avec le prompt composé
+              const contractSubjectFocus = (panelContract as Record<string, unknown>).subjectFocus as string | null ?? null;
               const panelCast = buildPanelCast({
                 panelCharacterNames: panel.characters ?? [],
                 rawCharacters: rawCharacters as any[],
-                subjectFocus: (bpRec?.subjectFocus as string | undefined) ?? null,
+                subjectFocus: contractSubjectFocus,
                 speakerName: (bpRec?.speakerAnchorCharacterId as string | undefined)
                   ? rawCharacters.find((rc: any) => rc.id === bpRec?.speakerAnchorCharacterId)?.name ?? null
                   : null,
@@ -1579,6 +1615,8 @@ export async function runNarrativePass(
               intentCard: panelIntentCard,
               requiredProps: panelContract.requiredPropsTyped ?? null,
               npcPresence: (() => {
+                const npcSubjectFocus = (panelContract as Record<string, unknown>).subjectFocus as string | null ?? null;
+                const isFocusNpc = npcSubjectFocus === "important_npc" || npcSubjectFocus === "npc";
                 const activeNpcDescriptors = npcProfiles
                   .filter(
                     (n) =>
@@ -1587,11 +1625,12 @@ export async function runNarrativePass(
                   )
                   .sort((a, b) => b.appearanceCount - a.appearanceCount)
                   .slice(0, 3)
-                  .map((n) => {
+                  .map((n, npcIdx) => {
                     const parts: string[] = [];
                     if (n.shortVisualCore) parts.push(n.shortVisualCore);
                     if (n.outfitSignature) parts.push(`wearing ${n.outfitSignature}`);
-                    parts.push("background character");
+                    // Premier NPC = focus si subjectFocus le demande, sinon background
+                    parts.push(isFocusNpc && npcIdx === 0 ? "pnj par défaut, présence visible" : "background character");
                     return parts.join(", ");
                   });
                 return activeNpcDescriptors.length > 0 ? activeNpcDescriptors : null;

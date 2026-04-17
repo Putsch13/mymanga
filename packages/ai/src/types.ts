@@ -114,6 +114,6 @@ export interface RoutingContext {
   chapterLookProfileMode?: string | null;
   /** Type de beat — influence le routing */
   beatEventType?: string | null;
-  /** Focus du panel depuis le blueprint premium — prioritaire sur crowdCritical */
-  subjectFocus?: "hero" | "npc" | "enemy" | "environment" | "group" | "prop" | "reaction" | "aftermath" | null;
+  /** Focus du panel depuis le blueprint premium ou shot-plan — prioritaire sur crowdCritical */
+  subjectFocus?: "hero" | "npc" | "important_npc" | "enemy" | "antagonist" | "environment" | "group" | "prop" | "reaction" | "aftermath" | null;
 }

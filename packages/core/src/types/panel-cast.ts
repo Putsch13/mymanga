@@ -80,9 +80,16 @@ export function resolvePanelFocus(
   if (subjectFocus === "hero") {
     return castMembers.find((m) => m.role === "protagonist") ?? null;
   }
-  if (subjectFocus === "enemy") {
+  if (subjectFocus === "enemy" || subjectFocus === "antagonist") {
     return castMembers.find((m) => m.role === "antagonist")
       ?? castMembers.find((m) => m.role === "important_npc")
+      ?? null;
+  }
+  // "important_npc" est le vocabulaire du shot-plan — priorité sur recurring_npc puis deuteragonist
+  if (subjectFocus === "important_npc") {
+    return castMembers.find((m) => m.role === "important_npc")
+      ?? castMembers.find((m) => m.role === "recurring_npc")
+      ?? castMembers.find((m) => m.role === "deuteragonist")
       ?? null;
   }
   if (subjectFocus === "npc") {

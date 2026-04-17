@@ -189,6 +189,9 @@ const MANGA_FRAMING_MAP: Record<string, string> = {
   "closeup_emotion": "extreme close-up face, manga emotion panel, glistening eyes, micro expression detail, emotion lines",
   "closeup_prop": "macro close-up insert panel, object detail shot, manga prop focus, sharp object detail",
   "closeup_enemy": "villain reveal close-up, manga antagonist panel, intimidating gaze, dramatic lighting",
+  "closeup_npc": "secondary character close-up, manga NPC reveal panel, expressive reaction, detailed face, character personality visible",
+  "medium_npc": "medium shot NPC character, manga secondary character panel, clear body language, distinct silhouette, reaction to hero",
+  "medium_interaction": "two-shot interaction panel, manga dialogue scene, both characters visible, spatial tension readable, face-to-face composition",
   "medium_hero": "medium shot, manga hero panel, dynamic pose, detailed costume, clean crisp linework",
   "medium_dialogue": "over-shoulder dialogue shot, manga conversation panel, speech bubble space reserved top",
   "medium_combat": "manga combat panel, dynamic fighting pose, impact lines, kinetic composition",
@@ -400,11 +403,14 @@ function buildCompositionDirective(blueprint: { subjectFocus: string; heroCenter
   if (focus === "npc") {
     return "COMPOSITION: Centré sur les personnages secondaires ou la foule. Le héros principal est absent ou en arrière-plan flou. Montrer les visages, réactions et postures des NPC.";
   }
-  if (focus === "enemy") {
+  if (focus === "important_npc") {
+    return "COMPOSITION: Un PNJ important est le sujet principal de ce panel. Plan centré sur ce personnage — son expression, sa posture, son émotion. Le héros peut être présent mais en réaction ou en arrière-plan. Lisibilité maximale du PNJ, visage bien visible.";
+  }
+  if (focus === "enemy" || focus === "antagonist") {
     return "COMPOSITION: L'antagoniste ou le garde est le sujet principal. Cadrage menaçant, contre-plongée ou angle bas. Le héros est absent ou en réaction floue en arrière-plan.";
   }
   if (focus === "group") {
-    return "COMPOSITION: Plan de groupe — héros ET antagoniste dans le même cadre. Tension spatiale entre les deux camps clairement lisible.";
+    return "COMPOSITION: Plan de groupe — héros ET personnages secondaires dans le même cadre. Tous les personnages clés sont lisibles. Tension spatiale ou dynamique sociale clairement visible.";
   }
   if (focus === "prop") {
     return "COMPOSITION: Insert sur un objet, une arme, un symbole ou un détail de décor. Pas de visage humain en sujet principal. Cadrage serré, mise au point nette sur l'objet.";
@@ -507,8 +513,12 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
   }
 
   // IMG-1 : Manga framing directive selon le type de plan
-  const shotKey = input.shotType && input.subjectFocus
-    ? `${input.shotType}_${input.subjectFocus}`
+  // Normaliser les variants pour matcher les clés du MANGA_FRAMING_MAP
+  const normalizedFocus = input.subjectFocus === "important_npc" ? "npc"
+    : input.subjectFocus === "antagonist" ? "enemy"
+    : input.subjectFocus ?? null;
+  const shotKey = input.shotType && normalizedFocus
+    ? `${input.shotType}_${normalizedFocus}`
     : input.shotType && input.cutawayType
       ? `${input.shotType}_${input.cutawayType}`
       : input.shotType ?? null;

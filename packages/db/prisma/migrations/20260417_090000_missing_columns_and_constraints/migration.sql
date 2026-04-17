@@ -2,24 +2,26 @@
 ALTER TABLE "SceneImage" ADD COLUMN IF NOT EXISTS "panelCast" JSONB;
 ALTER TABLE "SceneImage" ADD COLUMN IF NOT EXISTS "userValidatedAt" TIMESTAMP(3);
 
--- Fix: contrainte unique ChapterScene(chapterId, sceneNumber) manquante → upsert() planté
--- Supprime les doublons éventuels en gardant la ligne la plus récente
-DELETE FROM "ChapterScene" a
-USING "ChapterScene" b
-WHERE a."createdAt" < b."createdAt"
-  AND a."chapterId" = b."chapterId"
-  AND a."sceneNumber" = b."sceneNumber";
+-- Fix: dédoublonnage ChapterScene avant création contrainte unique
+-- Garde la première ligne insérée (MIN ctid) par couple (chapterId, sceneNumber)
+DELETE FROM "ChapterScene"
+WHERE ctid NOT IN (
+  SELECT MIN(ctid)
+  FROM "ChapterScene"
+  GROUP BY "chapterId", "sceneNumber"
+);
 
 CREATE UNIQUE INDEX IF NOT EXISTS "ChapterScene_chapterId_sceneNumber_key"
   ON "ChapterScene"("chapterId", "sceneNumber");
 
--- Fix: contrainte unique SceneImage(sceneId, panelNumber) manquante → upsert() planté
--- Supprime les doublons éventuels en gardant la ligne la plus récente
-DELETE FROM "SceneImage" a
-USING "SceneImage" b
-WHERE a."createdAt" < b."createdAt"
-  AND a."sceneId" = b."sceneId"
-  AND a."panelNumber" = b."panelNumber";
+-- Fix: dédoublonnage SceneImage avant création contrainte unique
+-- Garde la première ligne insérée (MIN ctid) par couple (sceneId, panelNumber)
+DELETE FROM "SceneImage"
+WHERE ctid NOT IN (
+  SELECT MIN(ctid)
+  FROM "SceneImage"
+  GROUP BY "sceneId", "panelNumber"
+);
 
 CREATE UNIQUE INDEX IF NOT EXISTS "SceneImage_sceneId_panelNumber_key"
   ON "SceneImage"("sceneId", "panelNumber");

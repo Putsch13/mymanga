@@ -87,7 +87,13 @@ export function computeFalSceneAssessment(ctx: RoutingContext): FalSceneAssessme
     panelCategory = "LOCAL_FIX";
   } else if (ctx.subjectFocus === "environment" || ctx.subjectFocus === "aftermath") {
     panelCategory = "ESTABLISHING_ENVIRONMENT";
-  } else if (ctx.subjectFocus === "npc" || ctx.subjectFocus === "enemy" || ctx.subjectFocus === "group") {
+  } else if (
+    ctx.subjectFocus === "npc"
+    || ctx.subjectFocus === "important_npc"
+    || ctx.subjectFocus === "enemy"
+    || ctx.subjectFocus === "antagonist"
+    || ctx.subjectFocus === "group"
+  ) {
     panelCategory = "CHARACTER_IN_SCENE";
   } else if (ctx.subjectFocus === "hero") {
     panelCategory = "CHARACTER_LOCK";
@@ -137,7 +143,16 @@ export function computeFalSceneAssessment(ctx: RoutingContext): FalSceneAssessme
     referencePolicy = "LIGHT";
   }
 
-  if (heroFocus && panelCategory !== "LOCAL_FIX") {
+  // Ne pas écraser en CHARACTER_LOCK si le subjectFocus est explicitement NPC/ennemi/groupe/environnement
+  const explicitNonHeroFocus =
+    ctx.subjectFocus === "npc"
+    || ctx.subjectFocus === "important_npc"
+    || ctx.subjectFocus === "enemy"
+    || ctx.subjectFocus === "antagonist"
+    || ctx.subjectFocus === "group"
+    || ctx.subjectFocus === "environment"
+    || ctx.subjectFocus === "aftermath";
+  if (heroFocus && panelCategory !== "LOCAL_FIX" && !explicitNonHeroFocus) {
     panelCategory = "CHARACTER_LOCK";
   }
 

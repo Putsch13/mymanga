@@ -51,7 +51,9 @@ export function buildPanelCast(input: PanelCastInput): PanelCast {
     const mustBeVisible = blueprintMustShowIds.includes(raw.id)
       || role === "protagonist"
       || role === "antagonist"
-      || role === "deuteragonist";
+      || role === "deuteragonist"
+      || role === "important_npc"
+      || role === "recurring_npc";
     const isSpeaker = speakerName ? raw.name === speakerName : false;
     const isPropCarrier = propCarrierNames.includes(raw.name);
     const lora = loraByCharId?.get(raw.id);
