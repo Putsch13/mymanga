@@ -11,7 +11,11 @@ describe("chapter recovery pass — contract tests", () => {
     path.resolve(__dirname, "passes/image-generation-pass.ts"),
     "utf-8",
   );
-  const combinedSource = pipelineSource + "\n" + imagePassSource;
+  const recoveryPassSource = fs.readFileSync(
+    path.resolve(__dirname, "passes/image-generation/recovery-pass.ts"),
+    "utf-8",
+  );
+  const combinedSource = pipelineSource + "\n" + imagePassSource + "\n" + recoveryPassSource;
 
   it("tracks failedShots during image generation loop", () => {
     expect(combinedSource).toContain("failedShots");

@@ -17,11 +17,13 @@ import {
   resolveCharacterImportanceTier,
   resolveChapterLookProfile,
   validateShotCompliance,
-  computePlannedCoverage,
-  computeCoverageGaps,
   type StableImageReference,
   type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
+import { reportRenderedCoverage } from "./image-generation/coverage-report";
+import { runRecoveryPass } from "./image-generation/recovery-pass";
+import { generateChapterCover } from "./image-generation/chapter-cover";
+import { persistFalTrace } from "./image-generation/fal-trace";
 import { scoreVisualConsistency } from "@manga-ai-studio/visual-consistency";
 import { type SceneBlueprint } from "@manga-ai-studio/world";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
@@ -101,47 +103,8 @@ export async function runImageGenerationPass(
     const failedShots: Array<{ id: string; item: PlannedImage }> = [];
     const sceneKeyframeUrlCache = new Map<string, Promise<string | null>>();
 
-    async function persistFalTraceEntry(input: {
-      sceneId: string;
-      panelId?: string;
-      sceneKeyframeId?: string;
-      characterId?: string | null;
-      provider: string;
-      model: string;
-      mode: "text2img" | "img2img" | "lora_training";
-      status: "completed" | "failed";
-      requestId?: string | null;
-      jobId?: string | null;
-      requestPayload: Record<string, unknown>;
-      responsePayload: unknown;
-      refsUsed?: string[];
-      lorasUsed?: Array<{ url: string; triggerWord: string; scale?: number }>;
-      timings?: Record<string, unknown>;
-      error?: Record<string, unknown> | null;
-    }) {
-      return prisma.falTrace.create({
-        data: {
-          projectId,
-          chapterId,
-          sceneId: input.sceneId,
-          panelId: input.panelId ?? null,
-          sceneKeyframeId: input.sceneKeyframeId ?? null,
-          characterId: input.characterId ?? null,
-          provider: input.provider,
-          model: input.model,
-          mode: input.mode,
-          status: input.status,
-          requestId: input.requestId ?? null,
-          jobId: input.jobId ?? null,
-          requestPayload: input.requestPayload as Prisma.InputJsonValue,
-          responsePayload: (input.responsePayload ?? {}) as Prisma.InputJsonValue,
-          refsUsed: (input.refsUsed ?? []) as Prisma.InputJsonValue,
-          lorasUsed: (input.lorasUsed ?? []) as Prisma.InputJsonValue,
-          timings: (input.timings ?? {}) as Prisma.InputJsonValue,
-          error: input.error ? (input.error as Prisma.InputJsonValue) : undefined,
-        },
-      });
-    }
+    const persistFalTraceEntry = (input: Omit<Parameters<typeof persistFalTrace>[0], "projectId" | "chapterId">) =>
+      persistFalTrace({ ...input, projectId, chapterId });
 
     async function ensureSceneKeyframeUrl(item: PlannedImage): Promise<string | null> {
       const sceneKeyframeId =
@@ -1317,84 +1280,20 @@ export async function runImageGenerationPass(
     );
 
     // ── Recovery pass — garantir le quota minimal d'images ──────────────────
+    // Extrait dans ./image-generation/recovery-pass.ts
     const minimumImages = (typeof (chapter as Record<string, unknown>).minimumImages === "number"
       ? (chapter as Record<string, unknown>).minimumImages as number
       : 75);
-    const missingCount = minimumImages - generatedCount;
-    let recoveredCount = 0;
-
-    if (missingCount > 0 && failedShots.length > 0) {
-      console.log(`[pipeline:recovery] ${missingCount} images manquantes — relance de ${Math.min(missingCount, failedShots.length)} shots en mode dégradé`);
-      await setJobProgress(jobId, { key: "recovery_pass", label: `Récupération ${missingCount} images manquantes...` }, "running");
-
-      for (const failedShot of failedShots.slice(0, missingCount)) {
-        try {
-          const recoveryResult = await runRoutedImageGeneration(
-            {
-              mode: "PANEL_DRAFT",
-              contentIntensityLayer: intensityLayer,
-              isNewCharacter: false,
-              hasCanonReferences: false,
-              characterCountInScene: failedShot.item.panel.characters?.length ?? 1,
-              needsInpaint: false,
-              needsPoseVariation: false,
-              preferPhotorealCover: false,
-              explicitBlocked: false,
-              goreStylizedMature: false,
-            },
-            {
-              mode: "PANEL_DRAFT",
-              positivePrompt: failedShot.item.panel.prompt,
-              negativePrompt: failedShot.item.panel.negativePrompt,
-              width: 768,
-              height: 1024,
-              referenceImageUrls: [],
-              providerParams: {
-                contentIntensityLayer: intensityLayer,
-                mode: "PANEL_DRAFT",
-                referencePolicy: "NONE",
-                panelCategory: "CHARACTER_IN_SCENE",
-                scenePass: "single_pass",
-                panelCriticality: "low",
-              },
-            },
-          );
-
-          if (recoveryResult.ok) {
-            const persisted = await persistImageIfNeeded({
-              imageUrl: recoveryResult.result.imageUrl,
-              projectId,
-              chapterId,
-              sceneImageId: failedShot.id,
-            });
-            if (persisted.ok) {
-              recoveredCount++;
-              await prisma.sceneImage.update({
-                where: { id: failedShot.id },
-                data: {
-                  status: "completed",
-                  imageUrl: persisted.url,
-                  persistedUrl: persisted.persisted ? persisted.url : null,
-                  provider: recoveryResult.result.provider,
-                  model: recoveryResult.result.model,
-                  failureReason: null,
-                  metadata: ({
-                    ...failedShot.item.baseMetadata,
-                    recoveryPass: true,
-                    sourceUrl: recoveryResult.result.imageUrl,
-                  } as unknown) as Prisma.InputJsonValue,
-                },
-              });
-            }
-          }
-        } catch {
-          console.warn(`[pipeline:recovery] shot recovery failed for ${failedShot.id}`);
-        }
-      }
-
-      console.log(`[pipeline:recovery] recovered=${recoveredCount}/${missingCount} failedShots=${failedShots.length}`);
-      await setJobProgress(jobId, { key: "recovery_pass", label: `${recoveredCount} images récupérées` }, "completed");
-
+    const { recoveredCount } = await runRecoveryPass({
+      jobId,
+      projectId,
+      chapterId,
+      intensityLayer,
+      failedShots,
+      generatedCount,
+      minimumImages,
+    });
+    if (recoveredCount > 0) {
       generatedCount += recoveredCount;
       failedCount = Math.max(0, failedCount - recoveredCount);
     }
@@ -1412,69 +1311,25 @@ export async function runImageGenerationPass(
     })}`);
 
     // ── Couverture planifiée vs rendue ────────────────────────────────────
-    const plannedCoverage = computePlannedCoverage(finalPanelBlueprints as any);
-    const renderedBps = plannedImages
-      .map((img: any) =>
-        finalPanelBlueprints.find(
-          (bp: any) => bp.panelId === (img.baseMetadata.panelId as string | undefined)
-             || bp.beatId === (img.baseMetadata.beatId as string | undefined),
-        )
-      )
-      .filter((bp: any): bp is PanelBlueprintPremium => bp !== undefined);
-    const renderedCoverage = computePlannedCoverage(renderedBps);
-    const coverageGaps = computeCoverageGaps(plannedCoverage, renderedCoverage);
-    const criticalGaps = coverageGaps.filter(g => g.severity === "critical");
-    if (criticalGaps.length > 0) {
-      console.warn(
-        `[pipeline:coverage-gaps] ${criticalGaps
-          .map(g => `${g.metric}: planned=${(g.planned * 100).toFixed(0)}% rendered=${(g.rendered * 100).toFixed(0)}%`)
-          .join(" | ")}`,
-      );
-    } else {
-      console.log(`[pipeline:coverage] OK enemy=${(renderedCoverage.enemyCoverage * 100).toFixed(0)}% npc=${(renderedCoverage.npcCoverage * 100).toFixed(0)}% cutaway=${(renderedCoverage.cutawayCoverage * 100).toFixed(0)}%`);
-    }
-    // ── Fin couverture ────────────────────────────────────────────────────
+    // Extrait dans ./image-generation/coverage-report.ts
+    reportRenderedCoverage({
+      finalPanelBlueprints: finalPanelBlueprints as PanelBlueprintPremium[],
+      plannedImages,
+    });
 
     // ── Couverture de chapitre (hero shot) ────────────────────────────────
-    let coverUrl: string | null = null;
-    try {
-      const { composeCoverPrompt, inferCoverMood } = await import("@manga-ai-studio/ai");
-      const coverMood = inferCoverMood(context.project.tone ?? "dramatique", context.project.primaryGenre?.trim() || "generic");
-      const coverPrompt = composeCoverPrompt({
-        chapterTitle: revisedBundle.outline.chapter_title ?? `Chapitre ${chapterNumber}`,
-        chapterNumber,
-        chapterSummary: revisedBundle.memory.narrativeSummary,
-        cliffhanger: revisedBundle.outline.cliffhanger,
-        genre: context.project.primaryGenre?.trim() || "generic",
-        tone: context.project.tone ?? "dramatique",
-        visualStyle: context.project.visualStyle ?? "manga",
-        mood: coverMood,
-        characters: rawCharacters.slice(0, 2).map((c: any) => ({
-          name: c.name,
-          gender: c.gender,
-          appearance: c.appearance,
-          hairColor: c.hairColor,
-          eyeColor: c.eyeColor,
-          outfitDefault: c.outfitDefault,
-        })),
-        stylePack: stylePacks[0] ? { name: stylePacks[0].renderFamily, visualStyle: project?.visualStyle ?? null } : null,
-        contentIntensityLayer: intensityLayer,
-      });
-
-      const coverResult = await runRoutedImageGeneration(
-        { mode: "PANEL_DRAFT", contentIntensityLayer: intensityLayer, isNewCharacter: false, hasCanonReferences: false, characterCountInScene: 2, needsInpaint: false, needsPoseVariation: false, preferPhotorealCover: false, explicitBlocked: false, goreStylizedMature: false },
-        { mode: "PANEL_DRAFT", positivePrompt: coverPrompt.positive, negativePrompt: coverPrompt.negative, width: coverPrompt.width, height: coverPrompt.height, providerParams: { contentIntensityLayer: intensityLayer, mode: "COVER_ART" } },
-      );
-      if (coverResult.ok) {
-        const persisted = await persistImageIfNeeded({ imageUrl: coverResult.result.imageUrl, projectId, chapterId, sceneImageId: `cover_${chapterId}` });
-        if (persisted.ok) {
-          coverUrl = persisted.url;
-          await prisma.chapter.update({ where: { id: chapterId }, data: { coverImageUrl: coverUrl } });
-        }
-      }
-    } catch (e) {
-      console.warn("[pipeline] cover generation skipped:", e instanceof Error ? e.message : e);
-    }
+    // Extrait dans ./image-generation/chapter-cover.ts
+    await generateChapterCover({
+      chapterId,
+      projectId,
+      chapterNumber,
+      intensityLayer,
+      revisedBundle,
+      context,
+      project,
+      rawCharacters,
+      stylePacks,
+    });
 
     const chapterQualityRows = await prisma.sceneImage.findMany({
       where: {
