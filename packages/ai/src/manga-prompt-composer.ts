@@ -528,18 +528,29 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
   const preset = inferPromptPreset(input);
   const environmentLock = buildEnvironmentLock(input);
   const promptWarnings: string[] = [];
-  const promptSections: Array<{ key: string; label: string; content: string }> = [];
-  const addSection = (key: string, label: string, content: string) => {
+
+  // P0-1 : budget-aware prompt composition. Chaque section porte une priorité
+  // (1=critique, 2=important, 3=contextuel, 4=décoratif) afin que la troncature
+  // finale coupe en priorité les éléments décoratifs et préserve intégralement
+  // les verrous critiques (character lock, action, framing, blueprint focus).
+  type SectionPriority = 1 | 2 | 3 | 4;
+  const promptSections: Array<{ key: string; label: string; content: string; priority: SectionPriority }> = [];
+  const addSection = (key: string, label: string, content: string, priority: SectionPriority = 3) => {
     if (!content.trim()) return;
-    promptSections.push({ key, label, content: sanitizeSectionText(content) });
+    promptSections.push({ key, label, content: sanitizeSectionText(content), priority });
   };
 
-  // ChapterLookProfile — source de vérité style
+  // ChapterLookProfile — source de vérité style (P2 important)
   if (input.chapterLookProfile) {
-    addSection("chapterLookProfile", "Chapter Look Profile", buildLookProfilePromptBlock(input.chapterLookProfile));
+    addSection("chapterLookProfile", "Chapter Look Profile", buildLookProfilePromptBlock(input.chapterLookProfile), 2);
   }
 
-  addSection("characterCanonLock", "Character Canon Lock", charDescs ? `Subject lock: ${charDescs}.` : "");
+  addSection(
+    "characterCanonLock",
+    "Character Canon Lock",
+    charDescs ? `Subject lock: ${charDescs}.` : "",
+    1,
+  );
 
   // Hard traits depuis fingerprints
   if (input.characters && input.characters.length > 0) {
@@ -548,18 +559,18 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
       .map((c) => compileHardTraitsPromptBlock(c.fingerprint!))
       .filter(Boolean);
     if (hardTraitBlocks.length > 0) {
-      addSection("hardTraitsLock", "Hard Traits Lock", hardTraitBlocks.join(" | "));
+      addSection("hardTraitsLock", "Hard Traits Lock", hardTraitBlocks.join(" | "), 1);
     }
   }
 
-  // PanelIntentCard — beat visuel autoritaire
+  // PanelIntentCard — beat visuel autoritaire (P1 critique)
   if (input.intentCard) {
-    addSection("panelIntent", "Panel Intent / Beat", buildPanelIntentPromptBlock(input.intentCard));
+    addSection("panelIntent", "Panel Intent / Beat", buildPanelIntentPromptBlock(input.intentCard), 1);
   }
 
-  // SceneAnchor — continuité spatiale
+  // SceneAnchor — continuité spatiale (P2 important)
   if (input.sceneAnchor) {
-    addSection("sceneAnchor", "Scene Spatial Anchor", buildSceneAnchorPromptBlock(input.sceneAnchor));
+    addSection("sceneAnchor", "Scene Spatial Anchor", buildSceneAnchorPromptBlock(input.sceneAnchor), 2);
   }
 
   addSection(
@@ -570,22 +581,25 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
       : input.sceneContext
         ? `Continuity: ${input.sceneContext.slice(0, 220)}.`
         : "",
+    3,
   );
-  addSection("actionPoseEmotion", "Exact Action / Pose / Emotion", `Action: ${input.action}. Mood and lighting: ${moodDesc}.`);
-  addSection("cameraComposition", "Camera / Composition / Framing", `Camera and composition: ${cameraDesc}.`);
+  addSection("actionPoseEmotion", "Exact Action / Pose / Emotion", `Action: ${input.action}. Mood and lighting: ${moodDesc}.`, 1);
+  addSection("cameraComposition", "Camera / Composition / Framing", `Camera and composition: ${cameraDesc}.`, 1);
   addSection(
     "environmentContext",
     "Environment / Context",
     `Environment: ${input.location} clearly visible. ${input.environmentHint?.slice(0, 220) ?? ""}${environmentLock ? ` Strict environment readability: ${environmentLock}.` : ""}`,
+    2,
   );
-  addSection("renderingMood", "Rendering / Inking / Mood", `Style: ${visualStyle}. ${intensityNote && layer !== "GENERAL_SAFE" ? `Content boundaries: ${intensityNote}.` : ""}`);
+  addSection("renderingMood", "Rendering / Inking / Mood", `Style: ${visualStyle}. ${intensityNote && layer !== "GENERAL_SAFE" ? `Content boundaries: ${intensityNote}.` : ""}`, 2);
 
-  // A04: inject universe/project context for richer style coherence
+  // A04: contexte univers (P4 décoratif — tronqué en premier si dépassement budget).
   if (input.environmentHint && input.environmentHint.length > 50) {
     addSection(
       "universeContext",
       "Universe Context",
       input.environmentHint.slice(0, 300),
+      4,
     );
   }
 
@@ -617,31 +631,32 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
         || null
       );
   if (resolvedFraming) {
-    addSection("mangaFraming", "Manga Panel Framing", resolvedFraming);
+    addSection("mangaFraming", "Manga Panel Framing", resolvedFraming, 1);
   }
 
-  // IMG-4 : Effets manga selon le beatType
+  // IMG-4 : Effets manga selon le beatType (P3 contextuel)
   if (input.beatType && BEAT_TYPE_ADDONS[input.beatType]) {
-    addSection("beatEffects", "Beat FX / Manga Effects", BEAT_TYPE_ADDONS[input.beatType]);
+    addSection("beatEffects", "Beat FX / Manga Effects", BEAT_TYPE_ADDONS[input.beatType], 3);
   }
 
-  // Magic / supernatural effects detection from action text
+  // Magic / supernatural effects detection from action text (P3 contextuel)
   const magicKeywords = /\b(magi[ceq]|spell|aura|energy|glow|power|supernatural|incantation|sorcell|enchant|invoc|rituel|rune|arcane|mystique|mana|pouvoir|gardien|gardienne|[eé]veil|[eé]veille|r[eé]v[eè]le|r[eé]v[eé]lation|capacit[eé]|don)\b/i;
   if (magicKeywords.test(input.action ?? "") || magicKeywords.test(input.sceneContext ?? "")) {
     addSection("magicEffect", "Magic Effects",
       "magical energy visible and readable, aura or glow effect emanating from character hands or body, " +
       "speed lines from magic source, dramatic light burst, energy particles, mystical light rays, " +
-      "manga magical effect, screen tone burst for reveal, radial lines from power source");
+      "manga magical effect, screen tone burst for reveal, radial lines from power source",
+      3);
   }
 
-  // STYLE-1 + IMG-3 : Style anchor renforcé — cohérence intra-chapitre obligatoire
+  // STYLE-1 + IMG-3 : Style anchor (P2 important — cohérence intra-chapitre)
   if (input.chapterStyleAnchor) {
     const styleEnforcement = [
       input.chapterStyleAnchor,
       "IMPORTANT: maintain consistent art style throughout all panels",
       "same line weight, same shading technique, same character proportions as established",
     ].filter(Boolean).join(", ");
-    addSection("chapterStyleAnchor", "Chapter Style Enforcement", styleEnforcement);
+    addSection("chapterStyleAnchor", "Chapter Style Enforcement", styleEnforcement, 2);
   }
 
   // STYLE-1 : injecter styleRefImageUrl du StylePack comme ancre de référence légère si disponible
@@ -650,24 +665,24 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     input.referencePolicy = "LIGHT";
   }
 
-  // URGENCE 4 : Accessoires requis depuis le prop inference engine + prop visual library
+  // URGENCE 4 : Accessoires requis (P2 important — éléments clés narratifs)
   if (input.requiredProps && input.requiredProps.length > 0) {
     const propsBlock = buildRequiredPropsBlock(input.requiredProps);
     if (propsBlock) {
-      addSection("requiredProps", "Required Props / Key Objects", `KEY OBJECTS: ${propsBlock}`);
+      addSection("requiredProps", "Required Props / Key Objects", `KEY OBJECTS: ${propsBlock}`, 2);
     }
   }
 
-  // QUAL-1 : vocabulaire gore / dark genre spécifique
+  // QUAL-1 : vocabulaire gore / dark genre spécifique (P3 contextuel)
   const darkGenreBlock = buildDarkGenreBlock(input.stylePack?.description ?? input.stylePack?.name ?? null, layer);
   if (darkGenreBlock) {
-    addSection("darkGenre", "Dark Genre Style", darkGenreBlock);
+    addSection("darkGenre", "Dark Genre Style", darkGenreBlock, 3);
   }
 
-  // URGENCE 5 : PNJ récurrents présents dans cette scène
+  // URGENCE 5 : PNJ récurrents (P3 contextuel — arrière-plan)
   if (input.npcPresence && input.npcPresence.length > 0) {
     const npcBlock = input.npcPresence.slice(0, 3).join("; ");
-    addSection("npcPresence", "Background NPC Characters", `BACKGROUND CHARACTERS: ${npcBlock}`);
+    addSection("npcPresence", "Background NPC Characters", `BACKGROUND CHARACTERS: ${npcBlock}`, 3);
   }
 
   if (input.subjectFocus) {
@@ -676,7 +691,8 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
       heroCenterAllowed: input.heroCenterAllowed ?? false,
     });
     if (compositionDirective) {
-      addSection("compositionDirective", "Composition Directive", compositionDirective);
+      // P1 critique : sur un cutaway, c'est ça qui empêche le hero au centre.
+      addSection("compositionDirective", "Composition Directive", compositionDirective, 1);
     }
   }
 
@@ -687,15 +703,23 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     promptWarnings.push("narrative_objective_missing");
   }
 
-  const positiveParts = promptSections.map((section) => section.content);
+  // P0-1 : assemblage priorisé du prompt final.
+  // Chaque segment porte une priorité 1..4 ; la troncature à 1500 chars (cf.
+  // optimizePromptForFal) retire d'abord les P4/P3/P2 en queue.
+  const prioritizedParts: Array<{ priority: SectionPriority; text: string }> = [];
+  for (const section of promptSections) {
+    prioritizedParts.push({ priority: section.priority, text: section.content });
+  }
+
   if (blueprint) {
-    positiveParts.push(
-      sanitizeSectionText(`Spatial relation: ${blueprint.composition.framingRules.join(", ")}.`),
-    );
+    prioritizedParts.push({
+      priority: 2,
+      text: sanitizeSectionText(`Spatial relation: ${blueprint.composition.framingRules.join(", ")}.`),
+    });
     // Sur un cutaway (environment/aftermath/prop/reaction), le foreground ne doit PAS être
     // le héros — sinon Flux remet Lyra devant malgré les autres directives. On réécrit le
     // staging pour faire passer le décor/prop/NPC en foreground et reléguer les persos en
-    // background ou "off-frame".
+    // background ou "off-frame". C'est CRITIQUE (P1) pour les cutaways.
     const heroInForeground = blueprint.environment.foregroundElements.some((el) =>
       reorderedCharacters.some((c) => c.importanceTier === "MAIN_HERO" && el.toLowerCase().includes(c.name.toLowerCase())),
     );
@@ -706,42 +730,59 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
         prop: "foreground: the key object/prop, fully legible and centered; midground: minimal context; background: subdued environment. No character centered in foreground.",
         reaction: "foreground: expressive NPC / non-protagonist face or body; midground: contextual environment; background: atmospheric cues. Hero not in foreground.",
       };
-      positiveParts.push(sanitizeSectionText(`Spatial staging (cutaway): ${cutawayStagingMap[focusForLock ?? "environment"] ?? cutawayStagingMap.environment}`));
+      prioritizedParts.push({
+        priority: 1,
+        text: sanitizeSectionText(`Spatial staging (cutaway): ${cutawayStagingMap[focusForLock ?? "environment"] ?? cutawayStagingMap.environment}`),
+      });
     } else {
-      positiveParts.push(
-        sanitizeSectionText(
+      prioritizedParts.push({
+        priority: 2,
+        text: sanitizeSectionText(
           `Spatial staging: foreground ${blueprint.environment.foregroundElements.join(", ")}; midground ${blueprint.environment.midgroundElements.join(", ")}; background ${blueprint.environment.backgroundElements.join(", ")}.`,
         ),
-      );
+      });
     }
     if (blueprint.constraints.hard.length > 0) {
-      positiveParts.push(sanitizeSectionText(`Mandatory constraints: ${blueprint.constraints.hard.join(", ")}.`));
+      prioritizedParts.push({
+        priority: 3,
+        text: sanitizeSectionText(`Mandatory constraints: ${blueprint.constraints.hard.join(", ")}.`),
+      });
     }
-    // ── Premium hard constraints from panel blueprint ──────────────────────
+    // Premium hard constraints (verrous critiques du blueprint).
     const pb = blueprint.promptBridge;
-    if (pb.focusLine) {
-      positiveParts.push(sanitizeSectionText(pb.focusLine));
-    }
-    if (pb.requiredPropLine) {
-      positiveParts.push(sanitizeSectionText(pb.requiredPropLine));
-    }
-    if (pb.requiredEnemyLine) {
-      positiveParts.push(sanitizeSectionText(pb.requiredEnemyLine));
-    }
-    if (pb.speakerAnchorLine) {
-      positiveParts.push(sanitizeSectionText(pb.speakerAnchorLine));
-    }
-    if (pb.cutawayLine) {
-      positiveParts.push(sanitizeSectionText(pb.cutawayLine));
-    }
+    if (pb.focusLine) prioritizedParts.push({ priority: 1, text: sanitizeSectionText(pb.focusLine) });
+    if (pb.requiredPropLine) prioritizedParts.push({ priority: 1, text: sanitizeSectionText(pb.requiredPropLine) });
+    if (pb.requiredEnemyLine) prioritizedParts.push({ priority: 1, text: sanitizeSectionText(pb.requiredEnemyLine) });
+    if (pb.speakerAnchorLine) prioritizedParts.push({ priority: 2, text: sanitizeSectionText(pb.speakerAnchorLine) });
+    if (pb.cutawayLine) prioritizedParts.push({ priority: 1, text: sanitizeSectionText(pb.cutawayLine) });
   }
-  if (input.dialogueHint) positiveParts.push(sanitizeSectionText(`Subtext: ${input.dialogueHint.slice(0, 120)}.`));
-  positiveParts.push("Readable background, strong environment, coherent manga composition, clear spatial relation between characters and place.");
+  if (input.dialogueHint) {
+    prioritizedParts.push({
+      priority: 4,
+      text: sanitizeSectionText(`Subtext: ${input.dialogueHint.slice(0, 120)}.`),
+    });
+  }
+  // Tail décoratif — coupé en premier si budget dépassé.
+  prioritizedParts.push({
+    priority: 4,
+    text: "Readable background, strong environment, coherent manga composition, clear spatial relation between characters and place.",
+  });
   if (input.characters && input.characters.length > 0) {
-    positiveParts.push("Keep character continuity stable: same hair, same face, same outfit, same silhouette.");
+    // Continuity lock character : critique (P1) — Flux ne doit pas muter l'apparence.
+    prioritizedParts.push({
+      priority: 1,
+      text: "Keep character continuity stable: same hair, same face, same outfit, same silhouette.",
+    });
   }
 
-  const positive = positiveParts.filter(Boolean).join(" ");
+  // Tri stable par priorité croissante : P1 → P2 → P3 → P4. Les segments d'une
+  // même priorité conservent leur ordre d'insertion.
+  const positive = prioritizedParts
+    .map((part, index) => ({ ...part, index }))
+    .sort((a, b) => a.priority - b.priority || a.index - b.index)
+    .map((p) => p.text)
+    .filter(Boolean)
+    .join(" ");
 
   // Negative prompt enrichi selon le layer + verrous de dérive visuelle
   // IMG-2 : négatif manga universel préfixé systématiquement

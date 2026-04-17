@@ -66,56 +66,69 @@ export function resolveOptimalFalModel(
 /**
  * Normalise le prompt négatif pour FAL/FLUX.
  *
- * Historique du bug (BUG-02) : l'ancienne implémentation filtrait les termes
- * via une regex très restrictive (~6 patterns) ce qui jetait quasi tous les
- * drift guards (wrong hair/eye color, photorealistic, 3d render, anatomy…)
- * et ne laissait passer que 5 fallbacks "composition ratée". Résultat :
- * aucun garde-fou effectif côté FLUX.
+ * Historique :
+ * - BUG-02 : l'ancienne implémentation filtrait via regex restrictives, jetant
+ *   quasi tous les drift guards. Capée à ~22 termes.
+ * - P0-2 (audit DIAG) : 22 était trop bas — les drift guards dynamiques
+ *   (~6 par personnage × N personnages + format + anatomy + composition)
+ *   dépassaient 22 dès 2 persos, supprimant les protections critiques.
  *
- * Nouvelle stratégie : priorisation, pas filtrage. On ordonne par importance
- * (character drift > format/technique > anatomie > composition) puis on dédoublonne
- * et on cap à ~22 termes — ce que FLUX gère confortablement.
+ * Nouvelle stratégie :
+ * 1. Budget élargi à 80 termes (FLUX gère confortablement jusqu'à ~100 tokens
+ *    négatifs distincts avant que la qualité ne dégrade).
+ * 2. Priorisation étendue à 6 groupes :
+ *    - drift (wrong hair/eye/outfit/gender for <name>) — jamais jetés
+ *    - format (photorealistic, 3d, western comics) — style-breaking
+ *    - anatomy (deformed, extra fingers, bad proportions)
+ *    - composition (empty bg, studio, isolated portrait)
+ *    - quality (blurry, low quality, watermark, jpeg artifacts)
+ *    - rest (fallback)
+ * 3. Dédoublonnage par segment (case-insensitive).
  */
 export function buildFalNegativePrompt(raw: string | undefined) {
   if (!raw?.trim()) return "";
 
-  const normalized = optimizePromptForFal(raw, 600)
+  const normalized = optimizePromptForFal(raw, 1000)
     .split(",")
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
 
   const deduped = [...new Set(normalized)];
 
-  // Groupes de priorité (du plus au moins critique).
-  const driftGuards: string[] = [];       // wrong hair/eye/outfit for <name>, character drift…
-  const formatGuards: string[] = [];      // photorealistic, 3d render, cgi, western comics…
-  const anatomyGuards: string[] = [];     // deformed hands, extra fingers, malformed…
-  const compositionGuards: string[] = []; // empty background, isolated portrait…
+  const driftGuards: string[] = [];
+  const formatGuards: string[] = [];
+  const anatomyGuards: string[] = [];
+  const compositionGuards: string[] = [];
+  const qualityGuards: string[] = [];
   const rest: string[] = [];
 
-  const DRIFT_RE = /wrong (hair|eye|outfit|skin|age|gender)|character drift|visual drift|different (hair|eye|outfit)|color drift|identity shift|swapped character|wrong character|male for female|female for male|woman for male|man for female/;
-  const FORMAT_RE = /photorealistic|photoreal|3d render|cgi|octane|unreal engine|western comics|marvel|dc comics|disney style|pixar|realistic photo|stock photo|render 3d/;
-  const ANATOMY_RE = /deformed|malformed|extra (fingers|hands|limbs|legs|arms|heads|eyes)|missing (fingers|hands|limbs|eyes)|mutated|disfigured|bad anatomy|bad proportions|long neck|fused fingers|broken (hands|limbs)|twisted limbs/;
-  const COMPOSITION_RE = /empty background|studio backdrop|studio background|flat grey backdrop|isolated centered portrait|isolated portrait|blurry environment|floating character|disconnected characters|missing background|no crowd|weak social interaction/;
+  const DRIFT_RE = /wrong (hair|eye|outfit|skin|age|gender|face|body)|character drift|visual drift|different (hair|eye|outfit|face)|color drift|identity shift|swapped character|wrong character|male for female|female for male|woman for male|man for female|inconsistent outfit|duplicate character|fused character|twin character|clone character|feminine|masculine|beard|facial hair|long feminine hair|woman|female|man|male|boy|girl/;
+  const FORMAT_RE = /photorealistic|photoreal|photography|photo realistic|3d render|cgi|octane|unreal engine|blender|western comics|american comics|marvel|dc comics|disney style|pixar|realistic photo|stock photo|render 3d|anime 3d|portrait photo|selfie|oil painting|acrylic painting|watercolor style/;
+  const ANATOMY_RE = /deformed|malformed|extra (fingers|hands|limbs|legs|arms|heads|eyes)|missing (fingers|hands|limbs|eyes|arms|legs)|mutated|disfigured|bad anatomy|bad proportions|long neck|fused fingers|broken (hands|limbs|fingers)|twisted limbs|floating limbs|poorly drawn (face|hands|eyes)|unnatural pose|stiff pose/;
+  const COMPOSITION_RE = /empty background|studio backdrop|studio background|flat grey backdrop|isolated centered portrait|isolated portrait|blurry environment|floating character|disconnected characters|missing background|no crowd|weak social interaction|vague background|plain backdrop|white background|centered composition always|no environment interaction|generic campus background|empty school courtyard|missing students|blank outdoor backdrop/;
+  const QUALITY_RE = /blurry|low quality|jpeg artifacts|watermark|signature|artist signature|text overlay|washed image|overblur|noise|grain|pixelated|compression artifact|low resolution|oversaturated|undersaturated|motion blur unwanted/;
 
   for (const item of deduped) {
     if (DRIFT_RE.test(item)) driftGuards.push(item);
     else if (FORMAT_RE.test(item)) formatGuards.push(item);
     else if (ANATOMY_RE.test(item)) anatomyGuards.push(item);
     else if (COMPOSITION_RE.test(item)) compositionGuards.push(item);
+    else if (QUALITY_RE.test(item)) qualityGuards.push(item);
     else rest.push(item);
   }
 
-  // Ordre de priorité décroissant. On garde ~22 termes max (FLUX-friendly).
+  // Budget par groupe — caps internes pour éviter qu'un seul groupe mange tout
+  // si l'input est mal formé. Total théorique : 24+12+14+10+8+12 = 80.
   const prioritized = [
-    ...driftGuards,
-    ...formatGuards,
-    ...anatomyGuards,
-    ...compositionGuards,
-    ...rest,
+    ...driftGuards.slice(0, 24),
+    ...formatGuards.slice(0, 12),
+    ...anatomyGuards.slice(0, 14),
+    ...compositionGuards.slice(0, 10),
+    ...qualityGuards.slice(0, 8),
+    ...rest.slice(0, 12),
   ];
 
-  const MAX_NEGATIVE_TERMS = 22;
+  const MAX_NEGATIVE_TERMS = 80;
   return prioritized.slice(0, MAX_NEGATIVE_TERMS).join(", ");
 }
 

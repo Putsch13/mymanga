@@ -7,7 +7,7 @@ import {
   createEmptyChapterStudioSnapshot,
   normalizeChapterImageCounts,
   updateChapterStudioSnapshot,
-} from "./chapter-studio";
+} from "./chapter-studio-helpers";
 
 describe("chapter studio domain", () => {
   it("enrichit automatiquement un plan sous 75 images", () => {

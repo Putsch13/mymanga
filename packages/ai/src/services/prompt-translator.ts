@@ -115,12 +115,13 @@ function escapeRegex(str: string): string {
  * Nettoie et optimise un prompt avant envoi à FAL :
  * - Traduit FR→EN
  * - Supprime les doublons consécutifs
- * - Limite la longueur
+ * - Tronque en préservant les segments complets depuis la fin
+ *   (plutôt qu'un `slice(0, maxLength)` qui coupe les critiques en cours de mot).
  */
 export function optimizePromptForFal(prompt: string, maxLength = 1500): string {
-  let translated = translatePromptToEnglish(prompt);
+  const translated = translatePromptToEnglish(prompt);
 
-  // Supprimer les segments dupliqués (split par virgule, dédupliquer)
+  // Dédupe par segment (split par virgule).
   const segments = translated.split(",").map((s) => s.trim()).filter(Boolean);
   const seen = new Set<string>();
   const deduped: string[] = [];
@@ -132,5 +133,78 @@ export function optimizePromptForFal(prompt: string, maxLength = 1500): string {
     }
   }
 
-  return deduped.join(", ").slice(0, maxLength);
+  return truncateByBudget(deduped, maxLength);
+}
+
+/**
+ * Tronque une liste de segments en préservant les entrées complètes depuis la fin.
+ * - Ne coupe jamais un mot ou une phrase au milieu.
+ * - Retire les derniers segments jusqu'à passer sous `maxLength`.
+ * - Garantit au minimum le premier segment (même s'il dépasse légèrement).
+ */
+export function truncateByBudget(segments: string[], maxLength: number): string {
+  if (segments.length === 0) return "";
+  const joined = segments.join(", ");
+  if (joined.length <= maxLength) return joined;
+
+  const kept = [...segments];
+  while (kept.length > 1 && kept.join(", ").length > maxLength) {
+    kept.pop();
+  }
+  return kept.join(", ");
+}
+
+/**
+ * Variante priorisée — assemble un prompt en respectant un budget de caractères
+ * réparti selon la priorité des segments.
+ *
+ * - `priority=1` : critique (char lock, action, framing) — jamais tronqué.
+ * - `priority=2` : important (spatial, style, continuity).
+ * - `priority=3` : contextuel (genre, beat effects).
+ * - `priority=4` : décoratif (tail, subtext) — tronqué en premier.
+ *
+ * Algorithme :
+ *   1. Dédoublonnage global par contenu (case-insensitive).
+ *   2. On conserve d'abord tous les P1, puis ajoute P2/P3/P4 tant que le budget
+ *      n'est pas atteint.
+ *   3. Si même tous les P1 dépassent la limite, on tronque par segment (queue
+ *      en premier) avec `truncateByBudget`.
+ *
+ * Le résultat reste une string compatible avec le pipeline existant.
+ */
+export function composePrioritizedPrompt(
+  segments: ReadonlyArray<{ priority: 1 | 2 | 3 | 4; text: string }>,
+  maxLength = 1500,
+): string {
+  const seen = new Set<string>();
+  const byPriority: Record<1 | 2 | 3 | 4, string[]> = { 1: [], 2: [], 3: [], 4: [] };
+
+  for (const { priority, text } of segments) {
+    const cleaned = translatePromptToEnglish(text).trim();
+    if (!cleaned) continue;
+    const parts = cleaned.split(",").map((s) => s.trim()).filter(Boolean);
+    for (const part of parts) {
+      const key = part.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      byPriority[priority].push(part);
+    }
+  }
+
+  const mustHave = byPriority[1];
+  const optionalOrder: string[][] = [byPriority[2], byPriority[3], byPriority[4]];
+
+  let current = mustHave.join(", ");
+  if (current.length >= maxLength) {
+    return truncateByBudget(mustHave, maxLength);
+  }
+
+  for (const bucket of optionalOrder) {
+    for (const segment of bucket) {
+      const candidate = current.length === 0 ? segment : `${current}, ${segment}`;
+      if (candidate.length > maxLength) return current;
+      current = candidate;
+    }
+  }
+  return current;
 }

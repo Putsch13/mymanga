@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { unauthorized, notFound } from "@/lib/api-response";
+import { signSupabaseUrlsIfNeeded } from "@/lib/images/sign-supabase-url";
 import {
   compositeMangaPage,
   placeDialogueBubbles,
@@ -65,6 +66,12 @@ export async function GET(_req: Request, ctx: Ctx) {
   const colW = Math.floor(PAGE_W / colCount);
   const rowH = Math.floor(PAGE_H / rowCount);
 
+  // P0-3 : signer les URLs Supabase Storage AVANT de les passer au compositor.
+  // Le bucket MyManga est privé → sans signature, le fetch retourne 403 et le
+  // compositor affiche un placeholder gris (cases noires silencieuses).
+  const rawUrls = scene.images.slice(0, areaCount).map((img) => img.persistedUrl ?? img.imageUrl ?? null);
+  const signedUrls = await signSupabaseUrlsIfNeeded(rawUrls, 3600);
+
   const panels: CompositePanel[] = scene.images.slice(0, areaCount).map((img, idx) => {
     const col = idx % colCount;
     const row = Math.floor(idx / colCount);
@@ -76,8 +83,13 @@ export async function GET(_req: Request, ctx: Ctx) {
     const w = Math.round(Math.min(colW * sizeRatio, PAGE_W));
     const h = Math.round(Math.min(rowH, PAGE_H));
 
+    const signed = signedUrls[idx] ?? img.persistedUrl ?? img.imageUrl ?? "";
+    if (!signed) {
+      console.warn(`[composite-page] P0-3: image ${img.id} scene=${sceneId} has no resolvable URL (persistedUrl=${img.persistedUrl?.slice(0, 60) ?? "null"} imageUrl=${img.imageUrl?.slice(0, 60) ?? "null"})`);
+    }
+
     return {
-      imageUrl: img.persistedUrl ?? img.imageUrl ?? "",
+      imageUrl: signed,
       x: col * colW,
       y: row * rowH,
       width: w,

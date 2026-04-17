@@ -61,12 +61,35 @@ export async function compositeMangaPage(
 
   const panelComposites: sharp.OverlayOptions[] = [];
 
+  /**
+   * P0-3 : placeholder explicite remplaçant l'ancienne "case noire" silencieuse.
+   * Un panneau hachuré avec une bordure visible et un label "MISSING IMAGE"
+   * permet de détecter immédiatement les pertes vs. croire à un rendu sombre.
+   */
+  async function buildMissingPanelPlaceholder(width: number, height: number, reason: string): Promise<Buffer> {
+    const w = Math.max(1, width);
+    const h = Math.max(1, height);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
+      <defs>
+        <pattern id="hatch" width="16" height="16" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width="16" height="16" fill="#2a2a2a"/>
+          <line x1="0" y1="0" x2="0" y2="16" stroke="#3a3a3a" stroke-width="8"/>
+        </pattern>
+      </defs>
+      <rect width="${w}" height="${h}" fill="url(#hatch)"/>
+      <rect x="4" y="4" width="${w - 8}" height="${h - 8}" fill="none" stroke="#e23a3a" stroke-width="3" stroke-dasharray="12,6"/>
+      <text x="${w / 2}" y="${h / 2 - 6}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${Math.max(14, Math.min(32, Math.floor(w / 20)))}" font-weight="bold" fill="#ff6b6b">MISSING IMAGE</text>
+      <text x="${w / 2}" y="${h / 2 + 18}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${Math.max(10, Math.min(18, Math.floor(w / 32)))}" fill="#cccccc">${reason.replace(/[<>&"']/g, "").slice(0, 48)}</text>
+    </svg>`;
+    return sharp(Buffer.from(svg)).jpeg({ quality: 80 }).toBuffer();
+  }
+
   for (const panel of input.panels) {
+    const innerW = Math.max(1, panel.width - GUTTER * 2);
+    const innerH = Math.max(1, panel.height - GUTTER * 2);
+
     if (!panel.imageUrl) {
-      // Placeholder sombre si pas d'image
-      const placeholder = await sharp({
-        create: { width: Math.max(1, panel.width - GUTTER * 2), height: Math.max(1, panel.height - GUTTER * 2), channels: 3, background: { r: 30, g: 30, b: 30 } },
-      }).jpeg().toBuffer();
+      const placeholder = await buildMissingPanelPlaceholder(innerW, innerH, "no URL resolved");
       panelComposites.push({ input: placeholder, left: panel.x + GUTTER, top: panel.y + GUTTER });
       continue;
     }
@@ -76,11 +99,7 @@ export async function compositeMangaPage(
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const arrayBuffer = await response.arrayBuffer();
       const panelBuffer = await sharp(Buffer.from(arrayBuffer))
-        .resize(
-          Math.max(1, panel.width - GUTTER * 2),
-          Math.max(1, panel.height - GUTTER * 2),
-          { fit: "cover", position: "centre" },
-        )
+        .resize(innerW, innerH, { fit: "cover", position: "centre" })
         .jpeg({ quality: 92 })
         .toBuffer();
       panelComposites.push({
@@ -89,10 +108,9 @@ export async function compositeMangaPage(
         top: panel.y + GUTTER,
       });
     } catch (err) {
-      console.warn(`[compositor] panel load failed: ${panel.imageUrl} — ${err instanceof Error ? err.message : err}`);
-      const placeholder = await sharp({
-        create: { width: Math.max(1, panel.width - GUTTER * 2), height: Math.max(1, panel.height - GUTTER * 2), channels: 3, background: { r: 30, g: 30, b: 30 } },
-      }).jpeg().toBuffer();
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[compositor] panel load failed: ${panel.imageUrl} — ${msg}`);
+      const placeholder = await buildMissingPanelPlaceholder(innerW, innerH, msg.slice(0, 40));
       panelComposites.push({ input: placeholder, left: panel.x + GUTTER, top: panel.y + GUTTER });
     }
   }

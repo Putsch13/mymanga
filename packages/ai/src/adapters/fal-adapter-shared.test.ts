@@ -4,11 +4,16 @@ import { buildFalNegativePrompt } from "./fal-adapter-shared";
 /**
  * BUG-02 regression tests : l'ancienne implémentation filtrait 90% du négatif
  * via une regex très restrictive et n'envoyait que 5 fallbacks "composition".
+ *
+ * P0-2 (audit DIAG) : la cap de 22 était trop basse (jetait les drift guards
+ * à partir de 2 persos). Nouvelle cap : 80 termes, 6 groupes priorisés
+ * (drift / format / anatomy / composition / quality / rest).
+ *
  * On vérifie qu'après la refonte :
  *   - les drift guards personnage SURVIVENT,
  *   - les garde-formats (photorealistic, 3d, cgi…) SURVIVENT,
  *   - les anti-anatomies SURVIVENT,
- *   - on reste sous ~22 termes (cap FLUX-friendly).
+ *   - on reste sous ~80 termes (cap FLUX-friendly).
  */
 describe("buildFalNegativePrompt — BUG-02 drift guards priorisation", () => {
   it("retourne '' si le prompt brut est vide ou blank", () => {
@@ -86,9 +91,38 @@ describe("buildFalNegativePrompt — BUG-02 drift guards priorisation", () => {
     expect(out).toContain("character drift");
     // Format guards DOIVENT être présents.
     expect(out).toContain("photorealistic");
-    // On reste sous 22 termes.
+    // On reste sous 80 termes.
     const count = out.split(",").filter(Boolean).length;
-    expect(count).toBeLessThanOrEqual(22);
+    expect(count).toBeLessThanOrEqual(80);
+  });
+
+  it("P0-2 — étend la cap à 80 termes pour capter tous les drift guards multi-persos", () => {
+    // 8 drift guards par personnage × 4 persos = 32, + format/anatomy/composition = ~50.
+    const driftForChar = (name: string) => [
+      `wrong hair color for ${name}`,
+      `wrong eye color for ${name}`,
+      `wrong outfit for ${name}`,
+      `wrong skin color for ${name}`,
+      `character drift ${name}`,
+    ];
+    const chars = ["lyra", "kai", "ren", "aiko"];
+    const raw = [
+      ...chars.flatMap(driftForChar),
+      "photorealistic", "3d render", "cgi", "western comics", "disney style",
+      "deformed hands", "extra fingers", "bad anatomy", "malformed",
+      "empty background", "studio backdrop", "isolated centered portrait",
+      "blurry", "low quality", "watermark", "jpeg artifacts",
+    ].join(", ");
+    const out = buildFalNegativePrompt(raw);
+    // Tous les drift guards doivent passer.
+    for (const name of chars) {
+      expect(out).toContain(`wrong hair color for ${name}`);
+      expect(out).toContain(`wrong eye color for ${name}`);
+    }
+    // Format + anatomy + quality aussi.
+    expect(out).toContain("photorealistic");
+    expect(out).toContain("deformed hands");
+    expect(out).toContain("watermark");
   });
 
   it("ne duplique pas les termes (set dedup)", () => {

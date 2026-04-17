@@ -884,7 +884,10 @@ export async function runNarrativePass(
     }
     const pendingImageWrites: PendingImageWrite[] = [];
 
-    // C05: Tx A — chapter metadata seule (<5s)
+    // P0-5: Tx A — chapter metadata seule (<5s).
+    // NB: status "ready_for_render" est volontairement DIFFÉRÉ jusqu'à ce que
+    // Tx B (scenes+locations) ET Tx C (images) aient commit. Sinon un échec
+    // partiel laisse un chapter flag "ready" sans scènes/images ↔ rendu à vide.
     await prisma.$transaction(async (tx) => {
       await tx.chapter.update({
         where: { id: chapterId },
@@ -895,7 +898,6 @@ export async function runNarrativePass(
           storyboard: chapterStoryboard,
           summary: revisedBundle.memory.narrativeSummary,
           cliffhanger: revisedBundle.outline.cliffhanger,
-          status: "ready_for_render",
           tokenEstimate: job.estimatedTokenCost ?? 80,
           tokenActual: job.actualTokenCost ?? job.estimatedTokenCost ?? 80,
         },
@@ -1004,7 +1006,9 @@ export async function runNarrativePass(
                   scene.location,
                   scene.summary.slice(0, 200),
                 ].filter(Boolean).join(" — ");
-                await prisma.location.updateMany({
+                // P0-5: atomicité — écrire dans la MÊME transaction que la scène,
+                // pour éviter une "location établie" orpheline si Tx B rollback.
+                await tx.location.updateMany({
                   where: { projectId, name: locationRecord.name },
                   data: {
                     establishedVisualBrief: visualBrief,
@@ -1859,6 +1863,17 @@ export async function runNarrativePass(
         }
       }, { timeout: 15_000 });
     }
+
+    // P0-5: Tx D — flip final "ready_for_render" UNIQUEMENT après succès de
+    // Tx A + Tx B + Tx C. Garantit qu'aucun chapter marqué "ready" n'existe
+    // sans scènes+images persistées (pas de rendu fantôme côté UI).
+    await prisma.$transaction(async (tx) => {
+      await tx.chapter.update({
+        where: { id: chapterId },
+        data: { status: "ready_for_render" },
+      });
+    }, { timeout: 5_000 });
+
     await setJobProgress(
       jobId,
       { key: "persist_chapter", label: "Persistance chapitre" },

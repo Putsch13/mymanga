@@ -43,18 +43,6 @@ export const pipelineImageResultSchema = z.object({
 
 export type PipelineImageResult = z.infer<typeof pipelineImageResultSchema>;
 
-// ── QA Pass Result ────────────────────────────────────────────────────────────
-
-export const pipelineQAResultSchema = z.object({
-  qualityReport: z.unknown(),
-  releaseScore: z.number(),
-  chapterScore: z.number(),
-  weakPanelCount: z.number(),
-  blocked: z.boolean(),
-});
-
-export type PipelineQAResult = z.infer<typeof pipelineQAResultSchema>;
-
 // ── Memory Pass Result ────────────────────────────────────────────────────────
 
 export const pipelineMemoryResultSchema = z.object({

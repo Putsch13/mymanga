@@ -8,6 +8,7 @@ export * from "./outline-structures";
 export * from "./approved-outline";
 export * from "./visual-persistence";
 export * from "./chapter-studio";
+export * from "./chapter-studio-helpers";
 export * from "./chapter-look-profile";
 export * from "./narrative-facts";
 export * from "./panel-cast";

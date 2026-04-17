@@ -632,15 +632,42 @@ export async function runImageGenerationPass(
           );
         };
 
+        /**
+         * P0-4 : pilotage unifié du reroll automatique par `drift.recommendedAction`.
+         *
+         * Le détecteur de drift calcule déjà une action (keep, soft_reroll,
+         * character_reroll, style_reroll, full_reroll, flag_for_review). On
+         * honore cette décision en priorité et on retombe sur les signaux de
+         * validation (backgroundPresence, interaction…) uniquement pour les cas
+         * soft/full où aucun axe clair ne domine.
+         */
         const pickRerollKind = (
           validation: Awaited<ReturnType<typeof validateGeneratedPanel>>,
-          driftPass: boolean,
+          drift: ReturnType<typeof detectVisualDrift>,
         ): "REROLL_ENVIRONMENT" | "REROLL_CHARACTER_FIDELITY" | "REROLL_INTERACTION" | "REROLL_STYLE" | "REROLL_COMPOSITION" => {
           const scores = validation.qualityScores;
+
+          switch (drift.recommendedAction) {
+            case "character_reroll":
+              return "REROLL_CHARACTER_FIDELITY";
+            case "style_reroll":
+              return "REROLL_STYLE";
+            case "full_reroll":
+              if (scores && (scores.backgroundPresenceScore < 0.62 || scores.environmentReadabilityScore < 0.6)) {
+                return "REROLL_ENVIRONMENT";
+              }
+              return "REROLL_COMPOSITION";
+            case "soft_reroll":
+            case "keep":
+            case "flag_for_review":
+              // fall through to validation-driven heuristics
+              break;
+          }
+
           if (!scores) return "REROLL_COMPOSITION";
           if (scores.backgroundPresenceScore < 0.62 || scores.environmentReadabilityScore < 0.6) return "REROLL_ENVIRONMENT";
           if (strategy.interactionCritical && scores.interactionScore < 0.58 && scores.visionScore !== null) return "REROLL_INTERACTION";
-          if (!driftPass || validation.issues.some((issue) => issue.type === "missing_character" || issue.type === "wrong_hair" || issue.type === "wrong_outfit")) {
+          if (!drift.pass || validation.issues.some((issue) => issue.type === "missing_character" || issue.type === "wrong_hair" || issue.type === "wrong_outfit")) {
             return "REROLL_CHARACTER_FIDELITY";
           }
           if (validation.issues.some((issue) => issue.type === "style_drift")) return "REROLL_STYLE";
@@ -798,7 +825,7 @@ export async function runImageGenerationPass(
             drift,
             validationScore: validation.score,
             validationDetails: buildSharedValidationDetails(validation),
-            rerollKind: pickRerollKind(validation, drift.pass),
+            rerollKind: pickRerollKind(validation, drift),
           };
         };
 
@@ -883,10 +910,22 @@ export async function runImageGenerationPass(
 
         // B1-2 : MAX_REROLL basé sur la criticité du panel (pas hardcodé)
         const MAX_REROLL = getMaxRerolls(panelCriticality.level, strategy.retryPolicy);
+
+        // P0-4 : respect de `drift.recommendedAction`.
+        // - `keep` → bypass du reroll drift-driven (on accepte l'image).
+        // - `flag_for_review` → pas de reroll auto, on laisse la main à l'UI QA.
+        // Dans les deux cas on conserve toutefois les rerolls critiques
+        // validation-driven (requiredReroll) pour ne pas relâcher la qualité.
+        const driftVerdict = bestAttempt.drift.recommendedAction;
+        const driftWantsReroll = driftVerdict !== "keep" && driftVerdict !== "flag_for_review";
         const shouldReroll =
           bestAttempt.validation.requiredReroll
-          || !bestAttempt.drift.pass
+          || (driftWantsReroll && !bestAttempt.drift.pass)
           || !isEnvironmentSufficientForNarrativePanel(bestAttempt.validation);
+
+        if (driftVerdict === "flag_for_review") {
+          console.warn(`[pipeline] drift flag_for_review panel=${item.sceneImageId} — no auto reroll, manual QA required`);
+        }
 
         if (shouldReroll && MAX_REROLL > 0) {
           console.warn(`[pipeline] reroll required panel=${item.sceneImageId} kind=${bestAttempt.rerollKind} score=${bestAttempt.validationScore.toFixed(2)}`);
