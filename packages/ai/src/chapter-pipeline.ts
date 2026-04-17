@@ -1,4 +1,17 @@
 import { generateChapterOutline } from "./chapter-outline";
+import {
+  duplicatePageIndexes,
+  buildRegeneratedBlueprints as buildRegeneratedBlueprintsImpl,
+} from "./chapter/page-dedup";
+import {
+  inferVisualStyle,
+  inferMood,
+  inferLayout,
+} from "./chapter/visual-inference";
+import {
+  inferLocations,
+  resolveCanonicalLocation,
+} from "./chapter/location-inference";
 import { summarizeGenerationStatuses } from "./generation-status";
 import { parseIntentEntities } from "./services/entity-brain";
 import { writeDialogueForScene } from "./services/dialogue-writer";
@@ -308,75 +321,7 @@ function stretchToCount<T>(items: T[], count: number, fallbackFactory: (index: n
   return next;
 }
 
-function inferLocations(context: ProjectContextForChapter, userIntent?: string | null) {
-  const intent = (userIntent ?? "").toLowerCase();
-  const knownLocations = context.locations ?? [];
-  for (const loc of knownLocations) {
-    const names = [loc.name, ...(loc.aliases ?? [])].filter(Boolean).map((value) => value.toLowerCase());
-    if (names.some((name) => intent.includes(name))) {
-      const canonical = loc.description ? `${loc.name} — ${loc.description}` : loc.name;
-      return [canonical, canonical, canonical, canonical];
-    }
-  }
-  const explicitMatches = [
-    "banque",
-    "café",
-    "cafe",
-    "taverne",
-    "rue",
-    "ruelle",
-    "ville",
-    "toit",
-    "forêt",
-    "foret",
-    "falaise",
-    "palais",
-    "trône",
-    "trone",
-  ].filter((token) => intent.includes(token));
-  if (explicitMatches.length > 0) {
-    const normalized = explicitMatches[0];
-    if (normalized === "banque") return ["banque centrale sous haute sécurité", "banque centrale sous haute sécurité", "banque centrale sous haute sécurité", "sortie de la banque"];
-    if (normalized === "café" || normalized === "cafe") return ["café calme en soirée", "café calme en soirée", "rue devant le café", "arrière-salle du café"];
-    if (normalized === "taverne") return ["taverne enfumée aux lumières basses", "taverne enfumée aux lumières basses", "taverne enfumée aux lumières basses", "entrée de la taverne"];
-    if (normalized === "forêt" || normalized === "foret") return ["forêt de cendres", "forêt de cendres", "clairière silencieuse", "lisière de la forêt"];
-    if (normalized === "ville" || normalized === "rue" || normalized === "ruelle") return ["centre-ville cyberpunk", "ruelle néon sous la pluie", "rue commerçante cyberpunk", "toit d'immeuble au-dessus de la ville"];
-    if (normalized === "toit") return ["toit d'immeuble au-dessus de la ville", "toit d'immeuble au-dessus de la ville", "escalier de service", "toit d'immeuble au-dessus de la ville"];
-    if (normalized === "palais" || normalized === "trône" || normalized === "trone") return ["salle du trône en ruines", "salle du trône en ruines", "couloir du palais", "salle du trône en ruines"];
-  }
-
-  const genre = (context.project.primaryGenre?.trim() || "generic").toLowerCase();
-  if (genre.includes("cyber") || genre.includes("sci")) {
-    return [
-      "ruelle néon sous la pluie",
-      "tour de données clignotante",
-      "toit d'immeuble sous un ciel orange",
-      "couloir de serveurs sombres",
-    ];
-  }
-  if (genre.includes("horror") || genre.includes("horreur")) {
-    return [
-      "sanctuaire abandonné",
-      "couloir sans fenêtres",
-      "cour souillée de sang",
-      "crypte sous la ville",
-    ];
-  }
-  if (genre.includes("romance") || genre.includes("shojo")) {
-    return [
-      "toit de l'école au coucher du soleil",
-      "café calme en soirée",
-      "parc sous les cerisiers",
-      "couloir désert après les cours",
-    ];
-  }
-  return [
-    "porte de la ville fissurée",
-    "salle du trône en ruines",
-    "forêt de cendres",
-    "falaise au-dessus du vide",
-  ];
-}
+// inferLocations extrait dans ./chapter/location-inference.ts
 
 function reinforceIntentEntityCoverage(
   beats: Array<{ characters: string[]; summary: string; turn: string; pageRole: string }>,
@@ -407,21 +352,7 @@ function reinforceIntentEntityCoverage(
   }
 }
 
-function resolveCanonicalLocation(
-  context: ProjectContextForChapter,
-  rawLocation: string | null | undefined,
-): string | null {
-  const input = rawLocation?.trim();
-  if (!input) return null;
-  const lowered = input.toLowerCase();
-  for (const loc of context.locations ?? []) {
-    const names = [loc.name, ...(loc.aliases ?? [])].filter(Boolean).map((value) => value.toLowerCase());
-    if (names.some((name) => lowered.includes(name) || name.includes(lowered))) {
-      return loc.description ? `${loc.name} — ${loc.description}` : loc.name;
-    }
-  }
-  return input;
-}
+// resolveCanonicalLocation extrait dans ./chapter/location-inference.ts
 
 function buildDynamicPlotOptions(input: {
   userIntent: string;
@@ -466,48 +397,7 @@ function buildDynamicPlotOptions(input: {
   ];
 }
 
-function inferVisualStyle(context: ProjectContextForChapter): string {
-  const stylePackBits = [
-    context.stylePack?.renderFamily,
-    context.stylePack?.lineWeight,
-    context.stylePack?.shadingMode,
-    context.stylePack?.contrastProfile,
-    context.stylePack?.cameraLanguage,
-  ]
-    .filter(Boolean)
-    .join(", ");
-  const vs = context.project.visualStyle ?? "";
-  if (vs && stylePackBits) return `${vs}, ${stylePackBits}`;
-  if (vs) return vs;
-  if (stylePackBits) return stylePackBits;
-  const genre = (context.project.primaryGenre ?? "").toLowerCase();
-  if (genre.includes("cyber")) return "cyberpunk neon manga, detailed ink, Masamune Shirow style";
-  if (genre.includes("horror")) return "dark horror manga, heavy shadows, Junji Ito style";
-  if (genre.includes("romance")) return "soft shojo manga, delicate linework, pastel tones";
-  return "detailed action manga, dynamic lines, Kentaro Miura style";
-}
-
-function inferMood(tension: number, genre: string): PanelMood {
-  if (genre.includes("horror")) return tension > 6 ? "horror" : "tension";
-  if (genre.includes("romance")) return tension > 6 ? "emotion" : "romance";
-  if (tension >= 9) return "revelation";
-  if (tension >= 7) return "action";
-  if (tension >= 5) return "tension";
-  if (tension >= 3) return "dramatic";
-  return "calm";
-}
-
-function inferLayout(tension: number, panelCount: number): GridLayout {
-  // Layouts in UI:
-  // - 6 panels: A, B, D
-  // - 5 panels: C ou E
-  // - 4 panels: F (2x2)
-  if (panelCount >= 6) return tension >= 8 ? "D" : tension >= 5 ? "B" : "A";
-  if (panelCount === 5) return tension >= 6 ? "E" : "C";
-  // 4 panels → layout F (2×2 grid)
-  return "F";
-}
-
+// inferVisualStyle / inferMood / inferLayout extraits dans ./chapter/visual-inference.ts
 const STD_NEGATIVE =
   "blurry, deformed hands, extra limbs, wrong hair color, inconsistent outfit, bad anatomy, watermark, text overlay, low quality, duplicate character";
 
@@ -800,46 +690,8 @@ function buildPanelsForScene(
   return panels;
 }
 
-function normalizeTextForDup(value: string | undefined): string {
-  return (value ?? "")
-    .normalize("NFKD")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function pageDupSignature(page: StoryboardPage): string {
-  return page.panels
-    .map((panel) => {
-      const chars = [...new Set(panel.characters.map((c) => c.toLowerCase()))].sort().join(",");
-      return [
-        normalizeTextForDup(panel.caption),
-        normalizeTextForDup(panel.dialogue?.text),
-        normalizeTextForDup(panel.narration),
-        chars,
-      ].join("|");
-    })
-    .join("||");
-}
-
-function duplicatePageIndexes(pages: StoryboardPage[]): number[] {
-  const seen = new Map<string, number>();
-  const duplicates = new Set<number>();
-  for (let index = 0; index < pages.length; index++) {
-    const page = pages[index];
-    const signature = pageDupSignature(page);
-    const prev = seen.get(signature);
-    if (typeof prev === "number") {
-      // On régénère la page la plus récente pour préserver l'intention du flow narratif.
-      duplicates.add(index);
-      continue;
-    }
-    seen.set(signature, index);
-  }
-  return [...duplicates];
-}
-
+// Les helpers de déduplication (pageDupSignature, duplicatePageIndexes,
+// buildRegeneratedBlueprints) sont extraits dans ./chapter/page-dedup.ts.
 function buildRegeneratedBlueprints(
   scene: { id: string; summary: string; location: string; characters: string[]; purpose: string },
   beat: { summary: string; tension: number },
@@ -847,12 +699,14 @@ function buildRegeneratedBlueprints(
   genre: string,
   attempt: number,
 ): PanelBlueprint[] {
-  const base = buildPanelBlueprints(scene, beat, panelCount, genre);
-  const variationTag = attempt % 2 === 0 ? "Conséquence immédiate" : "Nouveau contretemps";
-  return base.map((panel, idx) => ({
-    ...panel,
-    action: `${panel.action} ${variationTag} ${idx + 1}: ${scene.purpose}.`,
-  }));
+  return buildRegeneratedBlueprintsImpl(
+    buildPanelBlueprints,
+    scene,
+    beat,
+    panelCount,
+    genre,
+    attempt,
+  );
 }
 
 export async function generateChapterBundle(input: {
