@@ -377,6 +377,17 @@ export function validatePremiumContract(
   // Champs premium obligatoires
   if (!Array.isArray(pp.panelBlueprints) || pp.panelBlueprints.length === 0) {
     errors.push("productionPlan.panelBlueprints absent ou vide");
+  } else if (
+    typeof pp.minimumImages === "number"
+    && pp.minimumImages > 0
+    && pp.panelBlueprints.length < pp.minimumImages
+  ) {
+    // READ-PREMIUM : on signale en warning si le contrat ne couvre pas la cible premium
+    // (75 par défaut). Pas bloquant pour rester rétro-compatible avec les contrats existants,
+    // mais suffisant pour faire remonter l'incohérence dans les diagnostics.
+    warnings.push(
+      `productionPlan.panelBlueprints.length=${pp.panelBlueprints.length} < minimumImages=${pp.minimumImages} (la génération produira moins de cases que promis)`,
+    );
   }
   if (!pp.focusDistribution || Object.keys(pp.focusDistribution as object).length === 0) {
     errors.push("productionPlan.focusDistribution absent");

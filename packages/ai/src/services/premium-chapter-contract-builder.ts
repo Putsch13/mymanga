@@ -10,7 +10,7 @@ import type { PanelBlueprintPremium, RequiredProp } from "@manga-ai-studio/core"
 import { inferNarrativeFactsFromBeat, type NarrativeExtractionContext } from "./narrative-fact-extractor";
 import { enrichNarrativeFactsWithLLM, mergeNarrativeFacts } from "./narrative-fact-llm-enricher";
 import { inferRequiredPropsFromBeat } from "./prop-inference-engine";
-import { buildPanelBlueprintsFromBeat, computeChapterFocusBudget, computePremiumReadinessScore } from "./panel-blueprint-builder";
+import { buildPanelBlueprintsFromBeat, computeChapterFocusBudget, computePremiumReadinessScore, expandBlueprintsToMinimum } from "./panel-blueprint-builder";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -219,7 +219,18 @@ export function buildPremiumChapterContract(
     };
   });
 
-  const allBlueprints = enrichedBeats.flatMap((b) => b._blueprints);
+  const rawBlueprints = enrichedBeats.flatMap((b) => b._blueprints);
+  // READ-PREMIUM : garantir un minimum de 75 panels par chapitre (valeur Chapter.minimumImages
+  // par défaut dans schema.prisma). Sans ça, `buildPanelBlueprintsFromBeat` produit ~30 panels
+  // (≈3 par beat), et le reader n'affiche que ~8 cases visibles au user — le plan enrichit
+  // `targetImages` à 75 en mémoire mais `panelBlueprints.length` reste bloqué à 30.
+  const MINIMUM_PREMIUM_PANELS = 75;
+  const allBlueprints = expandBlueprintsToMinimum(rawBlueprints, MINIMUM_PREMIUM_PANELS);
+  if (allBlueprints.length > rawBlueprints.length) {
+    console.log(
+      `[premium-contract] expanded panelBlueprints ${rawBlueprints.length} → ${allBlueprints.length} (min=${MINIMUM_PREMIUM_PANELS})`,
+    );
+  }
   const focusBudget = computeChapterFocusBudget(allBlueprints);
   const premiumReadinessScore = computePremiumReadinessScore(allBlueprints);
 

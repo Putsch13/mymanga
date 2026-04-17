@@ -610,7 +610,35 @@ export async function runImageGenerationPass(
           const envMood = item.panel.mood ?? "neutral";
           const envCacheKey = `${envLocation}_${envMood}`.toLowerCase().replace(/\s+/g, "_");
           const cachedEnvUrl = environmentImageCache.get(envCacheKey);
-          if (cachedEnvUrl) {
+          // READ-PREMIUM : guard anti "cases noires payées"
+          // Si l'URL du cache n'est pas une URL http absolue ou est trop courte, on ne réutilise pas
+          // (risque d'avoir persisté un data-URL tronqué, une URL signée expirée, etc).
+          // On probe ensuite en HEAD pour confirmer que l'asset est toujours servi — si 404/expiré,
+          // le panel continue le flow de génération normal au lieu d'être marqué completed avec une
+          // image invisible (qui apparaît comme une grosse case noire dans le reader).
+          const envUrlLooksValid =
+            typeof cachedEnvUrl === "string"
+            && cachedEnvUrl.length > 20
+            && /^https?:\/\//i.test(cachedEnvUrl);
+          let envUrlReachable = false;
+          if (envUrlLooksValid) {
+            try {
+              const probe = await fetch(cachedEnvUrl, { method: "HEAD" });
+              envUrlReachable = probe.ok;
+              if (!envUrlReachable) {
+                console.warn(
+                  `[pipeline] env_cache_url_not_ok status=${probe.status} key=${envCacheKey} — skipping cache hit`,
+                );
+                environmentImageCache.delete(envCacheKey);
+              }
+            } catch (err) {
+              console.warn(
+                `[pipeline] env_cache_probe_failed key=${envCacheKey} err=${String(err)} — skipping cache hit`,
+              );
+              environmentImageCache.delete(envCacheKey);
+            }
+          }
+          if (envUrlLooksValid && envUrlReachable) {
             await prisma.sceneImage.update({
               where: { id: item.sceneImageId },
               data: {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 
 export type PanelMoodLegacy =
   | "night-rain"
@@ -303,7 +303,13 @@ export function MangaPanel({
   const bg = MOOD_BG[mood] ?? MOOD_BG["dramatic"];
   const isPending = !imageUrl && (status === "planned" || status === "pending");
   const isFailed = !imageUrl && (status === "failed" || status === "blocked");
+  // READ-PREMIUM : un panel "completed" sans imageUrl (ex: env cache brisé, URL expirée)
+  // ne doit PAS apparaître comme une case noire facturée silencieusement.
+  const isCompletedButEmpty = !imageUrl && status === "completed";
+  const isCachedProvider = provider === "cache";
   const isWebtoon = renderMode === "webtoon";
+  const [imageBroken, setImageBroken] = useState(false);
+  const autoRetryRef = useRef(false);
   const effectiveCropMode = renderMeta?.cropMode ?? imageFit;
   const effectiveObjectPosition = renderMeta?.focalPoint
     ? `${renderMeta.focalPoint.x * 100}% ${renderMeta.focalPoint.y * 100}%`
@@ -356,14 +362,14 @@ export function MangaPanel({
           ? "rounded-[30px] border-stone-800/80 bg-stone-950 shadow-[0_24px_60px_rgba(0,0,0,0.35)] ring-1 ring-white/5"
           : ""
       } ${className ?? ""}`}
-      style={{ background: imageUrl ? undefined : bg, ...style }}
+      style={{ background: imageUrl && !imageBroken ? undefined : (isCompletedButEmpty || imageBroken ? undefined : bg), ...style }}
       aria-label={caption ?? `Panel ${(panelIndex ?? 0) + 1}`}
     >
       <div
         className={`relative overflow-hidden ${isWebtoon ? "" : "min-h-0 flex-1"}`}
         style={isWebtoon ? { aspectRatio: targetAspectRatio, minHeight: "20rem" } : undefined}
       >
-        {imageUrl ? (
+        {imageUrl && !imageBroken ? (
           <>
             {effectiveCropMode === "contain" && (
               <div className="absolute inset-0 bg-gradient-to-b from-stone-900 via-stone-950 to-stone-900" />
@@ -376,18 +382,15 @@ export function MangaPanel({
                 effectiveCropMode === "contain" ? "object-contain" : "object-cover"
               } ${isWebtoon ? "bg-stone-950" : ""}`}
               style={{ objectPosition: effectiveObjectPosition }}
-              onError={(e) => {
-                const target = e.currentTarget;
-                target.style.display = "none";
-                const parent = target.parentElement;
-                if (parent && !parent.querySelector("[data-broken-skeleton]")) {
-                  const sk = document.createElement("div");
-                  sk.setAttribute("data-broken-skeleton", "1");
-                  sk.className =
-                    "absolute inset-0 flex flex-col items-center justify-center gap-2 bg-stone-900/80";
-                  sk.innerHTML =
-                    '<div class="h-8 w-8 rounded-full border-2 border-stone-600 border-t-stone-300 animate-spin"></div><p class="text-[10px] text-stone-500">Image expirée</p>';
-                  parent.appendChild(sk);
+              onError={() => {
+                setImageBroken(true);
+                // READ-PREMIUM : auto-retry si l'image vient d'un cache cassé (provider=cache + 404)
+                // On déclenche un seul appel en silence ; au prochain refresh le panel aura une vraie image.
+                if (isCachedProvider && sceneImageId && !autoRetryRef.current) {
+                  autoRetryRef.current = true;
+                  fetch(`/api/scene-images/${sceneImageId}/retry?mode=environment`, { method: "POST" }).catch(() => {
+                    /* ignore */
+                  });
                 }
               }}
             />
@@ -437,6 +440,40 @@ export function MangaPanel({
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-stone-900">
             <div className="text-2xl opacity-40">✕</div>
             <p className="text-[10px] text-stone-500">Image non disponible</p>
+          </div>
+        ) : isCompletedButEmpty || imageBroken ? (
+          // READ-PREMIUM : panel "completed" mais sans image rendue — skeleton explicite + retry
+          // (évite l'illusion de case noire payée silencieusement)
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-gradient-to-b from-stone-900 to-stone-950 p-3 text-center">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-amber-500/30 bg-amber-950/30 text-amber-300">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
+                <path d="M21 12a9 9 0 1 1-3-6.7" />
+                <path d="M21 3v6h-6" />
+              </svg>
+            </div>
+            <p className="text-[11px] font-semibold text-stone-200">Case à regénérer</p>
+            <p className="max-w-[180px] text-[10px] leading-snug text-stone-500">
+              {isCachedProvider
+                ? "Réutilisation de décor indisponible — nouvelle génération relancée."
+                : "L'image n'a pas pu être servie — relance manuelle possible."}
+            </p>
+            {sceneImageId ? (
+              <button
+                type="button"
+                className="mt-1 rounded-md border border-white/10 bg-white/10 px-3 py-1 text-[10px] font-medium text-white/80 hover:bg-white/20"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  try {
+                    const res = await fetch(`/api/scene-images/${sceneImageId}/retry`, { method: "POST" });
+                    if (res.ok) window.location.reload();
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+              >
+                Regénérer
+              </button>
+            ) : null}
           </div>
         ) : null}
 
