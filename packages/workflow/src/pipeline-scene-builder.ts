@@ -12,20 +12,31 @@ export function buildPanelCharacterPlan(input: {
   sceneCharacters: string[];
   shotType?: string;
   purpose?: string;
+  subjectFocus?: string | null;
+  cutawayType?: string | null;
 }): PanelCharacterPlan {
   const characters = input.panel.characters ?? [];
+
+  // Un panel "interaction" / "group" / two-shot doit garder 2 persos au premier plan,
+  // même en closeup/extreme_closeup, sinon le PNJ disparaît systématiquement.
+  const isInteraction =
+    input.subjectFocus === "group"
+    || input.cutawayType === "crowd_reaction"
+    || /interaction|dialogue|confrontation/i.test(input.purpose ?? "")
+    || (input.shotType === "medium" && characters.length >= 2);
+
   const foregroundCharacters =
     input.shotType === "wide"
-      ? characters.slice(0, 1)
+      ? characters.slice(0, isInteraction ? 2 : 1)
       : input.shotType === "closeup" || input.shotType === "extreme_closeup"
-        ? characters.slice(0, 1)
+        ? characters.slice(0, isInteraction ? 2 : 1)
         : characters.slice(0, 2);
   const midgroundCharacters =
     input.shotType === "wide"
-      ? characters.slice(1, 3)
+      ? characters.slice(foregroundCharacters.length, foregroundCharacters.length + 2)
       : input.shotType === "over_shoulder"
         ? characters.slice(0, 2)
-        : characters.slice(1, 3);
+        : characters.slice(foregroundCharacters.length, foregroundCharacters.length + 2);
   const backgroundCharacters = input.sceneCharacters.filter((name) => !foregroundCharacters.includes(name) && !midgroundCharacters.includes(name));
   return {
     panelId: input.panelId,

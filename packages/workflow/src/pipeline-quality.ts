@@ -36,11 +36,28 @@ export function findPanelBlueprint(
   sceneIndex: number,
   panelNumber: number,
 ): PanelBlueprintPremium | undefined {
+  // Stratégie 1 (fiable) : match par pageNumber + panelNumber natifs du blueprint
+  const pageNumber = sceneIndex + 1;
+  const byPageAndPanel = blueprints.find(
+    (bp) => bp.pageNumber === pageNumber && bp.panelNumber === panelNumber,
+  );
+  if (byPageAndPanel) return byPageAndPanel;
+
+  // Stratégie 2 : parse "beat_N" — mais seulement si le format est conforme
   const beatBlueprints = blueprints.filter((bp) => {
-    const bpBeatIndex = parseInt(bp.beatId?.split("_")[1] ?? "0", 10) - 1;
+    if (!bp.beatId) return false;
+    const match = bp.beatId.match(/^beat_(\d+)$/);
+    if (!match) return false;
+    const bpBeatIndex = parseInt(match[1] ?? "0", 10) - 1;
     return bpBeatIndex === sceneIndex;
   });
-  return beatBlueprints[panelNumber - 1] ?? beatBlueprints[0];
+  if (beatBlueprints.length > 0) {
+    return beatBlueprints[panelNumber - 1] ?? beatBlueprints[0];
+  }
+
+  // Stratégie 3 (fallback) : flatten + index global
+  const globalIndex = sceneIndex * 6 + (panelNumber - 1);
+  return blueprints[globalIndex] ?? blueprints[0];
 }
 
 export function normalizeCreativeControls(

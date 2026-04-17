@@ -1347,6 +1347,8 @@ export async function runNarrativePass(
                 sceneCharacters: scene.characters,
                 shotType: panelContract.shotType,
                 purpose: panelContract.purpose,
+                subjectFocus: (panelContract as Record<string, unknown>).subjectFocus as string | null ?? null,
+                cutawayType: (panelContract as Record<string, unknown>).cutawayType as string | null ?? null,
               });
 
               const bpRec = panelPremiumBlueprint as Record<string, unknown> | undefined;
@@ -1660,6 +1662,9 @@ export async function runNarrativePass(
           }
 
             const baseMetadata = {
+              // Identifiants pour que le shot compliance + quality report retrouvent le blueprint
+              panelId: panelPremiumBlueprint?.panelId ?? `${createdScene.id}:${panel.panelNumber}`,
+              beatId: panelPremiumBlueprint?.beatId ?? revisedBundle.outline.beats[index]?.id ?? null,
               caption: panel.caption,
               camera: panel.camera,
               characters: panel.characters,

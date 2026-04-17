@@ -16,8 +16,27 @@ describe("validatePreflightPanel", () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(result.reasons).toContain("missing_scene_keyframe");
+    // missing_scene_keyframe est désormais un avertissement (non bloquant)
+    expect(result.warnings).toContain("missing_scene_keyframe");
     expect(result.reasons).toContain("missing_environment_signals");
+  });
+
+  it("autorise un panel narratif sans keyframe tant que les signaux d'environnement sont présents", () => {
+    const result = validatePreflightPanel({
+      panelId: "panel_1b",
+      positivePrompt: "wide scene of a market",
+      shotType: "wide",
+      purpose: "establishing",
+      mustShow: ["marketplace stalls"],
+      backgroundExtras: ["passing crowd"],
+      hasSceneKeyframe: false,
+      hasCharacterLock: false,
+      characterCount: 2,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toContain("missing_scene_keyframe");
+    expect(result.reasons).toHaveLength(0);
   });
 
   it("autorise un panel verrouillé correctement", () => {

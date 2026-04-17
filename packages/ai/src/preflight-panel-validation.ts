@@ -26,8 +26,11 @@ export function validatePreflightPanel(input: PreflightPanelValidationInput): Pr
   if (promptLength > 1800) {
     warnings.push("prompt_too_long");
   }
+  // Keyframe manquant = warning (pas bloquant) : beaucoup de scènes sont rendues sans keyframe
+  // (génération Fal échouée ou pipeline en cours) et un bloquant ici casserait toute la génération.
+  // Le vrai critère critique reste la présence de signaux d'environnement (mustShow / backgroundExtras).
   if (wideOrNarrative && !input.hasSceneKeyframe) {
-    reasons.push("missing_scene_keyframe");
+    warnings.push("missing_scene_keyframe");
   }
   if (wideOrNarrative && (input.mustShow?.length ?? 0) === 0 && (input.backgroundExtras?.length ?? 0) === 0) {
     reasons.push("missing_environment_signals");
