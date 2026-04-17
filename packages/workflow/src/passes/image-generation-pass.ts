@@ -359,7 +359,42 @@ export async function runImageGenerationPass(
       const castOrderedNames = itemPanelCast
         ? [itemPanelCast.focus?.name, ...(itemPanelCast.supporting ?? []).map((m) => m.name)].filter((n): n is string => Boolean(n))
         : panelCharacterNames;
-      const canonRef = castOrderedNames.map((n) => canonRefByName.get(n)).find(Boolean) ?? null;
+
+      // CRITICAL fix: ne pas injecter la référence canonique du HÉROS sur des panels
+      // cutaway (environment/aftermath/prop/reaction) ou focalisés sur un NPC/enemy.
+      // Sans ce guard, Flux recevait l'image canonique de Lyra en ref, ce qui forçait
+      // un rendu "hero portrait" même quand le prompt disait "show the environment".
+      // On garde la ref UNIQUEMENT si :
+      //   - subjectFocus est hero/group/null (flow normal)
+      //   - OU si le personnage qui fournit la ref est explicitement le focus du panel
+      const itemSubjectFocus = (item.baseMetadata.panelContract as Record<string, unknown> | undefined)?.subjectFocus as string | null ?? null;
+      const cutawayFocus = itemSubjectFocus === "environment"
+        || itemSubjectFocus === "aftermath"
+        || itemSubjectFocus === "prop"
+        || itemSubjectFocus === "reaction";
+      const npcFocus = itemSubjectFocus === "npc"
+        || itemSubjectFocus === "important_npc"
+        || itemSubjectFocus === "enemy"
+        || itemSubjectFocus === "antagonist";
+      const focusName = itemPanelCast?.focus?.name ?? null;
+      const heroCanonRef = panelCharacterNames
+        .map((n) => {
+          const c = rawCharacters.find((rc: any) => rc.name === n);
+          const isHero = typeof c?.roleType === "string" && /hero|protagon|main/i.test(c.roleType);
+          return isHero ? canonRefByName.get(n) : null;
+        })
+        .find(Boolean) ?? null;
+      let canonRef: any = null;
+      if (cutawayFocus) {
+        canonRef = null;
+      } else if (npcFocus && focusName) {
+        canonRef = canonRefByName.get(focusName) ?? null;
+      } else {
+        canonRef = castOrderedNames.map((n) => canonRefByName.get(n)).find(Boolean) ?? null;
+      }
+      if ((cutawayFocus || npcFocus) && canonRef && canonRef === heroCanonRef) {
+        canonRef = null;
+      }
       const sceneKeyframeUrl = await ensureSceneKeyframeUrl(item);
 
       // R06: prefer loraByCharId (avoids homonym collision) with panelCast characterId, fallback to name
@@ -969,7 +1004,19 @@ export async function runImageGenerationPass(
             console.warn(
               `[pipeline:shot-compliance] panel=${item.sceneImageId} failures=${shotCompliance.failures.join(", ")}`,
             );
-            const needsEnemyReroll = shotCompliance.failures.includes("enemy_required_but_not_detected");
+            // Un panel cutaway (environment/prop/reaction/aftermath) ou focus NPC pur ne doit
+            // PAS forcer l'apparition de l'ennemi via reroll : ça fait disparaître le sujet attendu
+            // (décor / objet / PNJ) au profit d'un portrait héros ou ennemi.
+            const complianceFocus = (item.baseMetadata.panelContract as Record<string, unknown> | undefined)?.subjectFocus as string | null ?? null;
+            const enemyReinjectBlocked =
+              complianceFocus === "environment"
+              || complianceFocus === "aftermath"
+              || complianceFocus === "prop"
+              || complianceFocus === "reaction"
+              || complianceFocus === "npc"
+              || complianceFocus === "important_npc";
+            const needsEnemyReroll = !enemyReinjectBlocked
+              && shotCompliance.failures.includes("enemy_required_but_not_detected");
             const missingSubjects = shotCompliance.failures
               .filter(f => f.startsWith("missing_required_subject:"))
               .map(f => f.replace("missing_required_subject:", ""));
@@ -1062,8 +1109,13 @@ export async function runImageGenerationPass(
             : bestAttempt.drift.score;
         // Vision QA indisponible = avertissement (pas bloquant) pour ne pas freezer tous les panels critiques
         // quand la vision est désactivée.
-        const shouldBlockForReview =
-          bestAttempt.validation.requiredReroll;
+        // IMPORTANT: on NE bloque PAS l'affichage d'une image existante ; status="blocked" fait que
+        // le front affiche une case noire alors que le client paie la génération. On marque juste
+        // `needsReview=true` dans la metadata pour que le dashboard qualité signale le panel.
+        // Le status "blocked" n'est conservé que quand on n'a AUCUNE image viable (URL absente).
+        const hasUsableImage = Boolean(bestAttempt.generation.result.imageUrl);
+        const needsReview = bestAttempt.validation.requiredReroll;
+        const shouldBlockForReview = !hasUsableImage;
 
         const existingDebugTrace = (item.baseMetadata as Record<string, unknown>).panelDebugTrace as Record<string, unknown> | undefined;
         const enrichedDebugTrace = existingDebugTrace ? {
@@ -1138,6 +1190,7 @@ export async function runImageGenerationPass(
               qaFailureReason: bestAttempt.validation.qaFailureReason,
               qaBypassReason: bestAttempt.validation.qaBypassReason,
               criticalQaBlocked: shouldBlockForReview,
+              needsReview,
               panelCharacterRoles,
               characterIds: panelCharacterIds,
               rerollCount,

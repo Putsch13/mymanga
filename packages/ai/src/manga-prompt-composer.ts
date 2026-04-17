@@ -183,6 +183,9 @@ const MANGA_UNIVERSAL_NEGATIVE =
 // IMG-1 : Framing directives selon shotType + subjectFocus
 const MANGA_FRAMING_MAP: Record<string, string> = {
   "wide_environment": "wide establishing shot, full background detail, characters small in frame, manga environmental panel, environmental storytelling",
+  "medium_environment": "medium shot with environment dominant, manga environmental panel, architecture and setting readable, characters secondary in frame",
+  "closeup_environment": "close-up environmental detail, manga location texture, architectural or object detail, atmosphere-driven panel",
+  "extreme_closeup_environment": "macro close-up environmental detail, manga texture panel, material and atmosphere focus, no character centered",
   "wide_action": "dynamic action shot, motion blur lines, speed lines, manga action panel, kinetic energy, explosive composition",
   "wide_crowd": "crowd scene, multiple figures, manga public scene, depth of field, social dynamics visible",
   "closeup_reaction": "extreme close-up face, manga reaction panel, expressive eyes, emotion lines, hatching screen tone background",
@@ -285,8 +288,22 @@ function buildRequiredPropsBlock(
   return parts.join(", ");
 }
 
-function describeCharacter(c: CharacterRef): string {
+function describeCharacter(c: CharacterRef, mode: "full" | "supporting" = "full"): string {
   const parts: string[] = [`[${c.name}]`];
+
+  // En mode "supporting" (le perso N'EST PAS le focus du panel), on retire le lock fort,
+  // les tiers, et tous les hard_traits. Sinon le hero "hard_lock, tier main_hero, continuity strict"
+  // écrase le NPC focus et Flux rend toujours Lyra. On garde juste un signal minimal d'identité.
+  if (mode === "supporting") {
+    const normalizedGender = c.gender?.trim().toLowerCase();
+    if (normalizedGender === "male") parts.push("male");
+    else if (normalizedGender === "female") parts.push("female");
+    if (c.hairColor) parts.push(`${c.hairColor} hair`);
+    if (c.outfitDefault) parts.push(c.outfitDefault);
+    parts.push("secondary / background role, not the subject of this panel");
+    return parts.join(", ");
+  }
+
   if (c.lockStrength && c.lockStrength !== "NONE") {
     parts.push(`lock ${c.lockStrength.toLowerCase()}`);
   }
@@ -487,9 +504,24 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     return list;
   })();
 
+  // Déterminer qui est le FOCUS du panel pour dégrader les autres en "supporting".
+  // Règle : sur subjectFocus=environment/aftermath/prop/reaction → TOUS les persos en supporting
+  // (c'est un cutaway, aucun perso n'est vraiment le sujet).
+  // Sur subjectFocus=important_npc/npc → le premier NPC/supporting du reorderedCharacters est focus.
+  // Sur subjectFocus=enemy → le premier antagoniste est focus.
+  // Sur subjectFocus=hero ou null → le premier perso (hero) est focus.
+  const cutawayFocus =
+    focusForLock === "environment"
+    || focusForLock === "aftermath"
+    || focusForLock === "prop"
+    || focusForLock === "reaction";
+  const focusCharacterIndex = cutawayFocus ? -1 : 0;
+
   const charDescs =
     reorderedCharacters.length > 0
-      ? reorderedCharacters.map(describeCharacter).join(" | ")
+      ? reorderedCharacters
+          .map((c, i) => describeCharacter(c, i === focusCharacterIndex ? "full" : "supporting"))
+          .join(" | ")
       : "";
 
   const blueprint = input.sceneBlueprint;
@@ -567,12 +599,23 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     : input.shotType && input.cutawayType
       ? `${input.shotType}_${input.cutawayType}`
       : input.shotType ?? null;
-  // Fallback : si la clé exacte est absente, on essaie shotType seul, puis focus seul
-  const resolvedFraming =
-    (shotKey && MANGA_FRAMING_MAP[shotKey])
-    || (input.shotType && MANGA_FRAMING_MAP[`${input.shotType}_hero`])
-    || (normalizedFocus && MANGA_FRAMING_MAP[`medium_${normalizedFocus}`])
-    || null;
+  // Fallback intelligent : si le focus N'EST PAS hero, il ne faut JAMAIS retomber sur
+  // `*_hero` (sinon Flux reçoit "manga heroic composition, full body visible" sur un panel
+  // environment → il rend le hero). On préfère chercher une autre variante du même focus.
+  const nonHeroFocus = normalizedFocus && normalizedFocus !== "hero";
+  const resolvedFraming = nonHeroFocus
+    ? (
+        (shotKey && MANGA_FRAMING_MAP[shotKey])
+        || MANGA_FRAMING_MAP[`wide_${normalizedFocus}`]
+        || MANGA_FRAMING_MAP[`medium_${normalizedFocus}`]
+        || MANGA_FRAMING_MAP[`closeup_${normalizedFocus}`]
+        || null
+      )
+    : (
+        (shotKey && MANGA_FRAMING_MAP[shotKey])
+        || (input.shotType && MANGA_FRAMING_MAP[`${input.shotType}_hero`])
+        || null
+      );
   if (resolvedFraming) {
     addSection("mangaFraming", "Manga Panel Framing", resolvedFraming);
   }
@@ -648,10 +691,29 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
   if (blueprint) {
     positiveParts.push(
       sanitizeSectionText(`Spatial relation: ${blueprint.composition.framingRules.join(", ")}.`),
-      sanitizeSectionText(
-        `Spatial staging: foreground ${blueprint.environment.foregroundElements.join(", ")}; midground ${blueprint.environment.midgroundElements.join(", ")}; background ${blueprint.environment.backgroundElements.join(", ")}.`,
-      ),
     );
+    // Sur un cutaway (environment/aftermath/prop/reaction), le foreground ne doit PAS être
+    // le héros — sinon Flux remet Lyra devant malgré les autres directives. On réécrit le
+    // staging pour faire passer le décor/prop/NPC en foreground et reléguer les persos en
+    // background ou "off-frame".
+    const heroInForeground = blueprint.environment.foregroundElements.some((el) =>
+      reorderedCharacters.some((c) => c.importanceTier === "MAIN_HERO" && el.toLowerCase().includes(c.name.toLowerCase())),
+    );
+    if (cutawayFocus && heroInForeground) {
+      const cutawayStagingMap: Record<string, string> = {
+        environment: "foreground: architectural / environmental elements; midground: ambient layered background; background: distant setting cues. Characters, if any, appear only as silhouettes in midground or background, never centered.",
+        aftermath: "foreground: debris / consequence markers; midground: altered environment; background: residual atmosphere. No character in foreground.",
+        prop: "foreground: the key object/prop, fully legible and centered; midground: minimal context; background: subdued environment. No character centered in foreground.",
+        reaction: "foreground: expressive NPC / non-protagonist face or body; midground: contextual environment; background: atmospheric cues. Hero not in foreground.",
+      };
+      positiveParts.push(sanitizeSectionText(`Spatial staging (cutaway): ${cutawayStagingMap[focusForLock ?? "environment"] ?? cutawayStagingMap.environment}`));
+    } else {
+      positiveParts.push(
+        sanitizeSectionText(
+          `Spatial staging: foreground ${blueprint.environment.foregroundElements.join(", ")}; midground ${blueprint.environment.midgroundElements.join(", ")}; background ${blueprint.environment.backgroundElements.join(", ")}.`,
+        ),
+      );
+    }
     if (blueprint.constraints.hard.length > 0) {
       positiveParts.push(sanitizeSectionText(`Mandatory constraints: ${blueprint.constraints.hard.join(", ")}.`));
     }
@@ -800,7 +862,7 @@ export function composeChapterCoverPrompt(input: {
   const moodDesc = MOOD_DESCRIPTORS[input.mood] ?? "dramatic";
   const charDescs =
     input.characters && input.characters.length > 0
-      ? input.characters.map(describeCharacter).join(" | ")
+      ? input.characters.map((c) => describeCharacter(c)).join(" | ")
       : "";
 
   const positive = [

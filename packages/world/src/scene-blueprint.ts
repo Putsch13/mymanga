@@ -313,9 +313,21 @@ function buildPremiumPromptBridgeLines(input: import("./types").SceneBlueprintIn
     lines.requiredPropLine = `REQUIRED PROPS (must be clearly visible): ${propList}. Do not omit or replace with generic clutter.`;
   }
 
-  // Enemy presence hard constraint
+  // Enemy presence hard constraint — uniquement si le panel cible réellement l'ennemi,
+  // un groupe ou le héros. Sinon (cutaway environment/prop/reaction/aftermath, ou focus NPC
+  // non-ennemi), cette ligne crée une contradiction dans le prompt (CUTAWAY vs REQUIRED enemy)
+  // et force Flux à réinjecter un personnage en foreground au lieu du décor/PNJ.
   if (contract.mustShowEnemy) {
-    lines.requiredEnemyLine = "REQUIRED: enemy/adversary must be clearly present and readable in this panel. Do not replace with hero portrait.";
+    const focus = contract.subjectFocus;
+    const enemyRelevant =
+      !focus
+      || focus === "hero"
+      || focus === "enemy"
+      || focus === "antagonist"
+      || focus === "group";
+    if (enemyRelevant) {
+      lines.requiredEnemyLine = "REQUIRED: enemy/adversary must be clearly present and readable in this panel. Do not replace with hero portrait.";
+    }
   }
 
   // Speaker anchor hard constraint

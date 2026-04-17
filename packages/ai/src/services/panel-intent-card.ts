@@ -159,8 +159,8 @@ const BEAT_VISUAL_RULES: Record<PanelBeatEventType, {
     mustShow: ["full environment readable", "location signals clear"],
     mustAvoid: ["tight close-up", "obscured background"],
     beatVisualConstraints: [
-      "wide shot mandatory",
-      "foreground, midground, background all visible",
+      "favor wide or medium framing, avoid extreme close-up",
+      "foreground, midground, background all readable when possible",
     ],
     motionLevel: 1,
     actionIntensity: 1,
