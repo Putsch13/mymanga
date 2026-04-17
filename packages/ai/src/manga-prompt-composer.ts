@@ -190,9 +190,23 @@ const MANGA_FRAMING_MAP: Record<string, string> = {
   "closeup_prop": "macro close-up insert panel, object detail shot, manga prop focus, sharp object detail",
   "closeup_enemy": "villain reveal close-up, manga antagonist panel, intimidating gaze, dramatic lighting",
   "closeup_npc": "secondary character close-up, manga NPC reveal panel, expressive reaction, detailed face, character personality visible",
+  "extreme_closeup_npc": "extreme close-up secondary character, manga NPC emotion panel, micro-expression detail, emotion lines",
   "medium_npc": "medium shot NPC character, manga secondary character panel, clear body language, distinct silhouette, reaction to hero",
+  "wide_npc": "wide shot with secondary character prominent, manga NPC establishing panel, readable body language, environment clues visible",
   "medium_interaction": "two-shot interaction panel, manga dialogue scene, both characters visible, spatial tension readable, face-to-face composition",
+  "wide_interaction": "wide two-shot interaction, manga confrontation panel, characters framed together, spatial geography clear",
+  "closeup_interaction": "tight two-shot interaction, manga dialogue close-up, both faces visible, emotional exchange readable",
+  "medium_enemy": "medium shot villain panel, manga antagonist confrontation, menacing body language, dramatic pose",
+  "wide_enemy": "wide shot villain reveal, manga antagonist establishing panel, environmental menace, full silhouette",
   "medium_hero": "medium shot, manga hero panel, dynamic pose, detailed costume, clean crisp linework",
+  "extreme_closeup_hero": "extreme close-up hero, manga key emotion panel, intense gaze, micro-expression",
+  "wide_hero": "wide shot hero panel, manga heroic composition, full body visible, environment readable",
+  "wide_reaction": "wide shot reaction panel, manga group reaction, multiple responses visible, emotional spread",
+  "medium_reaction": "medium shot reaction panel, manga emotional response, clear body language, reaction lines",
+  "wide_prop": "wide shot with prominent prop, manga object-focused panel, object in context of environment",
+  "medium_prop": "medium shot prop panel, manga object reveal, tactile detail, held or displayed object",
+  "wide_aftermath": "wide aftermath shot, manga consequence panel, changed environment, silence and stillness",
+  "medium_aftermath": "medium shot aftermath, manga quiet moment, debris and breath, emotional weight",
   "medium_dialogue": "over-shoulder dialogue shot, manga conversation panel, speech bubble space reserved top",
   "medium_combat": "manga combat panel, dynamic fighting pose, impact lines, kinetic composition",
   "over_shoulder": "over-the-shoulder perspective, manga POV panel, depth of field, subject in focus",
@@ -442,9 +456,40 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     CAMERA_DESCRIPTORS[input.camera] ?? `${input.camera}, manga composition`;
   const intensityNote = INTENSITY_CONSTRAINTS[layer] ?? "";
 
+  // Réordonner le cast selon subjectFocus pour que le Subject Lock reflète la hiérarchie :
+  // important_npc/npc → NPC d'abord, hero en supporting ; enemy → antagoniste d'abord.
+  // Sans ça, le hero était toujours en tête et dominait la composition même sur un focus NPC.
+  const focusForLock = input.subjectFocus;
+  const reorderedCharacters = (() => {
+    const list = input.characters ? [...input.characters] : [];
+    if (!focusForLock || list.length <= 1) return list;
+    const isHero = (c: CharacterRef) => c.importanceTier === "MAIN_HERO";
+    const isAntagonist = (c: CharacterRef) => c.importanceTier === "SECONDARY_CORE";
+    const isImportantNpc = (c: CharacterRef) =>
+      c.importanceTier === "IMPORTANT_SUPPORTING_CHARACTER"
+      || c.importanceTier === "RECURRING_NPC";
+    if (focusForLock === "important_npc" || focusForLock === "npc") {
+      return list.sort((a, b) => {
+        if (isImportantNpc(a) && !isImportantNpc(b)) return -1;
+        if (!isImportantNpc(a) && isImportantNpc(b)) return 1;
+        if (isHero(a) && !isHero(b)) return 1;
+        if (!isHero(a) && isHero(b)) return -1;
+        return 0;
+      });
+    }
+    if (focusForLock === "enemy" || focusForLock === "antagonist") {
+      return list.sort((a, b) => {
+        if (isAntagonist(a) && !isAntagonist(b)) return -1;
+        if (!isAntagonist(a) && isAntagonist(b)) return 1;
+        return 0;
+      });
+    }
+    return list;
+  })();
+
   const charDescs =
-    input.characters && input.characters.length > 0
-      ? input.characters.map(describeCharacter).join(" | ")
+    reorderedCharacters.length > 0
+      ? reorderedCharacters.map(describeCharacter).join(" | ")
       : "";
 
   const blueprint = input.sceneBlueprint;
@@ -522,8 +567,14 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     : input.shotType && input.cutawayType
       ? `${input.shotType}_${input.cutawayType}`
       : input.shotType ?? null;
-  if (shotKey && MANGA_FRAMING_MAP[shotKey]) {
-    addSection("mangaFraming", "Manga Panel Framing", MANGA_FRAMING_MAP[shotKey]);
+  // Fallback : si la clé exacte est absente, on essaie shotType seul, puis focus seul
+  const resolvedFraming =
+    (shotKey && MANGA_FRAMING_MAP[shotKey])
+    || (input.shotType && MANGA_FRAMING_MAP[`${input.shotType}_hero`])
+    || (normalizedFocus && MANGA_FRAMING_MAP[`medium_${normalizedFocus}`])
+    || null;
+  if (resolvedFraming) {
+    addSection("mangaFraming", "Manga Panel Framing", resolvedFraming);
   }
 
   // IMG-4 : Effets manga selon le beatType

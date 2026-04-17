@@ -63,14 +63,23 @@ export function computeChapterQualityReport(
     minimumAcceptedImages?: number;
   },
 ) {
-  const releaseThreshold = input?.releaseThreshold ?? Number(process.env.PREMIUM_RELEASE_SCORE_THRESHOLD ?? "0.72");
-  const minimumAcceptedImages = input?.minimumAcceptedImages ?? Number(process.env.CHAPTER_MIN_ACCEPTED_IMAGES ?? "75");
+  // Parsing robuste des env vars : Number(undefined) = NaN et NaN < X est toujours faux
+  // → on retombe sur les défauts si les env vars sont absentes/invalides.
+  const parseNumEnv = (raw: string | undefined, fallback: number): number => {
+    if (raw === undefined) return fallback;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  const releaseThreshold = input?.releaseThreshold ?? parseNumEnv(process.env.PREMIUM_RELEASE_SCORE_THRESHOLD, 0.72);
+  const minimumAcceptedImages = input?.minimumAcceptedImages ?? parseNumEnv(process.env.CHAPTER_MIN_ACCEPTED_IMAGES, 75);
   const completed = rows.filter((row) => typeof row.consistencyScore === "number");
   const averageReleaseScore =
     completed.length > 0
       ? completed.reduce((acc, row) => acc + Number(row.consistencyScore ?? 0), 0) / completed.length
       : 0;
-  const weakPanels = rows
+  // Calculer le total des panels faibles AVANT le slice d'échantillonnage.
+  // Sinon passingPanels = rows.length - 8 max, ce qui surestime massivement la qualité.
+  const weakPanelsFull = rows
     .map((row, index) => {
       const metadata = asRecord(row.metadata);
       const validationDetails = asRecord(metadata.validationDetails);
@@ -86,8 +95,9 @@ export function computeChapterQualityReport(
           : 0,
       };
     })
-    .filter((row) => typeof row.releaseScore === "number" && row.releaseScore < releaseThreshold)
-    .slice(0, 8);
+    .filter((row) => typeof row.releaseScore === "number" && row.releaseScore < releaseThreshold);
+  const weakPanelsCount = weakPanelsFull.length;
+  const weakPanels = weakPanelsFull.slice(0, 8);
 
   const criticalPanels = rows.map((row, index) => {
     const metadata = asRecord(row.metadata);
@@ -128,8 +138,9 @@ export function computeChapterQualityReport(
     acceptedImages: imageCounts.acceptedImages,
     rejectedImages: imageCounts.rejectedImages,
     missingImages: imageCounts.missingImages,
-    passingPanels: rows.length - weakPanels.length,
+    passingPanels: rows.length - weakPanelsCount,
     weakPanels,
+    weakPanelsCount,
     criticalPanelsCount: criticalPanels.length,
     criticalPanelsWithVisualQA: criticalPanels.filter((panel) => panel.qaWasExecuted).length,
     criticalPanelsBlocked: criticalPanels.filter((panel) => panel.blocked).length,
@@ -138,7 +149,7 @@ export function computeChapterQualityReport(
     premiumReleaseAccepted:
       imageCounts.acceptedImages >= imageCounts.minimumImages
       && averageReleaseScore >= releaseThreshold
-      && weakPanels.length === 0
+      && weakPanelsCount === 0
       && criticalPanels.every((panel) => !panel.blocked),
   };
 }

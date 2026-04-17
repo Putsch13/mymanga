@@ -362,6 +362,30 @@ export async function POST(req: Request, ctx: Ctx) {
   });
 
   try {
+    // Reconstruire un RoutingContext fidèle depuis la metadata persistée :
+    // subjectFocus, shotType, cameraAngle, heroPresent, panelCategoryHints (via panelDebugTrace).
+    // Sans ça, le retry routait "à l'aveugle" et perdait tout le ciblage NPC/env/prop.
+    const panelContractMeta = (metadata.panelContract as Record<string, unknown> | undefined) ?? {};
+    const shotPlanMeta = ((metadata.panelDebugTrace as Record<string, unknown> | undefined)?.shotPlan ?? {}) as Record<string, unknown>;
+    const retrySubjectFocus =
+      (panelContractMeta.subjectFocus as string | null | undefined)
+      ?? (shotPlanMeta.planned as Record<string, unknown> | undefined)?.subjectFocus as string | null | undefined
+      ?? null;
+    const retryShotType =
+      (panelContractMeta.shotType as string | null | undefined)
+      ?? (shotPlanMeta.shotType as string | null | undefined)
+      ?? null;
+    const retryCameraAngle =
+      (panelContractMeta.cameraAngle as string | null | undefined)
+      ?? (shotPlanMeta.cameraAngle as string | null | undefined)
+      ?? null;
+    const retryPurpose = (panelContractMeta.purpose as string | null | undefined) ?? null;
+    const heroPresentRetry = castOrderedNames.some((n) => {
+      const c = projectChars.find((pc) => pc.name === n);
+      // fallback : si tier indisponible, on considère hero=true seulement si focus=hero
+      return c != null;
+    }) && (retrySubjectFocus === "hero" || !retrySubjectFocus);
+
     const out = await runRoutedImageGeneration(
       {
         mode: "PANEL_DRAFT",
@@ -370,6 +394,12 @@ export async function POST(req: Request, ctx: Ctx) {
         isNewCharacter: false,
         hasCanonReferences: hasCanonRef,
         characterCountInScene: characters.length > 0 ? characters.length : 1,
+        heroPresent: heroPresentRetry,
+        heroFocus: retrySubjectFocus === "hero" && (retryShotType === "closeup" || retryShotType === "extreme_closeup"),
+        shotType: (retryShotType as "wide" | "medium" | "closeup" | "extreme_closeup" | "over_shoulder" | undefined) ?? undefined,
+        cameraAngle: retryCameraAngle ?? undefined,
+        purpose: retryPurpose ?? undefined,
+        subjectFocus: retrySubjectFocus as "hero" | "npc" | "important_npc" | "enemy" | "antagonist" | "environment" | "group" | "prop" | "reaction" | "aftermath" | null | undefined,
         needsInpaint: false,
         needsPoseVariation: false,
         preferPhotorealCover: false,

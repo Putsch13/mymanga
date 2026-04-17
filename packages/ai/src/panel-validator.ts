@@ -186,6 +186,9 @@ export async function validateGeneratedPanel(
 ): Promise<PanelValidationResult> {
   const issues: PanelValidationResult["issues"] = [];
   let score = 1.0;
+  // Hoisted : contract utilisé dès le calcul de weak_interaction (plus bas)
+  // et à nouveau dans le bloc Premium contractual QA checks.
+  const contract = panel.metadata?.panelContract;
   const characterTiers = (panel.metadata?.panelQa?.characterRoles ?? []).map((role) =>
     resolveCharacterImportanceTier({ roleType: role ?? null })
   );
@@ -388,7 +391,15 @@ export async function validateGeneratedPanel(
       autoFixable: true,
     });
   }
-  if (qualityScores.interactionScore < 0.58) {
+  // weak_interaction ne s'applique qu'aux panels qui ont vocation à montrer une interaction
+  // (2+ persos, ou subjectFocus=group). Un panel solo (closeup hero) ou environnement n'en a pas besoin.
+  const qsContractFocus = (contract as Record<string, unknown> | undefined)?.subjectFocus as string | null ?? null;
+  const interactionApplicable =
+    (panel.requiredCharacters?.length ?? 0) >= 2
+    || qsContractFocus === "group"
+    || qsContractFocus === "enemy"
+    || qsContractFocus === "antagonist";
+  if (interactionApplicable && qualityScores.interactionScore < 0.58) {
     issues.push({
       severity: "major",
       type: "weak_interaction",
@@ -446,7 +457,7 @@ export async function validateGeneratedPanel(
   }
 
   // ─── Premium contractual QA checks ──────────────────────────────────────────
-  const contract = panel.metadata?.panelContract;
+  // (contract déjà hoisted en début de fonction)
   let propComplianceScore = 1.0;
   let subjectFocusScore = 1.0;
   let dialogueAnchorScore = 1.0;
@@ -555,8 +566,17 @@ export async function validateGeneratedPanel(
     }
   }
 
-  // Check enemy presence
-  if (contract?.mustShowEnemy) {
+  // Check enemy presence — mais uniquement si le panel cible effectivement l'ennemi.
+  // Un panel focalisé NPC / environnement / prop / reaction / aftermath n'a pas vocation
+  // à montrer l'ennemi, donc mustShowEnemy serait un faux positif critique.
+  const contractSubjectFocus = (contract as Record<string, unknown> | undefined)?.subjectFocus as string | null ?? null;
+  const enemyFocusApplicable =
+    !contractSubjectFocus
+    || contractSubjectFocus === "hero"
+    || contractSubjectFocus === "enemy"
+    || contractSubjectFocus === "antagonist"
+    || contractSubjectFocus === "group";
+  if (contract?.mustShowEnemy && enemyFocusApplicable) {
     const enemyKeywords = ["enemy", "adversary", "villain", "opponent", "ennemi", "adversaire", "attacker", "attaquant"];
     const enemyVisible = enemyKeywords.some((kw) => prompt.includes(kw));
     if (!enemyVisible) {
@@ -571,16 +591,21 @@ export async function validateGeneratedPanel(
     }
   }
 
-  // Check dialogue anchor
+  // Check dialogue anchor — speakerAnchorCharacterId est un ID, on doit le résoudre en nom
+  // via panel.requiredCharacters pour chercher la mention dans le prompt.
   if (contract?.speakerAnchorCharacterId && contract?.dialogueCarrier === "speaker_visible") {
-    const speakerName = contract.speakerAnchorCharacterId.toLowerCase();
-    const speakerVisible = prompt.includes(speakerName) || prompt.includes("speaker") || prompt.includes("dialogue");
+    const speakerChar = panel.requiredCharacters.find((c) => c.characterId === contract.speakerAnchorCharacterId);
+    const speakerName = speakerChar?.characterName.toLowerCase() ?? null;
+    const speakerVisible = speakerName
+      ? prompt.includes(speakerName) || prompt.includes("speaker") || prompt.includes("dialogue")
+      // Pas de nom résolu : on ne peut pas juger, on ne pénalise pas (ex: retry avec metadata partielle)
+      : true;
     if (!speakerVisible) {
       dialogueAnchorScore = 0.3;
       issues.push({
         severity: "major",
         type: "missing_dialogue_anchor",
-        message: `Le speaker du dialogue doit être visible mais n'est pas ancré dans le prompt (ID: ${contract.speakerAnchorCharacterId}).`,
+        message: `Le speaker du dialogue (${speakerChar?.characterName ?? contract.speakerAnchorCharacterId}) doit être visible mais n'est pas ancré dans le prompt.`,
         autoFixable: true,
       });
       score -= 0.1;

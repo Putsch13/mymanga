@@ -143,7 +143,8 @@ export function computeFalSceneAssessment(ctx: RoutingContext): FalSceneAssessme
     referencePolicy = "LIGHT";
   }
 
-  // Ne pas écraser en CHARACTER_LOCK si le subjectFocus est explicitement NPC/ennemi/groupe/environnement
+  // Ne pas écraser en CHARACTER_LOCK si le subjectFocus est explicitement non-héros
+  // (NPC/ennemi/groupe/environnement/prop/reaction/aftermath).
   const explicitNonHeroFocus =
     ctx.subjectFocus === "npc"
     || ctx.subjectFocus === "important_npc"
@@ -151,7 +152,9 @@ export function computeFalSceneAssessment(ctx: RoutingContext): FalSceneAssessme
     || ctx.subjectFocus === "antagonist"
     || ctx.subjectFocus === "group"
     || ctx.subjectFocus === "environment"
-    || ctx.subjectFocus === "aftermath";
+    || ctx.subjectFocus === "aftermath"
+    || ctx.subjectFocus === "prop"
+    || ctx.subjectFocus === "reaction";
   if (heroFocus && panelCategory !== "LOCAL_FIX" && !explicitNonHeroFocus) {
     panelCategory = "CHARACTER_LOCK";
   }

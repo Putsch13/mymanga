@@ -101,9 +101,15 @@ export function resolvePanelFocus(
   if (subjectFocus === "group") {
     return null;
   }
+  // "reaction" : un panel de réaction cible typiquement un NPC ou l'antagoniste qui réagit
+  // à l'action du hero, donc on cherche d'abord un non-protagonist visible, AVANT de se
+  // contenter d'un "mustBeVisible" générique (qui retombait systématiquement sur le hero).
   if (subjectFocus === "reaction") {
-    return castMembers.find((m) => !m.isFocus && m.mustBeVisible)
-      ?? castMembers.find((m) => m.role !== "protagonist")
+    return castMembers.find((m) => m.role !== "protagonist" && m.mustBeVisible)
+      ?? castMembers.find((m) => m.role === "important_npc")
+      ?? castMembers.find((m) => m.role === "recurring_npc")
+      ?? castMembers.find((m) => m.role === "antagonist")
+      ?? castMembers.find((m) => m.role === "deuteragonist")
       ?? null;
   }
 

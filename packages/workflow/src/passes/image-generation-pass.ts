@@ -928,13 +928,35 @@ export async function runImageGenerationPass(
 
         if (panelBlueprint && rerollCount < MAX_REROLL) {
           const qScores = bestAttempt.validation.qualityScores as { backgroundPresenceScore?: number } | undefined;
+          // Le sujet dominant dépend du subjectFocus prévu par le blueprint, pas seulement
+          // du backgroundPresenceScore. Un panel focus=important_npc peut avoir un fond
+          // discret sans que le "dominant" soit le hero.
+          const blueprintFocus = (item.baseMetadata.panelContract as Record<string, unknown> | undefined)?.subjectFocus as string | null
+            ?? (panelBlueprint as Record<string, unknown>).subjectFocus as string | null
+            ?? null;
+          const bgPresent = (qScores?.backgroundPresenceScore ?? 0) > 0.5;
+          const bgAbsent = (qScores?.backgroundPresenceScore ?? 0) < 0.4;
+          let dominantSubject: string = "hero";
+          if (blueprintFocus === "environment" || blueprintFocus === "aftermath") {
+            dominantSubject = "environment";
+          } else if (blueprintFocus === "enemy" || blueprintFocus === "antagonist") {
+            dominantSubject = "enemy";
+          } else if (blueprintFocus === "npc" || blueprintFocus === "important_npc") {
+            dominantSubject = "npc";
+          } else if (blueprintFocus === "prop") {
+            dominantSubject = "prop";
+          } else {
+            dominantSubject = bgAbsent ? "hero" : bgPresent ? "environment" : "hero";
+          }
           const renderedAnalysis = {
             detectedSubjects: [
               ...(bestAttempt.validation.issues ?? []).map((i: { type: string }) => i.type),
-              ...((qScores?.backgroundPresenceScore ?? 0) > 0.5 ? ["environment"] : ["hero"]),
+              ...(bgPresent ? ["environment"] : []),
+              ...(blueprintFocus ? [`focus:${blueprintFocus}`] : []),
             ],
-            hasVisibleEnvironment: qScores ? (qScores.backgroundPresenceScore ?? 0) > 0.5 : undefined,
-            dominantSubject: (qScores?.backgroundPresenceScore ?? 0) < 0.4 ? "hero" : "environment",
+            hasVisibleEnvironment: qScores ? bgPresent : undefined,
+            dominantSubject,
+            subjectFocus: blueprintFocus,
           };
 
           const shotCompliance = validateShotCompliance(
