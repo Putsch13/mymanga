@@ -23,6 +23,49 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ sceneImageId: string }> };
 
+/**
+ * Body JSON accepté par le endpoint /retry (BUG-13 + BUG-14).
+ *
+ * Back-compat : tous les champs sont optionnels ; l'ancien format `?mode=X&targetCharacterId=Y`
+ * en query string reste supporté (fallback si le body est vide ou invalide).
+ */
+interface RetryBody {
+  mode?: RetryMode;
+  targetCharacterId?: string;
+  /** Texte libre ajouté au prompt positif final (max 400 chars). */
+  userPromptAdditions?: string;
+  /** Texte libre ajouté au prompt négatif (max 200 chars). */
+  userPromptExclusions?: string;
+  /** Overrides de contrat appliqués au RoutingContext de ce reroll. Persistés dans metadata.userOverride. */
+  forceOverrides?: {
+    shotType?: "wide" | "medium" | "closeup" | "extreme_closeup" | "over_shoulder";
+    subjectFocus?:
+      | "hero"
+      | "npc"
+      | "important_npc"
+      | "enemy"
+      | "antagonist"
+      | "environment"
+      | "group"
+      | "prop"
+      | "reaction"
+      | "aftermath";
+    cameraAngle?: string;
+    forcedCharacterNames?: string[];
+  };
+}
+
+async function readRetryBody(req: Request): Promise<RetryBody> {
+  try {
+    const clone = req.clone();
+    const text = await clone.text();
+    if (!text || text.trim().length === 0) return {};
+    return JSON.parse(text) as RetryBody;
+  } catch {
+    return {};
+  }
+}
+
 export async function POST(req: Request, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return unauthorized();
@@ -69,7 +112,13 @@ export async function POST(req: Request, ctx: Ctx) {
   }
 
   const metadata = ((img.metadata ?? {}) as unknown) as Record<string, unknown>;
-  const retryMode = new URL(req.url).searchParams.get("mode") as RetryMode | null;
+
+  // BUG-14 : on supporte désormais POST avec body JSON { mode, overrides, … } en plus
+  // du query string ?mode=X. Les deux cohabitent pendant la transition ; si le body
+  // fournit une valeur, elle l'emporte sur la query string.
+  const retryBody = await readRetryBody(req);
+  const urlParams = new URL(req.url).searchParams;
+  const retryMode = (retryBody.mode ?? (urlParams.get("mode") as RetryMode | null)) ?? null;
   const premiumSize = resolvePremiumImageSize("PANEL_DRAFT", {
     width: img.width,
     height: img.height,
@@ -244,7 +293,7 @@ export async function POST(req: Request, ctx: Ctx) {
     : null;
 
   // Build character-specific retry hints from panelCast + fingerprints
-  const targetCharacterId = new URL(req.url).searchParams.get("targetCharacterId");
+  const targetCharacterId = retryBody.targetCharacterId ?? urlParams.get("targetCharacterId");
 
   function buildCharacterRetryHints(): { positive: string; negative: string } {
     const target = targetCharacterId
@@ -306,12 +355,24 @@ export async function POST(req: Request, ctx: Ctx) {
             : "";
 
   // Premium specialized hints override legacy hints when available
-  const positiveAugment = retryReferenceDecision.positivePromptHint
+  const basePositiveAugment = retryReferenceDecision.positivePromptHint
     ? retryReferenceDecision.positivePromptHint
     : legacyPositiveAugment;
-  const negativeAugment = retryReferenceDecision.negativePromptHint
+  const baseNegativeAugment = retryReferenceDecision.negativePromptHint
     ? retryReferenceDecision.negativePromptHint
     : legacyNegativeAugment;
+
+  // BUG-13 : injection du texte libre utilisateur (tronqué pour éviter les abus).
+  // Ex. body.userPromptAdditions = "l'ennemi tient le pendentif, regarde à gauche"
+  //     body.userPromptExclusions = "pas de sang, pas de foule"
+  const userPositive = typeof retryBody.userPromptAdditions === "string"
+    ? retryBody.userPromptAdditions.slice(0, 400).trim()
+    : "";
+  const userNegative = typeof retryBody.userPromptExclusions === "string"
+    ? retryBody.userPromptExclusions.slice(0, 200).trim()
+    : "";
+  const positiveAugment = [basePositiveAugment, userPositive].filter(Boolean).join(", ");
+  const negativeAugment = [baseNegativeAugment, userNegative].filter(Boolean).join(", ");
 
   const referencePolicy = effectiveReferencePolicy;
   const rerollKind =
@@ -353,11 +414,35 @@ export async function POST(req: Request, ctx: Ctx) {
     `negativePromptHint=${retryReferenceDecision.negativePromptHint ? "yes" : "no"}`
   );
 
+  // BUG-13 : persister le userOverride dans metadata pour que les rerolls futurs
+  // (auto ou manuels) conservent l'intention utilisateur même si le pipeline se relance.
+  const hasUserOverride =
+    Boolean(userPositive) ||
+    Boolean(userNegative) ||
+    Object.keys(retryBody.forceOverrides ?? {}).length > 0;
+  const previousUserOverride = (metadata.userOverride as Record<string, unknown> | undefined) ?? null;
+  const nextUserOverride = hasUserOverride
+    ? {
+        ...(previousUserOverride ?? {}),
+        userPromptAdditions: userPositive || previousUserOverride?.userPromptAdditions || null,
+        userPromptExclusions: userNegative || previousUserOverride?.userPromptExclusions || null,
+        forceOverrides: {
+          ...((previousUserOverride?.forceOverrides as Record<string, unknown> | undefined) ?? {}),
+          ...(retryBody.forceOverrides ?? {}),
+        },
+        updatedAt: new Date().toISOString(),
+      }
+    : previousUserOverride;
+
   await prisma.sceneImage.update({
     where: { id: img.id },
     data: {
       status: "pending",
-      metadata: ({ ...metadata, retryRequestedAt: new Date().toISOString() } as unknown) as Prisma.InputJsonValue,
+      metadata: ({
+        ...metadata,
+        retryRequestedAt: new Date().toISOString(),
+        ...(nextUserOverride ? { userOverride: nextUserOverride } : {}),
+      } as unknown) as Prisma.InputJsonValue,
     },
   });
 
@@ -367,16 +452,22 @@ export async function POST(req: Request, ctx: Ctx) {
     // Sans ça, le retry routait "à l'aveugle" et perdait tout le ciblage NPC/env/prop.
     const panelContractMeta = (metadata.panelContract as Record<string, unknown> | undefined) ?? {};
     const shotPlanMeta = ((metadata.panelDebugTrace as Record<string, unknown> | undefined)?.shotPlan ?? {}) as Record<string, unknown>;
+    // BUG-13 : forceOverrides du body supersèdent les valeurs reconstruites du contract.
+    // L'utilisateur peut ainsi dire "régénère cette case mais en wide + environment".
+    const forceOverrides = retryBody.forceOverrides ?? {};
     const retrySubjectFocus =
-      (panelContractMeta.subjectFocus as string | null | undefined)
+      forceOverrides.subjectFocus
+      ?? (panelContractMeta.subjectFocus as string | null | undefined)
       ?? (shotPlanMeta.planned as Record<string, unknown> | undefined)?.subjectFocus as string | null | undefined
       ?? null;
     const retryShotType =
-      (panelContractMeta.shotType as string | null | undefined)
+      forceOverrides.shotType
+      ?? (panelContractMeta.shotType as string | null | undefined)
       ?? (shotPlanMeta.shotType as string | null | undefined)
       ?? null;
     const retryCameraAngle =
-      (panelContractMeta.cameraAngle as string | null | undefined)
+      forceOverrides.cameraAngle
+      ?? (panelContractMeta.cameraAngle as string | null | undefined)
       ?? (shotPlanMeta.cameraAngle as string | null | undefined)
       ?? null;
     const retryPurpose = (panelContractMeta.purpose as string | null | undefined) ?? null;

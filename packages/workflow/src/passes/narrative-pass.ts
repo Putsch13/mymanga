@@ -807,19 +807,8 @@ export async function runNarrativePass(
       }
 
       if (allDynamicBlueprints.length > 0) {
-        // BUG-05 fix: renumérotation stricte pageNumber/panelNumber en séquence
-        // (le pageCounter dérivait de +Math.ceil(n/3) ce qui cassait le mapping
-        //  amont avec findPanelBlueprint stratégie 1 "pageNumber === sceneIndex+1")
-        allDynamicBlueprints.forEach((bp, idx) => {
-          bp.pageNumber = idx + 1;
-          bp.panelNumber = idx + 1;
-          bp.panelIndex = idx;
-        });
-
-        // BUG-01 fix: appeler expandBlueprintsToMinimum pour garantir le target
-        // de 70-75 panels par chapitre (sans cet appel, un chapitre ~10 beats
-        // produisait ~30 blueprints → 30 SceneImage, bien en dessous des 75
-        // promis au studio).
+        // BUG-01 fix : expandBlueprintsToMinimum pour garantir 70-75 panels / chapitre.
+        // Sans cet appel, un chapitre ~10 beats produisait ~30 blueprints → 30 SceneImage.
         const { expandBlueprintsToMinimum } = await import("@manga-ai-studio/ai");
         const panelDensity = (chapterGenreConfig as { panelDensity?: string }).panelDensity;
         const TARGET_PANELS = panelDensity === "dense" ? 75 : 70;
@@ -833,6 +822,30 @@ export async function runNarrativePass(
         } else {
           blueprintSource = usedLlmEnrichment ? "dynamic_llm" : "dynamic_heuristic";
         }
+
+        // BUG-05 fix (affiné) : renumérotation groupée par beatId.
+        // Avant : pageCounter dérivait en +Math.ceil(n/3) → pages 1,3,6,9… et
+        //         findPanelBlueprint strat 1 (pageNumber === sceneIndex+1) échouait.
+        // Tentative initiale : pageNumber = idx+1 global → cassait aussi strat 1
+        //         (une scène a N panels, pas 1).
+        // Correct : pageNumber = index du beat (1..K), panelNumber = position dans le beat.
+        //         Les panels d'enrichissement (expansion) héritent du beatId via {...seed, ...}
+        //         et s'insèrent donc dans le bon groupe.
+        const orderedBeatIds: string[] = [];
+        const beatPanelCounters = new Map<string, number>();
+        expanded.forEach((bp, idx) => {
+          const key = bp.beatId ?? `__unknown_${idx}`;
+          if (!beatPanelCounters.has(key)) {
+            beatPanelCounters.set(key, 0);
+            orderedBeatIds.push(key);
+          }
+          const nextPanel = (beatPanelCounters.get(key) ?? 0) + 1;
+          beatPanelCounters.set(key, nextPanel);
+          bp.pageNumber = orderedBeatIds.indexOf(key) + 1;
+          bp.panelNumber = nextPanel;
+          bp.panelIndex = idx;
+        });
+
         finalPanelBlueprints = expanded;
 
         console.log(`[pipeline] b3-1 generated ${finalPanelBlueprints.length} blueprints dynamically (source=${blueprintSource})`);

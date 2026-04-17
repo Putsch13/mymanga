@@ -145,6 +145,9 @@ export function ChapterReviewBoard(input: {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [comparePanels, setComparePanels] = useState<Record<string, boolean>>({});
+  // Validation manuelle par case (userValidatedAt) — état local optimiste.
+  // Les cases validées sont protégées des régénérations globales du chapitre.
+  const [validatedPanels, setValidatedPanels] = useState<Record<string, boolean>>({});
   const [filters, setFilters] = useState<FilterState>({
     status: "all",
     criticality: "all",
@@ -184,10 +187,33 @@ export function ChapterReviewBoard(input: {
 
   async function rerollPanel(panelId: string, mode: string = "character") {
     setActionMessage(null);
-    const response = await fetch(`/api/scene-images/${panelId}/retry?mode=${mode}`, { method: "POST" });
+    // BUG-14 : on utilise désormais le body JSON plutôt que la query string.
+    const response = await fetch(`/api/scene-images/${panelId}/retry`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
+    });
     const data = (await response.json().catch(() => ({}))) as { error?: string; message?: string; ok?: boolean };
     setActionMessage(response.ok ? `Reroll ${mode} lancé pour ${panelId}.` : data.message ?? data.error ?? "Le reroll a échoué.");
     await refresh();
+  }
+
+  async function validatePanel(panelId: string, validated: boolean) {
+    setActionMessage(null);
+    // Optimistic update — instantané côté UI, reconcilié après fetch refresh.
+    setValidatedPanels((value) => ({ ...value, [panelId]: validated }));
+    const response = await fetch(`/api/scene-images/${panelId}/validate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ validated }),
+    });
+    const data = (await response.json().catch(() => ({}))) as { error?: string; message?: string; ok?: boolean };
+    if (!response.ok) {
+      setValidatedPanels((value) => ({ ...value, [panelId]: !validated }));
+      setActionMessage(data.message ?? data.error ?? "La validation a échoué.");
+      return;
+    }
+    setActionMessage(validated ? `Case ${panelId} validée (protégée des regens globales).` : `Validation retirée pour ${panelId}.`);
   }
 
   function getRerollModeFromAction(recommendedAction: string | null | undefined): RetryMode {
@@ -451,6 +477,19 @@ export function ChapterReviewBoard(input: {
                 )) : <li>- Aucun problème majeur détecté</li>}
               </ul>
               <div className="flex flex-wrap justify-end gap-2">
+                {panel.status === "completed" ? (
+                  <Button
+                    data-testid={`validate-panel-${panel.panelId}`}
+                    variant={validatedPanels[panel.panelId] ? "default" : "secondary"}
+                    size="sm"
+                    className={validatedPanels[panel.panelId]
+                      ? "border-green-500/40 bg-green-500/15 text-green-700 hover:bg-green-500/20"
+                      : "border-green-500/30 text-green-600 hover:bg-green-500/10"}
+                    onClick={() => validatePanel(panel.panelId, !validatedPanels[panel.panelId])}
+                  >
+                    {validatedPanels[panel.panelId] ? "✓ Validée" : "Accepter"}
+                  </Button>
+                ) : null}
                 {panel.previousImageUrl ? (
                   <Button
                     data-testid={`compare-panel-${panel.panelId}`}
