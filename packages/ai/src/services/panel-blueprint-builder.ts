@@ -520,8 +520,9 @@ export function buildPanelBlueprintsFromBeat(
       } else {
         mayShowCharacterIds.push(...beat.involvedCharacters.slice(0, 3));
       }
-    } else if (template.heroCenterAllowed && context.heroCharacterId) {
-      mustShowCharacterIds.push(context.heroCharacterId);
+    } else if (template.heroCenterAllowed) {
+      // Ne pas fallback sur le héros — laisser le subjectFocus décider
+      console.warn(`[blueprint] heroCenterAllowed but no involvedCharacters for beat=${beat.beatId}, panel=${idx + 1} — no forced hero`);
     }
 
     let speakerAnchorCharacterId: string | null = null;

@@ -183,13 +183,31 @@ export function directShotPlan(input: ShotPlanInput): ChapterShotPlan {
       });
     }
 
-    // NPC close-ups for introduced characters
+    // A02: guarantee at least 1 aspect_to_aspect transition per scene
+    const hasAspectToAspect = panels.some((p) => p.transitionFromPrevious === "aspect_to_aspect");
+    if (!hasAspectToAspect && panels.length >= 2) {
+      const lastPanel = panels[panels.length - 1];
+      if (lastPanel) {
+        lastPanel.transitionFromPrevious = "aspect_to_aspect";
+        if (lastPanel.subjectFocus !== "environment") {
+          lastPanel.cutawayType = lastPanel.cutawayType === "none" ? "landscape" : lastPanel.cutawayType;
+        }
+      }
+    }
+
+    // A03: NPC close-ups for introduced characters — force if none found
     for (const char of input.importantCharacters) {
       if (char.role === "important_npc" && char.firstAppearanceSceneIndex === beatIdx) {
         const npcPanel = panels.find((p) => p.subjectFocus === "important_npc");
         if (npcPanel) {
           npcPanel.shotType = "closeup";
           npcPanel.emphasisReason = `introduction ${char.name}`;
+        } else if (panels.length >= 2) {
+          // Force 2nd panel as NPC closeup
+          const targetPanel = panels[1]!;
+          targetPanel.shotType = "closeup";
+          targetPanel.subjectFocus = "important_npc";
+          targetPanel.emphasisReason = `introduction ${char.name}`;
         }
       }
     }

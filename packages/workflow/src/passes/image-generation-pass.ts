@@ -781,7 +781,9 @@ export async function runImageGenerationPass(
         // R08: Anti-repetition — detect identical consecutive prompts within a scene
         let effectivePrompt = item.panel.prompt;
         let antiRepeatSeed: number | undefined;
-        const promptHash = (effectivePrompt ?? "").slice(0, 200);
+        // A01: use SHA-256 hash instead of raw string slice
+        const { createHash } = await import("crypto");
+        const promptHash = createHash("sha256").update(effectivePrompt ?? "").digest("hex").slice(0, 16);
         const sceneId = String(item.baseMetadata.sceneId ?? "");
         const prevHash = promptHashByScene.get(sceneId);
         if (prevHash && prevHash === promptHash && promptHash.length > 0) {

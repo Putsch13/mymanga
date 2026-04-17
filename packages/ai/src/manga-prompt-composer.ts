@@ -497,6 +497,15 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
   );
   addSection("renderingMood", "Rendering / Inking / Mood", `Style: ${visualStyle}. ${intensityNote && layer !== "GENERAL_SAFE" ? `Content boundaries: ${intensityNote}.` : ""}`);
 
+  // A04: inject universe/project context for richer style coherence
+  if (input.environmentHint && input.environmentHint.length > 50) {
+    addSection(
+      "universeContext",
+      "Universe Context",
+      input.environmentHint.slice(0, 300),
+    );
+  }
+
   // IMG-1 : Manga framing directive selon le type de plan
   const shotKey = input.shotType && input.subjectFocus
     ? `${input.shotType}_${input.subjectFocus}`

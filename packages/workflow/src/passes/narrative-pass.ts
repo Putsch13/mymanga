@@ -426,21 +426,23 @@ export async function runNarrativePass(
         console.log(`[pipeline] npc_promotion: creating ${toPromote.length} characters: ${toPromote.join(", ")}`);
       }
 
+      // C04: hoist storyBible query outside the NPC loop
       const { resolveEntity } = await import("@manga-ai-studio/ai");
+      const storyBibleForGlossary = await prisma.storyBible.findUnique({ where: { projectId } }).catch(() => null);
+      const glossaryForEntities = Array.isArray(storyBibleForGlossary?.glossary)
+        ? storyBibleForGlossary.glossary as { term: string; description?: string; visualCore?: string; entityKind?: string }[]
+        : [];
       for (const pnjName of toPromote) {
         try {
           const slug = pnjName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
           const scenesWithPnj = revisedBundle.script.scenes.filter((s: any) => (s.characters ?? []).includes(pnjName));
           const contextHint = scenesWithPnj[0]?.summary?.slice(0, 200) ?? "";
-
-          const storyBible = await prisma.storyBible.findUnique({ where: { projectId } });
-          const glossary = Array.isArray(storyBible?.glossary) ? storyBible.glossary as { term: string; description?: string; visualCore?: string; entityKind?: string }[] : [];
           const entityProfile = await resolveEntity({
             name: pnjName,
             contextText: contextHint,
             projectId,
-            glossary,
-            projectBible: storyBible?.summary ?? null,
+            glossary: glossaryForEntities,
+            projectBible: storyBibleForGlossary?.summary ?? null,
           });
 
           const entityRoleType = entityProfile.entityKind === "human" || entityProfile.entityKind === "named_npc"
@@ -641,7 +643,7 @@ export async function runNarrativePass(
         ? (rawGenre as UniverseType)
         : undefined;
       const blueprintContext = {
-        heroCharacterId: heroCharacterId ?? undefined,
+        // I05: heroCharacterId intentionally omitted — blueprint builder must not know the hero
         chapterNumber,
         projectGenre: context.project.primaryGenre ?? undefined,
         projectTone: context.project.tone ?? undefined,
@@ -727,7 +729,7 @@ export async function runNarrativePass(
             universeType,
             projectGenre: context.project.primaryGenre ?? undefined,
             projectTone: context.project.tone ?? undefined,
-            heroCharacterId: heroCharacterId ?? undefined,
+            // I05: heroCharacterId intentionally omitted
           });
 
           // Step 5: blueprints
@@ -868,9 +870,9 @@ export async function runNarrativePass(
     const plannedImages: PlannedImage[] = [];
     const sceneBlueprintsByScene = new Map<number, SceneBlueprint[]>();
 
-    await prisma.$transaction(
-      async (tx) => {
-        await tx.chapter.update({
+    // C05: Tx A — chapter metadata seule (<5s)
+    await prisma.$transaction(async (tx) => {
+      await tx.chapter.update({
         where: { id: chapterId },
         data: {
           title: revisedBundle.outline.chapter_title,
@@ -884,7 +886,11 @@ export async function runNarrativePass(
           tokenActual: job.actualTokenCost ?? job.estimatedTokenCost ?? 80,
         },
       });
+    }, { timeout: 10_000 });
 
+    // C05: Tx B — scenes + images, timeout élevé mais isolé du chapter.update
+    await prisma.$transaction(
+      async (tx) => {
         for (let index = 0; index < revisedBundle.script.scenes.length; index++) {
           const scene = revisedBundle.script.scenes[index];
           if (!scene) continue;
@@ -1125,6 +1131,18 @@ export async function runNarrativePass(
                 visualAnchorIds: panelCanonRefs,
                 panelBlueprint: panelPremiumBlueprint,
               });
+
+              // C02: Appliquer le ShotPlan per-panel au panelContractBase
+              const shotPlanPage = chapterShotPlan?.pages.find((p) => p.pageNumber === index + 1);
+              const shotPlanPanel = shotPlanPage?.panels.find((sp) => sp.panelNumber === panel.panelNumber);
+              if (shotPlanPanel) {
+                panelContractBase.shotType = shotPlanPanel.shotType as typeof panelContractBase.shotType;
+                (panelContractBase as any).cameraAngle = shotPlanPanel.cameraAngle;
+                (panelContractBase as any).subjectFocus = shotPlanPanel.subjectFocus;
+                (panelContractBase as any).cutawayType = shotPlanPanel.cutawayType;
+                (panelContractBase as any).heroCenterAllowed = shotPlanPanel.heroCenterAllowed;
+              }
+
               const panelBackgroundExtras = [
                 ...scene.characters.filter((name: string) => !panel.characters.includes(name)).slice(0, 2),
                 ...persistentSceneExtras.map((extra) => `${extra.archetype}:${extra.anchorSlot}`),
@@ -1564,7 +1582,7 @@ export async function runNarrativePass(
               shotType: panelContract.shotType ?? null,
               cutawayType: (panelContract as Record<string, unknown>).cutawayType as string | null ?? null,
               subjectFocus: (panelContract as Record<string, unknown>).subjectFocus as string | null ?? null,
-              cameraAngle: null,
+              cameraAngle: shotPlanPanel?.cameraAngle ?? (panelContract as Record<string, unknown>).cameraAngle as string | null ?? null,
               chapterStyleAnchor: stylePack
                 ? [
                     stylePack.renderFamily ?? null,
@@ -1630,8 +1648,17 @@ export async function runNarrativePass(
                 } : null,
                 shotPlan: {
                   shotType: panelContract.shotType ?? null,
-                  cameraAngle: null,
+                  cameraAngle: shotPlanPanel?.cameraAngle ?? (panelContract as Record<string, unknown>).cameraAngle as string | null ?? null,
                   cutawayType: (panelContract as Record<string, unknown>).cutawayType as string | null ?? null,
+                  // I04: shot plan détaillé prévu vs réalisé
+                  planned: shotPlanPanel ? {
+                    shotType: shotPlanPanel.shotType,
+                    cameraAngle: shotPlanPanel.cameraAngle,
+                    subjectFocus: shotPlanPanel.subjectFocus,
+                    cutawayType: shotPlanPanel.cutawayType,
+                    transitionFromPrevious: shotPlanPanel.transitionFromPrevious,
+                    emphasisReason: shotPlanPanel.emphasisReason ?? null,
+                  } : null,
                 },
                 subjectFocus: (panelContract as Record<string, unknown>).subjectFocus as string | null ?? null,
                 refsUsed: [],
