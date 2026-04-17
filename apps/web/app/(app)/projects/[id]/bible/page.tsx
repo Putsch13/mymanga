@@ -106,9 +106,9 @@ export default function BiblePage() {
         <Link href={`/projects/${id}`} className="text-sm text-muted-foreground hover:text-foreground">
           ← Projet
         </Link>
-        <h1 className="mt-2 text-3xl font-semibold">Bible d'univers</h1>
+        <h1 className="mt-2 text-3xl font-semibold">Bible d&apos;univers</h1>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-          La bible alimente la mémoire de continuité, la génération de chapitres et les futurs retrievers RAG. Pense-la comme le cœur canonique de ta série.
+          La bible alimente la mémoire de continuité, la génération de chapitres et les futurs retrievers RAG. Pense-la comme le c&oelig;ur canonique de ta série.
         </p>
       </div>
 
@@ -135,7 +135,7 @@ export default function BiblePage() {
         <CardHeader>
           <CardTitle>Glossaire & entités spéciales</CardTitle>
           <CardDescription>
-            Définis les termes de ton univers (noms d'armes, races, lieux, sorts). L'EntityBrain les reconnaîtra sans appel LLM.
+            Définis les termes de ton univers (noms d&apos;armes, races, lieux, sorts). L&apos;EntityBrain les reconnaîtra sans appel LLM.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
