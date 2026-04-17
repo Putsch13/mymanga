@@ -83,8 +83,36 @@ describe("focus-budget — détection hero overload", () => {
     expect(budget.heroCenterRatio).toBeGreaterThan(0.7);
   });
 
-  it("ne génère pas de violation si le ratio héros est sous 70%", () => {
-    // 6 héros sur 10 = 60% → OK
+  it("ne génère pas de violation hero_overload si le ratio héros est sous 30% (MANGA_SHOT_BUDGET)", () => {
+    // 2 héros sur 10 = 20% → sous MAX_HERO_CENTER_RATIO (0.30)
+    const heroPanels = makeHeroCentricBlueprints(2);
+    const envPanels: PanelBlueprintPremium[] = Array.from({ length: 8 }, (_, i) => ({
+      panelId: `panel-env-${i}`,
+      beatId: "beat-1",
+      pageNumber: 1,
+      panelNumber: 3 + i,
+      purpose: "establishing",
+      shotType: "wide",
+      cameraAngle: "eye_level",
+      subjectFocus: "environment" as const,
+      mustShowEnemy: false,
+      requiredNpcCount: 0,
+      requiredProps: [],
+      optionalProps: [],
+      requiredLocationSignals: [],
+      cutawayType: "environment" as const,
+      heroCenterAllowed: false,
+      criticality: "low" as const,
+    }));
+    const blueprints = [...heroPanels, ...envPanels];
+
+    const budget = computeChapterFocusBudget(blueprints);
+    const heroOverload = budget.violations.find((v) => v.type === "hero_overload");
+    expect(heroOverload).toBeUndefined();
+  });
+
+  it("émet un warning (pas un blocking) si le ratio héros est entre 30% et 70%", () => {
+    // 6 héros sur 10 = 60% → warning (au-dessus de 30%, sous 70%)
     const heroPanels = makeHeroCentricBlueprints(6);
     const envPanels: PanelBlueprintPremium[] = Array.from({ length: 4 }, (_, i) => ({
       panelId: `panel-env-${i}`,
@@ -108,7 +136,8 @@ describe("focus-budget — détection hero overload", () => {
 
     const budget = computeChapterFocusBudget(blueprints);
     const heroOverload = budget.violations.find((v) => v.type === "hero_overload");
-    expect(heroOverload).toBeUndefined();
+    expect(heroOverload).toBeDefined();
+    expect(heroOverload?.severity).toBe("warning");
   });
 });
 

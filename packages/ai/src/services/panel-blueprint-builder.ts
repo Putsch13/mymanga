@@ -14,6 +14,7 @@ import type {
   FocusBudgetViolation,
 } from "@manga-ai-studio/core";
 import type { ProductionBeat } from "@manga-ai-studio/core";
+import { MANGA_SHOT_BUDGET } from "@manga-ai-studio/core";
 
 export interface PanelBlueprintContext {
   heroCharacterId?: string | null;
@@ -518,7 +519,21 @@ export function buildPanelBlueprintsFromBeat(
         mustShowCharacterIds.push(...context.antagonistIds.slice(0, 1));
         mayShowCharacterIds.push(...beat.involvedCharacters.filter((id) => !context.antagonistIds?.includes(id)).slice(0, 2));
       } else {
-        mayShowCharacterIds.push(...beat.involvedCharacters.slice(0, 3));
+        // BUG-06 fix : pour les focus non-hero (environment, npc, prop, reaction,
+        // aftermath…), filtrer activement le héros du fallback mayShowCharacterIds.
+        // Sinon, involvedCharacters commence presque toujours par le héros et on
+        // lock quand même dessus — ce qui trahit l'intention du subjectFocus.
+        const nonHeroInvolved = context.heroCharacterId
+          ? beat.involvedCharacters.filter((id) => id !== context.heroCharacterId)
+          : beat.involvedCharacters;
+
+        // Les focus strictement non-humains ne doivent montrer aucun personnage imposé.
+        const purelyNonHumanFocus: SubjectFocus[] = ["environment", "prop", "aftermath"];
+        if (purelyNonHumanFocus.includes(focus)) {
+          mayShowCharacterIds.push(...nonHeroInvolved.slice(0, 1));
+        } else {
+          mayShowCharacterIds.push(...nonHeroInvolved.slice(0, 3));
+        }
       }
     } else if (template.heroCenterAllowed) {
       // Ne pas fallback sur le héros — laisser le subjectFocus décider
@@ -731,12 +746,16 @@ export function computeChapterFocusBudget(
 
   const violations: FocusBudgetViolation[] = [];
 
-  // Règle : max 70% héros-centrique
-  if (heroCenterRatio > 0.7) {
+  // BUG-03 fix : aligner le seuil sur MANGA_SHOT_BUDGET (packages/core)
+  // - MAX_HERO_CENTER_RATIO (0.30) → warning
+  // - HERO_CENTER_FAIL_RATIO (0.70) → blocking
+  // Avant, le focus-budget ne flaguait qu'à 70%, alors que le shot-diversity-enforcer
+  // corrigeait déjà à partir de 30%. Les deux politiques étaient désalignées.
+  if (heroCenterRatio > MANGA_SHOT_BUDGET.MAX_HERO_CENTER_RATIO) {
     violations.push({
       type: "hero_overload",
-      message: `${Math.round(heroCenterRatio * 100)}% des panels sont centrés héros (max recommandé : 70%)`,
-      severity: "blocking",
+      message: `${Math.round(heroCenterRatio * 100)}% des panels sont centrés héros (max recommandé : ${Math.round(MANGA_SHOT_BUDGET.MAX_HERO_CENTER_RATIO * 100)}%)`,
+      severity: heroCenterRatio >= MANGA_SHOT_BUDGET.HERO_CENTER_FAIL_RATIO ? "blocking" : "warning",
     });
   }
 

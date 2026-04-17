@@ -63,23 +63,60 @@ export function resolveOptimalFalModel(
   return { model: FAL_MODEL_TEXT, numSteps: 28, usedSchnell: false };
 }
 
+/**
+ * Normalise le prompt négatif pour FAL/FLUX.
+ *
+ * Historique du bug (BUG-02) : l'ancienne implémentation filtrait les termes
+ * via une regex très restrictive (~6 patterns) ce qui jetait quasi tous les
+ * drift guards (wrong hair/eye color, photorealistic, 3d render, anatomy…)
+ * et ne laissait passer que 5 fallbacks "composition ratée". Résultat :
+ * aucun garde-fou effectif côté FLUX.
+ *
+ * Nouvelle stratégie : priorisation, pas filtrage. On ordonne par importance
+ * (character drift > format/technique > anatomie > composition) puis on dédoublonne
+ * et on cap à ~22 termes — ce que FLUX gère confortablement.
+ */
 export function buildFalNegativePrompt(raw: string | undefined) {
   if (!raw?.trim()) return "";
-  const normalized = optimizePromptForFal(raw, 400)
+
+  const normalized = optimizePromptForFal(raw, 600)
     .split(",")
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
-  const allowed = normalized.filter((item) =>
-    /empty background|studio backdrop|studio background|flat grey backdrop|isolated centered portrait|isolated portrait|blurry environment|weak social interaction|missing school architecture|floating character|disconnected characters|no crowd/.test(item),
-  );
-  const fallback = [
-    "empty background",
-    "studio backdrop",
-    "flat grey backdrop",
-    "isolated centered portrait",
-    "blurry environment",
+
+  const deduped = [...new Set(normalized)];
+
+  // Groupes de priorité (du plus au moins critique).
+  const driftGuards: string[] = [];       // wrong hair/eye/outfit for <name>, character drift…
+  const formatGuards: string[] = [];      // photorealistic, 3d render, cgi, western comics…
+  const anatomyGuards: string[] = [];     // deformed hands, extra fingers, malformed…
+  const compositionGuards: string[] = []; // empty background, isolated portrait…
+  const rest: string[] = [];
+
+  const DRIFT_RE = /wrong (hair|eye|outfit|skin|age|gender)|character drift|visual drift|different (hair|eye|outfit)|color drift|identity shift|swapped character|wrong character|male for female|female for male|woman for male|man for female/;
+  const FORMAT_RE = /photorealistic|photoreal|3d render|cgi|octane|unreal engine|western comics|marvel|dc comics|disney style|pixar|realistic photo|stock photo|render 3d/;
+  const ANATOMY_RE = /deformed|malformed|extra (fingers|hands|limbs|legs|arms|heads|eyes)|missing (fingers|hands|limbs|eyes)|mutated|disfigured|bad anatomy|bad proportions|long neck|fused fingers|broken (hands|limbs)|twisted limbs/;
+  const COMPOSITION_RE = /empty background|studio backdrop|studio background|flat grey backdrop|isolated centered portrait|isolated portrait|blurry environment|floating character|disconnected characters|missing background|no crowd|weak social interaction/;
+
+  for (const item of deduped) {
+    if (DRIFT_RE.test(item)) driftGuards.push(item);
+    else if (FORMAT_RE.test(item)) formatGuards.push(item);
+    else if (ANATOMY_RE.test(item)) anatomyGuards.push(item);
+    else if (COMPOSITION_RE.test(item)) compositionGuards.push(item);
+    else rest.push(item);
+  }
+
+  // Ordre de priorité décroissant. On garde ~22 termes max (FLUX-friendly).
+  const prioritized = [
+    ...driftGuards,
+    ...formatGuards,
+    ...anatomyGuards,
+    ...compositionGuards,
+    ...rest,
   ];
-  return [...new Set([...(allowed.length > 0 ? allowed : normalized.slice(0, 8)), ...fallback])].join(", ");
+
+  const MAX_NEGATIVE_TERMS = 22;
+  return prioritized.slice(0, MAX_NEGATIVE_TERMS).join(", ");
 }
 
 export function describeReferencePolicy(value: unknown) {

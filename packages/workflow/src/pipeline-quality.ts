@@ -36,17 +36,21 @@ export function findPanelBlueprint(
   sceneIndex: number,
   panelNumber: number,
 ): PanelBlueprintPremium | undefined {
-  // Stratégie 1 (fiable) : match par pageNumber + panelNumber natifs du blueprint
+  if (blueprints.length === 0) return undefined;
+
+  // Stratégie 1 (fiable) : match par pageNumber + panelNumber natifs du blueprint.
+  // Depuis BUG-05 fix dans narrative-pass, les blueprints ont pageNumber/panelNumber
+  // renumérotés séquentiellement (1,2,3…) — donc un match exact est plus fréquent.
   const pageNumber = sceneIndex + 1;
   const byPageAndPanel = blueprints.find(
     (bp) => bp.pageNumber === pageNumber && bp.panelNumber === panelNumber,
   );
   if (byPageAndPanel) return byPageAndPanel;
 
-  // Stratégie 2 : parse "beat_N" — mais seulement si le format est conforme
+  // Stratégie 2 : parse "beat_N" — supporte les formats beat_N, beat_N_xxx, etc.
   const beatBlueprints = blueprints.filter((bp) => {
     if (!bp.beatId) return false;
-    const match = bp.beatId.match(/^beat_(\d+)$/);
+    const match = bp.beatId.match(/^beat_(\d+)/);
     if (!match) return false;
     const bpBeatIndex = parseInt(match[1] ?? "0", 10) - 1;
     return bpBeatIndex === sceneIndex;
@@ -55,9 +59,21 @@ export function findPanelBlueprint(
     return beatBlueprints[panelNumber - 1] ?? beatBlueprints[0];
   }
 
-  // Stratégie 3 (fallback) : flatten + index global
-  const globalIndex = sceneIndex * 6 + (panelNumber - 1);
-  return blueprints[globalIndex] ?? blueprints[0];
+  // BUG-04 fix : stratégie 3 corrigée — group-by beatId plutôt que flatten+sceneIndex*6.
+  // L'ancienne heuristique (sceneIndex * 6 + panelNumber - 1) supposait 6 panels par
+  // scène en dur ; c'était faux dès qu'un template produisait 3/4/5/7 panels, et
+  // tombait quasi toujours sur blueprints[0] (souvent l'establishing hero-center).
+  const byBeat = new Map<string, PanelBlueprintPremium[]>();
+  for (const bp of blueprints) {
+    const key = bp.beatId ?? "__none__";
+    const arr = byBeat.get(key);
+    if (arr) arr.push(bp);
+    else byBeat.set(key, [bp]);
+  }
+  const groups = [...byBeat.values()];
+  const targetGroup = groups[sceneIndex] ?? groups[groups.length - 1];
+  if (!targetGroup || targetGroup.length === 0) return blueprints[0];
+  return targetGroup[panelNumber - 1] ?? targetGroup[targetGroup.length - 1];
 }
 
 export function normalizeCreativeControls(

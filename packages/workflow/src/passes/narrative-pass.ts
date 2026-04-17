@@ -550,7 +550,13 @@ export async function runNarrativePass(
     );
 
     // T04: early declarations for blueprint diagnostics (assigned in blueprint generation block below)
-    let blueprintSource: "studio_premium" | "dynamic_llm" | "dynamic_heuristic" | "MISSING" =
+    let blueprintSource:
+      | "studio_premium"
+      | "dynamic_llm"
+      | "dynamic_heuristic"
+      | "dynamic_llm_expanded"
+      | "dynamic_heuristic_expanded"
+      | "MISSING" =
       effectivePanelBlueprints.length > 0 ? "studio_premium" : "MISSING";
     const orphanedBeatIds: string[] = [];
     // T07: early declaration for shot plan (assigned after blueprint generation)
@@ -648,7 +654,12 @@ export async function runNarrativePass(
         ? (rawGenre as UniverseType)
         : undefined;
       const blueprintContext = {
-        // I05: heroCharacterId intentionally omitted — blueprint builder must not know the hero
+        // BUG-06 fix : heroCharacterId est réintroduit dans le blueprintContext.
+        // L'intention I05 originelle (« builder must not know the hero ») tombait en
+        // contradiction silencieuse : le fallback mayShowCharacterIds pushait quand
+        // même le héros via beat.involvedCharacters[0]. On le passe explicitement,
+        // charge au builder de ne PAS le "must-show" en dehors du focus === "hero".
+        heroCharacterId,
         chapterNumber,
         projectGenre: context.project.primaryGenre ?? undefined,
         projectTone: context.project.tone ?? undefined,
@@ -796,8 +807,34 @@ export async function runNarrativePass(
       }
 
       if (allDynamicBlueprints.length > 0) {
-        finalPanelBlueprints = allDynamicBlueprints;
-        blueprintSource = usedLlmEnrichment ? "dynamic_llm" : "dynamic_heuristic";
+        // BUG-05 fix: renumérotation stricte pageNumber/panelNumber en séquence
+        // (le pageCounter dérivait de +Math.ceil(n/3) ce qui cassait le mapping
+        //  amont avec findPanelBlueprint stratégie 1 "pageNumber === sceneIndex+1")
+        allDynamicBlueprints.forEach((bp, idx) => {
+          bp.pageNumber = idx + 1;
+          bp.panelNumber = idx + 1;
+          bp.panelIndex = idx;
+        });
+
+        // BUG-01 fix: appeler expandBlueprintsToMinimum pour garantir le target
+        // de 70-75 panels par chapitre (sans cet appel, un chapitre ~10 beats
+        // produisait ~30 blueprints → 30 SceneImage, bien en dessous des 75
+        // promis au studio).
+        const { expandBlueprintsToMinimum } = await import("@manga-ai-studio/ai");
+        const panelDensity = (chapterGenreConfig as { panelDensity?: string }).panelDensity;
+        const TARGET_PANELS = panelDensity === "dense" ? 75 : 70;
+        const beforeExpand = allDynamicBlueprints.length;
+        const expanded = expandBlueprintsToMinimum(allDynamicBlueprints, TARGET_PANELS);
+        if (expanded.length > beforeExpand) {
+          console.log(
+            `[pipeline] expanded ${beforeExpand} → ${expanded.length} blueprints (target=${TARGET_PANELS}, density=${panelDensity ?? "n/a"})`,
+          );
+          blueprintSource = usedLlmEnrichment ? "dynamic_llm_expanded" : "dynamic_heuristic_expanded";
+        } else {
+          blueprintSource = usedLlmEnrichment ? "dynamic_llm" : "dynamic_heuristic";
+        }
+        finalPanelBlueprints = expanded;
+
         console.log(`[pipeline] b3-1 generated ${finalPanelBlueprints.length} blueprints dynamically (source=${blueprintSource})`);
         if (orphanedBeatIds.length > 0) {
           console.warn(`[pipeline] partial_success: ${orphanedBeatIds.length} beats orphaned: ${orphanedBeatIds.join(", ")}`);

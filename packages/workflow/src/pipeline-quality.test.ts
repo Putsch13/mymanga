@@ -29,14 +29,39 @@ describe("resolveEffectivePanelBlueprints", () => {
 });
 
 describe("findPanelBlueprint", () => {
-  it("finds blueprint by sceneIndex and panelNumber", () => {
+  it("strategy 1: matches by pageNumber + panelNumber when renumbered sequentially", () => {
     const bps = [
-      { beatId: "beat_1" },
-      { beatId: "beat_1" },
-      { beatId: "beat_2" },
+      { beatId: "beat_1", pageNumber: 1, panelNumber: 1 },
+      { beatId: "beat_1", pageNumber: 2, panelNumber: 2 },
+      { beatId: "beat_2", pageNumber: 3, panelNumber: 3 },
     ] as any[];
-    const result = findPanelBlueprint(bps, 0, 2);
-    expect(result).toBe(bps[1]);
+    expect(findPanelBlueprint(bps, 1, 2)).toBe(bps[1]);
+    expect(findPanelBlueprint(bps, 2, 3)).toBe(bps[2]);
+  });
+
+  it("strategy 2: parses beat_N even for beat_N_suffix formats", () => {
+    const bps = [
+      { beatId: "beat_1_intro", pageNumber: 0, panelNumber: 0 },
+      { beatId: "beat_1_intro", pageNumber: 0, panelNumber: 0 },
+      { beatId: "beat_2_climax", pageNumber: 0, panelNumber: 0 },
+    ] as any[];
+    expect(findPanelBlueprint(bps, 0, 2)).toBe(bps[1]);
+    expect(findPanelBlueprint(bps, 1, 1)).toBe(bps[2]);
+  });
+
+  it("strategy 3 (BUG-04 fix): falls back via group-by-beatId, NOT sceneIndex*6", () => {
+    // 3 beats sans beat_N formaté : beats A (3 panels), B (5 panels), C (2 panels).
+    const bps = [
+      { beatId: "alpha" }, { beatId: "alpha" }, { beatId: "alpha" },
+      { beatId: "bravo" }, { beatId: "bravo" }, { beatId: "bravo" }, { beatId: "bravo" }, { beatId: "bravo" },
+      { beatId: "charlie" }, { beatId: "charlie" },
+    ] as any[];
+    // Scène 1 panel 2 → bravo[1] (et non bps[1*6+1] = bravo[2])
+    expect(findPanelBlueprint(bps, 1, 2)).toBe(bps[4]);
+    // Scène 2 panel 1 → charlie[0]
+    expect(findPanelBlueprint(bps, 2, 1)).toBe(bps[8]);
+    // Scène 2 panel 3 → clamp sur dernier panel du groupe (charlie[1])
+    expect(findPanelBlueprint(bps, 2, 3)).toBe(bps[9]);
   });
 
   it("returns undefined for empty blueprints", () => {
