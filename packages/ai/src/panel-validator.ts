@@ -249,8 +249,10 @@ export async function validateGeneratedPanel(
       score -= 0.15;
     }
 
-    // Vérifier genre
-    if (fp.identity.gender === "male" && (prompt.includes("woman") || prompt.includes("female") || prompt.includes("girl"))) {
+    // Vérifier genre — utiliser \b pour éviter les faux positifs ("manga" contient "man", "woman" contient "man")
+    const hasFemaleTerms = /\b(woman|female|girl)\b/i.test(prompt);
+    const hasMaleTerms = /\b(man|male|boy)\b/i.test(prompt);
+    if (fp.identity.gender === "male" && hasFemaleTerms) {
       issues.push({
         severity: "critical",
         type: "wrong_gender",
@@ -259,7 +261,7 @@ export async function validateGeneratedPanel(
       });
       score -= 0.4;
     }
-    if (fp.identity.gender === "female" && (prompt.includes("man") || prompt.includes("male") || prompt.includes("boy"))) {
+    if (fp.identity.gender === "female" && hasMaleTerms) {
       issues.push({
         severity: "critical",
         type: "wrong_gender",
@@ -612,15 +614,14 @@ export async function validateGeneratedPanel(
   score = clamp01(Math.min(score, qualityScores.releaseScore));
 
   // Déterminer si reroll requis
+  // Note: l'indisponibilité de la vision QA (qaFailureReason) est un avertissement, pas un bloquant —
+  // bloquer systématiquement quand Vision est désactivé empêcherait tout rendu manga.
   const requiredReroll =
-    Boolean(qaFailureReason)
-    || (!qaWasExecuted && qaWasRequired)
-    || issues.some((i) => i.type === "missing_visual_qa")
-    || score < 0.78
+    score < 0.78
     || qualityScores.releaseScore < 0.72
     || qualityScores.backgroundPresenceScore < 0.55
     || qualityScores.interactionScore < 0.5
-    || issues.some((i) => i.severity === "critical")
+    || issues.some((i) => i.severity === "critical" && i.type !== "missing_visual_qa")
     // Premium contractual failures
     || issues.some((i) => i.type === "missing_enemy_presence")
     || issues.some((i) => i.type === "missing_prop" || i.type === "missing_weapon" || i.type === "missing_device");

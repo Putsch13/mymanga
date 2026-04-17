@@ -1038,9 +1038,10 @@ export async function runImageGenerationPass(
               ? (bestAttempt.validationDetails.qualityScores.releaseScore + visualConsistency.overall) / 2
               : bestAttempt.validationDetails.qualityScores.releaseScore
             : bestAttempt.drift.score;
+        // Vision QA indisponible = avertissement (pas bloquant) pour ne pas freezer tous les panels critiques
+        // quand la vision est désactivée.
         const shouldBlockForReview =
-          bestAttempt.validation.requiredReroll
-          || (bestAttempt.validation.qaWasRequired === true && bestAttempt.validation.qaWasExecuted !== true);
+          bestAttempt.validation.requiredReroll;
 
         const existingDebugTrace = (item.baseMetadata as Record<string, unknown>).panelDebugTrace as Record<string, unknown> | undefined;
         const enrichedDebugTrace = existingDebugTrace ? {

@@ -28,7 +28,7 @@ describe("panel-validator QA critique", () => {
     },
   ];
 
-  it("invalide un panel critique si l'analyzer visuel est indisponible", async () => {
+  it("signale un avertissement si l'analyzer visuel est indisponible (non bloquant)", async () => {
     analyzePanelWithVisionMock.mockResolvedValue(null);
 
     const validation = await validateGeneratedPanel({
@@ -52,7 +52,8 @@ describe("panel-validator QA critique", () => {
     expect(validation.qaWasRequired).toBe(true);
     expect(validation.qaWasExecuted).toBe(false);
     expect(validation.qaFailureReason).toBe("visual_analyzer_unavailable_for_critical_panel");
-    expect(validation.requiredReroll).toBe(true);
+    // Vision QA indisponible = avertissement uniquement, pas un reroll requis (ne doit pas bloquer le rendu)
+    expect(validation.requiredReroll).toBe(false);
   });
 
   it("autorise explicitement un panel non critique sans analyzer", async () => {
