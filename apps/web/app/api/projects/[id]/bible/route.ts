@@ -6,12 +6,19 @@ import { notFound, unauthorized } from "@/lib/api-response";
 
 type Ctx = { params: Promise<{ id: string }> };
 
+const glossaryEntrySchema = z.object({
+  term: z.string(),
+  description: z.string().optional().default(""),
+  visualCore: z.string().optional().default(""),
+  entityKind: z.string().optional().default("named_npc"),
+});
+
 const putSchema = z.object({
   summary: z.string().optional().nullable(),
   worldRules: z.record(z.string(), z.unknown()).optional(),
   themes: z.array(z.unknown()).optional(),
   lore: z.record(z.string(), z.unknown()).optional(),
-  glossary: z.record(z.string(), z.unknown()).optional(),
+  glossary: z.union([z.array(glossaryEntrySchema), z.record(z.string(), z.unknown())]).optional(),
   lockedCanon: z.record(z.string(), z.unknown()).optional(),
 });
 

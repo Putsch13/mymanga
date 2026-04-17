@@ -11,6 +11,7 @@ import {
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
 import { notFound, unauthorized, validationError } from "@/lib/api-response";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { persistGeneratedImageIfNeeded } from "@/lib/images/persist-generated-image";
 import { resolveRetryReferencePolicy, type RetryMode } from "@/lib/images/retry-reference-policy";
@@ -25,6 +26,11 @@ type Ctx = { params: Promise<{ sceneImageId: string }> };
 export async function POST(req: Request, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return unauthorized();
+  // G02: rate limit retries
+  const rl = await checkRateLimit(user.id, "continue");
+  if (!rl.ok) {
+    return NextResponse.json({ error: rl.message }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSecs) } });
+  }
   const stack = getGenerationStackStatus();
   if (!stack.canGenerateImages) {
     return validationError("La stack image n'est pas prete pour relancer cette case.", stack);

@@ -195,7 +195,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         failedCount,
         generationRunSummary,
         effectiveCreativeControls,
-        context,
+        context: context as unknown as { characters: { name: string; status?: string }[] },
       },
     );
 

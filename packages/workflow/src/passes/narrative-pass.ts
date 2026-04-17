@@ -93,29 +93,31 @@ type PlannedImage = {
 };
 
 export type NarrativePassResult = {
-  context: any;
-  revisedBundle: any;
+  // G03: typed outputs — input types remain any[] pending Prisma import refactor (tech debt)
+  context: unknown;
+  revisedBundle: unknown;
   continuity: { notes: string[]; usedOpenAI?: boolean };
   narrative: { notes: string[]; usedOpenAI?: boolean };
-  continuityKernel: any;
-  studioSnapshot: any;
+  continuityKernel: unknown;
+  studioSnapshot: unknown;
   productionSource: { source: string; fallbackUsed: boolean; legacyBridgeUsed: boolean };
-  adultEngine: any;
-  finalPanelBlueprints: any[];
+  adultEngine: unknown;
+  finalPanelBlueprints: unknown[];
   plannedImages: PlannedImage[];
-  chapterGenreMode: any;
-  chapterGenreConfig: any;
-  chapterLookProfile: any;
-  sceneAnchorByIndex: Map<number, any>;
-  romanceDirectionByScene: Map<number, any>;
-  canonRefByName: Map<string, any>;
-  loraByCharId: Map<string, any>;
-  loraByCharName: Map<string, any>;
-  validatedSceneSnapshots: any[];
+  chapterGenreMode: string;
+  chapterGenreConfig: unknown;
+  chapterLookProfile: unknown;
+  sceneAnchorByIndex: Map<number, unknown>;
+  romanceDirectionByScene: Map<number, unknown>;
+  canonRefByName: Map<string, unknown>;
+  loraByCharId: Map<string, unknown>;
+  loraByCharName: Map<string, unknown>;
+  validatedSceneSnapshots: unknown[];
   kernelValidationWarnings: string[];
-  effectiveCreativeControls: any;
+  effectiveCreativeControls: unknown;
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- G03: full strict typing requires Prisma types import, tracked as tech debt
 export async function runNarrativePass(
   ctx: PipelineContext,
   input: {
@@ -869,6 +871,21 @@ export async function runNarrativePass(
 
     const plannedImages: PlannedImage[] = [];
     const sceneBlueprintsByScene = new Map<number, SceneBlueprint[]>();
+
+    // C05: collect computed image data outside transactions for micro-tx writes
+    interface PendingImageWrite {
+      sceneId: string;
+      sceneKeyframeId: string;
+      panelNumber: number;
+      panel: typeof revisedBundle.storyboard.pages[0]["panels"][0];
+      composedPositive: string | undefined;
+      composedNegative: string | undefined;
+      baseMetadata: Record<string, unknown>;
+      panelCast: unknown;
+      panelCanonRefs: string[];
+      sceneIndex: number;
+    }
+    const pendingImageWrites: PendingImageWrite[] = [];
 
     // C05: Tx A — chapter metadata seule (<5s)
     await prisma.$transaction(async (tx) => {
@@ -1724,57 +1741,78 @@ export async function runNarrativePass(
               },
             };
 
-            const existingImage = await tx.sceneImage.findUnique({
-              where: { sceneId_panelNumber: { sceneId: createdScene.id, panelNumber: panel.panelNumber } },
-              select: { id: true, userValidatedAt: true },
-            });
-
-            const panelDebugTraceData = (baseMetadata as Record<string, unknown>).panelDebugTrace ?? null;
-
-            const imageData = {
-                renderingMode: "PANEL_DRAFT" as const,
-                sceneKeyframeId: sceneKeyframe.id,
-                prompt: composedPositive,
-                negativePrompt: composedNegative,
-                status: "planned",
-                width: PANEL_DRAFT_SIZE.width,
-                height: PANEL_DRAFT_SIZE.height,
-                referenceImageIds: panelCanonRefs as unknown as Prisma.InputJsonValue,
-                metadata: baseMetadata as unknown as Prisma.InputJsonValue,
-                panelCast: panelCast as unknown as Prisma.InputJsonValue,
-                debugTrace: (panelDebugTraceData ?? null) as unknown as Prisma.InputJsonValue,
-            };
-
-            let created: { id: string };
-            if (existingImage?.userValidatedAt) {
-              created = existingImage;
-              await tx.sceneImage.update({
-                where: { id: existingImage.id },
-                data: {
-                  metadata: baseMetadata as unknown as Prisma.InputJsonValue,
-                  panelCast: panelCast as unknown as Prisma.InputJsonValue,
-                  debugTrace: (panelDebugTraceData ?? null) as unknown as Prisma.InputJsonValue,
-                },
-              });
-            } else {
-              created = await tx.sceneImage.upsert({
-                where: { sceneId_panelNumber: { sceneId: createdScene.id, panelNumber: panel.panelNumber } },
-                create: { sceneId: createdScene.id, panelNumber: panel.panelNumber, ...imageData },
-                update: imageData,
-              });
-            }
-
-            plannedImages.push({
-              sceneImageId: created.id,
-              panel: { ...panel, prompt: composedPositive, negativePrompt: composedNegative },
+            // C05: collect image data for micro-tx write phase (after Tx B)
+            pendingImageWrites.push({
+              sceneId: createdScene.id,
+              sceneKeyframeId: sceneKeyframe.id,
+              panelNumber: panel.panelNumber,
+              panel,
+              composedPositive,
+              composedNegative,
+              baseMetadata: baseMetadata as Record<string, unknown>,
+              panelCast,
+              panelCanonRefs,
               sceneIndex: index,
-              baseMetadata,
             });
           }
         }
       },
-      { timeout: 120_000, maxWait: 30_000 },
+      { timeout: 60_000, maxWait: 20_000 },
     );
+
+    // C05: Tx C — write images in micro-transactions of 8 (scenes already committed above)
+    for (let imgBatch = 0; imgBatch < pendingImageWrites.length; imgBatch += 8) {
+      const imgSlice = pendingImageWrites.slice(imgBatch, imgBatch + 8);
+      await prisma.$transaction(async (tx) => {
+        for (const pi of imgSlice) {
+          const panelDebugTraceData = (pi.baseMetadata as Record<string, unknown>).panelDebugTrace ?? null;
+          const imageData = {
+            renderingMode: "PANEL_DRAFT" as const,
+            sceneKeyframeId: pi.sceneKeyframeId,
+            prompt: pi.composedPositive,
+            negativePrompt: pi.composedNegative,
+            status: "planned",
+            width: PANEL_DRAFT_SIZE.width,
+            height: PANEL_DRAFT_SIZE.height,
+            referenceImageIds: pi.panelCanonRefs as unknown as Prisma.InputJsonValue,
+            metadata: pi.baseMetadata as unknown as Prisma.InputJsonValue,
+            panelCast: pi.panelCast as unknown as Prisma.InputJsonValue,
+            debugTrace: (panelDebugTraceData ?? null) as unknown as Prisma.InputJsonValue,
+          };
+
+          const existingImage = await tx.sceneImage.findUnique({
+            where: { sceneId_panelNumber: { sceneId: pi.sceneId, panelNumber: pi.panelNumber } },
+            select: { id: true, userValidatedAt: true },
+          });
+
+          let created: { id: string };
+          if (existingImage?.userValidatedAt) {
+            created = existingImage;
+            await tx.sceneImage.update({
+              where: { id: existingImage.id },
+              data: {
+                metadata: pi.baseMetadata as unknown as Prisma.InputJsonValue,
+                panelCast: pi.panelCast as unknown as Prisma.InputJsonValue,
+                debugTrace: (panelDebugTraceData ?? null) as unknown as Prisma.InputJsonValue,
+              },
+            });
+          } else {
+            created = await tx.sceneImage.upsert({
+              where: { sceneId_panelNumber: { sceneId: pi.sceneId, panelNumber: pi.panelNumber } },
+              create: { sceneId: pi.sceneId, panelNumber: pi.panelNumber, ...imageData },
+              update: imageData,
+            });
+          }
+
+          plannedImages.push({
+            sceneImageId: created.id,
+            panel: { ...pi.panel, prompt: pi.composedPositive ?? pi.panel.prompt, negativePrompt: pi.composedNegative ?? pi.panel.negativePrompt },
+            sceneIndex: pi.sceneIndex,
+            baseMetadata: pi.baseMetadata,
+          });
+        }
+      }, { timeout: 15_000 });
+    }
     await setJobProgress(
       jobId,
       { key: "persist_chapter", label: "Persistance chapitre" },
