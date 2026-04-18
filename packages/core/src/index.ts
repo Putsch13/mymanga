@@ -5,6 +5,7 @@ export * from "./continuity/physical-events";
 export * from "./chapter-runtime";
 export * from "./outline-ghost-repair";
 export * from "./shot-diversity-enforcer";
+export * from "./logger";
 export type { CoverageMetrics, ShotValidationResult } from "./shot-diversity-enforcer";
 export {
   computePlannedCoverage,

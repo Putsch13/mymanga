@@ -550,6 +550,8 @@ model Location {
   canonImageUrl           String?   // image de référence du lieu
 
   npcVisualProfiles NpcVisualProfile[]
+
+  @@unique([projectId, slug], name: "Location_projectId_slug_key")
 }
 
 model Item {

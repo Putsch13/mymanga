@@ -72,6 +72,12 @@ export interface GenerateImageResult {
   jobId?: string;
   timings?: Record<string, unknown>;
   raw?: unknown;
+  /**
+   * Seed réellement utilisé par le provider. Critique pour la cohérence visuelle :
+   * permet de reproduire une génération identique (même perso / même décor / même pose)
+   * lors d'un retry ou d'une itération de reroll contrôlée.
+   */
+  seed?: number | null;
 }
 
 export interface ImageGenerationProvider {

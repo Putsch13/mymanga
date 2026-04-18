@@ -289,6 +289,10 @@ export async function POST(_req: Request, ctx: Ctx) {
             model: output.result.model,
             requestId: output.result.requestId ?? null,
             jobId: output.result.jobId ?? null,
+            // Persiste le seed réellement consommé par le provider : permet de
+            // reproduire une génération strictement identique lors d'un retry
+            // déterministe (cohérence cross-chapitres).
+            seed: output.result.seed ?? null,
           },
         },
       });

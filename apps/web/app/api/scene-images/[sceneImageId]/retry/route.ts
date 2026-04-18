@@ -650,6 +650,7 @@ export async function POST(req: Request, ctx: Ctx) {
             },
           ].slice(-5),
           generationLog: out.log,
+          seed: out.result.seed ?? null,
           persisted: persisted.persisted,
           retryUsedLoras: panelLoras.length,
           retryUsedRefs: referenceImageUrls.length,

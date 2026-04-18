@@ -402,6 +402,40 @@ export async function runFalGenerationJob(apiKey: string | undefined, input: Gen
     jobId: result.jobId,
     timings: result.timings as unknown as Record<string, unknown>,
     raw: result.raw,
+    seed: extractFalSeed(result.raw),
   };
   return response;
+}
+
+/**
+ * Extrait le seed réellement consommé par FAL depuis le payload brut.
+ *
+ * FAL expose le seed selon plusieurs formes selon le modèle :
+ *  - `{ seed: 12345 }` — flux/dev, flux/schnell, flux-lora, redux
+ *  - `{ seeds: [12345] }` — certaines variantes multi-images
+ *  - `{ data: { seed: 12345 } }` — réponses wrappées
+ *
+ * On persiste ce seed dans `MediaAsset.metadata.seed` côté appelant : cela permet
+ * de relancer une génération strictement identique lors d'un retry déterministe
+ * (cohérence perso / décor / PNJ à l'identique).
+ */
+export function extractFalSeed(raw: unknown): number | null {
+  if (!raw || typeof raw !== "object") return null;
+  const root = raw as Record<string, unknown>;
+
+  const direct = root.seed;
+  if (typeof direct === "number" && Number.isFinite(direct)) return direct;
+  if (typeof direct === "string" && /^\d+$/.test(direct)) return Number(direct);
+
+  const seeds = root.seeds;
+  if (Array.isArray(seeds) && typeof seeds[0] === "number") return seeds[0];
+
+  const data = root.data;
+  if (data && typeof data === "object") {
+    const nested = (data as Record<string, unknown>).seed;
+    if (typeof nested === "number" && Number.isFinite(nested)) return nested;
+    if (typeof nested === "string" && /^\d+$/.test(nested)) return Number(nested);
+  }
+
+  return null;
 }

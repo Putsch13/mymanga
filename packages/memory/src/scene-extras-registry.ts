@@ -31,6 +31,89 @@ function normalizeLocationKey(value: string | undefined) {
     .replace(/^-|-$/g, "");
 }
 
+export { normalizeLocationKey };
+
+/**
+ * Résout (ou crée à la volée) un Location canonique pour un projet donné
+ * à partir d'un nom libre. Le slug sert de clé stable cross-chapitre :
+ * deux chapitres qui écrivent "La taverne du chat noir" et "taverne du chat-noir"
+ * tombent sur le même Location, évitant ainsi la fragmentation du monde.
+ */
+export async function resolveLocationByName(
+  prisma: PrismaClient | Prisma.TransactionClient,
+  input: {
+    projectId: string;
+    name: string;
+    type?: string | null;
+    description?: string | null;
+    createIfMissing?: boolean;
+  },
+): Promise<{ id: string; slug: string | null; created: boolean } | null> {
+  const trimmed = input.name?.trim();
+  if (!trimmed) return null;
+  const slug = normalizeLocationKey(trimmed);
+
+  const existing = await prisma.location.findFirst({
+    where: {
+      projectId: input.projectId,
+      OR: [
+        ...(slug ? [{ slug }] : []),
+        { name: { equals: trimmed, mode: "insensitive" as const } },
+      ],
+    },
+    select: { id: true, slug: true },
+  });
+
+  if (existing) return { id: existing.id, slug: existing.slug, created: false };
+  if (!input.createIfMissing) return null;
+
+  const created = await prisma.location.create({
+    data: {
+      projectId: input.projectId,
+      name: trimmed,
+      slug: slug || null,
+      type: input.type ?? null,
+      description: input.description ?? null,
+    },
+    select: { id: true, slug: true },
+  });
+  return { id: created.id, slug: created.slug, created: true };
+}
+
+/**
+ * Compare une nouvelle signature visuelle à un NpcVisualProfile existant
+ * et retourne un diagnostic de drift. Utilisé AVANT d'écraser les champs
+ * d'un profil récurrent : si la tenue ou la silhouette change brutalement
+ * sur un PNJ "locked" ou "promoted", on alerte plutôt que de laisser le
+ * pipeline le redessiner différemment à chaque apparition.
+ */
+export function detectNpcVisualDrift(input: {
+  existingOutfit?: string | null;
+  existingSilhouette?: string | null;
+  existingPromotionStatus?: string | null;
+  nextOutfit?: string | null;
+  nextSilhouette?: string | null;
+}): { drifted: boolean; severity: "none" | "soft" | "hard"; reasons: string[] } {
+  const reasons: string[] = [];
+  const outfitChanged = Boolean(
+    input.existingOutfit
+      && input.nextOutfit
+      && input.existingOutfit.trim().toLowerCase() !== input.nextOutfit.trim().toLowerCase(),
+  );
+  const silhouetteChanged = Boolean(
+    input.existingSilhouette
+      && input.nextSilhouette
+      && input.existingSilhouette.trim().toLowerCase() !== input.nextSilhouette.trim().toLowerCase(),
+  );
+  if (outfitChanged) reasons.push(`outfit drift: "${input.existingOutfit}" → "${input.nextOutfit}"`);
+  if (silhouetteChanged) reasons.push(`silhouette drift: "${input.existingSilhouette}" → "${input.nextSilhouette}"`);
+
+  const locked = input.existingPromotionStatus === "locked" || input.existingPromotionStatus === "promoted";
+  const drifted = outfitChanged || silhouetteChanged;
+  const severity = !drifted ? "none" : locked ? "hard" : "soft";
+  return { drifted, severity, reasons };
+}
+
 function toSceneExtraList(value: unknown): SceneExtra[] {
   return Array.isArray(value)
     ? value

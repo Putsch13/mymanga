@@ -649,10 +649,12 @@ export function MangaBookReader({ projectId, chapterId, autoFullscreen = false, 
       <div
         className={cn("relative mx-auto cursor-pointer transition-opacity duration-200", transitioning ? "opacity-0" : "opacity-100 page-flip-in")}
         style={{ maxWidth: fullscreen ? "100%" : spreadMode ? "1040px" : "720px" }}
-        role="button"
+        role="region"
+        aria-roledescription="Lecteur manga"
+        aria-label={`Lecture manga${mangaRtl ? " (mode droite→gauche)" : ""}, page ${pageIndex + 1}`}
+        aria-live="polite"
         tabIndex={0}
         onKeyDown={(e) => e.key === "Enter" && (mangaRtl ? goPrev() : goNext())}
-        aria-label="Lecture manga"
       >
         {/* Livre ouvert — ombre de reliure */}
         <div
@@ -691,7 +693,7 @@ export function MangaBookReader({ projectId, chapterId, autoFullscreen = false, 
                   onClick={mangaRtl ? goNext : goPrev}
                   role="button"
                   tabIndex={0}
-                  aria-label="Page précédente"
+                  aria-label={mangaRtl ? "Page suivante (manga, droite→gauche)" : "Page précédente"}
                   onKeyDown={(e) => e.key === "Enter" && (mangaRtl ? goNext() : goPrev())}
                 >
                   <div className="absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-black/30 to-transparent" />
@@ -757,7 +759,7 @@ export function MangaBookReader({ projectId, chapterId, autoFullscreen = false, 
                   onClick={mangaRtl ? goPrev : goNext}
                   role="button"
                   tabIndex={0}
-                  aria-label="Page suivante"
+                  aria-label={mangaRtl ? "Page précédente (manga, droite→gauche)" : "Page suivante"}
                   onKeyDown={(e) => e.key === "Enter" && (mangaRtl ? goPrev() : goNext())}
                 >
                   <div className="absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-black/30 to-transparent" />

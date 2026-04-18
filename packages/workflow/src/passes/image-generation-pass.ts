@@ -291,6 +291,9 @@ export async function runImageGenerationPass(
             metadata: ({
               requestId: generation.result.requestId ?? null,
               jobId: generation.result.jobId ?? null,
+              // Persiste le seed FAL pour rejouer la génération du keyframe à l'identique
+              // si un retry déterministe est demandé (cohérence inter-panels d'une même scène).
+              seed: generation.result.seed ?? null,
               generationLog: generation.log,
             } as unknown) as Prisma.InputJsonValue,
           },
@@ -1268,6 +1271,7 @@ export async function runImageGenerationPass(
               ...item.baseMetadata,
               generationLog: finalLog,
               falStrategy: finalRouting,
+              seed: bestAttempt.generation.result.seed ?? null,
               persisted: persisted.persisted,
               temporary: "temporary" in persisted ? (persisted.temporary as boolean) : undefined,
               storageWarning: "warning" in persisted ? (persisted.warning as string) : undefined,
