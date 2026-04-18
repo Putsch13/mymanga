@@ -3,8 +3,8 @@
 import type { ApprovedChapterOutline } from "@manga-ai-studio/core";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, HelpCircle, Loader2, Pencil, Users, BookOpen } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Check, Loader2, Pencil, Users, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,99 +12,14 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { safeFetch } from "@/lib/safe-fetch";
-
-const STEP_LABELS: Record<string, string> = {
-  build_context: "Phase 1 — Analyse de l'univers et des personnages…",
-  generate_bundle: "Phase 1 — Écriture du scénario et des dialogues…",
-  continuity_pass: "Phase 1 — Vérification de la cohérence narrative…",
-  story_coherence_pass: "Phase 1 — Peaufinage du rythme manga…",
-  persist_chapter: "Phase 1 — Finalisation du chapitre écrit…",
-  generate_images: "Phase 2 — Génération des images…",
-  update_memory: "Phase 3 — Mise en page et mémorisation…",
-};
-
-type CreativityControls = {
-  noveltyLevel: number;
-  worldStrictness: number;
-  visualExoticism: number;
-  npcVariety: number;
-  environmentRichness: number;
-};
-
-type OutlinePreviewBeat = {
-  id: string;
-  summary: string;
-  characters: string[];
-  location: string;
-  pageRole: string;
-  turn: string;
-  emotionalDelta: number;
-  structuredBeat?: ApprovedChapterOutline["beats"][number]["structuredBeat"];
-};
-
-function Tooltip({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <span className="relative inline-flex">
-      <button
-        type="button"
-        className="text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
-        onClick={() => setOpen((v) => !v)}
-        aria-label="Aide"
-      >
-        <HelpCircle className="h-3.5 w-3.5" />
-      </button>
-      {open && (
-        <span className="absolute bottom-full left-1/2 z-50 mb-2 w-60 -translate-x-1/2 rounded-lg border border-border/60 bg-popover px-3 py-2 text-xs text-popover-foreground shadow-lg">
-          {text}
-        </span>
-      )}
-    </span>
-  );
-}
-
-function SliderField({
-  label,
-  value,
-  onChange,
-  helper,
-  tooltip,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-  helper: string;
-  tooltip?: string;
-}) {
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <Label>{label}</Label>
-          {tooltip && <Tooltip text={tooltip} />}
-        </div>
-        <span className="text-xs text-muted-foreground">{value}/100</span>
-      </div>
-      <input
-        type="range"
-        min={0}
-        max={100}
-        step={1}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-primary"
-      />
-      <p className="text-xs text-muted-foreground">{helper}</p>
-    </div>
-  );
-}
+import { Tooltip, SliderField } from "./_components/pipeline-atoms";
+import { STEP_LABELS, type CreativityControls, type OutlinePreviewBeat, type PipelineJobState, type PipelinePreviewData } from "./_components/pipeline-types";
+import { computePipelineProgressValue, buildPipelineDegradedWarning } from "./_components/compute-progress";
+import { usePipelineJobPolling } from "./_components/use-pipeline-job-polling";
 
 export default function ChapterGeneratorPage() {
   const params = useParams();
   const router = useRouter();
-  const autoReaderNavigatedRef = useRef(false);
   const id = params.id as string;
   const [chapters, setChapters] = useState<{ id: string; title: string | null; chapterNumber: number }[]>([]);
   const [characters, setCharacters] = useState<Array<{ id: string; name: string; roleType: string | null }>>([]);
@@ -119,21 +34,7 @@ export default function ChapterGeneratorPage() {
   });
   const [selectedChapter, setSelectedChapter] = useState<string>("");
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
-  const [jobState, setJobState] = useState<{
-    id: string;
-    status: string;
-    output?: {
-      currentStep?: string;
-      steps?: Array<{ key: string; label: string; status: string }>;
-      operationalStatus?: string;
-      degradedModes?: string[];
-      generationDiagnostics?: {
-        outline?: { fallbackReason?: string; usedFallback?: boolean } | null;
-        dialogue?: { usedFallback?: boolean; fallbackSceneIds?: string[] } | null;
-      };
-    };
-    error?: { message?: string };
-  } | null>(null);
+  const [jobState, setJobState] = useState<PipelineJobState>(null);
   const [pipelineMsg, setPipelineMsg] = useState<string | null>(null);
   const [premiumContractMissing, setPremiumContractMissing] = useState<string[] | null>(null);
   const [startingPipeline, setStartingPipeline] = useState(false);
@@ -145,25 +46,7 @@ export default function ChapterGeneratorPage() {
   const [draftBeatValue, setDraftBeatValue] = useState("");
   const [beatSummaries, setBeatSummaries] = useState<Record<string, string>>({});
   const [planApproved, setPlanApproved] = useState(false);
-  const [previewData, setPreviewData] = useState<{
-    estimatedTokens: number;
-    plotOptions: Array<{ id: string; title: string; label: string; summary: string }>;
-    creativeDirection: { chapterGoal: string; tone: string; whyNow: string };
-    contextPreview: {
-      characters: Array<{ name: string; roleType: string | null }>;
-      arcs: Array<{ name: string; summary: string | null }>;
-    };
-    outlinePreview?: {
-      summary: string;
-      cliffhanger: string;
-      approvalVersion: string;
-      beats: OutlinePreviewBeat[];
-    };
-    creativityControls?: CreativityControls | null;
-    // Premium intelligence fields
-    productionOutline?: unknown;
-    productionPlan?: unknown;
-  } | null>(null);
+  const [previewData, setPreviewData] = useState<PipelinePreviewData>(null);
 
   const loadChapters = useCallback(() => {
     safeFetch<{ chapters: Array<{ id: string; title: string | null; chapterNumber: number }> }>(`/api/projects/${id}/chapters`)
@@ -203,85 +86,19 @@ export default function ChapterGeneratorPage() {
     loadCharacters();
   }, [loadCharacters, loadChapters]);
 
-  useEffect(() => {
-    autoReaderNavigatedRef.current = false;
-  }, [selectedJobId]);
+  // P5.5 : polling du job (backoff + redirect auto) factorisé dans
+  // `use-pipeline-job-polling.ts`. Contrat identique à la version inline.
+  usePipelineJobPolling({
+    projectId: id,
+    chapterId: selectedChapter,
+    jobId: selectedJobId,
+    router,
+    setJobState,
+    setPipelineMsg,
+    onJobFinished: loadChapters,
+  });
 
-  useEffect(() => {
-    if (!selectedJobId) return;
-    let timeoutId: number;
-    let delay = 2000;
-    let stopped = false;
-
-    async function poll() {
-      if (stopped) return;
-      try {
-        const res = await fetch(`/api/jobs/${selectedJobId}`);
-        if (!res.ok) {
-          if (res.status === 401 || res.status === 403) {
-            stopped = true;
-            setPipelineMsg("Session expirée. Recharge la page.");
-            return;
-          }
-          delay = Math.min(delay * 1.5, 15000);
-          timeoutId = window.setTimeout(poll, delay);
-          return;
-        }
-        const json = await res.json();
-        setJobState(json.job);
-        if (["completed", "failed", "partial_success", "canceled"].includes(json.job.status)) {
-          stopped = true;
-          loadChapters();
-          router.refresh();
-          if (
-            (json.job.status === "completed" || json.job.status === "partial_success") &&
-            selectedChapter &&
-            !autoReaderNavigatedRef.current
-          ) {
-            autoReaderNavigatedRef.current = true;
-            window.setTimeout(() => {
-              window.location.assign(`/projects/${id}/chapters/${selectedChapter}/read?fresh=1`);
-            }, 500);
-          }
-          return;
-        }
-        if (json.job.status === "running") {
-          delay = Math.min(delay * 1.3, 12000);
-        } else {
-          delay = 2000;
-        }
-      } catch {
-        delay = Math.min(delay * 2, 15000);
-      }
-      timeoutId = window.setTimeout(poll, delay);
-    }
-
-    timeoutId = window.setTimeout(poll, delay);
-    return () => { stopped = true; window.clearTimeout(timeoutId); };
-  }, [id, loadChapters, router, selectedChapter, selectedJobId]);
-
-  const progressValue = (() => {
-    const steps = jobState?.output?.steps ?? [];
-    if (!steps.length) {
-      if (!jobState) return null;
-      if (jobState.status === "queued") return 2;
-      if (jobState.status === "running") return 6;
-      return null;
-    }
-    const weights: Record<string, number> = {
-      build_context: 9, generate_bundle: 18, continuity_pass: 8,
-      story_coherence_pass: 8, persist_chapter: 12, generate_anchors: 5,
-      generate_images: 35, update_memory: 5,
-    };
-    const scoreFor = (status: string, weight: number) => {
-      if (status === "completed") return weight;
-      if (status === "running" || status === "waiting_external") return Math.max(1, Math.round(weight * 0.55));
-      return 0;
-    };
-    const total = steps.reduce((acc, step) => acc + (weights[step.key] ?? 10), 0);
-    const done = steps.reduce((acc, step) => acc + scoreFor(step.status, weights[step.key] ?? 10), 0);
-    return Math.max(0, Math.min(100, Math.round((done / Math.max(total, 1)) * 100)));
-  })();
+  const progressValue = computePipelineProgressValue(jobState);
 
   function toggleCharacter(characterId: string) {
     setSelectedCharacterIds((current) =>
@@ -555,21 +372,7 @@ export default function ChapterGeneratorPage() {
   const isGenerating = Boolean(jobState && ["queued", "running"].includes(jobState.status));
   const isDone = Boolean(jobState && ["completed", "partial_success"].includes(jobState.status));
   const isFailed = Boolean(jobState && jobState.status === "failed");
-  const degradedModes = jobState?.output?.degradedModes ?? [];
-  const degradedWarning =
-    degradedModes.length > 0
-      ? [
-          `Mode dégradé actif: ${degradedModes.join(", ")}.`,
-          jobState?.output?.generationDiagnostics?.outline?.usedFallback
-            ? `Outline fallback: ${jobState.output.generationDiagnostics.outline.fallbackReason ?? "raison non précisée"}.`
-            : null,
-          jobState?.output?.generationDiagnostics?.dialogue?.usedFallback
-            ? `Dialogue fallback sur ${jobState.output.generationDiagnostics.dialogue.fallbackSceneIds?.length ?? 0} scène(s).`
-            : null,
-        ]
-          .filter(Boolean)
-          .join(" ")
-      : null;
+  const degradedWarning = buildPipelineDegradedWarning(jobState);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">

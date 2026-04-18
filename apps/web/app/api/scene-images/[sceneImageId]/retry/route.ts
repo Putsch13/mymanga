@@ -21,6 +21,14 @@ import { buildCharacterRetryHints as buildCharacterRetryHintsShared } from "@/li
 import { readRetryBody as readRetryBodyShared } from "@/lib/retry/read-retry-body";
 import { createProjectCharacterResolver } from "@/lib/retry/resolve-project-characters";
 import { buildLocationMarkersLine } from "@/lib/retry/build-location-markers";
+import { resolvePanelLoras } from "@/lib/retry/resolve-panel-loras";
+import { buildRetryPrompts, resolveRerollKind } from "@/lib/retry/build-retry-prompts";
+import {
+  persistRetryBlocked,
+  persistRetryPersistFailed,
+  persistRetryException,
+  persistRetrySuccess,
+} from "@/lib/retry/persist-retry-outcome";
 import { resolveStableImageReferences } from "@manga-ai-studio/workflow";
 
 export const runtime = "nodejs";
@@ -131,20 +139,6 @@ export async function POST(req: Request, ctx: Ctx) {
     supporting?: Array<{ characterId: string; name: string }>;
   } | null;
 
-  // Reconstruire les LoRAs actifs du projet pour ce panel
-  const loraAttachments = await prisma.loraAttachment.findMany({
-    where: { projectId, enabled: true },
-    include: { lora: true },
-  });
-  const loraByCharId = new Map<string, { url: string; triggerWord: string; scale: number }>();
-  for (const att of loraAttachments) {
-    const meta = att.lora.weightsMeta as Record<string, unknown>;
-    const loraUrl = typeof meta.loraUrl === "string" ? meta.loraUrl : null;
-    const triggerWord = typeof meta.triggerWord === "string" ? meta.triggerWord : att.lora.name;
-    if (loraUrl && att.characterId && att.lora.status === "active") {
-      loraByCharId.set(att.characterId, { url: loraUrl, triggerWord, scale: att.weight });
-    }
-  }
   // P1.3 : on enrichit le SELECT pour alimenter buildCharacterRetryHints avec
   // tout le physique dur (bodyState, wardrobeProfile, outfitDefault, scars…),
   // pas juste le characterFingerprint. Sinon les rerolls perso perdent en
@@ -183,30 +177,16 @@ export async function POST(req: Request, ctx: Ctx) {
     metadataCharacterIds,
   });
 
-  // P2.3 : l'ordre `focus → supporting[]` garantit qu'en cas de cap, les
-  // LoRA critiques (hero focus, antagonist principal) sont pris avant les
-  // supports secondaires. Le plafond reste configurable via env
-  // `RETRY_MAX_PANEL_LORAS` (default 2 : limite fal IP-Adapter actuelle).
-  const maxPanelLoras = Math.max(
-    1,
-    Number.parseInt(process.env.RETRY_MAX_PANEL_LORAS ?? "", 10) || 2,
-  );
-  const castOrderedNames = panelCastData
-    ? [panelCastData.focus?.name, ...(panelCastData.supporting ?? []).map((m) => m.name)].filter((n): n is string => Boolean(n))
-    : characters;
-  const loraSourceNames = castOrderedNames.length > 0 ? castOrderedNames : characters;
-  const panelLoras = loraSourceNames
-    .map((name) => {
-      const res = resolveCharacterFromName(name);
-      if (!res) {
-        console.warn(`[retry:resolution] name="${name}" resolved_by=miss panel=${img.id}`);
-        return undefined;
-      }
-      console.info(`[retry:resolution] name="${name}" resolved_by=${res.resolvedBy} id=${res.character.id}`);
-      return loraByCharId.get(res.character.id);
-    })
-    .filter((l): l is { url: string; triggerWord: string; scale: number } => Boolean(l))
-    .slice(0, maxPanelLoras);
+  // P2.3 + P5.1 : délégué au helper `resolvePanelLoras` — ordre focus → supporting,
+  // plafond via env RETRY_MAX_PANEL_LORAS, logging conservé identique.
+  const { panelLoras, castOrderedNames } = await resolvePanelLoras({
+    prisma,
+    projectId,
+    characters,
+    panelCastData,
+    resolveCharacterFromName,
+    panelId: img.id,
+  });
 
   // P0.5 : IDs résolus des personnages présents dans ce panel (pour les filtres
   // qui prenaient `characters.includes(pc.name)` → on bascule vers ID).
@@ -396,75 +376,19 @@ export async function POST(req: Request, ctx: Ctx) {
     ? await buildLocationMarkersLine({ prisma, locationId: img.scene.locationId })
     : "";
 
-  const legacyPositiveAugment = retryMode === "environment"
-    ? ["readable environment, strong background, visible architecture, clear foreground midground background", locationMarkersLine].filter(Boolean).join(", ")
-    : retryMode === "character"
-      ? characterHints!.positive
-      : retryMode === "interaction"
-        ? "clear body language, readable interaction, characters connected to environment"
-        : retryMode === "style"
-          ? "consistent manga style, clean line art, coherent shading"
-          : retryMode === "composition"
-            ? ["balanced manga composition, spatial clarity, dynamic framing", locationMarkersLine].filter(Boolean).join(", ")
-            : "";
-  const legacyNegativeAugment = retryMode === "environment"
-    ? "empty background, studio backdrop, flat grey backdrop, blurry environment"
-    : retryMode === "character"
-      ? characterHints!.negative
-      : retryMode === "interaction"
-        ? "weak social interaction, disconnected characters"
-        : retryMode === "style"
-          ? "style drift, muddy rendering, off-model manga style"
-          : retryMode === "composition"
-            ? "floating character, poor framing, weak staging"
-            : "";
-
-  // Premium specialized hints override legacy hints when available
-  const basePositiveAugment = retryReferenceDecision.positivePromptHint
-    ? retryReferenceDecision.positivePromptHint
-    : legacyPositiveAugment;
-  const baseNegativeAugment = retryReferenceDecision.negativePromptHint
-    ? retryReferenceDecision.negativePromptHint
-    : legacyNegativeAugment;
-
-  // BUG-13 : injection du texte libre utilisateur (tronqué pour éviter les abus).
-  // Ex. body.userPromptAdditions = "l'ennemi tient le pendentif, regarde à gauche"
-  //     body.userPromptExclusions = "pas de sang, pas de foule"
-  const userPositive = typeof retryBody.userPromptAdditions === "string"
-    ? retryBody.userPromptAdditions.slice(0, 400).trim()
-    : "";
-  const userNegative = typeof retryBody.userPromptExclusions === "string"
-    ? retryBody.userPromptExclusions.slice(0, 200).trim()
-    : "";
-  const positiveAugment = [basePositiveAugment, userPositive].filter(Boolean).join(", ");
-  const negativeAugment = [baseNegativeAugment, userNegative].filter(Boolean).join(", ");
+  // P5.1 : composition positive/negative + user overrides centralisés
+  // dans `buildRetryPrompts`. Contract inchangé : specialized > legacy > user.
+  const { positiveAugment, negativeAugment, userPositive, userNegative } = buildRetryPrompts({
+    retryMode,
+    retryReferenceDecision,
+    characterHints,
+    locationMarkersLine,
+    userPromptAdditions: retryBody.userPromptAdditions,
+    userPromptExclusions: retryBody.userPromptExclusions,
+  });
 
   const referencePolicy = effectiveReferencePolicy;
-  const rerollKind =
-    retryMode === "environment"
-      ? "REROLL_ENVIRONMENT"
-      : retryMode === "character"
-        ? "REROLL_CHARACTER_FIDELITY"
-        : retryMode === "interaction"
-          ? "REROLL_INTERACTION"
-          : retryMode === "style"
-            ? "REROLL_STYLE"
-            : retryMode === "composition"
-              ? "REROLL_COMPOSITION"
-              // Premium modes
-              : retryMode === "prop"
-                ? "REROLL_PROP"
-                : retryMode === "speaker"
-                  ? "REROLL_SPEAKER_ANCHOR"
-                  : retryMode === "enemy_presence"
-                    ? "REROLL_ENEMY_PRESENCE"
-                    : retryMode === "subject_focus"
-                      ? "REROLL_SUBJECT_FOCUS"
-                      : retryMode === "cutaway"
-                        ? "REROLL_CUTAWAY"
-                        : retryMode === "npc_population"
-                          ? "REROLL_NPC_POPULATION"
-                          : undefined;
+  const rerollKind = resolveRerollKind(retryMode);
 
   console.info(
     `[retry] chapterId=${chapterId} approvedOutlineVersion=${approvedOutlineVersion ?? "n/a"} ` +
@@ -582,22 +506,16 @@ export async function POST(req: Request, ctx: Ctx) {
     );
 
     if (!out.ok) {
-      await prisma.sceneImage.update({
-        where: { id: img.id },
-        data: {
-          status: "blocked",
-          metadata: ({
-            ...metadata,
-            blockedReason: out.reason,
-            generationLog: out.log,
-            retryReferenceDecision: {
-              ...retryReferenceDecision,
-              availableReferenceUrls: referenceImageUrls.length,
-              availableLoras: panelLoras.length,
-            },
-            retryReferenceTrace: retryReferenceResolution.trace,
-          } as unknown) as Prisma.InputJsonValue,
-        },
+      await persistRetryBlocked({
+        prisma,
+        panelId: img.id,
+        baseMetadata: metadata,
+        reason: out.reason,
+        generationLog: out.log,
+        retryReferenceDecision,
+        retryReferenceTrace: retryReferenceResolution.trace,
+        availableReferenceUrls: referenceImageUrls.length,
+        availableLoras: panelLoras.length,
       });
       return validationError(out.reason);
     }
@@ -608,22 +526,16 @@ export async function POST(req: Request, ctx: Ctx) {
     });
 
     if (!persisted.ok) {
-      await prisma.sceneImage.update({
-        where: { id: img.id },
-        data: {
-          status: "failed",
-          metadata: ({
-            ...metadata,
-            error: persisted.error,
-            generationLog: out.log,
-            retryReferenceDecision: {
-              ...retryReferenceDecision,
-              availableReferenceUrls: referenceImageUrls.length,
-              availableLoras: panelLoras.length,
-            },
-            retryReferenceTrace: retryReferenceResolution.trace,
-          } as unknown) as Prisma.InputJsonValue,
-        },
+      await persistRetryPersistFailed({
+        prisma,
+        panelId: img.id,
+        baseMetadata: metadata,
+        error: persisted.error,
+        generationLog: out.log,
+        retryReferenceDecision,
+        retryReferenceTrace: retryReferenceResolution.trace,
+        availableReferenceUrls: referenceImageUrls.length,
+        availableLoras: panelLoras.length,
       });
       return NextResponse.json({ ok: false, error: persisted.error }, { status: 502 });
     }
@@ -694,103 +606,68 @@ export async function POST(req: Request, ctx: Ctx) {
 
     const shouldBlockForReview = validation.requiredReroll || (validation.qaWasRequired && !validation.qaWasExecuted);
 
-    await prisma.sceneImage.update({
-      where: { id: img.id },
-      data: {
-        status: shouldBlockForReview ? "blocked" : "completed",
-        imageUrl: persisted.url,
+    await persistRetrySuccess({
+      prisma,
+      panelId: img.id,
+      baseMetadata: metadata,
+      previousImageUrl: typeof img.imageUrl === "string" && img.imageUrl.length > 0 ? img.imageUrl : null,
+      persistedUrl: persisted.url,
+      providerInfo: {
         provider: out.result.provider,
         model: out.result.model,
-        consistencyScore: validation.qualityScores?.releaseScore ?? validationScore,
-        routingDecision: (out.routing as unknown) as Prisma.InputJsonValue,
-        metadata: ({
-          ...metadata,
-          previousImageUrl:
-            typeof img.imageUrl === "string" && img.imageUrl.length > 0
-              ? img.imageUrl
-              : typeof metadata.previousImageUrl === "string"
-                ? metadata.previousImageUrl
-                : null,
-          rerollHistory: [
-            ...((Array.isArray(metadata.rerollHistory) ? metadata.rerollHistory : []) as unknown[]),
-            {
-              at: new Date().toISOString(),
-              previousImageUrl: typeof img.imageUrl === "string" ? img.imageUrl : null,
-              nextImageUrl: persisted.url,
-              mode: retryMode,
-            },
-          ].slice(-5),
-          generationLog: out.log,
-          seed: out.result.seed ?? null,
-          persisted: persisted.persisted,
-          retryUsedLoras: panelLoras.length,
-          retryUsedRefs: referenceImageUrls.length,
-          rerollKind,
-          positivePromptHint: retryReferenceDecision.positivePromptHint ?? null,
-          negativePromptHint: retryReferenceDecision.negativePromptHint ?? null,
-          retryReferenceDecision: {
-            ...retryReferenceDecision,
-            availableReferenceUrls: referenceImageUrls.length,
-            availableLoras: panelLoras.length,
-            appliedReferencePolicy: referencePolicy,
-            driftOverrideApplied: effectiveReferencePolicy !== retryReferenceDecision.referencePolicy,
-          },
-          retryReferenceTrace: retryReferenceResolution.trace,
-          preDriftAnalysis: preDriftResult
-            ? {
-                score: preDriftResult.score,
-                severity: preDriftResult.severity,
-                recommendedAction: preDriftResult.recommendedAction,
-                continuityRisk: preDriftResult.continuityRisk,
-                reasons: preDriftResult.reasons.slice(0, 4),
-                // Phase 8 : sous-scores drift 2.0
-                styleDriftScore: preDriftResult.styleDriftScore,
-                characterDriftScore: preDriftResult.characterDriftScore,
-                beatAlignmentScore: preDriftResult.beatAlignmentScore,
-                sceneContinuityScore: preDriftResult.sceneContinuityScore,
-                chapterLookMismatch: preDriftResult.chapterLookMismatch,
-              }
-            : null,
-          validationScore,
-          validationDetails: {
-            panelCriticality: validation.panelCriticality,
-            qualityScores: validation.qualityScores,
-            propertyChecks: validation.propertyChecks,
-            issues: validation.issues,
-            requiredReroll: validation.requiredReroll,
-            qaWasRequired: validation.qaWasRequired,
-            qaWasExecuted: validation.qaWasExecuted,
-            qaFailureReason: validation.qaFailureReason,
-            qaBypassReason: validation.qaBypassReason,
-          },
-          panelCriticality: validation.panelCriticality,
-          qaWasRequired: validation.qaWasRequired,
-          qaWasExecuted: validation.qaWasExecuted,
-          qaFailureReason: validation.qaFailureReason,
-          qaBypassReason: validation.qaBypassReason,
-          criticalQaBlocked: shouldBlockForReview,
-        } as unknown) as Prisma.InputJsonValue,
+        seed: out.result.seed ?? null,
       },
+      persistedFlag: persisted.persisted,
+      routingDecision: (out.routing as unknown) as Prisma.InputJsonValue,
+      validation: {
+        requiredReroll: validation.requiredReroll,
+        qaWasRequired: validation.qaWasRequired,
+        qaWasExecuted: validation.qaWasExecuted,
+        qaFailureReason: validation.qaFailureReason,
+        qaBypassReason: validation.qaBypassReason,
+        score: validationScore,
+        panelCriticality: validation.panelCriticality,
+        qualityScores: validation.qualityScores,
+        propertyChecks: validation.propertyChecks,
+        issues: validation.issues,
+      },
+      shouldBlockForReview,
+      retryMode,
+      retryUsedLoras: panelLoras.length,
+      retryUsedRefs: referenceImageUrls.length,
+      rerollKind,
+      retryReferenceDecision,
+      retryReferenceTrace: retryReferenceResolution.trace,
+      effectiveReferencePolicy,
+      preDriftResult: preDriftResult
+        ? {
+            score: preDriftResult.score,
+            severity: preDriftResult.severity,
+            recommendedAction: preDriftResult.recommendedAction,
+            continuityRisk: preDriftResult.continuityRisk,
+            reasons: preDriftResult.reasons,
+            styleDriftScore: preDriftResult.styleDriftScore,
+            characterDriftScore: preDriftResult.characterDriftScore,
+            beatAlignmentScore: preDriftResult.beatAlignmentScore,
+            sceneContinuityScore: preDriftResult.sceneContinuityScore,
+            chapterLookMismatch: preDriftResult.chapterLookMismatch,
+          }
+        : null,
+      generationLog: out.log,
     });
 
     return NextResponse.json({ ok: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "retry_failed";
-    await prisma.sceneImage.update({
-      where: { id: img.id },
-      data: {
-        status: "failed",
-        metadata: ({
-          ...metadata,
-          error: msg,
-          retryReferenceDecision: {
-            ...retryReferenceDecision,
-            availableReferenceUrls: referenceImageUrls.length,
-            availableLoras: panelLoras.length,
-          },
-          retryReferenceTrace: retryReferenceResolution.trace,
-        } as unknown) as Prisma.InputJsonValue,
-      },
+    await persistRetryException({
+      prisma,
+      panelId: img.id,
+      baseMetadata: metadata,
+      errorMessage: msg,
+      retryReferenceDecision,
+      retryReferenceTrace: retryReferenceResolution.trace,
+      availableReferenceUrls: referenceImageUrls.length,
+      availableLoras: panelLoras.length,
     });
     return NextResponse.json({ ok: false, error: msg }, { status: 502 });
   }

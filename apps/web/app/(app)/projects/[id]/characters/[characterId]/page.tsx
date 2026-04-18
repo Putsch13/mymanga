@@ -22,89 +22,29 @@ import { CharacterPreviewCard } from "@/components/characters/character-preview-
 import { Loader2, Wand2 } from "lucide-react";
 import { safeFetch } from "@/lib/safe-fetch";
 import { resolveImageUrl } from "@/lib/images/proxy-url";
-
-type CharacterPayload = {
-  id: string;
-  projectId?: string;
-  name: string;
-  roleType: string | null;
-  gender: "male" | "female" | null;
-  biography: string | null;
-  age: number | null;
-  adultVerified: boolean;
-  objective: string | null;
-  fear: string | null;
-  trauma: string | null;
-  emotionalState: string | null;
-  status: string;
-  canonLocked: boolean;
-  traits: string[];
-  flaws: string[];
-  secrets: string[];
-  appearance: string | null;
-  hairColor: string | null;
-  eyeColor: string | null;
-  outfitDefault: string | null;
-  visualProfile: Record<string, unknown>;
-  bodyState: Record<string, unknown>;
-  wardrobeProfile: Record<string, unknown>;
-  speechProfile: Record<string, unknown>;
-  continuityProfile: Record<string, unknown>;
-  adultContentProfile: Record<string, unknown>;
-  voiceRegister: string | null;
-  voiceSentenceLength: string | null;
-  voiceVocabularyStyle: string | null;
-  voiceEmotionalLeak: number | null;
-  voiceSarcasmLevel: number | null;
-  voiceAggressionLevel: number | null;
-  voiceSilenceFrequency: number | null;
-  voiceFavoriteExpressions: string[];
-  voiceForbiddenExpressions: string[];
-  voiceForbiddenPatterns: string[];
-  voiceThreatenStyle: string | null;
-  voiceLieStyle: string | null;
-  voiceSeductionStyle: string | null;
-  voiceInnerMonologueStyle: string | null;
-  voiceExamplesCanonical: Array<{ context: string; line: string; emotion?: string }>;
-  voiceSpeechRules: string[];
-  stableVisualDNA: Record<string, unknown>;
-  stableSpeechDNA: Record<string, unknown>;
-  stablePsycheDNA: Record<string, unknown>;
-  canChangeHair: boolean;
-  canChangeOutfitFreely: boolean;
-  canChangeVisibleScars: boolean;
-  canChangeSpeechRegister: boolean;
-  requiresCanonApprovalFor: string[];
-  visualRefs: Array<{ id: string; imageUrl: string; type: string; isPrimary: boolean }>;
-  relationshipsFrom: Array<{ id: string; targetCharacterId: string; relationType: string; intensity: number; note: string | null }>;
-  relationshipsTo: Array<{ id: string; sourceCharacterId: string; relationType: string; intensity: number; note: string | null }>;
-};
-
-type ProjectCharacter = { id: string; name: string };
+import type { CharacterPayload, ProjectCharacter, InitialVisualSnapshot } from "./_components/character-types";
+import { useCharacterSave } from "./_components/use-character-save";
+import { computeCharacterCompletionScore, isCharacterAdult } from "./_components/compute-character-completion";
 
 export default function CharacterDetailPage() {
   const params = useParams();
   const projectId = params.id as string;
   const characterId = params.characterId as string;
   const [character, setCharacter] = useState<CharacterPayload | null>(null);
-  const [initialVisualSnapshot, setInitialVisualSnapshot] = useState<{
-    appearance: string | null;
-    hairColor: string | null;
-    eyeColor: string | null;
-    outfitDefault: string | null;
-    visualProfile: unknown;
-    bodyState: unknown;
-    wardrobeProfile: unknown;
-    stableVisualDNA: unknown;
-  } | null>(null);
+  const [initialVisualSnapshot, setInitialVisualSnapshot] = useState<InitialVisualSnapshot | null>(null);
   const [projectCharacters, setProjectCharacters] = useState<ProjectCharacter[]>([]);
-  const [saving, setSaving] = useState(false);
   const [generatingVisual, setGeneratingVisual] = useState(false);
-  const [autoGenerating, setAutoGenerating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ text: string; type: "ok" | "error" } | null>(null);
   const [relationTargetId, setRelationTargetId] = useState("");
   const [relationType, setRelationType] = useState("rivalité");
+
+  const { saving, autoGenerating, save } = useCharacterSave({
+    characterId,
+    character,
+    setCharacter,
+    setMessage,
+  });
 
   const driftResult = useMemo<ReturnType<typeof detectCanonVisualDrift>>(() => {
     if (!initialVisualSnapshot || !character) {
@@ -178,100 +118,6 @@ export default function CharacterDetailPage() {
     }
     load();
   }, [characterId, projectId]);
-
-  async function save() {
-    if (!character) return;
-    setSaving(true);
-    setMessage(null);
-    const res = await fetch(`/api/characters/${characterId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: character.name,
-        roleType: character.roleType,
-        gender: character.gender,
-        biography: character.biography,
-        age: character.age,
-        adultVerified: character.adultVerified,
-        objective: character.objective,
-        fear: character.fear,
-        trauma: character.trauma,
-        emotionalState: character.emotionalState,
-        status: character.status,
-        canonLocked: character.canonLocked,
-        traits: character.traits,
-        flaws: character.flaws,
-        secrets: character.secrets,
-        appearance: character.appearance,
-        hairColor: character.hairColor,
-        eyeColor: character.eyeColor,
-        outfitDefault: character.outfitDefault,
-        visualProfile: character.visualProfile,
-        bodyState: character.bodyState,
-        wardrobeProfile: character.wardrobeProfile,
-        speechProfile: character.speechProfile,
-        continuityProfile: character.continuityProfile,
-        adultContentProfile: character.adultContentProfile,
-        voiceRegister: character.voiceRegister,
-        voiceSentenceLength: character.voiceSentenceLength,
-        voiceVocabularyStyle: character.voiceVocabularyStyle,
-        voiceEmotionalLeak: character.voiceEmotionalLeak,
-        voiceSarcasmLevel: character.voiceSarcasmLevel,
-        voiceAggressionLevel: character.voiceAggressionLevel,
-        voiceSilenceFrequency: character.voiceSilenceFrequency,
-        voiceFavoriteExpressions: character.voiceFavoriteExpressions,
-        voiceForbiddenExpressions: character.voiceForbiddenExpressions,
-        voiceForbiddenPatterns: character.voiceForbiddenPatterns,
-        voiceThreatenStyle: character.voiceThreatenStyle,
-        voiceLieStyle: character.voiceLieStyle,
-        voiceSeductionStyle: character.voiceSeductionStyle,
-        voiceInnerMonologueStyle: character.voiceInnerMonologueStyle,
-        voiceExamplesCanonical: character.voiceExamplesCanonical,
-        voiceSpeechRules: character.voiceSpeechRules,
-        stableVisualDNA: character.stableVisualDNA,
-        stableSpeechDNA: character.stableSpeechDNA,
-        stablePsycheDNA: character.stablePsycheDNA,
-        canChangeHair: character.canChangeHair,
-        canChangeOutfitFreely: character.canChangeOutfitFreely,
-        canChangeVisibleScars: character.canChangeVisibleScars,
-        canChangeSpeechRegister: character.canChangeSpeechRegister,
-        requiresCanonApprovalFor: character.requiresCanonApprovalFor,
-      }),
-    });
-    const json = await res.json();
-    setSaving(false);
-    if (!res.ok) {
-      setMessage({ text: json.message ?? "Erreur de sauvegarde", type: "error" });
-      return;
-    }
-    const savedCharacter = { ...character, ...json.character };
-    setCharacter((prev) => prev ? { ...prev, ...json.character } : prev);
-
-    // Auto-génération du visuel si le personnage n'a pas encore de visuel primaire
-    // ou si les traits visuels clés ont été modifiés (appearance, hairColor, eyeColor, outfitDefault)
-    const hasPrimaryVisual = (savedCharacter.visualRefs ?? []).some((r: { isPrimary: boolean }) => r.isPrimary);
-    const hasAnyVisual = (savedCharacter.visualRefs ?? []).length > 0;
-    const hasVisualInfo = savedCharacter.appearance || savedCharacter.hairColor || savedCharacter.eyeColor || savedCharacter.name;
-
-    if (!hasAnyVisual && hasVisualInfo) {
-      setMessage({ text: "Fiche sauvegardée. Génération du visuel en cours…", type: "ok" });
-      setAutoGenerating(true);
-      const result = await safeFetch<{ visualRef: CharacterPayload["visualRefs"][0] }>(`/api/characters/${characterId}/generate-visual`, { method: "POST" });
-      setAutoGenerating(false);
-      if (result.ok) {
-        setCharacter((current) =>
-          current ? { ...current, visualRefs: [result.data.visualRef, ...(current.visualRefs ?? [])] } : current
-        );
-        setMessage({ text: "Fiche sauvegardée et visuel généré.", type: "ok" });
-      } else {
-        setMessage({ text: "Fiche sauvegardée. Génération du visuel échouée (relance manuellement).", type: "ok" });
-      }
-    } else if (hasPrimaryVisual) {
-      setMessage({ text: "Fiche sauvegardée.", type: "ok" });
-    } else {
-      setMessage({ text: "Fiche sauvegardée.", type: "ok" });
-    }
-  }
 
   async function generateVisual() {
     setMessage(null);
@@ -347,26 +193,9 @@ export default function CharacterDetailPage() {
     );
   }
 
-  const isAdult = character.adultVerified && (character.age ?? 0) >= 18;
+  const isAdult = isCharacterAdult(character);
   const primaryVisual = character.visualRefs.find((r) => r.isPrimary) ?? character.visualRefs[0];
-
-  // Calcul du taux de complétion de la fiche (pour guider l'user)
-  const completionScore = (() => {
-    const checks = [
-      Boolean(character.name),
-      Boolean(character.roleType),
-      Boolean(character.gender),
-      Boolean(character.biography),
-      Boolean(character.appearance),
-      Boolean(character.hairColor),
-      Boolean(character.eyeColor),
-      Boolean(character.outfitDefault),
-      Boolean(character.objective),
-      Boolean(character.fear),
-      (character.traits ?? []).length > 0,
-    ];
-    return Math.round((checks.filter(Boolean).length / checks.length) * 100);
-  })();
+  const completionScore = computeCharacterCompletionScore(character);
 
   return (
     <div className="space-y-6">

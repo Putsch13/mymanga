@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getStableImageUrl } from "@/lib/images/get-stable-image-url";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BookOpen,
   ChevronLeft,
@@ -31,270 +30,23 @@ import {
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { MangaPageGrid, flattenPagesToPanels, pipelineScenesToPages, type UniversalMangaPage } from "./manga-page-grid";
+import { MangaPageGrid, type UniversalMangaPage } from "./manga-page-grid";
 import { WebtoonLazyScroll } from "./webtoon-lazy-scroll";
 import { SplashPageRenderer } from "./splash-page-renderer";
 import { MangaCanvasRenderer, computePanelPositions } from "./manga-canvas-renderer";
-
-type SceneImage = {
-  id: string;
-  imageUrl: string | null;
-  persistedUrl?: string | null;   // URGENCE 3 : URL stable Supabase
-  panelNumber: number;
-  status?: string;
-  provider?: string | null;
-  model?: string | null;
-  metadata?: {
-    dialogue?: { speaker: string; text: string } | Array<{ speaker: string; text: string }>;
-    dialogues?: Array<{ speaker: string; text: string }>;
-    narration?: string;
-    sfx?: string;
-    caption?: string;
-    layout?: string;
-    mood?: string;
-    textScale?: "normal" | "compact" | "micro";
-    error?: string;
-    blockedReason?: string;
-    renderMeta?: {
-      cropMode?: "contain" | "cover";
-      focalPoint?: { x: number; y: number };
-      safeArea?: { top: number; right: number; bottom: number; left: number };
-      reservedTextZones?: Array<"top-left" | "top-right" | "bottom-left" | "bottom-right" | "center">;
-    };
-    layoutMeta?: {
-      slotType?: "wide" | "tall" | "square" | "closeup" | "dialogue";
-      targetAspectRatio?: string;
-      layoutTemplate?: string;
-    };
-  };
-};
-
-type ChapterScene = {
-  id: string;
-  title: string | null;
-  // URGENCE 3 : champs layout depuis la DB
-  pageLayoutTemplate?: string | null;
-  isSplashPage?: boolean | null;
-  isDoublePage?: boolean | null;
-  dramaticWeight?: number | null;
-  images: SceneImage[];
-};
-
-type ChapterPayload = {
-  id: string;
-  chapterNumber: number;
-  title: string | null;
-  summary: string | null;
-  cliffhanger: string | null;
-  storyboard: unknown;
-  outline: unknown;
-  script: unknown;
-  scenes: ChapterScene[];
-};
-
-type CanonStateData = {
-  hasCanonState: boolean;
-  worldState?: {
-    activeLocations: string[];
-    activeThreats: string[];
-    activeMysteries: string[];
-  };
-  openThreads?: Array<{
-    label: string;
-    description: string;
-    priority: string;
-    introducedAtChapter: number;
-  }>;
-  characterStates?: Array<{
-    characterName: string;
-    currentState: {
-      location?: string;
-      outfit?: string;
-      injuries?: string[];
-      emotion?: string;
-      objective?: string;
-    };
-  }>;
-  canonEvents?: Array<{
-    type: string;
-    subjectName?: string | null;
-    description: string;
-    irreversible: boolean;
-  }>;
-  continuityWarnings?: string[];
-};
-
-type ReaderResponse = {
-  chapter: ChapterPayload;
-  memorySnapshot?: {
-    narrativeSummary?: string | null;
-    openLoops?: string[] | null;
-  } | null;
-  activeJob?: { id: string; status: string } | null;
-  imageStats?: { total: number; completed: number; failed: number; pending: number } | null;
-  generationDiagnostics?: {
-    operationalStatus?: string;
-    degradedModes?: string[];
-    outline?: { fallbackReason?: string; usedFallback?: boolean } | null;
-    dialogue?: { usedFallback?: boolean; fallbackSceneIds?: string[] } | null;
-    sceneFallbacks?: Array<{ sceneId: string; title: string | null; reason: string }>;
-    creativityControls?: {
-      noveltyLevel?: number;
-      worldStrictness?: number;
-      visualExoticism?: number;
-      npcVariety?: number;
-      environmentRichness?: number;
-    } | null;
-    qualityReport?: {
-      averageReleaseScore?: number;
-      releaseThreshold?: number;
-      premiumReleaseAccepted?: boolean;
-      weakPanels?: Array<{ panelIndex: number; releaseScore: number; issues: number }>;
-    } | null;
-    panelDebug?: Array<{
-      sceneId: string;
-      panelId: string;
-      panelNumber: number;
-      status: string | null;
-      provider: string | null;
-      model: string | null;
-      keyframeId: string | null;
-      keyframeImageUrl: string | null;
-      workflow: string | null;
-      referencePolicy: string | null;
-      panelCategory: string | null;
-      sceneComplexityScore: number | null;
-      environmentCritical: boolean;
-      continuityCritical: boolean;
-      prompt: string | null;
-      promptDebug?: {
-        finalPrompt: string | null;
-        promptWarnings: string[];
-      } | null;
-      releaseScore: number | null;
-      backgroundPresenceScore: number | null;
-      interactionScore: number | null;
-      styleConsistencyScore: number | null;
-      visionScore: number | null;
-      visionEnabled: boolean;
-      visionFindings: string[];
-      rerollCount: number;
-      rerollKind: string | null;
-      scenePass: string | null;
-      imageSize: string | null;
-      issues: Array<{ message?: string; severity?: string; type?: string }>;
-      traces: Array<{
-        id: string;
-        status: string;
-        mode: string;
-        provider: string;
-        model: string;
-        requestId: string | null;
-        jobId: string | null;
-        refsUsed: string[];
-        lorasUsed: unknown[];
-        timings: Record<string, unknown> | null;
-        requestPayload: Record<string, unknown> | null;
-      }>;
-    }>;
-  } | null;
-};
-
-// BUG-READER-D : dédup par ID stable uniquement. L'ancienne signature
-// (caption+dialogue+narration+imageUrl) écrasait des pages narrativement
-// distinctes qui partageaient par hasard les mêmes textes (silence, SFX
-// répétés, dialogue 1 mot). Si la page n'a pas d'ID stable, on la conserve
-// systématiquement plutôt que risquer de faire disparaître du contenu réel.
-function dedupeReaderPages(pages: UniversalMangaPage[]): UniversalMangaPage[] {
-  const seen = new Set<string>();
-  const deduped: UniversalMangaPage[] = [];
-  for (const page of pages) {
-    const key =
-      page.id
-      ?? page.panels
-        .map((p) => p.id)
-        .filter((id): id is string => Boolean(id))
-        .join("|");
-    if (!key) {
-      // Pas d'identité → on ne peut pas dédupliquer, on conserve pour ne rien perdre.
-      deduped.push(page);
-      continue;
-    }
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(page);
-  }
-  return deduped;
-}
-
-function buildPagesFromChapter(chapter: ChapterPayload): UniversalMangaPage[] {
-  const storyboard = chapter.storyboard as {
-    pages?: Array<{ pageNumber: number; layout: string }>;
-  } | null;
-
-  const sbPages = storyboard?.pages ?? [];
-
-  if (chapter.scenes.length === 0) {
-    return [
-      {
-        layout: "A",
-        panels: [
-          {
-            mood: "dramatic",
-            narration: chapter.summary ?? `Chapitre ${chapter.chapterNumber}`,
-          },
-        ],
-      },
-    ];
-  }
-
-  const pipelineScenes = chapter.scenes.map((scene) => ({
-    id: scene.id,
-    // URGENCE 3 : passer les champs layout dynamique
-    pageLayoutTemplate: scene.pageLayoutTemplate,
-    isSplashPage: scene.isSplashPage,
-    isDoublePage: scene.isDoublePage,
-    dramaticWeight: scene.dramaticWeight,
-    images: scene.images.map((img) => ({
-      id: img.id,
-      panelNumber: img.panelNumber,
-      mood: img.metadata?.mood,
-      // URGENCE 3 / P0.4 : helper centralisé persistedUrl > imageUrl.
-      imageUrl: getStableImageUrl({ persistedUrl: img.persistedUrl, imageUrl: img.imageUrl }),
-      persistedUrl: img.persistedUrl,
-      status: img.status,
-      provider: img.provider,
-      model: img.model,
-      metadata: img.metadata,
-    })),
-  }));
-
-  return dedupeReaderPages(pipelineScenesToPages(pipelineScenes, sbPages));
-}
-
-const SUGGESTIONS = [
-  {
-    label: "Révélation majeure",
-    intent: "Le lecteur découvre enfin le secret qui lie les deux familles.",
-  },
-  {
-    label: "Confrontation",
-    intent: "Les deux camps se retrouvent face à face, tension maximale.",
-  },
-  {
-    label: "Ellipse temporelle",
-    intent: "On saute trois jours plus tard, après la tempête.",
-  },
-];
-
-const QUICK_TAGS = [
-  "plus d\u2019action",
-  "plus de romance",
-  "plus de noirceur",
-  "twist",
-  "nouveau personnage",
-  "mort d\u2019un personnage",
-];
+// P5.2 — extractions pour alléger ce composant monolithique. Les shapes
+// sont strictement identiques à celles précédemment inline : la typo a été
+// déplacée, pas modifiée.
+import type {
+  CanonStateData,
+  ChapterPayload,
+  ReaderResponse,
+} from "./reader/reader-types";
+import { buildPagesFromChapter, flattenPagesToPanels } from "./reader/build-reader-pages";
+import { READER_QUICK_TAGS, READER_SUGGESTIONS } from "./reader/reader-constants";
+import { computeReaderDegradedWarning } from "./reader/compute-degraded-warning";
+import { useReaderTts } from "./reader/use-reader-tts";
+import { useReaderNavigation } from "./reader/use-reader-navigation";
 
 type Props = {
   projectId: string;
@@ -332,23 +84,8 @@ export function MangaBookReader({ projectId, chapterId, autoFullscreen = false, 
   const [retryingPanel, setRetryingPanel] = useState<string | null>(null);
   const [transitioning, setTransitioning] = useState(false);
   const [showSwipeHint, setShowSwipeHint] = useState(true);
-  const [playingTtsId, setPlayingTtsId] = useState<string | null>(null);
-  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
-  const touchStartX = useRef<number | null>(null);
-  const degradedReaderWarning =
-    (generationDiagnostics?.degradedModes?.length ?? 0) > 0
-      ? [
-          `Sortie dégradée: ${generationDiagnostics?.degradedModes?.join(", ")}.`,
-          generationDiagnostics?.outline?.usedFallback
-            ? `Outline fallback: ${generationDiagnostics.outline.fallbackReason ?? "raison non précisée"}.`
-            : null,
-          generationDiagnostics?.dialogue?.usedFallback
-            ? `Dialogue fallback sur ${generationDiagnostics.dialogue.fallbackSceneIds?.length ?? 0} scène(s).`
-            : null,
-        ]
-          .filter(Boolean)
-          .join(" ")
-      : null;
+  const { playingTtsId, playDialogue } = useReaderTts();
+  const degradedReaderWarning = computeReaderDegradedWarning(generationDiagnostics);
 
   const load = useCallback(async (options?: { preserveIndex?: boolean }) => {
     setLoadError(null);
@@ -392,40 +129,6 @@ export function MangaBookReader({ projectId, chapterId, autoFullscreen = false, 
       setRetryingPanel(null);
     }
   }, [load]);
-
-  const playDialogue = useCallback(async (text: string, speaker?: string | null, id?: string) => {
-    if (ttsAudioRef.current) {
-      ttsAudioRef.current.pause();
-      ttsAudioRef.current = null;
-    }
-    const ttsId = id ?? text.slice(0, 20);
-    if (playingTtsId === ttsId) {
-      setPlayingTtsId(null);
-      return;
-    }
-    setPlayingTtsId(ttsId);
-    try {
-      const res = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: text.slice(0, 500), roleType: speaker ?? undefined }),
-      });
-      if (!res.ok) { setPlayingTtsId(null); return; }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      ttsAudioRef.current = audio;
-      audio.onended = () => { setPlayingTtsId(null); URL.revokeObjectURL(url); };
-      audio.onerror = () => { setPlayingTtsId(null); URL.revokeObjectURL(url); };
-      await audio.play();
-    } catch {
-      setPlayingTtsId(null);
-    }
-  }, [playingTtsId]);
-
-  useEffect(() => {
-    return () => { if (ttsAudioRef.current) ttsAudioRef.current.pause(); };
-  }, []);
 
   useEffect(() => {
     void load();
@@ -490,59 +193,21 @@ export function MangaBookReader({ projectId, chapterId, autoFullscreen = false, 
     }, 180);
   }, [showEnd, spreadMode]);
 
-  useEffect(() => {
-    if (readerMode === "webtoon") return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "ArrowRight" || e.key === " ") {
-        e.preventDefault();
-        if (mangaRtl) goPrev();
-        else goNext();
-      }
-      if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        if (mangaRtl) goNext();
-        else goPrev();
-      }
-      if (e.key === "Escape" && fullscreen) setFullscreen(false);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [goNext, goPrev, fullscreen, mangaRtl, readerMode]);
+  // P5.2 — keyboard + swipe + Escape handler extraits dans useReaderNavigation.
+  useReaderNavigation({
+    readerMode,
+    mangaRtl,
+    fullscreen,
+    goNext,
+    goPrev,
+    onExitFullscreen: () => setFullscreen(false),
+  });
 
-  // UX-5 : Cacher le swipe hint après 3s ou au premier changement de page
   useEffect(() => {
     if (!showSwipeHint) return;
     const t = setTimeout(() => setShowSwipeHint(false), 3500);
     return () => clearTimeout(t);
   }, [showSwipeHint]);
-
-  // READ-2 : Touch swipe pour mobile (delta > 50px → navigation)
-  useEffect(() => {
-    if (readerMode === "webtoon") return;
-    function onTouchStart(e: TouchEvent) {
-      touchStartX.current = e.touches[0]?.clientX ?? null;
-    }
-    function onTouchEnd(e: TouchEvent) {
-      if (touchStartX.current === null) return;
-      const dx = (e.changedTouches[0]?.clientX ?? 0) - touchStartX.current;
-      touchStartX.current = null;
-      if (Math.abs(dx) < 50) return;
-      // Swipe gauche = avancer (RTL) ou reculer (LTR)
-      if (dx < 0) {
-        if (mangaRtl) goPrev();
-        else goNext();
-      } else {
-        if (mangaRtl) goNext();
-        else goPrev();
-      }
-    }
-    window.addEventListener("touchstart", onTouchStart, { passive: true });
-    window.addEventListener("touchend", onTouchEnd, { passive: true });
-    return () => {
-      window.removeEventListener("touchstart", onTouchStart);
-      window.removeEventListener("touchend", onTouchEnd);
-    };
-  }, [goNext, goPrev, mangaRtl, readerMode]);
 
   async function submitContinue(quickTag?: string) {
     const text = intent.trim();
@@ -1125,7 +790,7 @@ export function MangaBookReader({ projectId, chapterId, autoFullscreen = false, 
         <div>
           <p className="mb-2 text-sm font-medium text-muted-foreground">Suggestions</p>
           <div className="flex flex-wrap gap-2">
-            {SUGGESTIONS.map((s) => (
+            {READER_SUGGESTIONS.map((s) => (
               <Button
                 key={s.label}
                 type="button"
@@ -1141,7 +806,7 @@ export function MangaBookReader({ projectId, chapterId, autoFullscreen = false, 
         <div>
           <p className="mb-2 text-sm font-medium text-muted-foreground">Tags rapides</p>
           <div className="flex flex-wrap gap-2">
-            {QUICK_TAGS.map((tag) => (
+            {READER_QUICK_TAGS.map((tag) => (
               <Button
                 key={tag}
                 type="button"
