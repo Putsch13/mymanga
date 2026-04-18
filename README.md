@@ -36,9 +36,11 @@ Monorepo full-stack pour generer des chapitres manga/webtoon coherents avec memo
 
 ### Pipeline chapitre (3 passes modulaires)
 - Orchestrateur mince (~220 lignes) : setup DB → 3 appels sequentiels
-- **Narrative pass** (~1730 lignes) : contexte projet, bundle (outline + script + storyboard), coherence, persistance scenes, continuity engine
+- **Narrative pass** (~2030 lignes) : contexte projet, bundle (outline + script + storyboard), coherence, persistance scenes (Tx A/B/C/D atomiques avec `narrativeCommitId`), continuity engine
 - **Image generation pass** (~1430 lignes) : boucle FAL, retry policy, shot compliance, coverage, recovery, cover art, quality report
 - **Memory pass** (~200 lignes) : canon warnings, snapshot, memoire persistante, continuity diff, finalisation job
+- Helpers purs extraits (`partitionNpcsByPolicy`, `computeDefaultForbiddenDrift`, `slugifyNpcName`, `applyShotPlanToContract`, `normalizeLocationName`) dans `packages/workflow/src/passes/narrative/`
+- Logger JSON structure : `logPipelineInfo/Warn/Error` (voir P4.1)
 - Outline structuree avec arc promises, world consequences, setup/payoff hooks
 - 21 types de beats narratifs (setup, escalation, villain_introduction, flashback_trigger, body_horror_reveal…)
 - Modes narratifs : linear, flashback_framed, flash_forward_framed, in_medias_res
@@ -69,6 +71,42 @@ Monorepo full-stack pour generer des chapitres manga/webtoon coherents avec memo
 - Completion automatique des champs manquants du studio
 - Mode brief (genere le pitch) et mode all_missing (complete tout)
 - Detection et message adapte pour les erreurs reseau/parsing
+
+## Assainissement CTO (P0 + P1 + P4 partiel — avril 2026)
+
+Une passe d'audit complete a ete appliquee pour garantir la fiabilite des donnees critiques (commits `9af57d1`, `04bf4ce`, puis ce commit). Voir `docs/architecture/image-urls.md` pour le detail des invariants URL.
+
+### Storage & canon images
+- Aucune URL temporaire ou signee n'entre jamais en DB (`assertStableImageUrl` + guard a l'ecriture)
+- `persistGeneratedImageIfNeeded` retourne `{ ok, url, storageKey }` aligne sur le chemin Supabase reel
+- Bucket prive : miniatures proxifiees via `/api/images/proxy`
+
+### Canon personnage & lieu unifie
+- Resolver unique `resolveCharacterVisualCanon` (lock > fingerprint > stableVisualDNA > visualProfile)
+- Resolver unique `resolveLocationVisualCanon` (colonne `Location.visualRefs` avec refs stables cross-chapitre)
+- Studio ↔ runtime lisent le meme canon (plus de drift)
+
+### Matching robuste
+- Retry scene-image : matching par ID (`panelCastData.focus?.characterId`, `metadata.characterIds[]`) avant fallback nom
+- Lieux : `normalizeLocationName` (NFD, accents, casse, espaces)
+
+### Atomicite narrative-pass
+- `Chapter.narrativeCommitId` set UNIQUEMENT a la fin de Tx D ; un chapitre "stale" est detecte par `isStaleReady` dans l'API
+- Soft-delete `CharacterVisualRef.archivedAt` pour le PATCH visualRefs (plus de destructif)
+- Script CLI `cleanup-orphan-autogen-characters.ts` pour les PNJ auto orphelins
+
+### Contrat API personnages
+- Schema Zod `.strict()` partage entre UI et route PATCH (25+ champs voix/ADN/canon rules persistes, champ inconnu → 422)
+
+### Observabilite
+- Logger JSON structure `logPipeline(level, event, payload, ctx)`
+- Schemas Zod de frontiere (`parseEntityRegistry`, `parseObjectStateTimeline`, `parseCharacterFingerprint`) avec degradation gracieuse si blob malforme
+- `applyShotPlanToContract` pure function typee (fin des `(x as any).y = z`)
+
+### Tests de non-regression
+- `stable-image-url-guard.test.ts`, `location-matcher.test.ts`, `npc-important-detection.test.ts`
+- `npc-auto-promotion.test.ts`, `pipeline-contracts.test.ts`, `apply-shot-plan-to-contract.test.ts`
+- 103 tests verts sur `@manga-ai-studio/workflow`
 
 ## Architecture
 

@@ -8,3 +8,14 @@ export { assertPremiumContractFromChapter } from "./passes/assert-premium-contra
 export type { PremiumContractGuardResult } from "./passes/assert-premium-contract-guard";
 export * from "./stable-image-refs";
 export { normalizeLocationName, locationNamesEqual } from "./passes/narrative/location-matcher";
+export { logPipeline, logPipelineInfo, logPipelineWarn, logPipelineError } from "./lib/pipeline-logger";
+export type { PipelineLogLevel, PipelineLogOptions } from "./lib/pipeline-logger";
+export {
+  entityRegistrySchema,
+  objectStateTimelineSchema,
+  characterFingerprintSchema,
+  parseEntityRegistry,
+  parseObjectStateTimeline,
+  parseCharacterFingerprint,
+} from "./schemas/pipeline-contracts";
+export type { EntityRegistry, ObjectStateEntry, CharacterFingerprint } from "./schemas/pipeline-contracts";

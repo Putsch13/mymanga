@@ -59,6 +59,15 @@ import { buildStableImageReference } from "../stable-image-refs";
 import { buildCanonAndLoraIndex } from "./narrative/canon-and-lora-index";
 import { buildSceneAnchorsByIndex } from "./narrative/scene-anchor-builder";
 import { normalizeLocationName } from "./narrative/location-matcher";
+import { logPipelineInfo, logPipelineWarn, logPipelineError } from "../lib/pipeline-logger";
+import { parseEntityRegistry } from "../schemas/pipeline-contracts";
+import { applyShotPlanToContract } from "./narrative/apply-shot-plan-to-contract";
+import {
+  partitionNpcsByPolicy,
+  computeDefaultForbiddenDrift,
+  mapEntityKindToRoleType,
+  slugifyNpcName,
+} from "./narrative/npc-auto-promotion";
 import {
   buildChapterContextDocument,
   buildNpcMemoryContext,
@@ -384,42 +393,36 @@ export async function runNarrativePass(
       }
     }
 
-    const entityRegistry = studioSnapshot?.data?.entityRegistry ?? null;
+    // P4.2 : validation Zod tolérante à la frontière — si le registry est
+    // malformé, on dégrade gracefully (null) + log warn, plutôt que d'accepter
+    // silencieusement un blob corrompu qui contaminerait la logique promotion.
+    const entityRegistry = parseEntityRegistry(studioSnapshot?.data?.entityRegistry ?? null);
     const promotedNames = new Set<string>(
       (entityRegistry?.namedEntities ?? [])
-        .filter((e: any) => e.promotionStatus === "promoted" || e.allowedRecurrence === "story_locked")
-        .map((e: any) => e.name.toLowerCase()),
+        .filter((e) => e.promotionStatus === "promoted" || e.allowedRecurrence === "story_locked")
+        .map((e) => e.name.toLowerCase()),
     );
     const temporaryNames = new Set<string>(
       [
         ...(entityRegistry?.temporaryEntities ?? []),
         ...(entityRegistry?.backgroundExtras ?? []),
-      ].map((e: any) => e.name.toLowerCase()),
+      ].map((e) => e.name.toLowerCase()),
     );
 
     if (bundleCharNames.size > 0) {
-      const toPromote: string[] = [];
-      const toSkip: string[] = [];
-
-      for (const pnjName of bundleCharNames) {
-        const nameLower = pnjName.toLowerCase();
-        if (promotedNames.has(nameLower)) {
-          toPromote.push(pnjName);
-        } else if (temporaryNames.has(nameLower)) {
-          toSkip.push(pnjName);
-        } else if (entityRegistry) {
-          toSkip.push(pnjName);
-        } else {
-          toPromote.push(pnjName);
-        }
-      }
+      // P3.1 (partiel) : helper pur extrait dans narrative/npc-auto-promotion.ts
+      const { toPromote, toSkip } = partitionNpcsByPolicy({
+        bundleCharNames,
+        promotedNames,
+        temporaryNames,
+        hasEntityRegistry: Boolean(entityRegistry),
+      });
 
       if (toSkip.length > 0) {
-        console.log(`[pipeline] npc_discipline: skipping ${toSkip.length} non-promoted entities: ${toSkip.join(", ")}`);
+        logPipelineInfo("npc_discipline_skip", { count: toSkip.length, names: toSkip });
       }
-
       if (toPromote.length > 0) {
-        console.log(`[pipeline] npc_promotion: creating ${toPromote.length} characters: ${toPromote.join(", ")}`);
+        logPipelineInfo("npc_promotion_create", { count: toPromote.length, names: toPromote });
       }
 
       // C04: hoist storyBible query outside the NPC loop
@@ -430,7 +433,8 @@ export async function runNarrativePass(
         : [];
       for (const pnjName of toPromote) {
         try {
-          const slug = pnjName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
+          // P3.1 (partiel) : slug, roleType et forbiddenDrift via helpers purs.
+          const slug = slugifyNpcName(pnjName);
           const scenesWithPnj = revisedBundle.script.scenes.filter((s: any) => (s.characters ?? []).includes(pnjName));
           const contextHint = scenesWithPnj[0]?.summary?.slice(0, 200) ?? "";
           const entityProfile = await resolveEntity({
@@ -441,29 +445,8 @@ export async function runNarrativePass(
             projectBible: storyBibleForGlossary?.summary ?? null,
           });
 
-          // P0.12 : on force les humains / named_npc à être promus "secondary"
-          // plutôt que "pnj", pour que la regex `importantNpcs` du shot plan
-          // les capte correctement (elle matche /mentor|deuteragonist|secondary|…/).
-          const entityRoleType = entityProfile.entityKind === "human" || entityProfile.entityKind === "named_npc"
-            ? "secondary"
-            : entityProfile.entityKind;
-
-          // P0.11 : défaut `forbiddenVisualDrift = []` (plus de null muet) +
-          // défauts dérivés du type d'entité pour les cas non-humains évidents.
-          // Un dragon ne doit PAS dériver visage humain ou vêtements modernes.
-          const defaultForbiddenDrift: string[] = (() => {
-            const kind = String(entityProfile.entityKind ?? "").toLowerCase();
-            if (kind === "dragon" || kind === "beast" || kind === "monster") {
-              return ["human face", "human hands", "modern clothing"];
-            }
-            if (kind === "spirit" || kind === "ghost") {
-              return ["solid body material", "casting ordinary shadow"];
-            }
-            if (kind === "robot" || kind === "mecha") {
-              return ["organic skin", "natural hair"];
-            }
-            return [];
-          })();
+          const entityRoleType = mapEntityKindToRoleType(entityProfile.entityKind);
+          const defaultForbiddenDrift = computeDefaultForbiddenDrift(entityProfile.entityKind);
 
           const charData = {
               name: pnjName,
@@ -927,9 +910,15 @@ export async function runNarrativePass(
         genreMode: chapterGenreMode,
         importantCharacters: [...heroes, ...antagonists, ...importantNpcs],
       });
-      console.log(`[pipeline:shot-plan] pages=${chapterShotPlan.pages.length} rhythm=${chapterShotPlan.rhythm} emphasis=${chapterShotPlan.emphasis.length}`);
+      logPipelineInfo("shot_plan_success", {
+        pages: chapterShotPlan.pages.length,
+        rhythm: chapterShotPlan.rhythm,
+        emphasis: chapterShotPlan.emphasis.length,
+      }, { jobId, chapterId, projectId });
     } catch (shotPlanErr) {
-      console.warn(`[pipeline:shot-plan] directShotPlan failed, attempting heuristic fallback: ${shotPlanErr instanceof Error ? shotPlanErr.message : shotPlanErr}`);
+      logPipelineWarn("shot_plan_primary_failed", {
+        error: shotPlanErr instanceof Error ? shotPlanErr.message : String(shotPlanErr),
+      }, { jobId, chapterId, projectId });
       try {
         const { directShotPlan: fallbackShotPlan } = await import("@manga-ai-studio/ai");
         chapterShotPlan = fallbackShotPlan({
@@ -943,9 +932,14 @@ export async function runNarrativePass(
           genreMode: "standard",
           importantCharacters: [],
         });
-        console.log(`[pipeline:shot-plan] heuristic fallback OK: pages=${chapterShotPlan.pages.length} rhythm=${chapterShotPlan.rhythm}`);
+        logPipelineInfo("shot_plan_fallback_ok", {
+          pages: chapterShotPlan.pages.length,
+          rhythm: chapterShotPlan.rhythm,
+        }, { jobId, chapterId, projectId });
       } catch (fallbackErr) {
-        console.error(`[pipeline:shot-plan] CRITICAL: both directShotPlan and heuristic fallback failed: ${fallbackErr instanceof Error ? fallbackErr.message : fallbackErr}`);
+        logPipelineError("shot_plan_critical_failure", {
+          error: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
+        }, { jobId, chapterId, projectId });
       }
     }
 
@@ -1267,15 +1261,19 @@ export async function runNarrativePass(
                 panelBlueprint: panelPremiumBlueprint,
               });
 
-              // C02: Appliquer le ShotPlan per-panel au panelContractBase
+              // C02 / P4.3: Appliquer le ShotPlan per-panel via helper typé.
+              // Plus aucune mutation `(x as any).y = z` : on passe par
+              // `applyShotPlanToContract` qui retourne un nouveau contract
+              // avec la surface `PanelContractWithShotPlan` explicite.
               const shotPlanPage = chapterShotPlan?.pages.find((p) => p.pageNumber === index + 1);
               const shotPlanPanel = shotPlanPage?.panels.find((sp) => sp.panelNumber === panel.panelNumber);
+              const panelContractWithShot = applyShotPlanToContract(panelContractBase, shotPlanPanel);
               if (shotPlanPanel) {
-                panelContractBase.shotType = shotPlanPanel.shotType as typeof panelContractBase.shotType;
-                (panelContractBase as any).cameraAngle = shotPlanPanel.cameraAngle;
-                (panelContractBase as any).subjectFocus = shotPlanPanel.subjectFocus;
-                (panelContractBase as any).cutawayType = shotPlanPanel.cutawayType;
-                (panelContractBase as any).heroCenterAllowed = shotPlanPanel.heroCenterAllowed;
+                panelContractBase.shotType = panelContractWithShot.shotType;
+                (panelContractBase as unknown as Record<string, unknown>).cameraAngle = panelContractWithShot.cameraAngle;
+                (panelContractBase as unknown as Record<string, unknown>).subjectFocus = panelContractWithShot.subjectFocus;
+                (panelContractBase as unknown as Record<string, unknown>).cutawayType = panelContractWithShot.cutawayType;
+                (panelContractBase as unknown as Record<string, unknown>).heroCenterAllowed = panelContractWithShot.heroCenterAllowed;
 
                 // C02b: si le shot plan demande un focus NPC mais que ce NPC n'est pas dans
                 // panel.characters (l'IA narrative ne l'a pas mis), on l'injecte depuis la
