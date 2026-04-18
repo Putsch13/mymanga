@@ -12,6 +12,7 @@ import {
   type CharacterVisualRefPatch,
 } from "@/lib/schemas/character-edit.schema";
 import { isStableImageUrl } from "@/lib/images/assert-stable-image-url";
+import { logCanonAudit } from "@/lib/canon/canon-audit-log";
 
 type Ctx = { params: Promise<{ characterId: string }> };
 
@@ -202,6 +203,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
   }
 
   const data = buildCharacterUpdateData(body);
+  const changedKeys = Object.keys(data);
 
   const character = await prisma.$transaction(async (tx) => {
     const updated = await tx.character.update({
@@ -224,6 +226,19 @@ export async function PATCH(req: Request, ctx: Ctx) {
       },
     });
   });
+
+  // P4.4 : audit trail (log structuré) — seulement si un champ canon a bougé.
+  if (changedKeys.length > 0 || body.visualRefs) {
+    logCanonAudit({
+      kind: "character_canon_changed",
+      characterId,
+      userId: user.id,
+      changedKeys: body.visualRefs ? [...changedKeys, "visualRefs"] : changedKeys,
+      requiresApproval: Array.isArray(body.requiresCanonApprovalFor)
+        ? body.requiresCanonApprovalFor
+        : undefined,
+    });
+  }
 
   return NextResponse.json({ character });
 }

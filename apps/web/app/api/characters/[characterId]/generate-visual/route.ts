@@ -22,6 +22,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { persistGeneratedImageIfNeeded } from "@/lib/images/persist-generated-image";
 import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
 import { assertStableImageUrl, isStableImageUrl } from "@/lib/images/assert-stable-image-url";
+import { logCanonAudit } from "@/lib/canon/canon-audit-log";
 import {
   serializeBodyStateForPrompt,
   serializeWardrobeProfileForPrompt,
@@ -374,7 +375,7 @@ export async function POST(_req: Request, ctx: Ctx) {
           },
         },
       });
-      return tx.characterVisualRef.create({
+      const createdRef = await tx.characterVisualRef.create({
         data: {
           characterId: character.id,
           mediaAssetId: mediaAsset.id,
@@ -397,7 +398,26 @@ export async function POST(_req: Request, ctx: Ctx) {
           },
         },
       });
+      return { createdRef, storedLock, nextVersion };
     });
+
+    // P4.4 : audit trail — visual_lock_created + visual_ref_promoted si primary.
+    logCanonAudit({
+      kind: "visual_lock_created",
+      characterId: character.id,
+      visualLockId: visualRef.storedLock.id,
+      userId: user.id,
+      source: "generate-visual",
+      version: visualRef.nextVersion,
+    });
+    if (visualRef.createdRef.isPrimary) {
+      logCanonAudit({
+        kind: "visual_ref_promoted",
+        characterId: character.id,
+        visualRefId: visualRef.createdRef.id,
+        userId: user.id,
+      });
+    }
 
     await settleReservedTokens(prisma, user.id, reservation.reservationId, estimatedTokens);
 
@@ -447,7 +467,7 @@ export async function POST(_req: Request, ctx: Ctx) {
         const loraSent = await sendCharacterLoraTrainingRequested({
           characterId: character.id,
           projectId: character.project.id,
-          imageUrl: visualRef.imageUrl,
+          imageUrl: visualRef.createdRef.imageUrl,
         });
         if (loraSent.ok) {
           console.log(`[generate-visual] LoRA training triggered for ${character.name} (${character.roleType})`);
@@ -465,8 +485,8 @@ export async function POST(_req: Request, ctx: Ctx) {
     }
 
     // Signer puis proxifier l'URL pour affichage immédiat (évite CORS/ITP Safari)
-    const signedImageUrl = await signSupabaseUrlIfNeeded(visualRef.imageUrl);
-    const urlForClient = signedImageUrl ?? visualRef.imageUrl;
+    const signedImageUrl = await signSupabaseUrlIfNeeded(visualRef.createdRef.imageUrl);
+    const urlForClient = signedImageUrl ?? visualRef.createdRef.imageUrl;
     const proxiedUrl = urlForClient && !urlForClient.startsWith("/api/images/proxy")
       ? (() => {
           try {
@@ -478,7 +498,7 @@ export async function POST(_req: Request, ctx: Ctx) {
           } catch { return urlForClient; }
         })()
       : urlForClient;
-    const visualRefForClient = { ...visualRef, imageUrl: proxiedUrl };
+    const visualRefForClient = { ...visualRef.createdRef, imageUrl: proxiedUrl };
 
     return NextResponse.json({ ok: true, visualRef: visualRefForClient });
   } catch (error) {

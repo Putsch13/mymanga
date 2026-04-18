@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { CanonDriftBanner } from "@/components/characters/canon-drift-banner";
+import { detectCanonVisualDrift } from "@/lib/characters/detect-canon-visual-drift";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -85,6 +87,16 @@ export default function CharacterDetailPage() {
   const projectId = params.id as string;
   const characterId = params.characterId as string;
   const [character, setCharacter] = useState<CharacterPayload | null>(null);
+  const [initialVisualSnapshot, setInitialVisualSnapshot] = useState<{
+    appearance: string | null;
+    hairColor: string | null;
+    eyeColor: string | null;
+    outfitDefault: string | null;
+    visualProfile: unknown;
+    bodyState: unknown;
+    wardrobeProfile: unknown;
+    stableVisualDNA: unknown;
+  } | null>(null);
   const [projectCharacters, setProjectCharacters] = useState<ProjectCharacter[]>([]);
   const [saving, setSaving] = useState(false);
   const [generatingVisual, setGeneratingVisual] = useState(false);
@@ -93,6 +105,22 @@ export default function CharacterDetailPage() {
   const [message, setMessage] = useState<{ text: string; type: "ok" | "error" } | null>(null);
   const [relationTargetId, setRelationTargetId] = useState("");
   const [relationType, setRelationType] = useState("rivalité");
+
+  const driftResult = useMemo<ReturnType<typeof detectCanonVisualDrift>>(() => {
+    if (!initialVisualSnapshot || !character) {
+      return { hasDrift: false, critical: [], changedAxes: [], canCritical: [] };
+    }
+    return detectCanonVisualDrift(initialVisualSnapshot, {
+      appearance: character.appearance,
+      hairColor: character.hairColor,
+      eyeColor: character.eyeColor,
+      outfitDefault: character.outfitDefault,
+      visualProfile: character.visualProfile,
+      bodyState: character.bodyState,
+      wardrobeProfile: character.wardrobeProfile,
+      stableVisualDNA: character.stableVisualDNA,
+    });
+  }, [initialVisualSnapshot, character]);
 
   useEffect(() => {
     async function load() {
@@ -131,6 +159,17 @@ export default function CharacterDetailPage() {
         stablePsycheDNA: c.stablePsycheDNA ?? {},
         requiresCanonApprovalFor: c.requiresCanonApprovalFor ?? [],
         gender: c.gender === "male" || c.gender === "female" ? c.gender : null,
+      });
+      // P1.6 : snapshot initial pour détecter les drifts canon visuels.
+      setInitialVisualSnapshot({
+        appearance: c.appearance ?? null,
+        hairColor: c.hairColor ?? null,
+        eyeColor: c.eyeColor ?? null,
+        outfitDefault: c.outfitDefault ?? null,
+        visualProfile: c.visualProfile ?? {},
+        bodyState: c.bodyState ?? {},
+        wardrobeProfile: c.wardrobeProfile ?? {},
+        stableVisualDNA: c.stableVisualDNA ?? {},
       });
       if (projCharsResult.ok) {
         setProjectCharacters(projCharsResult.data.characters ?? []);
@@ -370,6 +409,15 @@ export default function CharacterDetailPage() {
         <p className={`text-sm ${message.type === "ok" ? "text-emerald-400" : "text-red-400"}`}>
           {message.text}
         </p>
+      )}
+
+      {initialVisualSnapshot && driftResult.hasDrift && (
+        <CanonDriftBanner
+          changedAxes={driftResult.changedAxes}
+          critical={driftResult.critical}
+          isBusy={saving || generatingVisual || autoGenerating}
+          onRegenerate={async () => { await generateVisual(); }}
+        />
       )}
 
       <div className="grid gap-6 xl:grid-cols-[1fr_300px]">
