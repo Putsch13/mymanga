@@ -5,6 +5,7 @@ import type {
   CharacterState,
   OpenThread,
 } from "./types";
+import { prohibitionIsViolated } from "./kernel/utils";
 
 /**
  * Exécute une analyse de cohérence avant validation finale du chapitre.
@@ -191,7 +192,7 @@ export async function runContinuityDiff(
         // TODO: LLM-based violation detection
         if (loreObj.forbiddenLoreDrift) {
           for (const forbidden of loreObj.forbiddenLoreDrift) {
-            if (scriptStr.includes(forbidden.toLowerCase())) {
+            if (prohibitionIsViolated(scriptStr, forbidden)) {
               issues.push({
                 severity: "major",
                 type: "lore_violation",

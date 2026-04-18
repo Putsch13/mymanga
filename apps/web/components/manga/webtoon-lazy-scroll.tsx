@@ -51,8 +51,8 @@ interface WebtoonLazyScrollProps {
 
 /* ── Helpers ───────────────────────────────────────────────────── */
 
-const PRELOAD_COUNT = 5;
-const ROOT_MARGIN = "400px 0px";
+const PRELOAD_COUNT = 12;
+const ROOT_MARGIN = "600px 0px";
 
 function isSplash(panel: WebtoonPanel): boolean {
   return !!(panel.layoutMeta?.isSplashPage || panel.layoutMeta?.isDoublePage);
@@ -159,7 +159,7 @@ export default function WebtoonLazyScroll({ pages }: WebtoonLazyScrollProps) {
             <div key={page.id ?? `page-${pageIdx}`}>
               {showSeparator && <SceneSeparator index={separatorIdx} />}
 
-              {page.panels.map((panel, panelIdx) => {
+              {page.panels.filter((p) => p.status === "completed" || p.imageUrl).map((panel, panelIdx) => {
                 const panelKey = panel.id ?? `${pageIdx}-${panelIdx}`;
                 const isLoaded = visiblePanels.has(panelKey);
                 const isRevealed = revealedPanels.has(panelKey);

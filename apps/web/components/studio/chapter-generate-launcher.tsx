@@ -69,6 +69,17 @@ export function ChapterGenerateLauncher({
     });
     const json = await res.json();
     setLaunching(false);
+    if (!res.ok) {
+      if (json.code === "SHOT_MONOTONY") {
+        setMessage(`⚠️ Variété de plans insuffisante (${((json.varietyScore as number ?? 0) * 100).toFixed(0)}%). Plans manquants : ${((json.missingShots as string[]) ?? []).join(", ")}. Régénère le plan dans le studio.`);
+      } else if (json.code === "premium_contract_incomplete") {
+        setMessage(`Contrat incomplet : ${((json.missing as string[]) ?? []).join(", ")}. Retourne à l'étape Plan.`);
+      } else {
+        setMessage((json.message as string | undefined) ?? (json.error as string | undefined) ?? "Erreur lors du lancement.");
+      }
+      setDetails(json.details ?? null);
+      return;
+    }
     setMessage(json.message ?? null);
     setDetails(json.details ?? null);
     if (json.jobId) setJobId(json.jobId);

@@ -174,6 +174,7 @@ function deduceShotType(panel: StoryboardPanel): PanelContract["shotType"] {
   if (/(extreme close|extreme closeup|micro détail|sur les yeux)/.test(desc)) return "extreme_closeup";
   if (/(close-up|closeup|close up|portrait|gros plan)/.test(desc)) return "closeup";
   if (/(over shoulder|over-shoulder|par-dessus l'épaule|par dessus l'épaule)/.test(desc)) return "over_shoulder";
+  console.warn(`[panel-contract] shotType fallback="medium" panel=${panel.panelNumber}`);
   return "medium";
 }
 

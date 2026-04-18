@@ -214,12 +214,14 @@ export function pipelineScenesToPages(
   storyboardPages?: Array<{ pageNumber: number; layout: string }>,
 ): UniversalMangaPage[] {
   function normalizeLayout(layout: MangaGridLayout, panelCount: number): MangaGridLayout {
-    // Map panel count to a layout that has exactly that many areas.
     if (panelCount <= 4) return "F";
     if (panelCount === 5) return layout === "C" || layout === "E" ? layout : "C";
-    // 6 panels
-    const sixLayouts: MangaGridLayout[] = ["A", "B", "D"];
-    return sixLayouts.includes(layout) ? layout : "A";
+    if (panelCount === 6) {
+      const sixLayouts: MangaGridLayout[] = ["A", "B", "D"];
+      return sixLayouts.includes(layout) ? layout : "A";
+    }
+    // 7+ panels → tronquer à 6, jamais laisser déborder
+    return "A";
   }
 
   return scenes.map((scene, idx) => {
@@ -228,6 +230,7 @@ export function pipelineScenesToPages(
 
     const panels: UniversalPanel[] = (scene.images ?? [])
       .sort((a, b) => a.panelNumber - b.panelNumber)
+      .slice(0, 8) // max 8 slots (montage_rapid)
       .map((img) => {
         // URGENCE 3 : préférer persistedUrl (URL stable Supabase) sur imageUrl (peut expirer)
         const effectiveImageUrl = (img as { persistedUrl?: string | null }).persistedUrl ?? img.imageUrl;

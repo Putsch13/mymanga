@@ -209,23 +209,12 @@ function normalizeForReaderDup(value: string | null | undefined) {
 
 function dedupeReaderPages(pages: UniversalMangaPage[]): UniversalMangaPage[] {
   const seen = new Set<string>();
-  const deduped: UniversalMangaPage[] = [];
-  for (const page of pages) {
-    const signature = page.panels
-      .map((panel) =>
-        [
-          normalizeForReaderDup(panel.caption),
-          normalizeForReaderDup(panel.dialogue),
-          normalizeForReaderDup(panel.narration),
-          panel.imageUrl ?? "",
-        ].join("|"),
-      )
-      .join("||");
-    if (seen.has(signature)) continue;
-    seen.add(signature);
-    deduped.push(page);
-  }
-  return deduped;
+  return pages.filter((page) => {
+    const key = page.id ?? page.panels.map((p) => p.id).join("|");
+    if (!key || seen.has(key)) return !key;
+    seen.add(key);
+    return true;
+  });
 }
 
 function buildPagesFromChapter(chapter: ChapterPayload): UniversalMangaPage[] {
@@ -378,7 +367,11 @@ export function MangaBookReader({ projectId, chapterId, autoFullscreen = false, 
   const retryPanel = useCallback(async (panelId: string, mode: "environment" | "character" | "composition") => {
     setRetryingPanel(`${panelId}:${mode}`);
     try {
-      const res = await fetch(`/api/scene-images/${panelId}/retry?mode=${mode}`, { method: "POST" });
+      const res = await fetch(`/api/scene-images/${panelId}/retry`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
       if (res.ok) {
         await load({ preserveIndex: true });
       }

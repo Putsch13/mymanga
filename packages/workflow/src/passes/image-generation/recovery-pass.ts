@@ -140,7 +140,7 @@ export async function runRecoveryPass(params: RecoveryParams): Promise<RecoveryR
           providerParams: {
             contentIntensityLayer: intensityLayer,
             mode: "PANEL_DRAFT",
-            referencePolicy: hasCanonReferences ? "CANON_ONLY" : "NONE",
+            referencePolicy: hasCanonReferences ? "STRONG" : "NONE",
             panelCategory: "CHARACTER_IN_SCENE",
             scenePass: "single_pass",
             panelCriticality: "low",

@@ -339,6 +339,25 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
     });
   }
 
+  for (const canon of snapshot.data.characterCanons ?? []) {
+    if (canon.importanceTier !== "MAIN_HERO" && canon.importanceTier !== "SECONDARY_CORE") continue;
+    const visualTraitCount =
+      canon.visualIdentity.length +
+      canon.hairTraits.length +
+      canon.eyeTraits.length +
+      canon.faceTraits.length;
+    if (visualTraitCount < 2) {
+      addWarning({
+        id: `missing_canon_pack_${canon.characterId}`,
+        step: "characters",
+        field: "studio-hero-character",
+        message: `La fiche canon de ${canon.canonicalName} est incomplète (${visualTraitCount} trait(s) visuel(s)). Génère la fiche canon dans le studio personnage pour stabiliser le rendu visuel.`,
+        ctaLabel: "Générer la fiche canon",
+        action: "focus_field",
+      });
+    }
+  }
+
   const preparationScore = clamp(
     100
       - blockerItems.length * 14
