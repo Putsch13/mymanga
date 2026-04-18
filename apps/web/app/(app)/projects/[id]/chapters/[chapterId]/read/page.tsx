@@ -5,6 +5,8 @@ import { MangaBookReader } from "@/components/manga/manga-book-reader";
 import { getCurrentUser } from "@/lib/auth/get-app-user";
 import { prisma } from "@manga-ai-studio/db";
 import { Badge } from "@/components/ui/badge";
+import { getStableImageUrl } from "@/lib/images/get-stable-image-url";
+import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
 
 export const dynamic = "force-dynamic";
 
@@ -76,11 +78,14 @@ async function renderReadPage(params: Props["params"], searchParamsP: Props["sea
   });
 
   const allImages = chapter.scenes.flatMap((s) => s.images);
-  const completedImages = allImages.filter((i) => i.status === "completed" && (i.persistedUrl ?? i.imageUrl)).length;
+  // P0.4 : helper centralisé remplace `img.persistedUrl ?? img.imageUrl` partout.
+  const completedImages = allImages.filter((i) => i.status === "completed" && getStableImageUrl(i) !== null).length;
   const totalImages = allImages.length;
   const targetImages = Math.max(TARGET_IMAGES_PER_CHAPTER, totalImages);
-  const coverImage = allImages.find((i) => (i.persistedUrl ?? i.imageUrl) && i.status === "completed");
-  const coverUrl = coverImage?.persistedUrl ?? coverImage?.imageUrl ?? null;
+  const coverImage = allImages.find((i) => getStableImageUrl(i) !== null && i.status === "completed");
+  // P0.5 : signer/proxifier la cover pour que les buckets privés fonctionnent.
+  const rawCoverUrl = getStableImageUrl(coverImage);
+  const coverUrl = rawCoverUrl ? await signSupabaseUrlIfNeeded(rawCoverUrl) : null;
 
   // READ-PREMIUM : mode immersif — reader plein écran direct
   if (immersive) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getStableImageUrl } from "@/lib/images/get-stable-image-url";
 import {
   BookOpen,
   ChevronLeft,
@@ -258,8 +259,8 @@ function buildPagesFromChapter(chapter: ChapterPayload): UniversalMangaPage[] {
       id: img.id,
       panelNumber: img.panelNumber,
       mood: img.metadata?.mood,
-      // URGENCE 3 : préférer persistedUrl (stable) — proxy appliqué côté API
-      imageUrl: img.persistedUrl ?? img.imageUrl,
+      // URGENCE 3 / P0.4 : helper centralisé persistedUrl > imageUrl.
+      imageUrl: getStableImageUrl({ persistedUrl: img.persistedUrl, imageUrl: img.imageUrl }),
       persistedUrl: img.persistedUrl,
       status: img.status,
       provider: img.provider,

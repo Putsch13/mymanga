@@ -17,6 +17,10 @@ import { persistGeneratedImageIfNeeded } from "@/lib/images/persist-generated-im
 import { assertStableImageUrl } from "@/lib/images/assert-stable-image-url";
 import { resolveRetryReferencePolicy, type RetryMode } from "@/lib/images/retry-reference-policy";
 import { collectRetryStableReferences } from "@/lib/images/retry-stable-references";
+import { buildCharacterRetryHints as buildCharacterRetryHintsShared } from "@/lib/retry/build-character-retry-hints";
+import { readRetryBody as readRetryBodyShared } from "@/lib/retry/read-retry-body";
+import { createProjectCharacterResolver } from "@/lib/retry/resolve-project-characters";
+import { buildLocationMarkersLine } from "@/lib/retry/build-location-markers";
 import { resolveStableImageReferences } from "@manga-ai-studio/workflow";
 
 export const runtime = "nodejs";
@@ -56,15 +60,10 @@ interface RetryBody {
   };
 }
 
+// P5.1 : la lecture du body est désormais dans `lib/retry/read-retry-body.ts`.
+// On garde un wrapper typé local pour préserver la signature de la route.
 async function readRetryBody(req: Request): Promise<RetryBody> {
-  try {
-    const clone = req.clone();
-    const text = await clone.text();
-    if (!text || text.trim().length === 0) return {};
-    return JSON.parse(text) as RetryBody;
-  } catch {
-    return {};
-  }
+  return readRetryBodyShared<RetryBody>(req);
 }
 
 export async function POST(req: Request, ctx: Ctx) {
@@ -146,60 +145,52 @@ export async function POST(req: Request, ctx: Ctx) {
       loraByCharId.set(att.characterId, { url: loraUrl, triggerWord, scale: att.weight });
     }
   }
+  // P1.3 : on enrichit le SELECT pour alimenter buildCharacterRetryHints avec
+  // tout le physique dur (bodyState, wardrobeProfile, outfitDefault, scars…),
+  // pas juste le characterFingerprint. Sinon les rerolls perso perdent en
+  // fidélité corporelle à chaque passe.
   const projectChars = await prisma.character.findMany({
     where: { projectId },
-    select: { id: true, name: true, characterFingerprint: true },
+    select: {
+      id: true,
+      name: true,
+      characterFingerprint: true,
+      appearance: true,
+      hairColor: true,
+      eyeColor: true,
+      outfitDefault: true,
+      visualProfile: true,
+      bodyState: true,
+      wardrobeProfile: true,
+      stableVisualDNA: true,
+    },
   });
 
-  // P0.5 : indexation par ID (vérité) + par nom normalisé (fallback legacy).
-  const projectCharsById = new Map(projectChars.map((c) => [c.id, c]));
-  const projectCharsByName = new Map(
-    projectChars.map((c) => [c.name.toLowerCase().trim(), c]),
-  );
-  function normalizeCharName(n: string): string {
-    return n.toLowerCase().trim();
-  }
   // P0.5 : `characterIds` injecté par narrative-pass (P1.4) dans metadata.
   // Sur les panels legacy, l'array peut être absent → on dégrade vers panelCast/name.
   const metadataCharacterIds = Array.isArray((metadata as Record<string, unknown>).characterIds)
     ? ((metadata as Record<string, unknown>).characterIds as unknown[]).filter((x): x is string => typeof x === "string")
     : [];
 
-  /**
-   * Résolution canonique d'un personnage.
-   * Ordre (plus fiable → moins fiable) :
-   *  1. panelCast.focus.characterId
-   *  2. panelCast.supporting[].characterId (par nom)
-   *  3. metadata.characterIds[]
-   *  4. fallback par nom normalisé
-   */
-  function resolveCharacterFromName(name: string):
-    | { character: typeof projectChars[number]; resolvedBy: "focus_id" | "supporting_id" | "metadata_id" | "name_fallback" }
-    | null {
-    const norm = normalizeCharName(name);
+  // P5.1 : indexation + resolver factorisés dans `lib/retry/resolve-project-characters.ts`.
+  // Policy inchangée : ID d'abord (focus → supporting → metadata), nom en dernier recours.
+  const {
+    projectCharsById,
+    resolveCharacterFromName,
+  } = createProjectCharacterResolver({
+    projectChars,
+    panelCastData,
+    metadataCharacterIds,
+  });
 
-    if (panelCastData?.focus?.characterId && normalizeCharName(panelCastData.focus.name) === norm) {
-      const c = projectCharsById.get(panelCastData.focus.characterId);
-      if (c) return { character: c, resolvedBy: "focus_id" };
-    }
-    const supporting = panelCastData?.supporting ?? [];
-    for (const s of supporting) {
-      if (s?.characterId && normalizeCharName(s.name) === norm) {
-        const c = projectCharsById.get(s.characterId);
-        if (c) return { character: c, resolvedBy: "supporting_id" };
-      }
-    }
-    for (const id of metadataCharacterIds) {
-      const c = projectCharsById.get(id);
-      if (c && normalizeCharName(c.name) === norm) {
-        return { character: c, resolvedBy: "metadata_id" };
-      }
-    }
-    const byName = projectCharsByName.get(norm);
-    if (byName) return { character: byName, resolvedBy: "name_fallback" };
-    return null;
-  }
-
+  // P2.3 : l'ordre `focus → supporting[]` garantit qu'en cas de cap, les
+  // LoRA critiques (hero focus, antagonist principal) sont pris avant les
+  // supports secondaires. Le plafond reste configurable via env
+  // `RETRY_MAX_PANEL_LORAS` (default 2 : limite fal IP-Adapter actuelle).
+  const maxPanelLoras = Math.max(
+    1,
+    Number.parseInt(process.env.RETRY_MAX_PANEL_LORAS ?? "", 10) || 2,
+  );
   const castOrderedNames = panelCastData
     ? [panelCastData.focus?.name, ...(panelCastData.supporting ?? []).map((m) => m.name)].filter((n): n is string => Boolean(n))
     : characters;
@@ -215,7 +206,7 @@ export async function POST(req: Request, ctx: Ctx) {
       return loraByCharId.get(res.character.id);
     })
     .filter((l): l is { url: string; triggerWord: string; scale: number } => Boolean(l))
-    .slice(0, 2);
+    .slice(0, maxPanelLoras);
 
   // P0.5 : IDs résolus des personnages présents dans ce panel (pour les filtres
   // qui prenaient `characters.includes(pc.name)` → on bascule vers ID).
@@ -389,37 +380,24 @@ export async function POST(req: Request, ctx: Ctx) {
             return undefined;
           })();
 
-    if (!target) {
-      return {
-        positive: "preserve character identity, same face, same hair, same outfit, strict continuity",
-        negative: "wrong hair color, wrong outfit, inconsistent face, identity drift",
-      };
-    }
-
-    const fp = target.characterFingerprint && typeof target.characterFingerprint === "object"
-      ? target.characterFingerprint as Record<string, unknown>
-      : null;
-    const hairColor = typeof fp?.hairColor === "string" ? fp.hairColor : null;
-    const eyeColor = typeof fp?.eyeColor === "string" ? fp.eyeColor : null;
-    const gender = typeof fp?.gender === "string" ? fp.gender : null;
-    const appearance = typeof fp?.appearance === "string" ? fp.appearance : null;
-
-    const traits = [
-      hairColor ? `hair (${hairColor})` : null,
-      eyeColor ? `eyes (${eyeColor})` : null,
-      appearance ? appearance.slice(0, 80) : null,
-    ].filter(Boolean).join(", ");
-
-    return {
-      positive: `preserve ${target.name}'s face${traits ? `, ${traits}` : ""}; strict identity lock on ${target.name}${gender ? `, ${gender}` : ""}`,
-      negative: `wrong face for ${target.name}, identity drift, generic anime face replacing ${target.name}${hairColor ? `, wrong hair color for ${target.name}` : ""}`,
-    };
+    // P1.3 : délégué au helper partagé qui protège aussi bodyState /
+    // wardrobeProfile / outfitDefault / forbiddenVisualDrift, pas juste
+    // hair+eye+appearance.
+    return buildCharacterRetryHintsShared(target ?? null);
   }
 
   const characterHints = retryMode === "character" ? buildCharacterRetryHints() : null;
 
+  // P4.2 : pour les retry "environment" ou "composition", on demande les marqueurs
+  // décor au helper partagé (`lib/retry/build-location-markers.ts`). Un reroll
+  // environnement doit conserver l'identité visuelle du lieu ; pas seulement
+  // "strong background".
+  const locationMarkersLine = (retryMode === "environment" || retryMode === "composition")
+    ? await buildLocationMarkersLine({ prisma, locationId: img.scene.locationId })
+    : "";
+
   const legacyPositiveAugment = retryMode === "environment"
-    ? "readable environment, strong background, visible architecture, clear foreground midground background"
+    ? ["readable environment, strong background, visible architecture, clear foreground midground background", locationMarkersLine].filter(Boolean).join(", ")
     : retryMode === "character"
       ? characterHints!.positive
       : retryMode === "interaction"
@@ -427,7 +405,7 @@ export async function POST(req: Request, ctx: Ctx) {
         : retryMode === "style"
           ? "consistent manga style, clean line art, coherent shading"
           : retryMode === "composition"
-            ? "balanced manga composition, spatial clarity, dynamic framing"
+            ? ["balanced manga composition, spatial clarity, dynamic framing", locationMarkersLine].filter(Boolean).join(", ")
             : "";
   const legacyNegativeAugment = retryMode === "environment"
     ? "empty background, studio backdrop, flat grey backdrop, blurry environment"

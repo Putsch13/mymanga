@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Clock, Loader2, Sparkles, XCircle } from "lucide-react";
+import { getStableImageUrl } from "@/lib/images/get-stable-image-url";
 
 interface PanelStatus {
   id: string;
@@ -141,10 +142,10 @@ export function GenerationProgressBoard({
               key={panel.id}
               className="relative aspect-[3/4] overflow-hidden rounded-lg border border-border/60 bg-card/40"
             >
-              {panel.status === "completed" && (panel.persistedUrl ?? panel.imageUrl) ? (
+              {panel.status === "completed" && getStableImageUrl(panel) ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={panel.persistedUrl ?? panel.imageUrl ?? ""}
+                  src={getStableImageUrl(panel) ?? ""}
                   alt={`Panel ${panel.panelNumber}`}
                   className="h-full w-full object-cover"
                 />

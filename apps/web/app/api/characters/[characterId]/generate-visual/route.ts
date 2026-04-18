@@ -22,6 +22,10 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { persistGeneratedImageIfNeeded } from "@/lib/images/persist-generated-image";
 import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
 import { assertStableImageUrl, isStableImageUrl } from "@/lib/images/assert-stable-image-url";
+import {
+  serializeBodyStateForPrompt,
+  serializeWardrobeProfileForPrompt,
+} from "@/lib/retry/build-character-retry-hints";
 import { notFound, paymentRequired, unauthorized } from "@/lib/api-response";
 import { getOwnedCharacter } from "@/lib/ownership";
 import { sendCharacterLoraTrainingRequested } from "@manga-ai-studio/workflow";
@@ -82,33 +86,29 @@ export async function POST(_req: Request, ctx: Ctx) {
       select: { sensualityLevel: true },
     });
 
-    // Composer le prompt via character-visual-composer
+    // P1.4 : on remplace les String(...) naïfs par des sérialiseurs dédiés
+    // (aucun risque de `[object Object]` dans le prompt si un champ est un
+    // array ou un objet imbriqué). Les records bruts restent exposés pour
+    // les autres consommateurs (promptBundle / metadata) qui attendent un
+    // Record<string, unknown>.
     const raw = character as unknown as Record<string, unknown>;
-    const bodyState = raw.bodyState && typeof raw.bodyState === "object" ? raw.bodyState as Record<string, unknown> : {};
-    const wardrobeProfile = raw.wardrobeProfile && typeof raw.wardrobeProfile === "object" ? raw.wardrobeProfile as Record<string, unknown> : {};
+    const bodyState = raw.bodyState && typeof raw.bodyState === "object"
+      ? raw.bodyState as Record<string, unknown>
+      : {};
+    const wardrobeProfile = raw.wardrobeProfile && typeof raw.wardrobeProfile === "object"
+      ? raw.wardrobeProfile as Record<string, unknown>
+      : {};
+    const bodyStateLine = serializeBodyStateForPrompt(bodyState);
+    const wardrobeLine = serializeWardrobeProfileForPrompt(wardrobeProfile);
 
-    // Construire une description corporelle compacte depuis bodyState
-    const bodyParts: string[] = [];
-    if (bodyState.height) bodyParts.push(String(bodyState.height));
-    if (bodyState.build) bodyParts.push(String(bodyState.build));
-    if (bodyState.scars) bodyParts.push(`scars: ${String(bodyState.scars)}`);
-    if (bodyState.prosthetics) bodyParts.push(`prosthetic: ${String(bodyState.prosthetics)}`);
-    if (bodyState.tattoos) bodyParts.push(`tattoo: ${String(bodyState.tattoos)}`);
-    if (bodyState.injuries) bodyParts.push(`injury: ${String(bodyState.injuries)}`);
-    if (bodyState.modifications) bodyParts.push(String(bodyState.modifications));
-
-    // Fusionner appearance + bodyState pour le prompt visuel
     const fullAppearance = [
       typeof raw.appearance === "string" ? raw.appearance : null,
-      ...bodyParts,
+      bodyStateLine,
     ].filter(Boolean).join(", ") || null;
 
-    // Outfit enrichi depuis wardrobeProfile
     const fullOutfit = [
       typeof character.outfitDefault === "string" ? character.outfitDefault : null,
-      wardrobeProfile.accessories ? String(wardrobeProfile.accessories) : null,
-      wardrobeProfile.armor ? String(wardrobeProfile.armor) : null,
-      wardrobeProfile.weapons ? String(wardrobeProfile.weapons) : null,
+      wardrobeLine,
     ].filter(Boolean).join(", ") || null;
 
     const composed = composeCharacterVisualPrompt({

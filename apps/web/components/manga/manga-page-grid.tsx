@@ -2,6 +2,7 @@
 
 import type React from "react";
 import type { AnyPanelMood } from "./manga-panel";
+import { getStableImageUrl } from "@/lib/images/get-stable-image-url";
 
 type DemoPanel = {
   id: string;
@@ -243,8 +244,11 @@ export function pipelineScenesToPages(
     const panels: UniversalPanel[] = rawImages
       .slice(0, MAX_PANELS_PER_PAGE)
       .map((img) => {
-        // URGENCE 3 : préférer persistedUrl (URL stable Supabase) sur imageUrl (peut expirer)
-        const effectiveImageUrl = (img as { persistedUrl?: string | null }).persistedUrl ?? img.imageUrl;
+        // URGENCE 3 / P0.4 : helper centralisé persistedUrl > imageUrl.
+        const effectiveImageUrl = getStableImageUrl({
+          persistedUrl: (img as { persistedUrl?: string | null }).persistedUrl ?? null,
+          imageUrl: img.imageUrl,
+        });
         return {
           id: (img as { id?: string }).id,
           mood: (img.mood as AnyPanelMood) ?? "dramatic",

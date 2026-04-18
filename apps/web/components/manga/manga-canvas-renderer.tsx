@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback } from "react";
+import { getStableImageUrl } from "@/lib/images/get-stable-image-url";
 
 export interface CanvasPanel {
   id: string;
@@ -157,7 +158,7 @@ export function computePanelPositions(
 
   return images.map((img, idx) => ({
     id: img.id,
-    imageUrl: img.persistedUrl ?? img.imageUrl ?? "",
+    imageUrl: getStableImageUrl(img) ?? "",
     x: (idx % colCount) * colW,
     y: Math.floor(idx / colCount) * rowH,
     width: colW,
