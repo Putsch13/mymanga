@@ -83,4 +83,31 @@ describe("createProjectCharacterResolver (P0.5 + P5.1)", () => {
     });
     expect(resolveCharacterFromName("  KAORI  ")?.character.id).toBe("c-hero");
   });
+
+  // P0.4 : collision detection — un nom ambigu (homonyme) sans contexte
+  // d'IDs (panelCast ou metadataCharacterIds) doit être refusé, jamais
+  // matché arbitrairement sur le premier.
+  it("refuse explicitement name_fallback quand le nom est ambigu (homonymes)", () => {
+    const { resolveCharacterFromName } = createProjectCharacterResolver({
+      projectChars: chars,
+      panelCastData: null,
+      metadataCharacterIds: [],
+    });
+    // Deux "Ren" existent → fallback interdit
+    expect(resolveCharacterFromName("Ren")).toBeNull();
+  });
+
+  it("résout malgré l'homonymie si un panelCast apporte l'ID", () => {
+    const { resolveCharacterFromName } = createProjectCharacterResolver({
+      projectChars: chars,
+      panelCastData: {
+        focus: { characterId: "c-twin-b", name: "Ren" },
+        supporting: [],
+      },
+      metadataCharacterIds: [],
+    });
+    const res = resolveCharacterFromName("Ren");
+    expect(res?.resolvedBy).toBe("focus_id");
+    expect(res?.character.id).toBe("c-twin-b");
+  });
 });

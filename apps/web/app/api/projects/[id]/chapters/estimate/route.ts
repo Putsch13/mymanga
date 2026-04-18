@@ -258,6 +258,10 @@ export async function POST(req: Request, ctx: Ctx) {
     },
     heroCenterRatio: focusBudget.heroCenterRatio,
     premiumReadinessScore,
+    // P1.1 : on persiste l'intégralité du focusBudget (compteurs + violations)
+    // pour que launch/route.ts puisse bloquer les chapitres trop héros-centrés
+    // ou sans plan de coupe contractuel.
+    focusBudget,
   };
 
   const contextDigest = [

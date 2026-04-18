@@ -562,6 +562,21 @@ export function buildPanelBlueprintsFromBeat(
       requiredSubjects.push("background", "environment");
     }
 
+    // P4.1 : marquage automatique des panels contractuellement critiques.
+    // Sont considérés "contractualCritical" :
+    //   - reveal d'ennemi (cutawayType === "enemy_reveal" ou mustShowEnemy)
+    //   - plan d'établissement décor (subjectFocus=environment avec shotType=wide)
+    //   - insert prop / arme (cutawayType=prop_insert ou subjectFocus=prop)
+    //   - scènes foule / groupe (requiredNpcCount > 0 ou subjectFocus=group/npc)
+    //   - panel avec props obligatoires (required.length > 0)
+    const contractualCritical = (
+      (template.mustShowEnemy || template.cutawayType === "enemy_reveal") ||
+      (template.subjectFocus === "environment" && template.shotType === "wide") ||
+      (template.cutawayType === "prop_insert" || template.subjectFocus === "prop") ||
+      (template.requiredNpcCount > 0 || template.subjectFocus === "npc" || template.subjectFocus === "group") ||
+      required.length > 0
+    );
+
     blueprints.push({
       panelId,
       beatId: beat.beatId,
@@ -591,6 +606,7 @@ export function buildPanelBlueprintsFromBeat(
       cutawayType: template.cutawayType,
       heroCenterAllowed: template.heroCenterAllowed,
       criticality: template.criticality,
+      contractualCritical,
       notes: [],
       requiredSubjects,
     });
@@ -735,7 +751,10 @@ export function computeChapterFocusBudget(
     if (bp.subjectFocus === "enemy") enemyFocusCount++;
     if (bp.subjectFocus === "prop" || bp.cutawayType === "prop_insert") propInsertCount++;
     if (bp.subjectFocus === "environment") environmentCount++;
-    if (bp.subjectFocus === "npc" || bp.requiredNpcCount > 0) npcCount++;
+    // P1.6 : un panel compte comme couverture NPC seulement si son focus l'est
+    // réellement (subjectFocus=npc|group). Un blueprint héros avec
+    // `requiredNpcCount>0` exprime une obligation, pas une satisfaction.
+    if (bp.subjectFocus === "npc" || bp.subjectFocus === "group") npcCount++;
     if (bp.subjectFocus === "reaction") reactionCount++;
     if (bp.subjectFocus === "speaker" || bp.dialogueCarrier === "speaker_visible") speakerCount++;
     if (bp.subjectFocus === "group" || bp.subjectFocus === "duo") groupCount++;
@@ -784,6 +803,63 @@ export function computeChapterFocusBudget(
     violations.push({
       type: "missing_prop_insert",
       message: "Des props obligatoires sont présents mais aucun panel prop/insert n'est prévu",
+      severity: "warning",
+    });
+  }
+
+  // P1.5 : arme / objet narratif critique (mustBeVisible === true) — on exige
+  // un insert fort (subjectFocus=prop OU cutawayType=prop_insert). Sinon une
+  // arme utilisée "hors champ" passe à travers le plan.
+  const hasMustBeVisibleProp = blueprints.some(
+    (bp) => Array.isArray(bp.requiredProps) && bp.requiredProps.some((p) => p.mustBeVisible === true),
+  );
+  const hasPropInsertTarget = blueprints.some(
+    (bp) => bp.subjectFocus === "prop" || bp.cutawayType === "prop_insert",
+  );
+  if (hasMustBeVisibleProp && !hasPropInsertTarget) {
+    violations.push({
+      type: "missing_weapon_insert",
+      message:
+        "Une arme/objet narratif (mustBeVisible) est présent mais aucun panel ne lui est dédié en insert.",
+      severity: "blocking",
+    });
+  }
+
+  // P1.6 : si au moins un blueprint porte une obligation foule/PNJ
+  // (requiredNpcCount > 0 via template, ou subjectFocus=npc/group), au moins un
+  // panel doit réellement couvrir cette foule.
+  const hasNpcObligation = blueprints.some(
+    (bp) => bp.requiredNpcCount > 0 || bp.subjectFocus === "npc" || bp.subjectFocus === "group",
+  );
+  if (hasNpcObligation && npcCount === 0) {
+    violations.push({
+      type: "missing_npc_population",
+      message:
+        "Une scène de foule/PNJ est attendue mais aucun panel ne la met en scène.",
+      severity: "blocking",
+    });
+  }
+
+  // P1.7 : establishing shot manquant pour un chapitre qui déclare plusieurs
+  // lieux dans ses `requiredLocationSignals`. Minimum attendu : 1 wide +
+  // environment par signal majeur. On garde cette règle "soft" (warning)
+  // pour éviter de bloquer systématiquement les chapitres huis-clos.
+  const distinctLocations = new Set<string>();
+  for (const bp of blueprints) {
+    for (const signal of bp.requiredLocationSignals ?? []) {
+      if (typeof signal === "string" && signal.trim().length > 0) {
+        distinctLocations.add(signal.trim().toLowerCase());
+      }
+    }
+  }
+  const establishingShots = blueprints.filter(
+    (bp) => bp.subjectFocus === "environment" && bp.shotType === "wide",
+  ).length;
+  if (distinctLocations.size >= 2 && establishingShots === 0) {
+    violations.push({
+      type: "missing_environment_establishing",
+      message:
+        `${distinctLocations.size} lieux sont mentionnés mais aucun plan d'établissement (wide + environment) n'est prévu.`,
       severity: "warning",
     });
   }
@@ -910,6 +986,150 @@ export function computeCutawayBudget(
     hasReactionCutaway,
     meetsMinimum,
     recommendations,
+  };
+}
+
+// ─── Contractual Focus Adequacy (P1.3 + P3.1) ────────────────────────────────
+
+/**
+ * P3.1 — `computeShotVarietyBudget` mesure la variété des CADRAGES mais ignore
+ * la variété des SUJETS. Un chapitre peut avoir wide/medium/closeup/insert
+ * variés tout en restant 100% héros-centré. Cette fonction scrute explicitement
+ * les inserts contractuels (arme, décor, PNJ, ennemi, aftermath, reaction)
+ * pour bloquer ce biais.
+ *
+ * Score = nombre de contrats respectés / total des contrats actifs.
+ * `blocking = true` si au moins un contrat dur (enemy, props, env) est cassé.
+ */
+export interface ContractualFocusAdequacyReport {
+  score: number;
+  environmentPanels: number;
+  propInsertPanels: number;
+  enemyFocusPanels: number;
+  npcPanels: number;
+  reactionPanels: number;
+  aftermathPanels: number;
+  heroCenterRatio: number;
+  violations: Array<{
+    type:
+      | "missing_environment"
+      | "missing_enemy_focus"
+      | "missing_prop_insert"
+      | "missing_npc_population"
+      | "hero_overload_vs_contract";
+    message: string;
+    severity: "warning" | "blocking";
+  }>;
+  blocking: boolean;
+}
+
+export function computeContractualFocusAdequacy(
+  blueprints: PanelBlueprintPremium[],
+): ContractualFocusAdequacyReport {
+  const total = blueprints.length;
+  if (total === 0) {
+    return {
+      score: 0,
+      environmentPanels: 0,
+      propInsertPanels: 0,
+      enemyFocusPanels: 0,
+      npcPanels: 0,
+      reactionPanels: 0,
+      aftermathPanels: 0,
+      heroCenterRatio: 0,
+      violations: [],
+      blocking: false,
+    };
+  }
+
+  let environmentPanels = 0;
+  let propInsertPanels = 0;
+  let enemyFocusPanels = 0;
+  let npcPanels = 0;
+  let reactionPanels = 0;
+  let aftermathPanels = 0;
+  let heroCenterCount = 0;
+
+  let hasEnemyObligation = false;
+  let hasMandatoryProp = false;
+  let hasNpcObligation = false;
+
+  for (const bp of blueprints) {
+    if (bp.subjectFocus === "environment") environmentPanels++;
+    if (bp.subjectFocus === "prop" || bp.cutawayType === "prop_insert") propInsertPanels++;
+    if (bp.subjectFocus === "enemy") enemyFocusPanels++;
+    if (bp.subjectFocus === "npc" || bp.subjectFocus === "group" || bp.requiredNpcCount > 0) npcPanels++;
+    if (bp.subjectFocus === "reaction") reactionPanels++;
+    if (bp.subjectFocus === "aftermath") aftermathPanels++;
+    if (bp.heroCenterAllowed && bp.subjectFocus === "hero") heroCenterCount++;
+
+    if (bp.mustShowEnemy) hasEnemyObligation = true;
+    if (bp.requiredProps && bp.requiredProps.length > 0) hasMandatoryProp = true;
+    if (bp.requiredNpcCount > 0) hasNpcObligation = true;
+  }
+
+  const heroCenterRatio = heroCenterCount / total;
+  const violations: ContractualFocusAdequacyReport["violations"] = [];
+
+  if (environmentPanels === 0 && total > 3) {
+    violations.push({
+      type: "missing_environment",
+      message: "Aucun panel environnement/décor n'est prévu pour ce chapitre.",
+      severity: "blocking",
+    });
+  }
+  if (hasEnemyObligation && enemyFocusPanels === 0) {
+    violations.push({
+      type: "missing_enemy_focus",
+      message: "Un ennemi est obligatoire mais aucun panel ne le met au focus.",
+      severity: "blocking",
+    });
+  }
+  if (hasMandatoryProp && propInsertPanels === 0) {
+    violations.push({
+      type: "missing_prop_insert",
+      message: "Un prop/arme obligatoire est présent mais jamais dédié à un insert.",
+      severity: "blocking",
+    });
+  }
+  if (hasNpcObligation && npcPanels === 0) {
+    violations.push({
+      type: "missing_npc_population",
+      message: "Une scène de foule/PNJ est attendue mais aucun panel ne la couvre.",
+      severity: "blocking",
+    });
+  }
+  if (heroCenterRatio > MANGA_SHOT_BUDGET.HERO_CENTER_FAIL_RATIO) {
+    violations.push({
+      type: "hero_overload_vs_contract",
+      message:
+        `${Math.round(heroCenterRatio * 100)}% des panels sont centrés héros — ` +
+        `le plan est trop égocentré pour laisser vivre le décor / PNJ / inserts.`,
+      severity: "blocking",
+    });
+  }
+
+  const totalContracts = [
+    hasEnemyObligation,
+    hasMandatoryProp,
+    hasNpcObligation,
+    true, // environment target — toujours attendu
+    true, // hero-ratio — toujours attendu
+  ].filter(Boolean).length;
+  const respectedContracts = totalContracts - violations.filter((v) => v.severity === "blocking").length;
+  const score = totalContracts > 0 ? Math.max(0, Math.min(1, respectedContracts / totalContracts)) : 1;
+
+  return {
+    score,
+    environmentPanels,
+    propInsertPanels,
+    enemyFocusPanels,
+    npcPanels,
+    reactionPanels,
+    aftermathPanels,
+    heroCenterRatio,
+    violations,
+    blocking: violations.some((v) => v.severity === "blocking"),
   };
 }
 

@@ -42,9 +42,25 @@ export function createProjectCharacterResolver<C extends ProjectCharacterRow>(pa
   const { projectChars, panelCastData, metadataCharacterIds } = params;
 
   const projectCharsById = new Map(projectChars.map((c) => [c.id, c]));
-  const projectCharsByName = new Map(
-    projectChars.map((c) => [normalizeCharName(c.name), c]),
-  );
+  // P0.4 : on détecte les homonymes pour refuser le fallback ambigu. Si deux
+  // personnages partagent exactement le même nom normalisé, le name_fallback
+  // devient non-résolvant — impossible de savoir lequel est référencé.
+  const nameBuckets = new Map<string, C[]>();
+  for (const c of projectChars) {
+    const key = normalizeCharName(c.name);
+    const bucket = nameBuckets.get(key);
+    if (bucket) bucket.push(c);
+    else nameBuckets.set(key, [c]);
+  }
+  const projectCharsByName = new Map<string, C>();
+  const ambiguousNames = new Set<string>();
+  for (const [key, bucket] of nameBuckets) {
+    if (bucket.length === 1) {
+      projectCharsByName.set(key, bucket[0]);
+    } else {
+      ambiguousNames.add(key);
+    }
+  }
 
   function resolveCharacterFromName(name: string): ResolvedCharacter<C> | null {
     const norm = normalizeCharName(name);
@@ -65,6 +81,10 @@ export function createProjectCharacterResolver<C extends ProjectCharacterRow>(pa
       if (c && normalizeCharName(c.name) === norm) {
         return { character: c, resolvedBy: "metadata_id" };
       }
+    }
+    // P0.4 : refus explicite du fallback quand le nom est ambigu (homonymes).
+    if (ambiguousNames.has(norm)) {
+      return null;
     }
     const byName = projectCharsByName.get(norm);
     if (byName) return { character: byName, resolvedBy: "name_fallback" };

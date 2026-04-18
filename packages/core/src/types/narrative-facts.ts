@@ -172,6 +172,12 @@ export interface PanelBlueprintPremium {
   cutawayType: CutawayType;
   heroCenterAllowed: boolean;
   criticality: "low" | "medium" | "high" | "critical";
+  /**
+   * P4.1 — Panel contractualement critique (arme utilisée, décor d'établissement,
+   * reveal d'ennemi, foule attendue, objet narratif). Ces panels sont prioritaires
+   * en QA premium et reçoivent un retry renforcé (refs/props/subject focus).
+   */
+  contractualCritical?: boolean;
   notes?: string[];
 }
 
@@ -207,6 +213,12 @@ export interface FocusBudgetViolation {
     | "missing_environment"
     | "missing_enemy_focus"
     | "missing_prop_insert"
+    /** P1.6 — scène foule / PNJ attendue mais aucun panel ne la couvre */
+    | "missing_npc_population"
+    /** P1.7 — changement de lieu significatif sans establishing shot */
+    | "missing_environment_establishing"
+    /** P1.5 — arme / objet narratif obligatoire sans insert dédié */
+    | "missing_weapon_insert"
     | "no_cutaway"
     | "shot_monotony";
   message: string;

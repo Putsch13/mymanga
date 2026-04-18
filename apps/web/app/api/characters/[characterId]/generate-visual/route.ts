@@ -21,8 +21,9 @@ import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { persistGeneratedImageIfNeeded } from "@/lib/images/persist-generated-image";
 import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
-import { assertStableImageUrl, isStableImageUrl } from "@/lib/images/assert-stable-image-url";
+import { assertStableImageUrl } from "@/lib/images/assert-stable-image-url";
 import { logCanonAudit } from "@/lib/canon/canon-audit-log";
+import { resolveCharacterVisualCanon, type CharacterCanonInput } from "@/lib/canon/resolve-character-visual-canon";
 import {
   serializeBodyStateForPrompt,
   serializeWardrobeProfileForPrompt,
@@ -163,16 +164,26 @@ export async function POST(_req: Request, ctx: Ctx) {
       userIntent: fullAppearance ?? character.name,
     });
 
-    // P0.3 : on garde SÉPARÉMENT les URLs stables (destinées à la DB canonique)
-    // et les URLs signées (destinées uniquement au provider image).
-    const stableRefUrls = character.visualRefs
-      .slice(0, 4)
-      .map((ref) => ref.imageUrl)
-      .filter((u): u is string => Boolean(u) && isStableImageUrl(u));
+    // P0.1 + P0.2 : on délègue à `resolveCharacterVisualCanon` la résolution de la
+    // vérité perso. Les refs prioritaires sont (dans cet ordre) :
+    //   1. activeVisualLock.canonicalRefUrls
+    //   2. canonicalImageUrl direct
+    //   3. character.visualRefs stables
+    // Toutes les URLs retournées sont garanties stables (isStableImageUrl).
+    const resolvedCanon = resolveCharacterVisualCanon(character as unknown as CharacterCanonInput);
+    const stableRefUrls = Array.from(
+      new Set(resolvedCanon.canonicalRefs.map((ref) => ref.url)),
+    ).slice(0, 4);
     const signedRefs = await Promise.all(
       stableRefUrls.map(async (u) => (await signSupabaseUrlIfNeeded(u)) ?? u),
     );
     const referenceImageUrls = signedRefs.filter((url): url is string => Boolean(url));
+    console.info(
+      `[generate-visual] canon_resolved characterId=${character.id} ` +
+      `source=${resolvedCanon.source} lockStrength=${resolvedCanon.lockStrength} ` +
+      `canonicalRefs=${stableRefUrls.length} hardTraits=${resolvedCanon.hardTraits.length} ` +
+      `permanentMarkers=${resolvedCanon.bodyMarkers.permanent.length}`,
+    );
     const activeLoras = character.loraAttachments
       .map((attachment) => {
         const weightsMeta = attachment.lora.weightsMeta as Record<string, unknown>;

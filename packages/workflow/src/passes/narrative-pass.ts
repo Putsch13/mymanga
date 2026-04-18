@@ -1834,9 +1834,49 @@ export async function runNarrativePass(
                     panelFingerprintMap[raw.id] = raw.characterFingerprint;
                   }
                 }
+                // P2.1 : on injecte explicitement dans `metadata.panelContract`
+                // tous les champs contractuels du blueprint premium pour que la
+                // génération + QA + retry sachent exactement ce que ce panel
+                // était censé respecter (arme, ennemi, PNJ, cutaway, speaker).
+                const bp = panelPremiumBlueprint as Record<string, unknown> | null | undefined;
+                const premiumFields = bp
+                  ? {
+                      subjectFocus:
+                        (panelContract as Record<string, unknown>).subjectFocus
+                        ?? (bp.subjectFocus as string | null | undefined)
+                        ?? null,
+                      cutawayType:
+                        (panelContract as Record<string, unknown>).cutawayType
+                        ?? (bp.cutawayType as string | null | undefined)
+                        ?? "none",
+                      mustShowEnemy: Boolean(bp.mustShowEnemy),
+                      requiredNpcCount:
+                        typeof bp.requiredNpcCount === "number" ? bp.requiredNpcCount : 0,
+                      speakerAnchorCharacterId:
+                        (bp.speakerAnchorCharacterId as string | null | undefined) ?? null,
+                      requiredPropsTyped: Array.isArray(bp.requiredProps)
+                        ? (bp.requiredProps as Array<Record<string, unknown>>).map((p) => ({
+                            canonicalName: typeof p.canonicalName === "string" ? p.canonicalName : "",
+                            mustBeVisible: Boolean(p.mustBeVisible),
+                            narrativeRole: typeof p.narrativeRole === "string" ? p.narrativeRole : null,
+                          }))
+                        : [],
+                      contractualCritical: Boolean(bp.contractualCritical),
+                    }
+                  : {
+                      subjectFocus:
+                        (panelContract as Record<string, unknown>).subjectFocus ?? null,
+                      cutawayType:
+                        (panelContract as Record<string, unknown>).cutawayType ?? "none",
+                      mustShowEnemy: false,
+                      requiredNpcCount: 0,
+                      speakerAnchorCharacterId: null,
+                      requiredPropsTyped: [],
+                      contractualCritical: false,
+                    };
                 return Object.keys(panelFingerprintMap).length > 0
-                  ? { ...panelContract, characterFingerprints: panelFingerprintMap }
-                  : panelContract;
+                  ? { ...panelContract, ...premiumFields, characterFingerprints: panelFingerprintMap }
+                  : { ...panelContract, ...premiumFields };
               })(),
               panelCharacterPlan,
               panelCast,
@@ -1890,6 +1930,8 @@ export async function runNarrativePass(
                   mustShowEnemy: panelPremiumBlueprint.mustShowEnemy,
                   requiredNpcCount: panelPremiumBlueprint.requiredNpcCount,
                   speakerAnchorCharacterId: panelPremiumBlueprint.speakerAnchorCharacterId,
+                  // P4.1 : flag contractualCritical propagé jusqu'à la metadata
+                  contractualCritical: Boolean((panelPremiumBlueprint as unknown as Record<string, unknown>).contractualCritical),
                   requiredProps: panelPremiumBlueprint.requiredProps.map((p: any) => ({
                     canonicalName: p.canonicalName,
                     mustBeVisible: p.mustBeVisible,

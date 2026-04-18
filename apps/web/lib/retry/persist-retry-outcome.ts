@@ -180,6 +180,9 @@ export async function persistRetrySuccess(input: PersistRetrySuccessInput): Prom
     where: { id: panelId },
     data: {
       status: shouldBlockForReview === true ? "blocked" : "completed",
+      // P0.3 : `persistedUrl` est la vraie URL stable canonique post-reroll.
+      // `imageUrl` reste synchronisé pour compat legacy (lecteurs, UI review).
+      persistedUrl,
       imageUrl: persistedUrl,
       provider: providerInfo.provider,
       model: providerInfo.model,

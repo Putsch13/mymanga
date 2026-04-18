@@ -4,6 +4,7 @@ import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
 import { readChapterStudioSnapshotFromOutline } from "@/lib/chapter-studio";
+import { PREMIUM_BREACH_TYPES as CENTRAL_PREMIUM_BREACH_TYPES } from "@/lib/retry/classify-premium-repair";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -278,6 +279,56 @@ export async function GET(_req: Request, ctx: Ctx) {
        "object_used_but_not_visible"].some((t) => r.includes(t))
     )
   );
+
+  // P2.3 : seuil bloquant — un chapitre ne peut pas être considéré "OK" si trop
+  // de panels trahissent le contrat premium. Les panels `contractualCritical`
+  // (arme, décor, reveal, foule) sont pondérés plus fort.
+  // Source unique : `classify-premium-repair` centralise la liste des types
+  // d'issues qui violent le contrat premium (utilisé aussi par chapter-health
+  // et l'auto-repair orchestrator P2.4).
+  const PREMIUM_BREACH_TYPES = CENTRAL_PREMIUM_BREACH_TYPES;
+  const breachedPanels: Array<{
+    panelId: string;
+    panelNumber: number;
+    types: string[];
+    contractualCritical: boolean;
+  }> = [];
+  for (const scene of chapter.scenes) {
+    for (const image of scene.images) {
+      const meta = asRecord(image.metadata);
+      const validationDetails = asRecord(meta.validationDetails);
+      const panelContractMeta = asRecord(meta.panelContract);
+      const premiumBlueprintMeta = asRecord(meta.premiumBlueprint);
+      const contractualCritical =
+        Boolean(panelContractMeta.contractualCritical) ||
+        Boolean(premiumBlueprintMeta.contractualCritical);
+      const issues = Array.isArray(validationDetails.issues)
+        ? (validationDetails.issues as Array<{ type?: string }>)
+        : [];
+      const breachTypes = issues
+        .map((i) => (typeof i.type === "string" ? i.type : null))
+        .filter((t): t is string => t != null && PREMIUM_BREACH_TYPES.includes(t as typeof PREMIUM_BREACH_TYPES[number]));
+      if (breachTypes.length > 0) {
+        breachedPanels.push({
+          panelId: image.id,
+          panelNumber: image.panelNumber,
+          types: breachTypes,
+          contractualCritical,
+        });
+      }
+    }
+  }
+  const breachWeight = breachedPanels.reduce(
+    (sum, p) => sum + (p.contractualCritical ? 2 : 1),
+    0,
+  );
+  const totalPanels = panelResults.length || 1;
+  const breachRatio = breachWeight / (totalPanels * 2);
+  // Un chapitre est "blocked" si > 20% du poids premium est violé
+  // OU si plus de 3 panels contractuels critiques sont cassés.
+  const contractualCriticalBreaches = breachedPanels.filter((p) => p.contractualCritical).length;
+  const premiumReviewBlocked =
+    breachRatio > 0.20 || contractualCriticalBreaches > 3;
   const approvedOutlineRecord = asRecord(asRecord(chapter.outline).approvedOutline);
   const approvedOutlineVersion = typeof approvedOutlineRecord.version === "number"
     ? approvedOutlineRecord.version
@@ -312,6 +363,18 @@ export async function GET(_req: Request, ctx: Ctx) {
       missingCriticalPanels: panelResults
         .filter((panel) => panel.critical && (panel.status !== "completed" || !panel.qaWasExecuted))
         .map((panel) => panel.panelId),
+      // P2.3 : état coercitif du contrat premium sur le chapitre
+      premiumContractHealth: {
+        breachedPanels,
+        breachRatio,
+        contractualCriticalBreaches,
+        blocked: premiumReviewBlocked,
+        reason: premiumReviewBlocked
+          ? contractualCriticalBreaches > 3
+            ? `Trop de panels contractuellement critiques (arme, décor, foule, reveal) cassés : ${contractualCriticalBreaches}`
+            : `Trahison du contrat premium sur ${Math.round(breachRatio * 100)}% du volume pondéré`
+          : null,
+      },
     },
   });
 }

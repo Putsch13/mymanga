@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildChapterReadinessReport } from "@manga-ai-studio/core";
-import { computeShotVarietyBudget } from "@manga-ai-studio/ai";
+import { computeShotVarietyBudget, computeContractualFocusAdequacy } from "@manga-ai-studio/ai";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { isUnlimitedAdminEmail } from "@/lib/auth/get-app-user";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
@@ -17,6 +17,7 @@ import {
   InvalidBlueprintsError,
   resolveApprovedOutlineFromSnapshot,
 } from "@/lib/premium-chapter-contract";
+import { assertChapterCanonReadiness } from "@/lib/canon/assert-chapter-canon-readiness";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -127,6 +128,102 @@ export async function POST(_req: Request, ctx: Ctx) {
     } catch (varietyErr) {
       console.warn(`[launch] shot_variety_check_failed (non-blocking): ${varietyErr instanceof Error ? varietyErr.message : varietyErr}`);
     }
+
+    // P1.2 + P1.3 + P3.1 + P3.2 : variété de cadrage ≠ variété de sujet.
+    // On lit le focusBudget persisté (P1.1) et on refuse les plans trop
+    // héros-centrés, ou sans plans de coupe contractuels (arme, décor,
+    // ennemi, PNJ). Complémentaire du shotVariety check ci-dessus.
+    try {
+      const contractualFocus = computeContractualFocusAdequacy(
+        blueprintsForVariety as Parameters<typeof computeContractualFocusAdequacy>[0],
+      );
+      const persistedFocusBudget = snapshot.data.productionPlan?.focusBudget ?? null;
+      const persistedBlockingViolations = persistedFocusBudget?.violations?.filter(
+        (v) => v.severity === "blocking",
+      ) ?? [];
+
+      if (contractualFocus.blocking || persistedBlockingViolations.length > 0) {
+        const mergedViolations = [
+          ...contractualFocus.violations,
+          ...persistedBlockingViolations,
+        ];
+        console.warn(
+          `[launch] contractual_focus_inadequate chapterId=${chapterId} ` +
+          `score=${contractualFocus.score.toFixed(2)} ` +
+          `heroCenterRatio=${contractualFocus.heroCenterRatio.toFixed(2)} ` +
+          `envPanels=${contractualFocus.environmentPanels} ` +
+          `propInserts=${contractualFocus.propInsertPanels} ` +
+          `enemyFocus=${contractualFocus.enemyFocusPanels} ` +
+          `npcPanels=${contractualFocus.npcPanels} ` +
+          `violations=${JSON.stringify(mergedViolations.map((v) => v.type))}`,
+        );
+        return NextResponse.json(
+          {
+            error:
+              "Le plan est trop centré héros ou manque de cutaways contractuels " +
+              "(décor, arme, PNJ, ennemi). Régénère le plan de production.",
+            code: "CONTRACTUAL_FOCUS_INADEQUATE",
+            score: contractualFocus.score,
+            heroCenterRatio: contractualFocus.heroCenterRatio,
+            violations: mergedViolations,
+            counters: {
+              environmentPanels: contractualFocus.environmentPanels,
+              propInsertPanels: contractualFocus.propInsertPanels,
+              enemyFocusPanels: contractualFocus.enemyFocusPanels,
+              npcPanels: contractualFocus.npcPanels,
+              reactionPanels: contractualFocus.reactionPanels,
+              aftermathPanels: contractualFocus.aftermathPanels,
+            },
+          },
+          { status: 422 },
+        );
+      }
+    } catch (focusErr) {
+      console.warn(
+        `[launch] contractual_focus_check_failed (non-blocking): ${focusErr instanceof Error ? focusErr.message : focusErr}`,
+      );
+    }
+  }
+
+  // P0.5 : garde "canon health" sur les personnages critiques (hero,
+  // antagonist, lockés). Un chapitre avec un héros sans assise canonique
+  // génère quasi mécaniquement du drift : on bloque.
+  try {
+    const canonReport = await assertChapterCanonReadiness({
+      projectId,
+      requiredCharacterIds: null,
+    });
+    if (canonReport.blocking) {
+      console.warn(
+        `[launch] canon_readiness_blocked chapterId=${chapterId} ` +
+        `violations=${JSON.stringify(
+          canonReport.violations
+            .filter((v) => v.severity === "blocking")
+            .map((v) => ({ id: v.characterId, score: v.score, reason: v.reason })),
+        )}`,
+      );
+      return NextResponse.json(
+        {
+          error:
+            "Un ou plusieurs personnages critiques (héros, antagoniste, lockés) " +
+            "n'ont pas une assise canonique suffisante pour lancer le chapitre. " +
+            "Régénère leurs visuels canoniques ou active leur visual lock.",
+          code: "CANON_READINESS_BLOCKED",
+          violations: canonReport.violations,
+          thresholds: canonReport.thresholds,
+        },
+        { status: 422 },
+      );
+    }
+    if (canonReport.violations.length > 0) {
+      console.warn(
+        `[launch] canon_readiness_warnings chapterId=${chapterId} count=${canonReport.violations.length}`,
+      );
+    }
+  } catch (canonErr) {
+    console.warn(
+      `[launch] canon_readiness_check_failed (non-blocking): ${canonErr instanceof Error ? canonErr.message : canonErr}`,
+    );
   }
 
   // Traçabilité estimate → launch

@@ -107,6 +107,8 @@ const panelBlueprintPremiumSchema = z.object({
   cutawayType: z.string().default("none"),
   heroCenterAllowed: z.boolean().default(true),
   criticality: z.enum(["low", "medium", "high", "critical"]).default("medium"),
+  // P4.1 : panel contractualement critique (arme, décor d'établissement, reveal, foule).
+  contractualCritical: z.boolean().optional(),
   notes: z.array(z.string()).optional(),
 });
 
