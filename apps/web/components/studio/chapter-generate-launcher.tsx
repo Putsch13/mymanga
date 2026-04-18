@@ -69,6 +69,38 @@ export function ChapterGenerateLauncher({
     });
     const json = await res.json();
     setLaunching(false);
+
+    // BUG-NOUVEAU-C : le backend peut renvoyer des 422 avec des codes structurés
+    // (SHOT_MONOTONY, premium_contract_incomplete). Auparavant on affichait juste
+    // json.message en texte brut, ce qui donnait des messages techniques
+    // incompréhensibles. On rédige désormais un message actionnable pour chaque
+    // code connu et on garde le fallback générique pour les autres erreurs.
+    if (!res.ok) {
+      const code = typeof json.code === "string" ? json.code : null;
+      if (code === "SHOT_MONOTONY") {
+        const pct = typeof json.varietyScore === "number"
+          ? `${(json.varietyScore * 100).toFixed(0)}%`
+          : "trop basse";
+        const missing = Array.isArray(json.missingShots) && json.missingShots.length > 0
+          ? ` Plans manquants : ${(json.missingShots as string[]).join(", ")}.`
+          : "";
+        setMessage(
+          `⚠️ Variété de plans insuffisante (${pct}).${missing} Retourne dans le studio et régénère le plan pour diversifier les shots.`
+        );
+      } else if (code === "premium_contract_incomplete") {
+        const missing = Array.isArray(json.missing) && json.missing.length > 0
+          ? (json.missing as string[]).join(", ")
+          : "éléments inconnus";
+        setMessage(
+          `Le contrat visuel est incomplet : ${missing}. Retourne dans le studio → étape Plan → Valider le plan avant de relancer.`
+        );
+      } else {
+        setMessage(json.message ?? json.error ?? "Erreur inconnue lors du lancement.");
+      }
+      setDetails(json.details ?? null);
+      return;
+    }
+
     setMessage(json.message ?? null);
     setDetails(json.details ?? null);
     if (json.jobId) setJobId(json.jobId);

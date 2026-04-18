@@ -199,30 +199,28 @@ type ReaderResponse = {
   } | null;
 };
 
-function normalizeForReaderDup(value: string | null | undefined) {
-  return (value ?? "")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
+// BUG-READER-D : dédup par ID stable uniquement. L'ancienne signature
+// (caption+dialogue+narration+imageUrl) écrasait des pages narrativement
+// distinctes qui partageaient par hasard les mêmes textes (silence, SFX
+// répétés, dialogue 1 mot). Si la page n'a pas d'ID stable, on la conserve
+// systématiquement plutôt que risquer de faire disparaître du contenu réel.
 function dedupeReaderPages(pages: UniversalMangaPage[]): UniversalMangaPage[] {
   const seen = new Set<string>();
   const deduped: UniversalMangaPage[] = [];
   for (const page of pages) {
-    const signature = page.panels
-      .map((panel) =>
-        [
-          normalizeForReaderDup(panel.caption),
-          normalizeForReaderDup(panel.dialogue),
-          normalizeForReaderDup(panel.narration),
-          panel.imageUrl ?? "",
-        ].join("|"),
-      )
-      .join("||");
-    if (seen.has(signature)) continue;
-    seen.add(signature);
+    const key =
+      page.id
+      ?? page.panels
+        .map((p) => p.id)
+        .filter((id): id is string => Boolean(id))
+        .join("|");
+    if (!key) {
+      // Pas d'identité → on ne peut pas dédupliquer, on conserve pour ne rien perdre.
+      deduped.push(page);
+      continue;
+    }
+    if (seen.has(key)) continue;
+    seen.add(key);
     deduped.push(page);
   }
   return deduped;
@@ -378,7 +376,14 @@ export function MangaBookReader({ projectId, chapterId, autoFullscreen = false, 
   const retryPanel = useCallback(async (panelId: string, mode: "environment" | "character" | "composition") => {
     setRetryingPanel(`${panelId}:${mode}`);
     try {
-      const res = await fetch(`/api/scene-images/${panelId}/retry?mode=${mode}`, { method: "POST" });
+      // BUG-READER-C : on passe désormais `mode` en body JSON plutôt qu'en
+      // query string. Le endpoint /retry supporte les deux pendant la
+      // transition mais le body est la voie officielle (BUG-13/BUG-14).
+      const res = await fetch(`/api/scene-images/${panelId}/retry`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
       if (res.ok) {
         await load({ preserveIndex: true });
       }

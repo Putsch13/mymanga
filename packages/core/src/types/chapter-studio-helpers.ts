@@ -339,6 +339,34 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
     });
   }
 
+  // Root cause drift persistant : si un personnage MAIN_HERO ou SECONDARY_CORE
+  // part en génération sans CharacterCanonPack solide (absent ou completeness
+  // < 0.5), le lock visuel est reconstruit à chaque génération à partir de
+  // bribes incomplètes → dérive de visage/cheveux/outfit chapitre après chapitre.
+  // On remonte un warning bloquant par personnage concerné dans l'étape casting.
+  const heroId = snapshot.data.characterSelection?.heroCharacterId;
+  const canonsByChar = snapshot.data.characterCanons ?? [];
+  for (const canon of canonsByChar) {
+    const isMain = canon.importanceTier === "MAIN_HERO" || canon.importanceTier === "SECONDARY_CORE";
+    if (!isMain) continue;
+    const isHero = canon.characterId === heroId;
+    const score = canon.canonPackCompleteness;
+    const hasPack = canon.hasCanonPack === true;
+    const isIncomplete = !hasPack || (typeof score === "number" && score < 0.5);
+    if (!isIncomplete) continue;
+    const label = canon.canonicalName || canon.role || "Personnage principal";
+    addWarning({
+      id: `canon_pack_incomplete_${canon.characterId}`,
+      step: "characters",
+      field: isHero ? "studio-hero-character" : null,
+      message:
+        `${label} n'a pas de CanonPack complet${typeof score === "number" ? ` (score ${Math.round(score * 100)}%)` : ""}. ` +
+        "Génère-le dans le studio personnage pour éviter la dérive visuelle d'un chapitre à l'autre.",
+      ctaLabel: "Ouvrir le studio personnage",
+      action: "focus_field",
+    });
+  }
+
   const preparationScore = clamp(
     100
       - blockerItems.length * 14

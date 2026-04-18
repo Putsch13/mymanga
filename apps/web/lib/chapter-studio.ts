@@ -221,6 +221,7 @@ export function buildCharacterCanonFromCharacter(character: {
   stableVisualDNA?: unknown;
   canonLocked?: boolean;
   visualRefs?: Array<{ mediaAsset?: { publicUrl?: string | null } | null; imageUrl?: string | null }> | null;
+  canonPack?: { completenessScore?: number | null } | null;
 }): CharacterCanon {
   const visualProfile = asRecord(character.visualProfile);
   const wardrobeProfile = asRecord(character.wardrobeProfile);
@@ -293,6 +294,13 @@ export function buildCharacterCanonFromCharacter(character: {
     referenceAssets,
     loraBindings: [],
     fingerprint: stableVisualDNA,
+    // Propagation du canonPack pour permettre au readiness report de détecter
+    // les personnages MAIN/CORE sans canonPack solide (source majeure de drift).
+    hasCanonPack: Boolean(character.canonPack),
+    canonPackCompleteness:
+      typeof character.canonPack?.completenessScore === "number"
+        ? character.canonPack.completenessScore
+        : null,
   };
 }
 

@@ -51,11 +51,23 @@ interface WebtoonLazyScrollProps {
 
 /* ── Helpers ───────────────────────────────────────────────────── */
 
-const PRELOAD_COUNT = 5;
-const ROOT_MARGIN = "400px 0px";
+// BUG-READER-B : on préchargeait seulement 5 panels et le rootMargin était
+// trop petit (400px), ce qui faisait voir des skeletons vides en scroll rapide
+// et ne montrait jamais de panels hors-écran pour les webtoons. Passage à 12
+// panels préchargés + marge de 600px.
+const PRELOAD_COUNT = 12;
+const ROOT_MARGIN = "600px 0px";
 
 function isSplash(panel: WebtoonPanel): boolean {
   return !!(panel.layoutMeta?.isSplashPage || panel.layoutMeta?.isDoublePage);
+}
+
+// Un panel doit avoir été généré (status completed) ou avoir une imageUrl
+// visible pour être rendu en webtoon. Sinon on évite d'afficher un "trou".
+function hasRenderableImage(panel: WebtoonPanel): boolean {
+  if (panel.imageUrl) return true;
+  const status = (panel.status ?? "").toLowerCase();
+  return status === "completed" || status === "pending" || status === "generating";
 }
 
 function SceneSeparator({ index }: { index: number }) {
@@ -139,10 +151,6 @@ export default function WebtoonLazyScroll({ pages }: WebtoonLazyScrollProps) {
     if (el && observerRef.current) observerRef.current.observe(el);
   }, []);
 
-  // Flatten pages into a sequence of renderable items
-  let sceneCounter = 0;
-  let prevPageId: string | null = null;
-
   return (
     <div className="relative mx-auto w-full max-w-[860px]">
       {/* Top fade gradient */}
@@ -150,16 +158,22 @@ export default function WebtoonLazyScroll({ pages }: WebtoonLazyScrollProps) {
 
       <div className="space-y-5 md:space-y-7">
         {pages.map((page, pageIdx) => {
-          const showSeparator = prevPageId !== null && page.id !== prevPageId;
-          if (showSeparator) sceneCounter++;
-          prevPageId = page.id;
-          const separatorIdx = sceneCounter;
+          // Webtoon UX : la numérotation de scène est dérivée de pageIdx
+          // (stable entre re-renders). On affiche un séparateur dès la
+          // deuxième scène pour marquer visuellement les transitions.
+          const sceneNumber = pageIdx + 1;
+          const showSeparator = pageIdx > 0;
+
+          // BUG-READER-B : on filtre les panels qui n'ont aucune chance d'être
+          // rendus (status failed sans imageUrl) pour ne pas générer des trous.
+          const renderablePanels = page.panels.filter(hasRenderableImage);
+          if (renderablePanels.length === 0) return null;
 
           return (
             <div key={page.id ?? `page-${pageIdx}`}>
-              {showSeparator && <SceneSeparator index={separatorIdx} />}
+              {showSeparator && <SceneSeparator index={sceneNumber} />}
 
-              {page.panels.map((panel, panelIdx) => {
+              {renderablePanels.map((panel, panelIdx) => {
                 const panelKey = panel.id ?? `${pageIdx}-${panelIdx}`;
                 const isLoaded = visiblePanels.has(panelKey);
                 const isRevealed = revealedPanels.has(panelKey);
@@ -181,6 +195,13 @@ export default function WebtoonLazyScroll({ pages }: WebtoonLazyScrollProps) {
                     } ${!splash ? "px-2 sm:px-4" : ""}`}
                     style={{ marginBottom: "1.25rem" }}
                   >
+                    {!splash && (
+                      <div className="mb-1 flex items-center justify-end">
+                        <span className="text-[10px] font-mono tracking-wider text-zinc-600">
+                          {sceneNumber}.{panelIdx + 1}
+                        </span>
+                      </div>
+                    )}
                     {isLoaded ? (
                       <div className={splash ? "" : "overflow-hidden rounded-2xl border border-white/5"}>
                         <MangaPanel

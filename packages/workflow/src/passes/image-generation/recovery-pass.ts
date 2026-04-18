@@ -140,7 +140,11 @@ export async function runRecoveryPass(params: RecoveryParams): Promise<RecoveryR
           providerParams: {
             contentIntensityLayer: intensityLayer,
             mode: "PANEL_DRAFT",
-            referencePolicy: hasCanonReferences ? "CANON_ONLY" : "NONE",
+            // BUG-NOUVEAU-A : "CANON_ONLY" n'existe pas dans ReferencePolicy
+            // ("NONE" | "LIGHT" | "STRONG"). L'adaptateur FAL tombait silencieusement
+            // sur "LIGHT" via fallback. On force "STRONG" quand on a des refs canon,
+            // pour garantir une influence visuelle élevée en recovery.
+            referencePolicy: hasCanonReferences ? "STRONG" : "NONE",
             panelCategory: "CHARACTER_IN_SCENE",
             scenePass: "single_pass",
             panelCriticality: "low",

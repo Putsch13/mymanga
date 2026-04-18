@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import type { ChapterReadinessIssue, ChapterStudioData } from "@manga-ai-studio/core";
-import { AlertTriangle, Sparkles } from "lucide-react";
+import { AlertTriangle, Pencil, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,18 +13,118 @@ import { NarrativeContractCard } from "./narrative-contract-card";
 import { ProductionPlanCard } from "./production-plan-card";
 import { StudioInlineIssues } from "./studio-inline-issues";
 
+/**
+ * BUG-09 : rendu éditable d'un beat unique.
+ * Ouvre un formulaire inline quand l'utilisateur clique sur "✏️ Réécrire".
+ * Le parent reçoit (beatId, instructions) et appelle autofill `rewrite_beat`.
+ */
+function BeatItem({
+  beat,
+  index,
+  fallbackTitle,
+  onRewriteBeat,
+  rewriting,
+}: {
+  beat: { beatId?: string; label?: string; summary: string };
+  index: number;
+  fallbackTitle: string;
+  onRewriteBeat?: (beatId: string, instructions: string) => void | Promise<void>;
+  rewriting?: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [instructions, setInstructions] = useState("");
+  const canRewrite = Boolean(beat.beatId && onRewriteBeat);
+
+  const handleSubmit = async () => {
+    if (!beat.beatId || !onRewriteBeat) return;
+    await onRewriteBeat(beat.beatId, instructions.trim());
+    setEditing(false);
+    setInstructions("");
+  };
+
+  return (
+    <div className="rounded-xl border border-border/60 bg-background/40 p-3 space-y-2">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="font-medium">{beat.label ?? `Temps ${index + 1}`}</p>
+          <p className="mt-1 text-muted-foreground">{beat.summary}</p>
+        </div>
+        {canRewrite && !editing ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="shrink-0 gap-1 text-xs"
+            onClick={() => setEditing(true)}
+            disabled={rewriting}
+            data-testid={`rewrite-beat-${beat.beatId}`}
+          >
+            <Pencil className="h-3 w-3" />
+            Réécrire
+          </Button>
+        ) : null}
+      </div>
+
+      {editing ? (
+        <div className="space-y-2 border-t border-border/40 pt-2">
+          <Label className="text-xs text-muted-foreground">
+            Instructions (facultatif) — ex. « raccourcir », « ajouter un quiproquo entre X et Y »
+          </Label>
+          <textarea
+            className="w-full rounded-md border border-border/60 bg-background/60 p-2 text-sm"
+            rows={3}
+            maxLength={500}
+            value={instructions}
+            onChange={(e) => setInstructions(e.target.value)}
+            placeholder="Précise ce que tu veux modifier dans ce temps…"
+            disabled={rewriting}
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setEditing(false);
+                setInstructions("");
+              }}
+              disabled={rewriting}
+            >
+              Annuler
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void handleSubmit()}
+              disabled={rewriting}
+            >
+              {rewriting ? "Réécriture…" : "Réécrire ce temps"}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {/* sentinel to silence unused var warning if fallbackTitle unused */}
+      <span className="hidden">{fallbackTitle}</span>
+    </div>
+  );
+}
+
 function BeatList({
   title,
   subtitle,
   emptyLabel,
   beats,
   defaultCollapsed,
+  onRewriteBeat,
+  rewriting,
 }: {
   title: string;
   subtitle?: string;
   emptyLabel: string;
   beats: Array<{ beatId?: string; label?: string; summary: string }> | undefined;
   defaultCollapsed?: boolean;
+  onRewriteBeat?: (beatId: string, instructions: string) => void | Promise<void>;
+  rewriting?: boolean;
 }) {
   if (defaultCollapsed && (beats ?? []).length > 0) {
     return (
@@ -35,10 +136,14 @@ function BeatList({
         <div className="px-4 pb-4 space-y-3 text-sm">
           {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
           {beats?.map((beat, index) => (
-            <div key={beat.beatId ?? `${title}-${index}`} className="rounded-xl border border-border/60 bg-background/40 p-3">
-              <p className="font-medium">{beat.label ?? `Temps ${index + 1}`}</p>
-              <p className="mt-1 text-muted-foreground">{beat.summary}</p>
-            </div>
+            <BeatItem
+              key={beat.beatId ?? `${title}-${index}`}
+              beat={beat}
+              index={index}
+              fallbackTitle={title}
+              onRewriteBeat={onRewriteBeat}
+              rewriting={rewriting}
+            />
           ))}
         </div>
       </details>
@@ -54,10 +159,14 @@ function BeatList({
       <CardContent className="space-y-3 text-sm">
         {(beats ?? []).length > 0 ? (
           beats?.map((beat, index) => (
-            <div key={beat.beatId ?? `${title}-${index}`} className="rounded-xl border border-border/60 bg-background/40 p-3">
-              <p className="font-medium">{beat.label ?? `Temps ${index + 1}`}</p>
-              <p className="mt-1 text-muted-foreground">{beat.summary}</p>
-            </div>
+            <BeatItem
+              key={beat.beatId ?? `${title}-${index}`}
+              beat={beat}
+              index={index}
+              fallbackTitle={title}
+              onRewriteBeat={onRewriteBeat}
+              rewriting={rewriting}
+            />
           ))
         ) : (
           <p className="text-muted-foreground">{emptyLabel}</p>
@@ -79,6 +188,8 @@ export function ChapterPlanStep({
   onUpdateDraft,
   onGenerateOutlines,
   onValidatePlan,
+  onRewriteBeat,
+  rewritingBeat,
 }: {
   draft: ChapterStudioData;
   preparationScore: number;
@@ -96,6 +207,8 @@ export function ChapterPlanStep({
   onUpdateDraft: (next: ChapterStudioData, step?: "narrative_contract") => void;
   onGenerateOutlines: () => void | Promise<void>;
   onValidatePlan: () => void;
+  onRewriteBeat?: (beatId: string, instructions: string) => void | Promise<void>;
+  rewritingBeat?: boolean;
 }) {
   const hasOutline = (draft.editorialOutline?.beats?.length ?? 0) > 0 || (draft.productionOutline?.beats?.length ?? 0) > 0;
 
@@ -244,12 +357,16 @@ export function ChapterPlanStep({
           defaultCollapsed={
             (draft.productionOutline?.beats?.length ?? 0) > (draft.editorialOutline?.beats?.length ?? 0)
           }
+          onRewriteBeat={onRewriteBeat}
+          rewriting={rewritingBeat}
         />
         <BeatList
           title="Découpage détaillé pour la génération"
           subtitle="Version complète utilisée par l'IA pour produire les images."
           emptyLabel="Aucun plan détaillé généré."
           beats={draft.productionOutline?.beats}
+          onRewriteBeat={onRewriteBeat}
+          rewriting={rewritingBeat}
         />
       </div>
 

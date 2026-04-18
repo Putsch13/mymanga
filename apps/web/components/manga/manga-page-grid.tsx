@@ -213,21 +213,35 @@ export function pipelineScenesToPages(
   scenes: PipelineScene[],
   storyboardPages?: Array<{ pageNumber: number; layout: string }>,
 ): UniversalMangaPage[] {
+  // BUG-READER-A : les layouts A-F ont chacun un nombre fixe de slots CSS.
+  // Au-delà de 6 panels, ils débordaient du grid et se superposaient. On mappe
+  // maintenant explicitement chaque count vers un layout compatible, et on
+  // tronque le nombre de panels à 6 en amont pour ne jamais laisser déborder.
+  const MAX_PANELS_PER_PAGE = 6;
   function normalizeLayout(layout: MangaGridLayout, panelCount: number): MangaGridLayout {
-    // Map panel count to a layout that has exactly that many areas.
     if (panelCount <= 4) return "F";
     if (panelCount === 5) return layout === "C" || layout === "E" ? layout : "C";
-    // 6 panels
-    const sixLayouts: MangaGridLayout[] = ["A", "B", "D"];
-    return sixLayouts.includes(layout) ? layout : "A";
+    if (panelCount === 6) {
+      const sixLayouts: MangaGridLayout[] = ["A", "B", "D"];
+      return sixLayouts.includes(layout) ? layout : "A";
+    }
+    // 7+ panels : fallback sécurisé (ne devrait plus arriver grâce au slice).
+    return "A";
   }
 
   return scenes.map((scene, idx) => {
     const sbPage = storyboardPages?.[idx];
     const rawLayout = (sbPage?.layout as MangaGridLayout) ?? "A";
 
-    const panels: UniversalPanel[] = (scene.images ?? [])
-      .sort((a, b) => a.panelNumber - b.panelNumber)
+    const rawImages = (scene.images ?? []).slice().sort((a, b) => a.panelNumber - b.panelNumber);
+    if (rawImages.length > MAX_PANELS_PER_PAGE) {
+      console.warn(
+        `[pipelineScenesToPages] scene=${scene.id} panels=${rawImages.length} > ${MAX_PANELS_PER_PAGE} — troncature pour éviter le débordement des slots CSS`,
+      );
+    }
+
+    const panels: UniversalPanel[] = rawImages
+      .slice(0, MAX_PANELS_PER_PAGE)
       .map((img) => {
         // URGENCE 3 : préférer persistedUrl (URL stable Supabase) sur imageUrl (peut expirer)
         const effectiveImageUrl = (img as { persistedUrl?: string | null }).persistedUrl ?? img.imageUrl;

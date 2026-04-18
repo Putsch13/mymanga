@@ -261,6 +261,54 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
     }
   }, [generateOutlines, goToFlowStep]);
 
+  // BUG-09 : réécrire un beat unique via autofill `rewrite_beat`.
+  // Le backend (autofill/route.ts) supporte déjà ce mode avec targetBeatId +
+  // userInstructions. Ce callback expose cette capacité au composant Plan.
+  const rewriteBeat = useCallback(async (beatId: string, userInstructions: string) => {
+    if (!draft || !beatId) return;
+    setAutofilling(true);
+    setAutofillResult(null);
+    setMessage("Réécriture du temps en cours…");
+    try {
+      const res = await fetch(`/api/projects/${projectId}/chapters/${chapterId}/autofill`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "rewrite_beat",
+          force: false,
+          targetBeatId: beatId,
+          userInstructions: userInstructions.length > 0 ? userInstructions : undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setMessage(json.error ?? "La réécriture du beat a échoué.");
+        return;
+      }
+      if (json.blocked) {
+        setMessage(json.blockedMessage ?? "Réécriture impossible pour le moment.");
+        return;
+      }
+      if (json.appliedFields?.length > 0 && json.suggestedPatch) {
+        const nextDraft: ChapterStudioData = {
+          ...draft,
+          ...json.suggestedPatch,
+          autofillMeta: json.meta,
+        };
+        await save(nextDraft, activeStudioStep);
+        setAutofillResult({ meta: json.meta, appliedFields: json.appliedFields, unresolvedQuestions: json.unresolvedQuestions ?? [] });
+        setMessage(`Beat réécrit. L'IA a touché : ${json.appliedFields.join(", ")}.`);
+      } else {
+        setMessage(json.emptyPatchReason ?? "Aucune modification retournée par l'IA.");
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erreur inconnue";
+      setMessage(`Erreur lors de la réécriture : ${msg}`);
+    } finally {
+      setAutofilling(false);
+    }
+  }, [activeStudioStep, chapterId, draft, projectId, save]);
+
   const runAutofill = useCallback(async (mode: "all_missing" | "repair_readiness" | "brief") => {
     if (!draft) return;
     setAutofilling(true);
@@ -518,6 +566,8 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
             onIssueAction={handleIssueAction}
             onUpdateDraft={updateDraft}
             onGenerateOutlines={generateOutlines}
+            onRewriteBeat={rewriteBeat}
+            rewritingBeat={autofilling}
             onValidatePlan={() => {
               const firstBlocker = blockerItems[0];
               if (firstBlocker) {

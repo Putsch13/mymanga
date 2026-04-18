@@ -220,6 +220,12 @@ export const characterCanonSchema = z.object({
   referenceAssets: z.array(z.string()).default([]),
   loraBindings: z.array(z.string()).default([]),
   fingerprint: z.record(z.string(), z.unknown()).default({}),
+  // Optionnel : score de complétude du CharacterCanonPack (0..1).
+  // Utilisé par buildChapterReadinessReport pour émettre un warning si un
+  // personnage MAIN/CORE part en génération sans canonPack solide, ce qui
+  // provoque des dérives visuelles chapitre après chapitre.
+  canonPackCompleteness: z.number().min(0).max(1).optional().nullable(),
+  hasCanonPack: z.boolean().optional(),
 });
 
 export type CharacterCanon = z.infer<typeof characterCanonSchema>;

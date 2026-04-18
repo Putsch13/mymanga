@@ -174,6 +174,13 @@ function deduceShotType(panel: StoryboardPanel): PanelContract["shotType"] {
   if (/(extreme close|extreme closeup|micro détail|sur les yeux)/.test(desc)) return "extreme_closeup";
   if (/(close-up|closeup|close up|portrait|gros plan)/.test(desc)) return "closeup";
   if (/(over shoulder|over-shoulder|par-dessus l'épaule|par dessus l'épaule)/.test(desc)) return "over_shoulder";
+  // BUG-07 : fallback silencieux. Si le ShotPlan tombe en panne (le try/catch
+  // dans le pipeline reroute ici), 100% des panels deviennent "medium" sans
+  // aucune trace. On log au moins pour pouvoir détecter une panne du ShotPlan
+  // dans les runs de production.
+  console.warn(
+    `[panel-contract] shotType fallback="medium" panel=${panel.panelNumber} camera="${panel.camera ?? ""}" caption="${(panel.caption ?? "").slice(0, 60)}"`,
+  );
   return "medium";
 }
 

@@ -60,6 +60,11 @@ export async function GET(_req: Request, ctx: Ctx) {
                 orderBy: { createdAt: "desc" },
                 include: { mediaAsset: true },
               },
+              // Nécessaire pour exposer completenessScore dans characterCanons
+              // et alimenter le warning readiness "canonPack incomplet".
+              canonPack: {
+                select: { completenessScore: true },
+              },
             },
             orderBy: { createdAt: "asc" },
           },
@@ -112,6 +117,7 @@ export async function GET(_req: Request, ctx: Ctx) {
       stableVisualDNA: character.stableVisualDNA,
       canonLocked: character.canonLocked,
       visualRefs: character.visualRefs,
+      canonPack: character.canonPack ?? null,
     }),
   );
   const locationCanons = chapter.project.locations.map((location) =>
