@@ -28,6 +28,8 @@ import {
 import {
   buildPanelIntentCard,
   type PanelIntentCard,
+  buildBodyStatePromptConstraints,
+  loadOrCreateBodyState,
 } from "@manga-ai-studio/ai";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import {
@@ -56,6 +58,7 @@ import { buildPanelCast } from "../build-panel-cast";
 import { buildStableImageReference } from "../stable-image-refs";
 import { buildCanonAndLoraIndex } from "./narrative/canon-and-lora-index";
 import { buildSceneAnchorsByIndex } from "./narrative/scene-anchor-builder";
+import { normalizeLocationName } from "./narrative/location-matcher";
 import {
   buildChapterContextDocument,
   buildNpcMemoryContext,
@@ -156,7 +159,18 @@ export async function runNarrativePass(
   const selectedPlotLabel = input.selectedPlotLabel;
   const focusCharacterIds = input.focusCharacterIds;
   const jobInput = input.jobInput;
-  let warnedMalformedCharacterState = false;
+
+  // P0.13 : collecte des character states malformés (plus de bool muet).
+  const malformedCharacterStates: string[] = [];
+
+  // P0.8 : un identifiant unique de commit narrative. Il est set UNIQUEMENT à
+  // la fin de Tx D (une fois Tx A+B+C committées). Les lectures défensives des
+  // chapitres peuvent filtrer sur `narrativeCommitId IS NULL` pour détecter un
+  // état "stale" (crash en plein milieu du narrative-pass).
+  const narrativeCommitId =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `nc_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
   // ── Étape 1 : Contexte projet ──────────────────────────────────────────
     await setJobProgress(jobId, { key: "build_context", label: "Contexte projet" }, "running");
@@ -181,11 +195,15 @@ export async function runNarrativePass(
       userIntent: enrichedIntent,
     });
 
-    const knownLocations = await prisma.location.findMany({
+    // P1.6 : plafond 40 (contre 20 avant), priorité à des locations citées par les
+    // scènes sera appliquée plus bas (topUpKnownLocationsForScenes) une fois
+    // `revisedBundle` disponible. On charge donc un pool initial "best-effort"
+    // et on complète ensuite par nom pour les lieux cités absents.
+    let knownLocations = await prisma.location.findMany({
       where: { projectId },
-      select: { name: true, description: true, visualBrief: true, establishedVisualBrief: true },
-      take: 20,
-    }).catch(() => [] as Array<{ name: string; description: string | null; visualBrief?: string | null; establishedVisualBrief?: string | null }>);
+      select: { id: true, name: true, description: true, visualBrief: true, establishedVisualBrief: true },
+      take: 40,
+    }).catch(() => [] as Array<{ id: string; name: string; description: string | null; visualBrief?: string | null; establishedVisualBrief?: string | null }>);
 
     const recurringNpcs = await loadProjectRecurringNpcs(prisma, projectId);
     // BUG-23 : log clarifié. Ce compteur ne concerne QUE les PNJ secondaires promus
@@ -305,6 +323,48 @@ export async function runNarrativePass(
     revisedBundle = integrity.bundle;
     revisedBundle = syncVisualsAfterNarrativePass(revisedBundle);
 
+    // P1.6 : top-up de `knownLocations` pour les lieux cités par les scènes
+    // mais absents de notre pool initial (`take: 40`). Évite qu'un lieu
+    // référencé soit matché à vide, sans l'explosion qu'aurait provoqué
+    // un load "all locations".
+    try {
+      const citedLocationNames = new Set<string>();
+      for (const scene of revisedBundle.script.scenes) {
+        const norm = normalizeLocationName(scene?.location ?? null);
+        if (norm.length > 0) citedLocationNames.add(norm);
+      }
+      const knownNormalized = new Set(knownLocations.map((l) => normalizeLocationName(l.name)));
+      const missing = Array.from(citedLocationNames).filter((n) => !knownNormalized.has(n));
+      if (missing.length > 0) {
+        console.warn(
+          `[pipeline] knownLocations top-up required for ${missing.length} cited locations (pool=${knownLocations.length})`,
+        );
+        // Fetch par OR de nomsPAR normalization n'est pas triviale en SQL,
+        // on fait donc un fetch par OR de noms bruts pour chaque nom cité.
+        const missingCanonicalNames = Array.from(
+          new Set(
+            revisedBundle.script.scenes
+              .map((s) => s?.location)
+              .filter((n): n is string => typeof n === "string" && n.length > 0)
+              .filter((n) => missing.includes(normalizeLocationName(n))),
+          ),
+        );
+        if (missingCanonicalNames.length > 0) {
+          const extra = await prisma.location.findMany({
+            where: { projectId, name: { in: missingCanonicalNames } },
+            select: { id: true, name: true, description: true, visualBrief: true, establishedVisualBrief: true },
+          }).catch(() => [] as typeof knownLocations);
+          if (extra.length > 0) {
+            knownLocations = [...knownLocations, ...extra];
+          }
+        }
+      }
+    } catch (topUpErr) {
+      console.warn(
+        `[pipeline] knownLocations_top_up_failed (non-blocking): ${topUpErr instanceof Error ? topUpErr.message : topUpErr}`,
+      );
+    }
+
     const knownCharNames = new Set(rawCharacters.map((c) => c.name.toLowerCase()));
     const bundleCharNames = new Set<string>();
     for (const page of revisedBundle.storyboard.pages) {
@@ -381,15 +441,36 @@ export async function runNarrativePass(
             projectBible: storyBibleForGlossary?.summary ?? null,
           });
 
+          // P0.12 : on force les humains / named_npc à être promus "secondary"
+          // plutôt que "pnj", pour que la regex `importantNpcs` du shot plan
+          // les capte correctement (elle matche /mentor|deuteragonist|secondary|…/).
           const entityRoleType = entityProfile.entityKind === "human" || entityProfile.entityKind === "named_npc"
-            ? "pnj"
+            ? "secondary"
             : entityProfile.entityKind;
+
+          // P0.11 : défaut `forbiddenVisualDrift = []` (plus de null muet) +
+          // défauts dérivés du type d'entité pour les cas non-humains évidents.
+          // Un dragon ne doit PAS dériver visage humain ou vêtements modernes.
+          const defaultForbiddenDrift: string[] = (() => {
+            const kind = String(entityProfile.entityKind ?? "").toLowerCase();
+            if (kind === "dragon" || kind === "beast" || kind === "monster") {
+              return ["human face", "human hands", "modern clothing"];
+            }
+            if (kind === "spirit" || kind === "ghost") {
+              return ["solid body material", "casting ordinary shadow"];
+            }
+            if (kind === "robot" || kind === "mecha") {
+              return ["organic skin", "natural hair"];
+            }
+            return [];
+          })();
 
           const charData = {
               name: pnjName,
               roleType: entityRoleType,
               status: "alive",
               autoGenerated: true,
+              forbiddenVisualDrift: defaultForbiddenDrift,
               appearance: [
                 entityProfile.speciesLabel ? `${entityProfile.speciesLabel}` : null,
                 entityProfile.typicalAppearance || null,
@@ -428,7 +509,7 @@ export async function runNarrativePass(
             outfitDefault: null as string | null,
             canonicalImageUrl: null as string | null,
             canonSignatureText: null as string | null,
-            forbiddenVisualDrift: null as unknown,
+            forbiddenVisualDrift: defaultForbiddenDrift as unknown,
             bodyDetails: null as string | null,
             wardrobeDetails: null as string | null,
             visualProfile: {} as Record<string, unknown>,
@@ -868,6 +949,24 @@ export async function runNarrativePass(
       }
     }
 
+    // P0.16 : fail loud si shot plan toujours manquant après les deux
+    // fallbacks. On ne throw pas (le pipeline peut encore générer sans),
+    // mais on remonte clairement le mode dégradé via jobProgress + les
+    // diagnostics, pour que la QA sache que la cohérence hero/NPC/décor
+    // n'est plus garantie pour ce chapitre.
+    if (!chapterShotPlan) {
+      try {
+        await setJobProgress(jobId, { key: "shot_plan", label: "shot_plan", detail: "failed_both_providers" }, "failed");
+      } catch { /* non-blocking */ }
+      try {
+        const degraded = revisedBundle.generationDiagnostics.degradedModes ?? [];
+        if (!degraded.includes("shot_plan_missing")) degraded.push("shot_plan_missing");
+        (revisedBundle.generationDiagnostics as { degradedModes?: string[] }).degradedModes = degraded;
+        (revisedBundle.generationDiagnostics as { operationalStatus?: string }).operationalStatus =
+          "DEGRADED_SHOT_PLAN_MISSING";
+      } catch { /* shape mismatch non-blocking */ }
+    }
+
     const plannedImages: PlannedImage[] = [];
     const sceneBlueprintsByScene = new Map<number, SceneBlueprint[]>();
 
@@ -906,7 +1005,13 @@ export async function runNarrativePass(
       });
     }, { timeout: 10_000 });
 
-    // C05: Tx B — scenes + images, timeout élevé mais isolé du chapter.update
+    // C05: Tx B — scenes + images, timeout élevé mais isolé du chapter.update.
+    //
+    // P0.9 : briefs de lieu "établis" pendant CE run de Tx B, suivis localement
+    // via une Map (clé = nom normalisé NFD). Remplace l'ancienne mutation de
+    // `locationRecord.establishedVisualBrief` sur l'array `knownLocations` qui
+    // pouvait laisser un brief fantôme en mémoire si Tx B rollbackait.
+    const establishedBriefsThisTx = new Map<string, string>();
     await prisma.$transaction(
       async (tx) => {
         for (let index = 0; index < revisedBundle.script.scenes.length; index++) {
@@ -1000,16 +1105,21 @@ export async function runNarrativePass(
 
           if (scene.location) {
             try {
+              // P1.5 : normalisation NFD + casse pour matcher les noms accentués.
+              const sceneLocNorm = normalizeLocationName(scene.location);
               const locationRecord = knownLocations.find(
-                (loc) => loc.name.toLowerCase() === scene.location.trim().toLowerCase(),
+                (loc) => normalizeLocationName(loc.name) === sceneLocNorm,
               );
               if (locationRecord && !locationRecord.establishedVisualBrief && scene.summary) {
                 const visualBrief = [
                   scene.location,
                   scene.summary.slice(0, 200),
                 ].filter(Boolean).join(" — ");
-                // P0-5: atomicité — écrire dans la MÊME transaction que la scène,
-                // pour éviter une "location établie" orpheline si Tx B rollback.
+                // P0.9 : on écrit en DB dans la Tx B, mais on NE mute PLUS
+                // `locationRecord.establishedVisualBrief` en mémoire (pour
+                // éviter une "location établie" fantôme si Tx B rollback).
+                // Les panels suivants liront la valeur rafraîchie via
+                // `refreshedKnownLocations` (post-Tx B).
                 await tx.location.updateMany({
                   where: { projectId, name: locationRecord.name },
                   data: {
@@ -1017,7 +1127,10 @@ export async function runNarrativePass(
                     firstSeenChapterId: chapterId,
                   },
                 });
-                locationRecord.establishedVisualBrief = visualBrief;
+                // P0.9 : on trace la valeur établie dans CE Tx via la Map
+                // locale plutôt qu'en mutant `locationRecord`. Si Tx B rollback,
+                // la Map est garbage-collected et on redémarre proprement.
+                establishedBriefsThisTx.set(sceneLocNorm, visualBrief);
               }
             } catch (decorErr) {
               console.warn(`[pipeline] decor_anchor_failed (non-blocking): ${decorErr instanceof Error ? decorErr.message : decorErr}`);
@@ -1283,10 +1396,17 @@ export async function runNarrativePass(
                       .filter((state) => {
                         const stableName = (state as any)?.identity?.stableName;
                         if (typeof stableName !== "string" || stableName.length === 0) {
-                          if (!warnedMalformedCharacterState) {
-                            warnedMalformedCharacterState = true;
+                          // P0.13 : collecte des IDs/refs malformés (plus de bool muet).
+                          const ref =
+                            typeof (state as any)?.identity?.characterId === "string"
+                              ? `id=${(state as any).identity.characterId}`
+                              : typeof (state as any)?.identity?.displayName === "string"
+                                ? `name=${(state as any).identity.displayName}`
+                                : "<unknown>";
+                          if (!malformedCharacterStates.includes(ref)) {
+                            malformedCharacterStates.push(ref);
                             console.warn(
-                              `[pipeline] malformed_character_state_missing_identity jobId=${jobId} chapterId=${chapterId} — skipping continuityObligations injection`,
+                              `[pipeline] malformed_character_state_missing_identity ${ref} jobId=${jobId} chapterId=${chapterId}`,
                             );
                           }
                           return false;
@@ -1509,14 +1629,13 @@ export async function runNarrativePass(
                             : ("none" as const),
                       recurringMemory,
                       bodyDetails: (() => {
+                        // P0.15 : imports statiques (plus de `require` masquant
+                        // les erreurs de chargement du module physical-events).
                         const parts: string[] = [];
                         if (c.bodyDetails) parts.push(c.bodyDetails);
-                        try {
-                          const { buildBodyStatePromptConstraints, loadOrCreateBodyState } = require("@manga-ai-studio/ai");
-                          const bodyState = loadOrCreateBodyState(c.bodyState);
-                          const constraints = buildBodyStatePromptConstraints(c.name, bodyState);
-                          if (constraints) parts.push(constraints);
-                        } catch { /* physical events module unavailable */ }
+                        const bodyState = loadOrCreateBodyState(c.bodyState);
+                        const constraints = buildBodyStatePromptConstraints(c.name, bodyState);
+                        if (constraints) parts.push(constraints);
                         return parts.length > 0 ? parts.join("; ") : null;
                       })(),
                       wardrobeDetails: (() => {
@@ -1589,13 +1708,21 @@ export async function runNarrativePass(
               environmentHint: [
                 sceneBlueprint.promptBridge.environmentLine,
                 (() => {
-                  const locationName = scene.location?.trim().toLowerCase();
-                  if (!locationName) return null;
+                  const locationNorm = normalizeLocationName(scene.location);
+                  if (!locationNorm) return null;
                   const locationRecord = knownLocations.find(
-                    (loc) => loc.name.toLowerCase() === locationName || locationName.includes(loc.name.toLowerCase()),
+                    (loc) => {
+                      const ln = normalizeLocationName(loc.name);
+                      return ln === locationNorm || locationNorm.includes(ln);
+                    },
                   );
-                  return locationRecord?.establishedVisualBrief
-                    ? `ESTABLISHED VISUAL ANCHOR [${locationRecord.name}]: ${locationRecord.establishedVisualBrief}`
+                  // P0.9 : on lit d'abord la Map locale des briefs établis dans
+                  // la Tx courante, puis on fallback sur la valeur DB chargée
+                  // au début de la pass. Plus aucune mutation de `knownLocations`.
+                  const freshBrief =
+                    establishedBriefsThisTx.get(locationNorm) ?? locationRecord?.establishedVisualBrief ?? null;
+                  return freshBrief && locationRecord
+                    ? `ESTABLISHED VISUAL ANCHOR [${locationRecord.name}]: ${freshBrief}`
                     : null;
                 })(),
                 composeEnvironment({
@@ -1669,6 +1796,17 @@ export async function runNarrativePass(
             // fallback sur le prompt du storyboard
           }
 
+            // P1.4 : résoudre les characterIds à partir des noms pour que
+            // le retry (P0.5) puisse matcher par ID en priorité, sans dépendre
+            // des libellés (robuste au renommage et aux doublons de nom).
+            const resolvedCharacterIds: string[] = [];
+            for (const cname of panel.characters ?? []) {
+              const match = rawCharacters.find((rc) => rc.name === cname);
+              if (match?.id && !resolvedCharacterIds.includes(match.id)) {
+                resolvedCharacterIds.push(match.id);
+              }
+            }
+
             const baseMetadata = {
               // Identifiants pour que le shot compliance + quality report retrouvent le blueprint
               panelId: panelPremiumBlueprint?.panelId ?? `${createdScene.id}:${panel.panelNumber}`,
@@ -1676,6 +1814,8 @@ export async function runNarrativePass(
               caption: panel.caption,
               camera: panel.camera,
               characters: panel.characters,
+              // P1.4 : IDs résolus pour robustesse retry + QA
+              characterIds: resolvedCharacterIds,
               sceneId: createdScene.id,
               sceneKeyframeId: sceneKeyframe.id,
               pageNumber: storyboardPage.pageNumber,
@@ -1866,15 +2006,37 @@ export async function runNarrativePass(
       }, { timeout: 15_000 });
     }
 
-    // P0-5: Tx D — flip final "ready_for_render" UNIQUEMENT après succès de
-    // Tx A + Tx B + Tx C. Garantit qu'aucun chapter marqué "ready" n'existe
-    // sans scènes+images persistées (pas de rendu fantôme côté UI).
+    // P0-5 / P0.8 : Tx D — flip final "ready_for_render" UNIQUEMENT après
+    // succès de Tx A + Tx B + Tx C. Garantit qu'aucun chapter marqué "ready"
+    // n'existe sans scènes+images persistées (pas de rendu fantôme côté UI).
+    // On set aussi `narrativeCommitId` ici : un chapitre sans commitId sera
+    // considéré "stale" côté API (GET chapter), ce qui évite qu'un chapitre
+    // à moitié écrit apparaisse comme lisible.
     await prisma.$transaction(async (tx) => {
       await tx.chapter.update({
         where: { id: chapterId },
-        data: { status: "ready_for_render" },
+        data: {
+          status: "ready_for_render",
+          narrativeCommitId,
+        },
       });
     }, { timeout: 5_000 });
+
+    // P0.13 : remonter au jobOutput la liste (dédupliquée) des character states
+    // malformés détectés pendant la composition → affichable côté qa-report.
+    if (malformedCharacterStates.length > 0) {
+      try {
+        await mergeJobOutput(jobId, {
+          continuityWarnings: {
+            missingStableName: malformedCharacterStates,
+          },
+        });
+      } catch (mergeErr) {
+        console.warn(
+          `[pipeline] merge_job_output_continuity_warnings_failed: ${mergeErr instanceof Error ? mergeErr.message : mergeErr}`,
+        );
+      }
+    }
 
     await setJobProgress(
       jobId,

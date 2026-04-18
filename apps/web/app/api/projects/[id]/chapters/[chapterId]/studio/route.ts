@@ -19,6 +19,7 @@ import {
   readChapterStudioSnapshotFromOutline,
 } from "@/lib/chapter-studio";
 import { mergePremiumProductionPlan } from "@/lib/premium-chapter-contract";
+import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -56,7 +57,10 @@ export async function GET(_req: Request, ctx: Ctx) {
           storyBible: true,
           characters: {
             include: {
+              // P0.6 : on exclut les visualRefs archivés du studio pour éviter
+              // d'afficher des refs soft-deletées dans le catalog.
               visualRefs: {
+                where: { archivedAt: null },
                 orderBy: { createdAt: "desc" },
                 include: { mediaAsset: true },
               },
@@ -202,12 +206,34 @@ export async function GET(_req: Request, ctx: Ctx) {
         pending: allImages.filter((image) => image.status === "pending" || image.status === "planned").length,
       },
     },
-    characterCatalog: chapter.project.characters.map((c) => ({
-      id: c.id,
-      name: c.name,
-      roleType: c.roleType,
-      imageUrl: c.visualRefs?.[0]?.mediaAsset?.publicUrl ?? null,
-    })),
+    characterCatalog: await Promise.all(
+      chapter.project.characters.map(async (c) => {
+        // P0.7 : bucket Supabase privé → `mediaAsset.publicUrl` renvoie 403.
+        // Ordre de résolution :
+        //  1. mediaAsset.publicUrl (signé + proxifié pour CORS/ITP)
+        //  2. fallback visualRefs[0].imageUrl (déjà stable côté DB) signé + proxifié
+        const ref = c.visualRefs?.[0];
+        const rawUrl = ref?.mediaAsset?.publicUrl ?? ref?.imageUrl ?? null;
+        if (!rawUrl) {
+          return { id: c.id, name: c.name, roleType: c.roleType, imageUrl: null };
+        }
+        const signed = (await signSupabaseUrlIfNeeded(rawUrl)) ?? rawUrl;
+        const proxied = (() => {
+          if (!signed) return null;
+          if (signed.startsWith("/api/images/proxy")) return signed;
+          try {
+            const parsed = new URL(signed);
+            const isExternal = ["supabase.co", "v3b.fal.media", "fal.media", "cdn.fal.ai"].some(
+              (h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`),
+            );
+            return isExternal ? `/api/images/proxy?url=${encodeURIComponent(signed)}` : signed;
+          } catch {
+            return signed;
+          }
+        })();
+        return { id: c.id, name: c.name, roleType: c.roleType, imageUrl: proxied };
+      }),
+    ),
   });
 }
 

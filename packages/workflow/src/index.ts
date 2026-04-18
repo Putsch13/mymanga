@@ -7,3 +7,4 @@ export { runFullChapterPipelineFromJob } from "./run-full-chapter-pipeline";
 export { assertPremiumContractFromChapter } from "./passes/assert-premium-contract-guard";
 export type { PremiumContractGuardResult } from "./passes/assert-premium-contract-guard";
 export * from "./stable-image-refs";
+export { normalizeLocationName, locationNamesEqual } from "./passes/narrative/location-matcher";

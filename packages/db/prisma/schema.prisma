@@ -448,6 +448,8 @@ model CharacterVisualRef {
   promptSnapshot String?
   metadata      Json     @default("{}")
   isPrimary     Boolean  @default(false)
+  // P0.6 : soft-delete pour PATCH visualRefs (plus de deleteMany destructif).
+  archivedAt    DateTime?
   createdAt     DateTime @default(now())
 }
 
@@ -549,6 +551,10 @@ model Location {
   firstSeenChapterId      String?   // chapitre où le lieu a été établi visuellement
   canonImageUrl           String?   // image de référence du lieu
 
+  // P1.3 : refs visuelles canoniques d'un lieu (cross-chapitres).
+  // Array<{ url: string; type: "keyframe"|"user_upload"|"generated"; capturedFromChapterId?: string; capturedAt?: string }>
+  visualRefs              Json      @default("[]")
+
   npcVisualProfiles NpcVisualProfile[]
 
   @@unique([projectId, slug], name: "Location_projectId_slug_key")
@@ -611,6 +617,11 @@ model Chapter {
   reviewBlockedReason String?
   // B6-3 : flag qualité outline faible
   qualityGateWarning Boolean @default(false)
+  // P0.8 : verrou transactionnel narrative-pass — set uniquement à la fin de
+  // Tx B (scene persistence). Si null → le chapitre n'est PAS considéré comme
+  // "lisible" (stale). Les lectures doivent être défensives : un chapitre
+  // legacy peut avoir narrativeCommitId null sans être corrompu.
+  narrativeCommitId String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

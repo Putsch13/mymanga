@@ -222,13 +222,37 @@ export function buildCharacterCanonFromCharacter(character: {
   canonLocked?: boolean;
   visualRefs?: Array<{ mediaAsset?: { publicUrl?: string | null } | null; imageUrl?: string | null }> | null;
   canonPack?: { completenessScore?: number | null } | null;
+  // P1.2 : champs supplémentaires pour unifier avec le canon runtime.
+  characterFingerprint?: unknown;
+  bodyState?: unknown;
+  continuityProfile?: unknown;
+  visualLocks?: Array<{ isActive?: boolean | null; triggerWord?: string | null; loraAsset?: { publicUrl?: string | null } | null; canonicalRefUrls?: unknown; defaultOutfit?: string | null; altOutfits?: unknown }> | null;
 }): CharacterCanon {
   const visualProfile = asRecord(character.visualProfile);
   const wardrobeProfile = asRecord(character.wardrobeProfile);
   const stableVisualDNA = asRecord(character.stableVisualDNA);
-  const referenceAssets = (character.visualRefs ?? [])
-    .map((ref) => ref.mediaAsset?.publicUrl ?? ref.imageUrl ?? null)
-    .filter((value): value is string => Boolean(value));
+  const characterFingerprint = asRecord(character.characterFingerprint);
+  const bodyState = asRecord(character.bodyState);
+
+  // P1.2 : on agrège les visualRefs stockés sur le Character ET sur son
+  // active CharacterVisualLock, priorité au lock (canonical source of truth).
+  const activeLock = (character.visualLocks ?? []).find((l) => l?.isActive === true) ?? null;
+  const lockRefUrls = Array.isArray(activeLock?.canonicalRefUrls)
+    ? (activeLock?.canonicalRefUrls as unknown[]).filter((u): u is string => typeof u === "string")
+    : [];
+  const referenceAssets = [
+    ...lockRefUrls,
+    ...((character.visualRefs ?? [])
+      .map((ref) => ref.mediaAsset?.publicUrl ?? ref.imageUrl ?? null)
+      .filter((value): value is string => Boolean(value))),
+  ];
+  // Dédupliquer (preserve order).
+  const seenRefs = new Set<string>();
+  const dedupedReferenceAssets = referenceAssets.filter((u) => {
+    if (seenRefs.has(u)) return false;
+    seenRefs.add(u);
+    return true;
+  });
 
   const importanceTier =
     /hero|protagon/i.test(character.roleType ?? "")
@@ -291,9 +315,16 @@ export function buildCharacterCanonFromCharacter(character: {
       safeString(character.outfitDefault),
     ].filter((value): value is string => Boolean(value)),
     optionalVariation: asStringArray(wardrobeProfile.altOutfits),
-    referenceAssets,
-    loraBindings: [],
-    fingerprint: stableVisualDNA,
+    referenceAssets: dedupedReferenceAssets,
+    // P1.2 : on représente le binding LoRA sous forme de strings composites
+    // ("trigger|url") — conforme au schéma z.array(z.string()).
+    loraBindings: activeLock?.triggerWord
+      ? [`${activeLock.triggerWord}|${activeLock.loraAsset?.publicUrl ?? ""}`]
+      : [],
+    // P1.2 : fingerprint agrégé (characterFingerprint prioritaire, fallback DNA).
+    fingerprint: Object.keys(characterFingerprint).length > 0
+      ? { ...stableVisualDNA, ...characterFingerprint, bodyState }
+      : stableVisualDNA,
     // Propagation du canonPack pour permettre au readiness report de détecter
     // les personnages MAIN/CORE sans canonPack solide (source majeure de drift).
     hasCanonPack: Boolean(character.canonPack),

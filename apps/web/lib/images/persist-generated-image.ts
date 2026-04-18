@@ -36,19 +36,37 @@ function isAlreadyStableStorageUrl(url: string) {
   return false;
 }
 
+/**
+ * Résultat unifié. Quand `ok: true` et `persisted: true`, `storageKey` reflète
+ * le chemin EXACT uploadé côté Supabase (avec l'extension dérivée du
+ * content-type), ce qui permet de re-signer ou re-downloader via le SDK
+ * Supabase en s'appuyant sur la colonne `mediaAsset.storageKey`.
+ *
+ * Quand `persisted: false` (URL déjà stable Supabase ou persistence sautée),
+ * `storageKey` est `null` — à l'appelant de ne PAS l'écrire en DB dans ce cas.
+ */
+export type PersistGeneratedImageResult =
+  | { ok: true; url: string; persisted: true; storageKey: string }
+  | { ok: true; url: string; persisted: false; storageKey: null }
+  | { ok: true; url: string; persisted: false; storageKey: null; temporary: true; warning?: string }
+  | { ok: false; error: string };
+
 export async function persistGeneratedImageIfNeeded(opts: {
   imageUrl: string;
   objectPath: string;
-  /** Si true : retourner ok:true avec l'URL originale si Supabase n'est pas configuré (image temporaire) */
+  /**
+   * Si true : retourner ok:true avec l'URL originale si Supabase n'est pas
+   * configuré (image temporaire). Ne PAS activer pour les écritures canoniques
+   * (mediaAsset, characterVisualRef, canonicalRefUrls) — cf. assertStableImageUrl.
+   */
   allowTemporary?: boolean;
-}) {
+}): Promise<PersistGeneratedImageResult> {
   const bucket = process.env.STORAGE_BUCKET ?? "mymanga-images";
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const client = getStorageClient();
 
-  // Log de diagnostic pour débugger les problèmes de persistance
   if (!client) {
     console.warn(`[persist-image] Supabase client NULL — url=${!!supabaseUrl} serviceKey=${!!serviceKey} anonKey=${!!anonKey} bucket=${bucket}`);
   }
@@ -60,17 +78,18 @@ export async function persistGeneratedImageIfNeeded(opts: {
   const mustPersist = isDataUrl(opts.imageUrl) || looksLikeBflDelivery(opts.imageUrl) || canPersistHttp;
 
   if (!mustPersist) {
-    return { ok: true as const, url: opts.imageUrl, persisted: false as const };
+    // URL déjà stable (ex: déjà hébergée chez Supabase) → on laisse tel quel
+    // sans renvoyer de storageKey car on ne peut pas en inférer un chemin fiable.
+    return { ok: true, url: opts.imageUrl, persisted: false, storageKey: null };
   }
 
   if (!client) {
     console.warn(`[persist-image] No storage client, returning temporary URL for: ${opts.imageUrl.slice(0, 60)}...`);
     if (opts.allowTemporary) {
-      // Mode dégradé : pas de Supabase, on retourne l'URL temporaire avec un flag
-      return { ok: true as const, url: opts.imageUrl, persisted: false as const, temporary: true as const };
+      return { ok: true, url: opts.imageUrl, persisted: false, storageKey: null, temporary: true };
     }
     return {
-      ok: false as const,
+      ok: false,
       error:
         "Stockage non configuré (NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY). L'image a été générée mais ne peut pas être sauvegardée de façon permanente.",
     };
@@ -81,7 +100,7 @@ export async function persistGeneratedImageIfNeeded(opts: {
 
   if (isDataUrl(opts.imageUrl)) {
     const commaIndex = opts.imageUrl.indexOf(",");
-    if (commaIndex <= 0) return { ok: false as const, error: "data_url_invalide" };
+    if (commaIndex <= 0) return { ok: false, error: "data_url_invalide" };
     const header = opts.imageUrl.slice(0, commaIndex);
     const base64 = opts.imageUrl.slice(commaIndex + 1);
     const ct = header.split(";")[0]?.slice("data:".length);
@@ -89,7 +108,7 @@ export async function persistGeneratedImageIfNeeded(opts: {
     bytes = Uint8Array.from(Buffer.from(base64, "base64"));
   } else {
     const res = await fetch(opts.imageUrl);
-    if (!res.ok) return { ok: false as const, error: `download_failed_${res.status}` };
+    if (!res.ok) return { ok: false, error: `download_failed_${res.status}` };
     bytes = new Uint8Array(await res.arrayBuffer());
     const ct = res.headers.get("content-type");
     if (ct?.startsWith("image/")) contentType = ct;
@@ -106,15 +125,19 @@ export async function persistGeneratedImageIfNeeded(opts: {
   if (upload.error) {
     console.error(`[persist-image] Upload failed: ${upload.error.message} — bucket=${bucket} path=${fullPath}`);
     if (opts.allowTemporary) {
-      // Upload échoué mais on a allowTemporary → retourner l'URL originale plutôt que bloquer
-      return { ok: true as const, url: opts.imageUrl, persisted: false as const, temporary: true as const, warning: `upload_failed:${upload.error.message}` };
+      return {
+        ok: true,
+        url: opts.imageUrl,
+        persisted: false,
+        storageKey: null,
+        temporary: true,
+        warning: `upload_failed:${upload.error.message}`,
+      };
     }
-    return { ok: false as const, error: `upload_failed:${upload.error.message}` };
+    return { ok: false, error: `upload_failed:${upload.error.message}` };
   }
 
-  // Stocker l'URL publique stable en DB.
-  // Si le bucket est privé, le chapter route génère des signed URLs à la lecture.
   const publicUrl = client.storage.from(bucket).getPublicUrl(fullPath).data.publicUrl;
-  console.log(`[persist-image] OK persisted → ${publicUrl.slice(0, 80)}`);
-  return { ok: true as const, url: publicUrl, persisted: true as const };
+  console.log(`[persist-image] OK persisted → ${publicUrl.slice(0, 80)} (storageKey=${fullPath})`);
+  return { ok: true, url: publicUrl, persisted: true, storageKey: fullPath };
 }

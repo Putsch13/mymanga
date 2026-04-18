@@ -14,6 +14,7 @@ import { notFound, unauthorized, validationError } from "@/lib/api-response";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { persistGeneratedImageIfNeeded } from "@/lib/images/persist-generated-image";
+import { assertStableImageUrl } from "@/lib/images/assert-stable-image-url";
 import { resolveRetryReferencePolicy, type RetryMode } from "@/lib/images/retry-reference-policy";
 import { collectRetryStableReferences } from "@/lib/images/retry-stable-references";
 import { resolveStableImageReferences } from "@manga-ai-studio/workflow";
@@ -149,17 +150,89 @@ export async function POST(req: Request, ctx: Ctx) {
     where: { projectId },
     select: { id: true, name: true, characterFingerprint: true },
   });
+
+  // P0.5 : indexation par ID (vérité) + par nom normalisé (fallback legacy).
+  const projectCharsById = new Map(projectChars.map((c) => [c.id, c]));
+  const projectCharsByName = new Map(
+    projectChars.map((c) => [c.name.toLowerCase().trim(), c]),
+  );
+  function normalizeCharName(n: string): string {
+    return n.toLowerCase().trim();
+  }
+  // P0.5 : `characterIds` injecté par narrative-pass (P1.4) dans metadata.
+  // Sur les panels legacy, l'array peut être absent → on dégrade vers panelCast/name.
+  const metadataCharacterIds = Array.isArray((metadata as Record<string, unknown>).characterIds)
+    ? ((metadata as Record<string, unknown>).characterIds as unknown[]).filter((x): x is string => typeof x === "string")
+    : [];
+
+  /**
+   * Résolution canonique d'un personnage.
+   * Ordre (plus fiable → moins fiable) :
+   *  1. panelCast.focus.characterId
+   *  2. panelCast.supporting[].characterId (par nom)
+   *  3. metadata.characterIds[]
+   *  4. fallback par nom normalisé
+   */
+  function resolveCharacterFromName(name: string):
+    | { character: typeof projectChars[number]; resolvedBy: "focus_id" | "supporting_id" | "metadata_id" | "name_fallback" }
+    | null {
+    const norm = normalizeCharName(name);
+
+    if (panelCastData?.focus?.characterId && normalizeCharName(panelCastData.focus.name) === norm) {
+      const c = projectCharsById.get(panelCastData.focus.characterId);
+      if (c) return { character: c, resolvedBy: "focus_id" };
+    }
+    const supporting = panelCastData?.supporting ?? [];
+    for (const s of supporting) {
+      if (s?.characterId && normalizeCharName(s.name) === norm) {
+        const c = projectCharsById.get(s.characterId);
+        if (c) return { character: c, resolvedBy: "supporting_id" };
+      }
+    }
+    for (const id of metadataCharacterIds) {
+      const c = projectCharsById.get(id);
+      if (c && normalizeCharName(c.name) === norm) {
+        return { character: c, resolvedBy: "metadata_id" };
+      }
+    }
+    const byName = projectCharsByName.get(norm);
+    if (byName) return { character: byName, resolvedBy: "name_fallback" };
+    return null;
+  }
+
   const castOrderedNames = panelCastData
     ? [panelCastData.focus?.name, ...(panelCastData.supporting ?? []).map((m) => m.name)].filter((n): n is string => Boolean(n))
     : characters;
   const loraSourceNames = castOrderedNames.length > 0 ? castOrderedNames : characters;
   const panelLoras = loraSourceNames
     .map((name) => {
-      const c = projectChars.find((pc) => pc.name === name);
-      return c ? loraByCharId.get(c.id) : undefined;
+      const res = resolveCharacterFromName(name);
+      if (!res) {
+        console.warn(`[retry:resolution] name="${name}" resolved_by=miss panel=${img.id}`);
+        return undefined;
+      }
+      console.info(`[retry:resolution] name="${name}" resolved_by=${res.resolvedBy} id=${res.character.id}`);
+      return loraByCharId.get(res.character.id);
     })
     .filter((l): l is { url: string; triggerWord: string; scale: number } => Boolean(l))
     .slice(0, 2);
+
+  // P0.5 : IDs résolus des personnages présents dans ce panel (pour les filtres
+  // qui prenaient `characters.includes(pc.name)` → on bascule vers ID).
+  const resolvedPanelCharacterIds = new Set<string>();
+  for (const name of characters) {
+    const res = resolveCharacterFromName(name);
+    if (res) resolvedPanelCharacterIds.add(res.character.id);
+  }
+  for (const id of metadataCharacterIds) {
+    if (projectCharsById.has(id)) resolvedPanelCharacterIds.add(id);
+  }
+  if (panelCastData?.focus?.characterId) {
+    resolvedPanelCharacterIds.add(panelCastData.focus.characterId);
+  }
+  for (const s of panelCastData?.supporting ?? []) {
+    if (s?.characterId) resolvedPanelCharacterIds.add(s.characterId);
+  }
 
   const retryStableReferences = collectRetryStableReferences({
     metadata,
@@ -173,8 +246,9 @@ export async function POST(req: Request, ctx: Ctx) {
   const hasCanonRef = referenceImageUrls.length > 0 || panelLoras.length > 0;
 
   // Analyse de drift pré-reroll pour informer la politique de référence
+  // P0.5 : on filtre par ID résolu plutôt que par nom brut.
   const driftCharacters = projectChars
-    .filter((pc) => characters.includes(pc.name))
+    .filter((pc) => resolvedPanelCharacterIds.has(pc.id))
     .map((pc) => {
       const fp = (pc.characterFingerprint as Record<string, unknown> | null) ?? {};
       return {
@@ -191,14 +265,15 @@ export async function POST(req: Request, ctx: Ctx) {
   // Lire les flags premium depuis la metadata persistée
   const hasLookProfile = typeof metadata.chapterLookProfileMode === "string";
   const hasFingerprint = driftCharacters.some((c) => {
-    const char = projectChars.find((pc) => pc.name === c.name);
+    const res = resolveCharacterFromName(c.name);
+    const char = res?.character;
     return char?.characterFingerprint && typeof char.characterFingerprint === "object" && Object.keys(char.characterFingerprint).length > 0;
   });
   const hasSceneAnchor = metadata.sceneAnchor != null && typeof metadata.sceneAnchor === "object";
 
   // Enrichir les characters avec hardTraits/softTraits depuis le fingerprint
   const driftCharactersEnriched = driftCharacters.map((dc) => {
-    const char = projectChars.find((pc) => pc.name === dc.name);
+    const char = resolveCharacterFromName(dc.name)?.character;
     const fp = char?.characterFingerprint && typeof char.characterFingerprint === "object"
       ? char.characterFingerprint as Record<string, unknown>
       : null;
@@ -296,11 +371,23 @@ export async function POST(req: Request, ctx: Ctx) {
   const targetCharacterId = retryBody.targetCharacterId ?? urlParams.get("targetCharacterId");
 
   function buildCharacterRetryHints(): { positive: string; negative: string } {
+    // P0.5 : résolution strictement par ID (target user OU focus), fallback
+    // par nom uniquement en dernier recours.
     const target = targetCharacterId
-      ? projectChars.find((pc) => pc.id === targetCharacterId)
-      : panelCastData?.focus
-        ? projectChars.find((pc) => pc.id === panelCastData.focus!.characterId)
-        : projectChars.find((pc) => characters.includes(pc.name));
+      ? projectCharsById.get(targetCharacterId)
+      : panelCastData?.focus?.characterId
+        ? projectCharsById.get(panelCastData.focus.characterId)
+        : (() => {
+            for (const id of metadataCharacterIds) {
+              const c = projectCharsById.get(id);
+              if (c) return c;
+            }
+            for (const name of characters) {
+              const c = resolveCharacterFromName(name)?.character;
+              if (c) return c;
+            }
+            return undefined;
+          })();
 
     if (!target) {
       return {
@@ -472,7 +559,7 @@ export async function POST(req: Request, ctx: Ctx) {
       ?? null;
     const retryPurpose = (panelContractMeta.purpose as string | null | undefined) ?? null;
     const heroPresentRetry = castOrderedNames.some((n) => {
-      const c = projectChars.find((pc) => pc.name === n);
+      const c = resolveCharacterFromName(n)?.character;
       // fallback : si tier indisponible, on considère hero=true seulement si focus=hero
       return c != null;
     }) && (retrySubjectFocus === "hero" || !retrySubjectFocus);
@@ -563,10 +650,16 @@ export async function POST(req: Request, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: persisted.error }, { status: 502 });
     }
 
+    // P0.3 : refuser d'écrire en DB une URL qui ne serait pas stable (token signé
+    // ou host provider temporaire). Exception : `persisted.persisted === false`
+    // indique que l'URL source était déjà stable (ex: mode "temporary" désactivé,
+    // réutilisation Supabase).
+    assertStableImageUrl(persisted.url, "scene-images:retry:persisted.url");
+
     // ── Validation post-génération avec CharacterFingerprint (Bloc 2) ─────────
     const charactersWithFingerprints = characters
       .map((charName) => {
-        const char = projectChars.find((pc) => pc.name === charName);
+        const char = resolveCharacterFromName(charName)?.character;
         if (!char) return null;
 
         const fingerprintRaw = char.characterFingerprint;

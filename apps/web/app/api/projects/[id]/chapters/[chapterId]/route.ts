@@ -342,8 +342,19 @@ export async function GET(_req: Request, ctx: Ctx) {
     }),
   );
 
+  // P0.8 : un chapitre flaggé "ready_for_render" sans `narrativeCommitId`
+  // indique un narrative-pass crashé au milieu (Tx A OK mais Tx B ou D
+  // jamais committée sur un schéma déjà migré). On remonte l'info au client
+  // pour qu'il puisse afficher un état "à régénérer" plutôt qu'un chapitre
+  // incomplet présenté comme prêt.
+  const chapterNarrativeCommitId = (chapter as { narrativeCommitId?: string | null }).narrativeCommitId ?? null;
+  const isStaleReady =
+    chapter.status === "ready_for_render" && chapterNarrativeCommitId === null;
+
   return NextResponse.json({
     chapter,
+    isStaleReady,
+    narrativeCommitId: chapterNarrativeCommitId,
     studio: studioSnapshot,
     memorySnapshot,
     activeJob,

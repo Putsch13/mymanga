@@ -21,6 +21,7 @@ import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { persistGeneratedImageIfNeeded } from "@/lib/images/persist-generated-image";
 import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
+import { assertStableImageUrl, isStableImageUrl } from "@/lib/images/assert-stable-image-url";
 import { notFound, paymentRequired, unauthorized } from "@/lib/api-response";
 import { getOwnedCharacter } from "@/lib/ownership";
 import { sendCharacterLoraTrainingRequested } from "@manga-ai-studio/workflow";
@@ -161,10 +162,16 @@ export async function POST(_req: Request, ctx: Ctx) {
       userIntent: fullAppearance ?? character.name,
     });
 
-    const rawRefs = await Promise.all(
-      character.visualRefs.slice(0, 4).map(async (ref) => (await signSupabaseUrlIfNeeded(ref.imageUrl)) ?? ref.imageUrl),
+    // P0.3 : on garde SÉPARÉMENT les URLs stables (destinées à la DB canonique)
+    // et les URLs signées (destinées uniquement au provider image).
+    const stableRefUrls = character.visualRefs
+      .slice(0, 4)
+      .map((ref) => ref.imageUrl)
+      .filter((u): u is string => Boolean(u) && isStableImageUrl(u));
+    const signedRefs = await Promise.all(
+      stableRefUrls.map(async (u) => (await signSupabaseUrlIfNeeded(u)) ?? u),
     );
-    const referenceImageUrls = rawRefs.filter((url): url is string => Boolean(url));
+    const referenceImageUrls = signedRefs.filter((url): url is string => Boolean(url));
     const activeLoras = character.loraAttachments
       .map((attachment) => {
         const weightsMeta = attachment.lora.weightsMeta as Record<string, unknown>;
@@ -247,10 +254,14 @@ export async function POST(_req: Request, ctx: Ctx) {
       return NextResponse.json({ error: output.reason }, { status: 422 });
     }
 
+    // P0.2 : un seul Date.now() pour tout le chemin d'objet, partagé avec storageKey.
+    const objectBasePath = `projects/${character.project.id}/characters/${character.id}/refs/${Date.now()}`;
+
+    // P0.1 : allowTemporary=false → Supabase OK ou rien.
     const persisted = await persistGeneratedImageIfNeeded({
       imageUrl: output.result.imageUrl,
-      objectPath: `projects/${character.project.id}/characters/${character.id}/refs/${Date.now()}`,
-      allowTemporary: true,
+      objectPath: objectBasePath,
+      allowTemporary: false,
     });
 
     if (!persisted.ok) {
@@ -260,10 +271,30 @@ export async function POST(_req: Request, ctx: Ctx) {
         reservation.reservationId,
         "character_visual_storage_failed",
       );
-      return NextResponse.json({ error: persisted.error }, { status: 502 });
+      return NextResponse.json(
+        { error: "character_visual_not_persisted", detail: persisted.error },
+        { status: 422 },
+      );
     }
 
-    const isTemporary = "temporary" in persisted && persisted.temporary === true;
+    // P0.1 : double garde (même si `allowTemporary:false`) — si pour une raison
+    // quelconque l'image n'est pas réellement persistée sur un support stable,
+    // on refund et on refuse d'écrire quoi que ce soit en DB canonique.
+    if (persisted.persisted !== true) {
+      await refundReservation(
+        prisma,
+        user.id,
+        reservation.reservationId,
+        "character_visual_not_persisted",
+      );
+      return NextResponse.json(
+        { error: "character_visual_not_persisted", detail: "persisted=false (temporary or skip)" },
+        { status: 422 },
+      );
+    }
+
+    // P0.3 : guard explicite — l'URL publique retournée doit être stable.
+    assertStableImageUrl(persisted.url, "generate-visual:persisted.url");
 
     const visualRef = await prisma.$transaction(async (tx) => {
       const previousLock = character.visualLocks[0] ?? null;
@@ -281,17 +312,15 @@ export async function POST(_req: Request, ctx: Ctx) {
           origin: "generated",
           ownerType: "character_visual",
           ownerId: character.id,
-          storageProvider: persisted.persisted ? "supabase" : "fal",
+          storageProvider: "supabase",
           publicUrl: persisted.url,
-          storageKey: `characters/${character.id}/refs/${Date.now()}`,
+          // P0.2 : chemin réellement uploadé (avec extension dérivée du content-type).
+          storageKey: persisted.storageKey,
           metadata: {
             provider: output.result.provider,
             model: output.result.model,
             requestId: output.result.requestId ?? null,
             jobId: output.result.jobId ?? null,
-            // Persiste le seed réellement consommé par le provider : permet de
-            // reproduire une génération strictement identique lors d'un retry
-            // déterministe (cohérence cross-chapitres).
             seed: output.result.seed ?? null,
           },
         },
@@ -311,7 +340,10 @@ export async function POST(_req: Request, ctx: Ctx) {
         wardrobeProfile,
         triggerWord: activeLora?.triggerWord ?? null,
         loraUrl: activeLora?.url ?? null,
-        canonicalRefUrls: [persisted.url, ...referenceImageUrls].slice(0, 4),
+        // P0.3 : canonicalRefUrls = uniquement URLs stables (non signées,
+        // non provider-temporaire). On reprend les refs DB brutes, PAS les
+        // versions signées utilisées pour appeler le provider.
+        canonicalRefUrls: [persisted.url, ...stableRefUrls].slice(0, 4),
         currentState: {
           emotionalState: character.emotionalState,
           status: character.status,
@@ -357,11 +389,11 @@ export async function POST(_req: Request, ctx: Ctx) {
             negativePrompt: lockedNegative,
             requestId: output.result.requestId ?? null,
             jobId: output.result.jobId ?? null,
-            referenceImageUrls,
+            // P0.3 : on ne stocke PAS referenceImageUrls (signées) dans
+            // metadata canonique. On garde uniquement les URLs stables sources.
+            referenceImageUrls: stableRefUrls,
             loras: activeLoras,
-            persisted: persisted.persisted,
-            temporary: isTemporary,
-            storageWarning: isTemporary ? "Image temporaire — configure Supabase Storage pour la rendre permanente." : undefined,
+            persisted: true,
           },
         },
       });
