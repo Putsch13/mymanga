@@ -92,7 +92,7 @@ export const ROUTING_FIXTURES: RoutingFixture[] = [
   },
   {
     id: "reaction-npc",
-    description: "Plan réaction d'un PNJ important (subjectFocus=npc)",
+    description: "Plan réaction d'un PNJ important (cutawayType=reaction)",
     input: {
       intensityLayer: "TEEN",
       panel: { ...emptyPanel, characters: ["npc-1"], camera: "closeup", caption: "le PNJ écarquille les yeux" },
@@ -101,14 +101,14 @@ export const ROUTING_FIXTURES: RoutingFixture[] = [
       subjectFocus: "npc",
     },
     expected: {
-      dominantKind: "npc",
+      dominantKind: "reaction",
       heroFocus: false,
     },
     forbidden: { panelCategoryNotIn: ["CHARACTER_LOCK"] },
   },
   {
     id: "crowd-scene",
-    description: "Panel foule : subjectFocus=group, héros dans le cast",
+    description: "Panel foule : cutawayType=crowd, héros dans le cast (doit être relegué)",
     input: {
       intensityLayer: "TEEN",
       panel: { ...emptyPanel, characters: ["hero", "npc-1", "npc-2"], camera: "wide", caption: "la foule s'agite autour du héros" },
@@ -117,7 +117,7 @@ export const ROUTING_FIXTURES: RoutingFixture[] = [
       subjectFocus: "group",
     },
     expected: {
-      dominantKind: "group",
+      dominantKind: "crowd",
       heroFocus: false,
     },
     forbidden: { panelCategoryNotIn: ["CHARACTER_LOCK"], heroFocusMustBeFalse: true },

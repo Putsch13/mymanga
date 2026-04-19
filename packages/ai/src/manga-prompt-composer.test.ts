@@ -71,3 +71,111 @@ describe("composeMangaPanelPrompt with scene blueprint", () => {
     expect(result.positive).toContain("seen 4 times");
   });
 });
+
+describe("P0.1 — Cutaway panels ne reçoivent jamais de hero lock", () => {
+  it("subjectFocus=environment → pas de Subject lock héros", () => {
+    const result = composeMangaPanelPrompt({
+      location: "cité fortifiée",
+      action: "Vue d'ensemble de la cité au lever du soleil",
+      camera: "wide establishing shot",
+      mood: "calm",
+      contentIntensityLayer: "TEEN",
+      subjectFocus: "environment",
+      characters: [
+        { name: "Lyra", importanceTier: "MAIN_HERO", lockStrength: "HARD_LOCK" },
+      ],
+    });
+
+    expect(result.positive).not.toContain("Subject lock:");
+    expect(result.positive).not.toContain("HARD_LOCK");
+    expect(result.negative).toContain("hero panel");
+    expect(result.negative).toContain("protagonist centered");
+  });
+
+  it("subjectFocus=prop → pas de Subject lock héros", () => {
+    const result = composeMangaPanelPrompt({
+      location: "table de travail",
+      action: "Insert sur une lettre scellée",
+      camera: "close-up on face",
+      mood: "tension",
+      contentIntensityLayer: "TEEN",
+      subjectFocus: "prop",
+      characters: [
+        { name: "Lyra", importanceTier: "MAIN_HERO", lockStrength: "HARD_LOCK" },
+      ],
+    });
+
+    expect(result.positive).not.toContain("Subject lock:");
+    expect(result.negative).toContain("hero portrait");
+  });
+
+  it("subjectFocus=reaction → pas de Subject lock héros", () => {
+    const result = composeMangaPanelPrompt({
+      location: "taverne",
+      action: "Plan réaction d'un PNJ choqué",
+      camera: "close-up on face",
+      mood: "emotion",
+      contentIntensityLayer: "TEEN",
+      subjectFocus: "reaction",
+      heroCenterAllowed: false,
+      characters: [
+        { name: "Lyra", importanceTier: "MAIN_HERO", lockStrength: "HARD_LOCK" },
+        { name: "Tavernier", importanceTier: "RECURRING_NPC", lockStrength: "LIGHT" },
+      ],
+    });
+
+    expect(result.positive).not.toContain("Subject lock:");
+    expect(result.negative).toContain("hero panel");
+  });
+
+  it("cutawayType=crowd → pas de hero lock même si héros présent", () => {
+    const result = composeMangaPanelPrompt({
+      location: "place du marché",
+      action: "Réaction de la foule à l'annonce",
+      camera: "wide establishing shot",
+      mood: "tension",
+      contentIntensityLayer: "TEEN",
+      cutawayType: "crowd",
+      characters: [
+        { name: "Lyra", importanceTier: "MAIN_HERO", lockStrength: "HARD_LOCK" },
+      ],
+    });
+
+    expect(result.positive).not.toContain("Subject lock:");
+    expect(result.negative).toContain("main character foreground");
+  });
+
+  it("cutawayType=npc_group → pas de hero lock sur les gardes", () => {
+    const result = composeMangaPanelPrompt({
+      location: "poste de garde",
+      action: "Les gardes patrouillent dans le couloir",
+      camera: "medium shot",
+      mood: "tension",
+      contentIntensityLayer: "TEEN",
+      cutawayType: "npc_group",
+      characters: [
+        { name: "Lyra", importanceTier: "MAIN_HERO", lockStrength: "HARD_LOCK" },
+      ],
+    });
+
+    expect(result.positive).not.toContain("Subject lock:");
+    expect(result.negative).toContain("hero showcase");
+  });
+
+  it("subjectFocus=hero garde le Subject lock", () => {
+    const result = composeMangaPanelPrompt({
+      location: "arène",
+      action: "Lyra dégaine son épée",
+      camera: "medium shot",
+      mood: "action",
+      contentIntensityLayer: "TEEN",
+      subjectFocus: "hero",
+      characters: [
+        { name: "Lyra", importanceTier: "MAIN_HERO", lockStrength: "HARD_LOCK" },
+      ],
+    });
+
+    expect(result.positive).toContain("Subject lock:");
+    expect(result.positive).toContain("[Lyra]");
+  });
+});

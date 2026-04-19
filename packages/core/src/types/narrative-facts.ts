@@ -56,6 +56,18 @@ export type PropVisibilityMode =
   | "on_surface"
   | "aftermath_trace";
 
+/**
+ * P0.4 — Catégorie de propriétaire d'un prop.
+ * Permet de distinguer les props du héros des props des gardes/ennemis/PNJ.
+ */
+export type PropOwnerCategory =
+  | "hero"
+  | "enemy"
+  | "guard"
+  | "npc"
+  | "ambient"
+  | "unassigned";
+
 export interface RequiredProp {
   id: string;
   canonicalName: string;
@@ -68,6 +80,15 @@ export interface RequiredProp {
   mustBeVisible: boolean;
   confidence: number;
   source: "canon" | "continuity" | "story_inference" | "location_inference";
+  /**
+   * P0.4 — Catégorie de propriétaire. Défaut: "unassigned".
+   * Les props `guard` ou `enemy` ne doivent pas être attribués au héros.
+   */
+  ownerCategory?: PropOwnerCategory;
+  /**
+   * P0.4 — ID du personnage propriétaire si connu (facultatif).
+   */
+  ownerId?: string | null;
 }
 
 // ─── Presence Obligations ─────────────────────────────────────────────────────

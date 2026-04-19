@@ -79,6 +79,20 @@ const SHOT_PLAN_SUBJECT_FOCUS_TO_CANONICAL: Record<string, CanonicalSubjectFocus
   environment: "environment",
   prop: "prop",
   reaction: "reaction",
+  // P3.1 — Guard/soldier/crowd synonyms → map to group
+  guard: "group",
+  guards: "group",
+  guard_group: "group",
+  security: "group",
+  soldier: "group",
+  soldiers: "group",
+  soldier_group: "group",
+  military: "group",
+  patrol: "group",
+  crowd: "group",
+  bystanders: "group",
+  audience: "group",
+  masses: "group",
 };
 
 export interface NormalizeResult<T> {
@@ -158,6 +172,19 @@ const SHOT_PLAN_CUTAWAY_TO_CANONICAL: Record<string, CanonicalCutawayType> = {
   object: "prop_insert",
   landscape: "environment",
   crowd_reaction: "npc_group",
+  // P3.1 — Guard/soldier/crowd synonyms
+  guards: "npc_group",
+  guard: "npc_group",
+  guard_group: "npc_group",
+  security: "npc_group",
+  soldiers: "npc_group",
+  soldier: "npc_group",
+  soldier_group: "npc_group",
+  military: "npc_group",
+  patrol: "surveillance",
+  bystanders: "crowd",
+  audience: "crowd",
+  masses: "crowd",
 };
 
 export function normalizeCutawayType(

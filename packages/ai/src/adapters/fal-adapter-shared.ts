@@ -199,6 +199,20 @@ export function isValidCharacterReference(
     return { valid: true, reason: "url_portrait_path" };
   }
 
+  // P4.2 — Additional valid character reference patterns
+  if (/\/face_?closeup/i.test(referenceUrl) || /_face\./i.test(referenceUrl)) {
+    return { valid: true, reason: "url_face_closeup_path" };
+  }
+
+  if (/\/canon(ical)?_?ref/i.test(referenceUrl) || /_canon\./i.test(referenceUrl)) {
+    return { valid: true, reason: "url_canonical_ref_path" };
+  }
+
+  // Allow URLs with explicit character ID or name patterns
+  if (/\/char[_-]?[a-z0-9]+\//i.test(referenceUrl) || /\/[a-z]+_ref\./i.test(referenceUrl)) {
+    return { valid: true, reason: "url_character_id_path" };
+  }
+
   return { valid: false, reason: "no_character_signal" };
 }
 

@@ -12,6 +12,8 @@ describe("retry reference policy", () => {
   });
 
   it("garde au moins LIGHT sur reroll environment si un lock réutilisable existe", () => {
+    // P0.3 — Le nouveau code considère hasReusableCharacterLock comme une forme de refs
+    // disponibles, donc la raison change mais le résultat (LIGHT) est préservé.
     const decision = resolveRetryReferencePolicy({
       retryMode: "environment",
       metadata: {
@@ -22,18 +24,24 @@ describe("retry reference policy", () => {
     });
 
     expect(decision.referencePolicy).toBe("LIGHT");
-    expect(decision.reason).toBe("preserve_light_lock_for_important_character");
+    // P0.3 — La nouvelle raison reflète la logique élargie
+    expect(decision.reason).toBe("environment_reroll_preserve_scene_and_style_refs");
   });
 
-  it("retombe à NONE sur reroll composition sans personnage pertinent", () => {
+  it("retombe à NONE sur reroll composition sans aucune ref disponible", () => {
+    // P0.3 — On explicite l'absence de toutes les refs pour obtenir NONE
     const decision = resolveRetryReferencePolicy({
       retryMode: "composition",
       metadata: {},
       hasReusableCharacterLock: false,
+      hasSceneReferences: false,
+      hasStyleReferences: false,
+      hasSceneAnchor: false,
+      hasFingerprint: false,
     });
 
     expect(decision.referencePolicy).toBe("NONE");
-    expect(decision.reason).toBe("no_relevant_character_detected");
+    expect(decision.reason).toBe("composition_reroll_no_refs_available");
   });
 
   it("garde STRONG sur reroll character", () => {
@@ -237,5 +245,107 @@ describe("retry reference policy", () => {
       expect(decision.relaxedConstraints, `mode ${mode} ne doit pas relâcher les props`).not.toContain("props");
       expect(decision.relaxedConstraints, `mode ${mode} ne doit pas relâcher required_props`).not.toContain("required_props");
     }
+  });
+
+  // ─── P0.3 : Tests conservation mémoire reroll ──────────────────────────────
+
+  it("P0.3 — environment reroll avec scene refs → LIGHT (jamais NONE)", () => {
+    const decision = resolveRetryReferencePolicy({
+      retryMode: "environment",
+      metadata: {},
+      hasReusableCharacterLock: false,
+      hasSceneReferences: true,
+    });
+
+    expect(decision.referencePolicy).toBe("LIGHT");
+    expect(decision.reason).toBe("environment_reroll_preserve_scene_and_style_refs");
+  });
+
+  it("P0.3 — composition reroll avec style refs → LIGHT (jamais NONE)", () => {
+    const decision = resolveRetryReferencePolicy({
+      retryMode: "composition",
+      metadata: {},
+      hasReusableCharacterLock: false,
+      hasStyleReferences: true,
+    });
+
+    expect(decision.referencePolicy).toBe("LIGHT");
+    expect(decision.reason).toBe("composition_reroll_preserve_available_refs");
+  });
+
+  it("P0.3 — composition reroll avec scene anchor → LIGHT", () => {
+    const decision = resolveRetryReferencePolicy({
+      retryMode: "composition",
+      metadata: {},
+      hasReusableCharacterLock: false,
+      hasSceneAnchor: true,
+    });
+
+    expect(decision.referencePolicy).toBe("LIGHT");
+    expect(decision.reason).toBe("composition_reroll_preserve_available_refs");
+  });
+
+  it("P0.3 — cutaway reroll avec scene refs → LIGHT", () => {
+    const decision = resolveRetryReferencePolicy({
+      retryMode: "cutaway",
+      metadata: {},
+      hasReusableCharacterLock: false,
+      hasSceneReferences: true,
+    });
+
+    expect(decision.referencePolicy).toBe("LIGHT");
+    expect(decision.reason).toBe("cutaway_repair_preserve_scene_anchor");
+  });
+
+  it("P0.3 — full reroll avec scene refs → LIGHT (preserve minimal refs)", () => {
+    const decision = resolveRetryReferencePolicy({
+      retryMode: null,
+      metadata: {},
+      hasReusableCharacterLock: false,
+      recommendedAction: "full_reroll",
+      hasSceneReferences: true,
+    });
+
+    expect(decision.referencePolicy).toBe("LIGHT");
+    expect(decision.reason).toBe("full_reroll_preserve_minimal_refs");
+  });
+
+  it("P0.3 — enemy_focus avec scene refs → LIGHT", () => {
+    const decision = resolveRetryReferencePolicy({
+      retryMode: "enemy_presence",
+      metadata: {},
+      hasReusableCharacterLock: false,
+      hasSceneReferences: true,
+    });
+
+    expect(decision.referencePolicy).toBe("LIGHT");
+    expect(decision.reason).toBe("enemy_focus_repair_preserve_scene_refs");
+  });
+
+  it("P0.3 — style reroll avec scene refs → LIGHT", () => {
+    const decision = resolveRetryReferencePolicy({
+      retryMode: "style",
+      metadata: {},
+      hasReusableCharacterLock: false,
+      hasSceneReferences: true,
+    });
+
+    expect(decision.referencePolicy).toBe("LIGHT");
+    expect(decision.reason).toBe("style_reroll_preserve_available_refs");
+  });
+
+  it("P0.3 — composition reroll SANS aucune ref → NONE autorisé", () => {
+    const decision = resolveRetryReferencePolicy({
+      retryMode: "composition",
+      metadata: {},
+      hasReusableCharacterLock: false,
+      hasSceneReferences: false,
+      hasStyleReferences: false,
+      hasSceneAnchor: false,
+      hasFingerprint: false,
+    });
+
+    expect(decision.referencePolicy).toBe("NONE");
+    expect(decision.reason).toBe("composition_reroll_no_refs_available");
   });
 });

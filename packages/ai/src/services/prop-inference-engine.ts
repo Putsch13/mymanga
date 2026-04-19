@@ -9,6 +9,7 @@ import type {
   RequiredProp,
   PropNarrativeRole,
   PropVisibilityMode,
+  PropOwnerCategory,
 } from "@manga-ai-studio/core";
 import type { ProductionBeat } from "@manga-ai-studio/core";
 
@@ -521,6 +522,92 @@ function detectUniverseFromContext(
   return "generic";
 }
 
+// ─── P0.4 — Inférence de propriétaire ──────────────────────────────────────────
+
+const GUARD_ENEMY_PATTERNS = [
+  /garde[s]?\b/i,
+  /guard[s]?\b/i,
+  /soldat[s]?\b/i,
+  /soldier[s]?\b/i,
+  /sentinelle[s]?\b/i,
+  /sentinel[s]?\b/i,
+  /patrouille[s]?\b/i,
+  /patrol[s]?\b/i,
+  /ennemi[s]?\b/i,
+  /enem(y|ies)\b/i,
+  /adversaire[s]?\b/i,
+  /mercenaire[s]?\b/i,
+  /mercenary|mercenaries/i,
+  /troupe[s]?\b/i,
+  /troop[s]?\b/i,
+  /armée\b/i,
+  /army\b/i,
+  /milice\b/i,
+  /militia\b/i,
+  /police\b/i,
+  /vigile[s]?\b/i,
+  /security guard/i,
+  /agent de sécurité/i,
+  /chasseur[s]?\b/i,
+  /hunter[s]?\b/i,
+];
+
+const HERO_ACTION_PATTERNS = [
+  /(?:le |la |l')?(?:héros?|hero|protagonist|main character)\s+(?:utilise|uses|tient|holds|brandit|wields|tire|shoots|vise|aims|dégaine|draws)/i,
+  /(?:son|sa|leur)\s+(?:arme|weapon|pistolet|gun|épée|sword|lame|blade)/i,
+];
+
+const ENEMY_ACTION_PATTERNS = [
+  /(?:l')?(?:ennemi|enemy|adversaire|adversary|attaquant|attacker)\s+(?:utilise|uses|tient|holds|brandit|wields|tire|shoots|vise|aims|dégaine|draws)/i,
+  /(?:les |l')?(?:ennemis|enemies|adversaires|adversaries|attaquants|attackers)\s+/i,
+];
+
+function inferPropOwnerCategory(
+  template: PropTemplate,
+  text: string,
+  context: PropInferenceContext,
+): PropOwnerCategory {
+  const lower = text.toLowerCase();
+  const isWeapon = template.category === "weapon" || template.narrativeRole === "threat";
+  const isMilitaryEquipment = template.category === "equipment" && MILITARY_PROPS.some((p) => p.canonicalName === template.canonicalName);
+
+  // Règle 0: Si ennemi est explicitement mentionné comme utilisant l'arme → enemy
+  // (Cette règle passe AVANT le héros pour gérer "L'ennemi tire...")
+  if (ENEMY_ACTION_PATTERNS.some((pattern) => pattern.test(text))) {
+    return "enemy";
+  }
+
+  // Règle 1: Si le héros est explicitement mentionné comme utilisant l'arme → hero
+  if (HERO_ACTION_PATTERNS.some((pattern) => pattern.test(text))) {
+    return "hero";
+  }
+
+  // Règle 2: Si le texte mentionne des gardes/soldats/ennemis ET que c'est une arme → guard/enemy
+  if ((isWeapon || isMilitaryEquipment) && GUARD_ENEMY_PATTERNS.some((pattern) => pattern.test(text))) {
+    if (/ennemi|enemy|adversaire|adversary|attaquant|attacker/i.test(lower)) {
+      return "enemy";
+    }
+    return "guard";
+  }
+
+  // Règle 3: Si c'est une arme dans un contexte militaire sans mention de héros → guard par défaut
+  if (isWeapon && context.universeType === "military") {
+    return "guard";
+  }
+
+  // Règle 4: Props d'environnement/background → ambient
+  if (template.narrativeRole === "worldbuilding" && template.defaultVisibilityMode === "background_support") {
+    return "ambient";
+  }
+
+  // Règle 5: Si le héros est le seul personnage mentionné et utilise l'objet → hero
+  if (context.heroCharacterId && requiresVisibility(text)) {
+    return "hero";
+  }
+
+  return "unassigned";
+}
+
 // ─── Moteur principal ─────────────────────────────────────────────────────────
 
 export function inferRequiredPropsFromBeat(
@@ -539,6 +626,7 @@ export function inferRequiredPropsFromBeat(
     .join(" ");
 
   const universeType = detectUniverseFromContext(beat, context);
+  const enrichedContext = { ...context, universeType };
   const props: RequiredProp[] = [];
   const seenNames = new Set<string>();
 
@@ -576,6 +664,8 @@ export function inferRequiredPropsFromBeat(
 
     const mustBeVisible = requiresVisibility(text) || template.narrativeRole === "action_tool" || template.narrativeRole === "threat";
     const visibilityMode = makeVisibilityMode(text, template.defaultVisibilityMode);
+    // P0.4 — Inférer le propriétaire
+    const ownerCategory = inferPropOwnerCategory(template, text, enrichedContext);
 
     props.push({
       id: `prop_${beat.beatId}_${template.canonicalName.replace(/\s+/g, "_")}`,
@@ -588,6 +678,7 @@ export function inferRequiredPropsFromBeat(
       mustBeVisible,
       confidence: template.confidence,
       source: "story_inference",
+      ownerCategory,
     });
   }
 

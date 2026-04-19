@@ -271,12 +271,26 @@ export function resolveRetryReferencePolicy(input: {
   hasSceneAnchor?: boolean;
   /** Le panel a des props obligatoires — ne jamais les relâcher */
   hasMandatoryProps?: boolean;
+  /**
+   * P0.3 — Refs scene-level disponibles (keyframes, décor, style refs).
+   * Pour les rerolls environment/composition, on ne veut JAMAIS partir en NONE
+   * si des refs scène sont disponibles.
+   */
+  hasSceneReferences?: boolean;
+  /**
+   * P0.3 — Refs style disponibles (LoRAs, style refs).
+   * Pour préserver la continuité visuelle.
+   */
+  hasStyleReferences?: boolean;
 }) {
   const importantCharacterPresent = inferImportantCharacterPresence(input.metadata);
   const hasLookProfile = input.hasLookProfile ?? false;
   const hasFingerprint = input.hasFingerprint ?? false;
   const hasAnchor = input.hasSceneAnchor ?? false;
   const hasMandatoryProps = input.hasMandatoryProps ?? false;
+  // P0.3 — Nouvelles variables pour les refs non-personnage
+  const hasSceneRefs = input.hasSceneReferences ?? false;
+  const hasStyleRefs = input.hasStyleReferences ?? false;
 
   const rerollGoal = retryModeToRerollGoal(input.retryMode, input.recommendedAction);
   const preservedConstraints = buildPreservedConstraints(rerollGoal, hasLookProfile, hasFingerprint, hasAnchor);
@@ -293,6 +307,12 @@ export function resolveRetryReferencePolicy(input: {
   let referencePolicy: RetryReferencePolicy;
   let reason: string;
 
+  // P0.3 — Matrice de reroll : chaque type de reroll indique si on peut partir en NONE.
+  // Pour les rerolls "environment" et "composition", on NE DOIT JAMAIS partir en NONE
+  // si des refs sont disponibles (scene refs, style refs, ou character refs).
+  // La logique précédente ne regardait que les character refs, ce qui faisait perdre
+  // les refs décor/scène sur les rerolls composition/environment.
+
   if (rerollGoal === "character_hard") {
     referencePolicy = "STRONG";
     reason = "character_hard_reroll_requires_strong_lock";
@@ -300,39 +320,66 @@ export function resolveRetryReferencePolicy(input: {
     referencePolicy = importantCharacterPresent && input.hasReusableCharacterLock ? "LIGHT" : "NONE";
     reason = referencePolicy === "LIGHT" ? "character_light_with_lock" : "character_light_no_lock";
   } else if (rerollGoal === "style_only") {
-    referencePolicy = hasFingerprint ? "LIGHT" : "NONE";
-    reason = "style_reroll_preserve_character_if_possible";
-  } else if (rerollGoal === "environment_only" || rerollGoal === "composition_only") {
-    if (importantCharacterPresent && input.hasReusableCharacterLock) {
+    // P0.3 — Style reroll : conserver tout ce qu'on peut (scene + character + style refs)
+    const anyRefsAvailable = hasFingerprint || hasSceneRefs || hasStyleRefs || hasAnchor;
+    referencePolicy = anyRefsAvailable ? "LIGHT" : "NONE";
+    reason = anyRefsAvailable ? "style_reroll_preserve_available_refs" : "style_reroll_no_refs";
+  } else if (rerollGoal === "environment_only") {
+    // P0.3 — Environment reroll : JAMAIS NONE si des refs scène sont disponibles.
+    // On veut préserver : scene keyframes, style refs, décor refs, ET character refs si présents.
+    const anyRefsAvailable = hasSceneRefs || hasStyleRefs || hasAnchor || input.hasReusableCharacterLock;
+    if (anyRefsAvailable) {
+      referencePolicy = "LIGHT";
+      reason = "environment_reroll_preserve_scene_and_style_refs";
+    } else if (importantCharacterPresent && input.hasReusableCharacterLock) {
       referencePolicy = "LIGHT";
       reason = "preserve_light_lock_for_important_character";
     } else {
       referencePolicy = "NONE";
-      reason = importantCharacterPresent
-        ? "important_character_detected_but_no_reusable_lock"
-        : "no_relevant_character_detected";
+      reason = "environment_reroll_no_refs_available";
+    }
+  } else if (rerollGoal === "composition_only") {
+    // P0.3 — Composition reroll : JAMAIS NONE si des refs sont disponibles.
+    // Réparer la composition sans perdre la mémoire du panel.
+    const anyRefsAvailable = hasSceneRefs || hasStyleRefs || hasAnchor || input.hasReusableCharacterLock || hasFingerprint;
+    if (anyRefsAvailable) {
+      referencePolicy = "LIGHT";
+      reason = "composition_reroll_preserve_available_refs";
+    } else {
+      referencePolicy = "NONE";
+      reason = "composition_reroll_no_refs_available";
     }
   } else if (rerollGoal === "full_reroll") {
-    referencePolicy = "NONE";
-    reason = "full_reroll_no_constraints";
+    // P0.3 — Full reroll : on relaxe tout SAUF si des refs sont disponibles
+    // Dans ce cas, on garde au moins LIGHT pour ne pas perdre toute mémoire.
+    const anyRefsAvailable = hasSceneRefs || hasStyleRefs || hasAnchor;
+    referencePolicy = anyRefsAvailable ? "LIGHT" : "NONE";
+    reason = anyRefsAvailable ? "full_reroll_preserve_minimal_refs" : "full_reroll_no_constraints";
   } else if (rerollGoal === "prop_repair") {
     // Préserver personnage + style, réparer seulement le prop
-    referencePolicy = hasFingerprint ? "LIGHT" : "NONE";
+    const anyRefsAvailable = hasFingerprint || hasSceneRefs || hasStyleRefs;
+    referencePolicy = anyRefsAvailable ? "LIGHT" : "NONE";
     reason = "prop_repair_preserve_character_and_style";
   } else if (rerollGoal === "speaker_anchor_repair") {
-    referencePolicy = hasFingerprint ? "LIGHT" : "NONE";
+    const anyRefsAvailable = hasFingerprint || hasSceneRefs || hasStyleRefs;
+    referencePolicy = anyRefsAvailable ? "LIGHT" : "NONE";
     reason = "speaker_repair_preserve_character_identity";
   } else if (rerollGoal === "enemy_focus_repair") {
-    referencePolicy = "NONE";
-    reason = "enemy_focus_repair_shift_composition";
+    // P0.3 — Enemy focus repair : conserver les refs scène pour le décor
+    referencePolicy = (hasSceneRefs || hasAnchor) ? "LIGHT" : "NONE";
+    reason = hasSceneRefs ? "enemy_focus_repair_preserve_scene_refs" : "enemy_focus_repair_shift_composition";
   } else if (rerollGoal === "subject_focus_repair") {
-    referencePolicy = "NONE";
-    reason = "subject_focus_repair_shift_composition";
+    // P0.3 — Subject focus repair : conserver les refs scène
+    referencePolicy = (hasSceneRefs || hasAnchor) ? "LIGHT" : "NONE";
+    reason = hasSceneRefs ? "subject_focus_repair_preserve_scene_refs" : "subject_focus_repair_shift_composition";
   } else if (rerollGoal === "cutaway_repair") {
-    referencePolicy = hasAnchor ? "LIGHT" : "NONE";
-    reason = "cutaway_repair_preserve_scene_anchor";
+    // P0.3 — Cutaway repair : toujours préserver les refs scène/décor
+    const anyRefsAvailable = hasAnchor || hasSceneRefs || hasStyleRefs;
+    referencePolicy = anyRefsAvailable ? "LIGHT" : "NONE";
+    reason = anyRefsAvailable ? "cutaway_repair_preserve_scene_anchor" : "cutaway_repair_no_refs";
   } else if (rerollGoal === "population_repair") {
-    referencePolicy = hasFingerprint ? "LIGHT" : "NONE";
+    const anyRefsAvailable = hasFingerprint || hasSceneRefs || hasStyleRefs;
+    referencePolicy = anyRefsAvailable ? "LIGHT" : "NONE";
     reason = "population_repair_preserve_character_add_crowd";
   } else {
     referencePolicy = "LIGHT";

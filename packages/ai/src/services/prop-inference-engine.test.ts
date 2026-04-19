@@ -118,3 +118,68 @@ describe("prop-inference-engine — règle objet utilisé = objet visible", () =
     expect(visibleProp).toBeDefined();
   });
 });
+
+describe("P0.4 — prop-inference-engine — ownership category", () => {
+  it("attribue ownerCategory=guard pour des fusils dans un contexte de gardes", () => {
+    const beat = makeBeat({
+      summary: "Les gardes patrouillent avec leurs fusils dans le couloir.",
+      narrativeFunction: "observation",
+      environmentContext: ["couloir sécurisé", "poste de garde"],
+    });
+    const facts = inferNarrativeFactsFromBeat(beat, {});
+    const props = inferRequiredPropsFromBeat(beat, facts, { universeType: "military" });
+    const rifle = props.find((p) => p.canonicalName.toLowerCase().includes("rifle") || p.canonicalName.toLowerCase().includes("fusil"));
+    expect(rifle).toBeDefined();
+    expect(rifle?.ownerCategory).toBe("guard");
+  });
+
+  it("attribue ownerCategory=enemy pour des armes dans un contexte d'ennemis", () => {
+    const beat = makeBeat({
+      summary: "L'ennemi tire avec son pistolet vers le héros.",
+      narrativeFunction: "combat",
+    });
+    const facts = inferNarrativeFactsFromBeat(beat, {});
+    const props = inferRequiredPropsFromBeat(beat, facts, { universeType: "military" });
+    const handgun = props.find((p) => p.canonicalName.toLowerCase().includes("handgun") || p.canonicalName.toLowerCase().includes("pistolet"));
+    expect(handgun).toBeDefined();
+    expect(handgun?.ownerCategory).toBe("enemy");
+  });
+
+  it("attribue ownerCategory=hero quand le héros est explicitement mentionné comme utilisant l'arme", () => {
+    const beat = makeBeat({
+      summary: "Le héros dégaine son pistolet et vise l'ennemi.",
+      narrativeFunction: "combat",
+    });
+    const facts = inferNarrativeFactsFromBeat(beat, {});
+    const props = inferRequiredPropsFromBeat(beat, facts, { universeType: "military", heroCharacterId: "hero-1" });
+    const handgun = props.find((p) => p.canonicalName.toLowerCase().includes("handgun") || p.canonicalName.toLowerCase().includes("pistolet"));
+    expect(handgun).toBeDefined();
+    expect(handgun?.ownerCategory).toBe("hero");
+  });
+
+  it("attribue ownerCategory=guard pour des soldats avec armes", () => {
+    const beat = makeBeat({
+      summary: "Les soldats prennent position avec leurs fusils pointés vers l'entrée.",
+      narrativeFunction: "observation",
+      environmentContext: ["base militaire"],
+    });
+    const facts = inferNarrativeFactsFromBeat(beat, {});
+    const props = inferRequiredPropsFromBeat(beat, facts, { universeType: "military" });
+    // Au moins un prop weapon devrait être ownerCategory=guard
+    const guardWeapon = props.find((p) => p.ownerCategory === "guard" && p.category === "weapon");
+    expect(guardWeapon).toBeDefined();
+  });
+
+  it("conserve ownerCategory=unassigned pour des props ambigus", () => {
+    const beat = makeBeat({
+      summary: "Un téléphone sonne dans la pièce.",
+      narrativeFunction: "dialogue",
+    });
+    const facts = inferNarrativeFactsFromBeat(beat, {});
+    const props = inferRequiredPropsFromBeat(beat, facts, {});
+    const phone = props.find((p) => p.canonicalName.toLowerCase().includes("phone") || p.canonicalName.toLowerCase().includes("smartphone"));
+    // Sans contexte clair de propriétaire, le téléphone reste unassigned ou hero si heroCharacterId est fourni
+    expect(phone).toBeDefined();
+    expect(["unassigned", "hero"]).toContain(phone?.ownerCategory);
+  });
+});

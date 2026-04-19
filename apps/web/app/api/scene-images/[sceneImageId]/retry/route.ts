@@ -218,6 +218,13 @@ export async function POST(req: Request, ctx: Ctx) {
 
   const hasCanonRef = referenceImageUrls.length > 0 || panelLoras.length > 0;
 
+  // P0.3 — Déterminer si des refs scène ou style sont disponibles
+  // pour ne pas partir en NONE sur les rerolls environment/composition.
+  const hasSceneReferences = retryStableReferences.some(
+    (ref) => ref.sourceType === "scene_keyframe" || ref.sourceType === "media_asset"
+  );
+  const hasStyleReferences = panelLoras.length > 0 || referenceImageUrls.length > 0;
+
   // Analyse de drift pré-reroll pour informer la politique de référence
   // P0.5 : on filtre par ID résolu plutôt que par nom brut.
   const driftCharacters = projectChars
@@ -302,6 +309,10 @@ export async function POST(req: Request, ctx: Ctx) {
     hasFingerprint,
     hasSceneAnchor,
     hasMandatoryProps,
+    // P0.3 — Ne jamais partir en NONE sur les rerolls environment/composition
+    // si des refs scène ou style sont disponibles.
+    hasSceneReferences,
+    hasStyleReferences,
   });
 
   // Si le drift pré-reroll recommande un character_reroll mais que le mode est environment,

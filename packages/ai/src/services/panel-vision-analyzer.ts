@@ -32,6 +32,24 @@ let visionCallsThisMinute = 0;
 let visionWindowStart = Date.now();
 const VISION_MAX_PER_MINUTE = 80;
 
+// P4.1 — Known temporary URL hosts that expire quickly
+const TEMPORARY_URL_HOSTS = [
+  "v3b.fal.media",
+  "fal.media",
+  "delivery.bfl.ai",
+  "delivery-1.bfl.ai",
+  "delivery-2.bfl.ai",
+];
+
+function isLikelyExpiredProviderUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return TEMPORARY_URL_HOSTS.some((host) => parsed.host.includes(host));
+  } catch {
+    return false;
+  }
+}
+
 async function throttledVisionCall<T>(fn: () => Promise<T>): Promise<T | null> {
   const now = Date.now();
   if (now - visionWindowStart > 60_000) {
@@ -88,6 +106,11 @@ export async function analyzePanelWithVision(input: {
   const visionEnabled = envFlag !== "false" || isCriticalPanel;
   if (!apiKey || !visionEnabled) return null;
   if (!/^https?:\/\//i.test(input.imageUrl)) return null;
+  // P4.1 — Reject likely-expired temporary URLs
+  if (isLikelyExpiredProviderUrl(input.imageUrl)) {
+    console.warn(`[panel-vision] skipped likely_expired_url=${input.imageUrl.slice(0, 60)}...`);
+    return null;
+  }
 
   const shotType = input.panelContract?.shotType ?? input.sceneBlueprint?.composition.shotType ?? "medium";
   const shouldRun =

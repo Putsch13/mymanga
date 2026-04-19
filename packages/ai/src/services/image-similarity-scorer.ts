@@ -54,6 +54,24 @@ const MAX_CALLS_PER_MINUTE = 60;
 let callsThisMinute = 0;
 let windowStart = Date.now();
 
+// P4.1 — Known temporary URL hosts that expire quickly
+const TEMPORARY_URL_HOSTS = [
+  "v3b.fal.media",
+  "fal.media",
+  "delivery.bfl.ai",
+  "delivery-1.bfl.ai",
+  "delivery-2.bfl.ai",
+];
+
+function isLikelyExpiredProviderUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return TEMPORARY_URL_HOSTS.some((host) => parsed.host.includes(host));
+  } catch {
+    return false;
+  }
+}
+
 function cacheKey(input: ScoreInput): string {
   return `${input.generatedImageUrl}__${input.canonicalReferenceUrl}__${input.characterName}`;
 }
@@ -105,6 +123,9 @@ export async function scoreImageSimilarity(input: ScoreInput): Promise<ImageSimi
   if (!apiKey) return skip("no_openai_api_key");
   if (!/^https?:\/\//i.test(input.generatedImageUrl)) return skip("invalid_generated_url");
   if (!/^https?:\/\//i.test(input.canonicalReferenceUrl)) return skip("invalid_canonical_url");
+  // P4.1 — Reject likely-expired temporary URLs
+  if (isLikelyExpiredProviderUrl(input.generatedImageUrl)) return skip("likely_expired_generated_url");
+  if (isLikelyExpiredProviderUrl(input.canonicalReferenceUrl)) return skip("likely_expired_canonical_url");
 
   const key = cacheKey(input);
   const cached = CACHE.get(key);

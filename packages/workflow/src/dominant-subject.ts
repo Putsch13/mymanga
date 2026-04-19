@@ -31,6 +31,8 @@ export type DominantSubjectKind =
   | "ally"
   | "npc"
   | "group"
+  | "guard_group"
+  | "crowd"
   | "environment"
   | "prop"
   | "reaction"
@@ -117,6 +119,34 @@ export function resolveDominantSubject(
       reason: `cutawayType=${cutaway}`,
     };
   }
+  // P3.1 — Guard/soldier/crowd cutaway types
+  if (cutaway === "npc_group" || cutaway === "surveillance" || cutaway === "guards") {
+    return {
+      kind: "guard_group",
+      characterIndex: null,
+      characterTier: null,
+      provenance: "explicit",
+      reason: `cutawayType=${cutaway}`,
+    };
+  }
+  if (cutaway === "crowd" || cutaway === "crowd_reaction" || cutaway === "bystanders") {
+    return {
+      kind: "crowd",
+      characterIndex: null,
+      characterTier: null,
+      provenance: "explicit",
+      reason: `cutawayType=${cutaway}`,
+    };
+  }
+  if (cutaway === "reaction" || cutaway === "reaction_insert") {
+    return {
+      kind: "reaction",
+      characterIndex: null,
+      characterTier: null,
+      provenance: "explicit",
+      reason: `cutawayType=${cutaway}`,
+    };
+  }
 
   // 2. subjectFocus explicite (post-normalisation canonique).
   const focus = normalizeSubjectFocus(input.subjectFocus).value;
@@ -168,6 +198,25 @@ export function resolveDominantSubject(
   if (focus === "group" || focus === "duo") {
     return {
       kind: "group",
+      characterIndex: null,
+      characterTier: null,
+      provenance: "explicit",
+      reason: `subjectFocus=${focus}`,
+    };
+  }
+  // P3.1 — Guard/soldier/crowd subjectFocus
+  if (focus === "guard" || focus === "guards" || focus === "guard_group" || focus === "security") {
+    return {
+      kind: "guard_group",
+      characterIndex: null,
+      characterTier: null,
+      provenance: "explicit",
+      reason: `subjectFocus=${focus}`,
+    };
+  }
+  if (focus === "crowd" || focus === "bystanders" || focus === "audience" || focus === "masses") {
+    return {
+      kind: "crowd",
       characterIndex: null,
       characterTier: null,
       provenance: "explicit",
@@ -282,8 +331,27 @@ export function isNonHeroCharacterDominant(d: DominantSubject): boolean {
   );
 }
 
-/** Vrai si le sujet dominant n'est pas un personnage (env/prop/aftermath/group). */
+/** Vrai si le sujet dominant n'est pas un personnage (env/prop/aftermath/group/guards/crowd). */
 export function isNonCharacterDominant(d: DominantSubject): boolean {
   return d.characterIndex === null
-    && (d.kind === "environment" || d.kind === "prop" || d.kind === "aftermath" || d.kind === "group");
+    && (d.kind === "environment" || d.kind === "prop" || d.kind === "aftermath"
+        || d.kind === "group" || d.kind === "guard_group" || d.kind === "crowd");
+}
+
+/**
+ * P3.1 — Détecte si le sujet dominant est un groupe anonyme (gardes, foule).
+ * Utile pour forcer le retrait visuel du héros.
+ */
+export function isAnonymousGroupDominant(d: DominantSubject): boolean {
+  return d.kind === "guard_group" || d.kind === "crowd";
+}
+
+/**
+ * P3.1 — Détecte si le panel devrait complètement exclure le héros de la composition.
+ */
+export function shouldExcludeHeroFromComposition(d: DominantSubject): boolean {
+  return isAnonymousGroupDominant(d)
+    || d.kind === "environment"
+    || d.kind === "prop"
+    || d.kind === "aftermath";
 }

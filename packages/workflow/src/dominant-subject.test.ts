@@ -5,7 +5,13 @@
  * cutawayType) et, à défaut, déduire depuis le cast SANS biais héros.
  */
 import { describe, it, expect } from "vitest";
-import { resolveDominantSubject, isNonHeroCharacterDominant, isNonCharacterDominant } from "./dominant-subject";
+import {
+  resolveDominantSubject,
+  isNonHeroCharacterDominant,
+  isNonCharacterDominant,
+  isAnonymousGroupDominant,
+  shouldExcludeHeroFromComposition,
+} from "./dominant-subject";
 
 describe("resolveDominantSubject — priorité cutawayType", () => {
   it("cutawayType environment_establishing → kind=environment", () => {
@@ -190,5 +196,141 @@ describe("resolveDominantSubject — helpers", () => {
       panelCharacterRoles: ["hero"],
     });
     expect(isNonCharacterDominant(hero)).toBe(false);
+  });
+});
+
+describe("P3.1 — catégories guard_focus/soldier_group", () => {
+  describe("cutawayType guard/soldier/crowd (using canonical values)", () => {
+    it("cutawayType npc_group → kind=guard_group", () => {
+      const d = resolveDominantSubject({
+        cutawayType: "npc_group",
+        shotType: "medium",
+        panelCharacterRoles: ["hero"],
+      });
+      expect(d.kind).toBe("guard_group");
+      expect(d.characterIndex).toBeNull();
+      expect(d.provenance).toBe("explicit");
+    });
+
+    it("cutawayType surveillance → kind=guard_group", () => {
+      const d = resolveDominantSubject({
+        cutawayType: "surveillance",
+        shotType: "wide",
+      });
+      expect(d.kind).toBe("guard_group");
+    });
+
+    it("cutawayType crowd → kind=crowd", () => {
+      const d = resolveDominantSubject({
+        cutawayType: "crowd",
+        shotType: "wide",
+      });
+      expect(d.kind).toBe("crowd");
+    });
+
+    it("cutawayType reaction → kind=reaction", () => {
+      const d = resolveDominantSubject({
+        cutawayType: "reaction",
+        shotType: "closeup",
+      });
+      expect(d.kind).toBe("reaction");
+    });
+
+    it("cutawayType reaction_insert → kind=reaction", () => {
+      const d = resolveDominantSubject({
+        cutawayType: "reaction_insert",
+        shotType: "closeup",
+      });
+      expect(d.kind).toBe("reaction");
+    });
+  });
+
+  describe("subjectFocus group maps to group kind (guards/soldiers/crowd normalized)", () => {
+    it("subjectFocus group → kind=group", () => {
+      const d = resolveDominantSubject({
+        subjectFocus: "group",
+        shotType: "medium",
+      });
+      expect(d.kind).toBe("group");
+    });
+
+    it("subjectFocus duo → kind=group", () => {
+      const d = resolveDominantSubject({
+        subjectFocus: "duo",
+        shotType: "medium",
+      });
+      expect(d.kind).toBe("group");
+    });
+  });
+
+  describe("helper functions P3.1", () => {
+    it("isAnonymousGroupDominant détecte guard_group via npc_group cutaway", () => {
+      const d = resolveDominantSubject({
+        cutawayType: "npc_group",
+      });
+      expect(isAnonymousGroupDominant(d)).toBe(true);
+    });
+
+    it("isAnonymousGroupDominant détecte guard_group via surveillance cutaway", () => {
+      const d = resolveDominantSubject({
+        cutawayType: "surveillance",
+      });
+      expect(isAnonymousGroupDominant(d)).toBe(true);
+    });
+
+    it("isAnonymousGroupDominant détecte crowd", () => {
+      const d = resolveDominantSubject({
+        cutawayType: "crowd",
+      });
+      expect(isAnonymousGroupDominant(d)).toBe(true);
+    });
+
+    it("isAnonymousGroupDominant renvoie false pour hero", () => {
+      const d = resolveDominantSubject({
+        subjectFocus: "hero",
+        panelCharacterRoles: ["hero"],
+      });
+      expect(isAnonymousGroupDominant(d)).toBe(false);
+    });
+
+    it("shouldExcludeHeroFromComposition pour guard_group", () => {
+      const d = resolveDominantSubject({
+        cutawayType: "npc_group",
+      });
+      expect(shouldExcludeHeroFromComposition(d)).toBe(true);
+    });
+
+    it("shouldExcludeHeroFromComposition pour environment", () => {
+      const d = resolveDominantSubject({
+        subjectFocus: "environment",
+      });
+      expect(shouldExcludeHeroFromComposition(d)).toBe(true);
+    });
+
+    it("shouldExcludeHeroFromComposition pour crowd", () => {
+      const d = resolveDominantSubject({
+        cutawayType: "crowd",
+      });
+      expect(shouldExcludeHeroFromComposition(d)).toBe(true);
+    });
+
+    it("shouldExcludeHeroFromComposition renvoie false pour hero", () => {
+      const d = resolveDominantSubject({
+        subjectFocus: "hero",
+        panelCharacterRoles: ["hero"],
+      });
+      expect(shouldExcludeHeroFromComposition(d)).toBe(false);
+    });
+
+    it("isNonCharacterDominant inclut guard_group et crowd", () => {
+      const guard = resolveDominantSubject({ cutawayType: "npc_group" });
+      expect(isNonCharacterDominant(guard)).toBe(true);
+
+      const surveillance = resolveDominantSubject({ cutawayType: "surveillance" });
+      expect(isNonCharacterDominant(surveillance)).toBe(true);
+
+      const crowd = resolveDominantSubject({ cutawayType: "crowd" });
+      expect(isNonCharacterDominant(crowd)).toBe(true);
+    });
   });
 });

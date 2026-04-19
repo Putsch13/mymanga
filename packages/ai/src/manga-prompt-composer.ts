@@ -82,6 +82,8 @@ export interface PanelPromptInput {
     visibilityMode?: string | null;
     mustBeVisible?: boolean;
     narrativeRole?: string | null;
+    /** P0.4 — Catégorie de propriétaire pour éviter d'attribuer les props au mauvais personnage */
+    ownerCategory?: "hero" | "enemy" | "guard" | "npc" | "ambient" | "unassigned" | null;
   }> | null;
   /** URGENCE 5 : PNJ présents dans cette scène avec leur descripteur visuel */
   npcPresence?: string[] | null;
@@ -272,6 +274,7 @@ function buildDarkGenreBlock(
 }
 
 // URGENCE 4 : Construire le bloc d'accessoires requis
+// P0.4 — Formule le prompt en attribuant les props au bon propriétaire
 function buildRequiredPropsBlock(
   props: NonNullable<NonNullable<PanelPromptInput["requiredProps"]>>,
 ): string {
@@ -282,13 +285,41 @@ function buildRequiredPropsBlock(
 
   const parts = visibleProps.map((p) => {
     const visualDescriptor = getPropVisualDescriptor(p.canonicalName) ?? p.canonicalName;
+    const owner = p.ownerCategory ?? "unassigned";
+
+    // P0.4 — Préfixe selon le propriétaire pour éviter que Flux attribue tout au héros
+    const ownerPrefix = (() => {
+      switch (owner) {
+        case "guard": return "guards carrying";
+        case "enemy": return "enemy wielding";
+        case "npc": return "NPC holding";
+        case "ambient": return ""; // Props ambiants sans propriétaire explicite
+        case "hero": return "protagonist with";
+        default: return ""; // Pas de préfixe si non assigné
+      }
+    })();
+
     switch (p.visibilityMode) {
-      case "in_hand":     return `holding ${visualDescriptor} in hand, prominently visible, sharp focus`;
-      case "foreground_insert": return `${visualDescriptor} in foreground, extreme close-up detail, sharp focus`;
-      case "used_in_action": return `using ${visualDescriptor} actively, visible in action pose`;
-      case "on_body":    return `${visualDescriptor} worn/holstered, clearly visible on character`;
-      case "aftermath_trace": return `${visualDescriptor} visible on ground, aftermath detail`;
-      default:           return `${visualDescriptor} clearly visible in scene`;
+      case "in_hand":
+        return ownerPrefix
+          ? `${ownerPrefix} ${visualDescriptor} in hand, prominently visible, sharp focus`
+          : `holding ${visualDescriptor} in hand, prominently visible, sharp focus`;
+      case "foreground_insert":
+        return `${visualDescriptor} in foreground, extreme close-up detail, sharp focus`;
+      case "used_in_action":
+        return ownerPrefix
+          ? `${ownerPrefix} ${visualDescriptor} actively, visible in action pose`
+          : `using ${visualDescriptor} actively, visible in action pose`;
+      case "on_body":
+        return ownerPrefix
+          ? `${ownerPrefix} ${visualDescriptor} holstered/worn, clearly visible`
+          : `${visualDescriptor} worn/holstered, clearly visible on character`;
+      case "aftermath_trace":
+        return `${visualDescriptor} visible on ground, aftermath detail`;
+      default:
+        return ownerPrefix
+          ? `${ownerPrefix} ${visualDescriptor} clearly visible in scene`
+          : `${visualDescriptor} clearly visible in scene`;
     }
   });
 
@@ -531,11 +562,31 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
   // Sur subjectFocus=important_npc/npc → le premier NPC/supporting du reorderedCharacters est focus.
   // Sur subjectFocus=enemy → le premier antagoniste est focus.
   // Sur subjectFocus=hero ou null → le premier perso (hero) est focus.
+  // P0.1 — Détection élargie des cutaways : tout panel qui n'est PAS focalisé
+  // sur le héros comme sujet principal. Inclut environment, aftermath, prop,
+  // reaction, crowd, npc_group, surveillance, threat_insert.
   const cutawayFocus =
     focusForLock === "environment"
     || focusForLock === "aftermath"
     || focusForLock === "prop"
-    || focusForLock === "reaction";
+    || focusForLock === "reaction"
+    || focusForLock === "group";
+  // P0.1 — Le cutawayType explicite couvre encore plus de cas
+  const explicitCutawayNonHero =
+    input.cutawayType === "environment"
+    || input.cutawayType === "environment_establishing"
+    || input.cutawayType === "location_transition"
+    || input.cutawayType === "prop_insert"
+    || input.cutawayType === "object_insert"
+    || input.cutawayType === "aftermath"
+    || input.cutawayType === "movement_trace"
+    || input.cutawayType === "reaction"
+    || input.cutawayType === "reaction_insert"
+    || input.cutawayType === "crowd"
+    || input.cutawayType === "npc_group"
+    || input.cutawayType === "surveillance"
+    || input.cutawayType === "threat_insert";
+  const isCutawayPanel = cutawayFocus || explicitCutawayNonHero;
   const focusCharacterIndex = cutawayFocus ? -1 : 0;
 
   const charDescs =
@@ -566,10 +617,15 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     addSection("chapterLookProfile", "Chapter Look Profile", buildLookProfilePromptBlock(input.chapterLookProfile), 2);
   }
 
+  // P0.1 — Sur un cutaway (environment/aftermath/prop/reaction/crowd/npc_group),
+  // on ne veut JAMAIS de "Subject lock: [Hero]" car Flux interprète ça comme une
+  // directive de rendre le héros au centre même si le panel n'est pas sur lui.
+  // On n'injecte le subject lock que si le panel EST focalisé sur un personnage.
+  const shouldInjectSubjectLock = !isCutawayPanel && charDescs.length > 0;
   addSection(
     "characterCanonLock",
     "Character Canon Lock",
-    charDescs ? `Subject lock: ${charDescs}.` : "",
+    shouldInjectSubjectLock ? `Subject lock: ${charDescs}.` : "",
     1,
   );
 
@@ -646,16 +702,20 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     : input.shotType && input.cutawayType
       ? `${input.shotType}_${input.cutawayType}`
       : input.shotType ?? null;
-  // Fallback intelligent : si le focus N'EST PAS hero, il ne faut JAMAIS retomber sur
-  // `*_hero` (sinon Flux reçoit "manga heroic composition, full body visible" sur un panel
-  // environment → il rend le hero). On préfère chercher une autre variante du même focus.
+  // P0.1 — Fallback STRICT : si le focus N'EST PAS hero OU si c'est un cutaway,
+  // on ne DOIT JAMAIS retomber sur `*_hero` (sinon Flux reçoit "manga heroic
+  // composition, full body visible" sur un panel environment → il rend le hero).
+  // On préfère renvoyer null plutôt que polluer le prompt avec du framing héros.
   const nonHeroFocus = normalizedFocus && normalizedFocus !== "hero";
-  const resolvedFraming = nonHeroFocus
+  const resolvedFraming = (nonHeroFocus || isCutawayPanel)
     ? (
         (shotKey && MANGA_FRAMING_MAP[shotKey])
         || MANGA_FRAMING_MAP[`wide_${normalizedFocus}`]
         || MANGA_FRAMING_MAP[`medium_${normalizedFocus}`]
         || MANGA_FRAMING_MAP[`closeup_${normalizedFocus}`]
+        // P0.1 — Sur un cutaway, utiliser le framing environment/prop/aftermath
+        // plutôt que de fallback sur hero.
+        || (isCutawayPanel ? MANGA_FRAMING_MAP["wide_environment"] : null)
         || null
       )
     : (
@@ -820,6 +880,13 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
   // Negative prompt enrichi selon le layer + verrous de dérive visuelle
   // IMG-2 : négatif manga universel préfixé systématiquement
   let negative = `${MANGA_UNIVERSAL_NEGATIVE}, ${BASE_NEGATIVE}`;
+  // P0.1 — Cutaway strict : interdire explicitement le vocabulaire héro-centrique
+  // qui pollue les plans décor/prop/reaction/crowd/aftermath. Sans ce négatif,
+  // Flux peut quand même rendre le héros au centre si un autre segment du prompt
+  // mentionne son nom ou ses traits.
+  if (cutawayFocus || isCutawayPanel) {
+    negative += ", hero panel, hero portrait, manga hero panel, protagonist centered, main character foreground, hero close-up, face filling frame, tight hero framing, hero lock, hero showcase";
+  }
   if (input.characters && input.characters.length > 0) {
     const driftGuards = input.characters
       .flatMap((c) => {
