@@ -119,8 +119,10 @@ export function resolveDominantSubject(
       reason: `cutawayType=${cutaway}`,
     };
   }
-  // P3.1 — Guard/soldier/crowd cutaway types
-  if (cutaway === "npc_group" || cutaway === "surveillance" || cutaway === "guards") {
+  // P3.1 — Guard/soldier/crowd cutaway types (post-normalisation canonique).
+  // Les variantes "guards"/"soldiers"/"bystanders" sont déjà mappées par
+  // normalizeCutawayType vers "npc_group"/"crowd" respectivement.
+  if (cutaway === "npc_group" || cutaway === "surveillance") {
     return {
       kind: "guard_group",
       characterIndex: null,
@@ -129,7 +131,7 @@ export function resolveDominantSubject(
       reason: `cutawayType=${cutaway}`,
     };
   }
-  if (cutaway === "crowd" || cutaway === "crowd_reaction" || cutaway === "bystanders") {
+  if (cutaway === "crowd") {
     return {
       kind: "crowd",
       characterIndex: null,
@@ -204,25 +206,10 @@ export function resolveDominantSubject(
       reason: `subjectFocus=${focus}`,
     };
   }
-  // P3.1 — Guard/soldier/crowd subjectFocus
-  if (focus === "guard" || focus === "guards" || focus === "guard_group" || focus === "security") {
-    return {
-      kind: "guard_group",
-      characterIndex: null,
-      characterTier: null,
-      provenance: "explicit",
-      reason: `subjectFocus=${focus}`,
-    };
-  }
-  if (focus === "crowd" || focus === "bystanders" || focus === "audience" || focus === "masses") {
-    return {
-      kind: "crowd",
-      characterIndex: null,
-      characterTier: null,
-      provenance: "explicit",
-      reason: `subjectFocus=${focus}`,
-    };
-  }
+  // P3.1 — Guard/soldier/crowd subjectFocus sont normalisés en "group" par
+  // `normalizeSubjectFocus` (cf. SHOT_PLAN_SUBJECT_FOCUS_TO_CANONICAL). La
+  // distinction fine `guard_group` vs `crowd` n'est donc disponible QUE via
+  // `cutawayType` (voir plus haut). Pas de branche ici.
   if (focus === "environment" || focus === "location") {
     return {
       kind: "environment",

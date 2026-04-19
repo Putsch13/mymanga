@@ -142,6 +142,8 @@ export interface RoutingContext {
       | "ally"
       | "npc"
       | "group"
+      | "guard_group"
+      | "crowd"
       | "environment"
       | "prop"
       | "reaction"

@@ -105,7 +105,7 @@ export function buildPanelHierarchyLog(
       referencePolicy: intent.allowedReferencePolicy,
       subjectLockBehavior: spotlight?.subjectLockBehavior ?? null,
       forbiddenTokensCount: intent.forbiddenPromptTokens.length,
-      useVisionCheck: recipe?.elementWeights.character ?? 0 > 50,
+      useVisionCheck: (recipe?.elementWeights.character ?? 0) > 50,
     },
     warnings,
   };

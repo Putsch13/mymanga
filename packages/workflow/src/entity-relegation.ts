@@ -181,7 +181,7 @@ function buildRelegationTokens(mode: RelegationMode): string[] {
 function buildNegativeTokensForMode(mode: RelegationMode, isHero: boolean): string[] {
   if (mode === "NONE") return [];
 
-  if (isHero && mode !== "NONE") {
+  if (isHero) {
     return [...HERO_NEGATIVE_TOKENS_FOR_CUTAWAY];
   }
 
@@ -224,7 +224,7 @@ export function buildRelegationConfig(input: RelegationInput): RelegationConfig 
         negativeTokens,
       });
 
-      if (char.isHero && mode !== "NONE") {
+      if (char.isHero) {
         forbiddenCompositionTokens.push(...HERO_NEGATIVE_TOKENS_FOR_CUTAWAY);
       }
     }
