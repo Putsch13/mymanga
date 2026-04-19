@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { MangaPageGrid, type UniversalMangaPage } from "./manga-page-grid";
+import { MangaPageGrid } from "./manga-page-grid";
 import { WebtoonLazyScroll } from "./webtoon-lazy-scroll";
 import { SplashPageRenderer } from "./splash-page-renderer";
 import { MangaCanvasRenderer, computePanelPositions } from "./manga-canvas-renderer";
