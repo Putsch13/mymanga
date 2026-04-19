@@ -302,6 +302,15 @@ Checklist :
 6. Confirmer `hasFalKey=true`, `hasOpenAI=true`, `authDisabled=false`
 7. Lancer un chapitre test
 
+Si `prisma migrate deploy` echoue sur P3.2 avec une violation de contrainte
+`MediaAsset_supabase_requires_storage_key`, exécuter le preflight fix :
+
+```bash
+pnpm --filter @manga-ai-studio/db exec prisma db execute \
+  --file prisma/p32-fix-mediaasset-supabase-storagekey.sql \
+  --schema prisma/schema.prisma
+```
+
 ## Base de donnees
 
 Schema : `packages/db/prisma/schema.prisma`
