@@ -66,3 +66,71 @@ export function asRecord(value: unknown): Record<string, unknown> {
     ? (value as Record<string, unknown>)
     : {};
 }
+
+/**
+ * Guard : refuse toute URL qui ne peut pas être considérée comme canonique
+ * (i.e. éligible à figurer dans `MediaAsset.publicUrl`, `SceneImage.imageUrl`,
+ * `Chapter.coverImageUrl`, etc.).
+ *
+ * Aligné avec `apps/web/lib/images/assert-stable-image-url.ts` — dupliqué ici
+ * car le package workflow ne dépend pas du webapp.
+ *
+ * Règles :
+ *   - Refuse les data-URLs.
+ *   - Refuse les URLs signées (présence de `/object/sign/` ou `?token=`).
+ *   - Refuse les hosts temporaires provider (FAL, BFL).
+ *   - Refuse les URLs malformées.
+ */
+export type StableImageUrlReason =
+  | "empty_url"
+  | "malformed_url"
+  | "data_url"
+  | "signed_url"
+  | "provider_temporary_host";
+
+export function checkStableImageUrl(url: string | null | undefined):
+  | { ok: true }
+  | { ok: false; reason: StableImageUrlReason; detail: string } {
+  if (!url || typeof url !== "string") {
+    return { ok: false, reason: "empty_url", detail: "empty" };
+  }
+  if (url.startsWith("data:")) {
+    return { ok: false, reason: "data_url", detail: "data_url" };
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { ok: false, reason: "malformed_url", detail: "malformed" };
+  }
+  if (parsed.pathname.includes("/object/sign/")) {
+    return { ok: false, reason: "signed_url", detail: "supabase_signed_path" };
+  }
+  if (parsed.searchParams.has("token")) {
+    return { ok: false, reason: "signed_url", detail: "token_query" };
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (host === "v3b.fal.media" || host === "fal.media" || host.endsWith(".fal.media")) {
+    return { ok: false, reason: "provider_temporary_host", detail: host };
+  }
+  if (host === "cdn.fal.ai") {
+    return { ok: false, reason: "provider_temporary_host", detail: host };
+  }
+  if (host.startsWith("delivery-") && host.endsWith(".bfl.ai")) {
+    return { ok: false, reason: "provider_temporary_host", detail: host };
+  }
+  return { ok: true };
+}
+
+export function assertStableImageUrl(
+  url: string | null | undefined,
+  context?: string,
+): asserts url is string {
+  const res = checkStableImageUrl(url);
+  if (!res.ok) {
+    const ctx = context ? `[${context}] ` : "";
+    throw new Error(
+      `${ctx}assertStableImageUrl failed: reason=${res.reason} detail=${res.detail} url=${(url ?? "").slice(0, 120)}`,
+    );
+  }
+}

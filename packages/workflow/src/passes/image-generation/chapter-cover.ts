@@ -116,13 +116,20 @@ export async function generateChapterCover(
         chapterId,
         sceneImageId: `cover_${chapterId}`,
       });
-      if (persisted.ok) {
-        await prisma.chapter.update({
-          where: { id: chapterId },
-          data: { coverImageUrl: persisted.url },
-        });
-        return persisted.url;
+      if (!persisted.ok) {
+        console.warn(
+          `[pipeline:cover] persist failed chapter=${chapterId} reason=${persisted.reason} — skipping cover`,
+        );
+        return null;
       }
+      // P0.1 — la couverture ne peut être persistée en `coverImageUrl` que si
+      // l'URL est stable (Supabase). `persistImageIfNeeded` retourne `ok:true`
+      // dans deux cas valides : (a) upload canonique, (b) URL déjà stable.
+      await prisma.chapter.update({
+        where: { id: chapterId },
+        data: { coverImageUrl: persisted.url },
+      });
+      return persisted.url;
     }
     return null;
   } catch (e) {

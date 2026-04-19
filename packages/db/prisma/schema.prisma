@@ -1270,11 +1270,16 @@ model SpeciesArchetype {
   promptFragment   String?
   generatedByAI    Boolean  @default(true)
   memberCount      Int      @default(0)
+  // P1.2 — versionnage + traçabilité
+  schemaVersion    Int      @default(1)
+  promptHash       String?
+  sourceModel      String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
   @@unique([projectId, labelNormalized])
   @@index([projectId])
+  @@index([promptHash])
 }
 
 // T05 — EntityCanonCache : cache LLM de résolution d'entités inconnues

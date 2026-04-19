@@ -159,27 +159,36 @@ export async function runRecoveryPass(params: RecoveryParams): Promise<RecoveryR
           chapterId,
           sceneImageId: failedShot.id,
         });
-        if (persisted.ok) {
-          recoveredCount++;
-          await prisma.sceneImage.update({
-            where: { id: failedShot.id },
-            data: {
-              status: "completed",
-              imageUrl: persisted.url,
-              persistedUrl: persisted.persisted ? persisted.url : null,
-              provider: recoveryResult.result.provider,
-              model: recoveryResult.result.model,
-              failureReason: null,
-              metadata: ({
-                ...failedShot.item.baseMetadata,
-                recoveryPass: true,
-                recoveryRefsUsed: recoveryRefUrls.length,
-                recoveryHasComposedPrompt: !!persistedRow?.prompt,
-                sourceUrl: recoveryResult.result.imageUrl,
-              } as unknown) as Prisma.InputJsonValue,
-            },
-          });
+        if (!persisted.ok) {
+          console.warn(
+            `[pipeline:recovery] persist failed shot=${failedShot.id} reason=${persisted.reason} — keeping failed status`,
+          );
+          continue;
         }
+        recoveredCount++;
+        await prisma.sceneImage.update({
+          where: { id: failedShot.id },
+          data: {
+            status: "completed",
+            imageUrl: persisted.url,
+            persistedUrl: persisted.persisted ? persisted.url : null,
+            provider: recoveryResult.result.provider,
+            model: recoveryResult.result.model,
+            failureReason: null,
+            metadata: ({
+              ...failedShot.item.baseMetadata,
+              recoveryPass: true,
+              recoveryRefsUsed: recoveryRefUrls.length,
+              recoveryHasComposedPrompt: !!persistedRow?.prompt,
+              // P0.2 — refléter les vraies coordonnées de stockage.
+              storageBucket: persisted.persisted ? persisted.bucket : null,
+              storageKey: persisted.persisted ? persisted.storageKey : null,
+              mimeType: persisted.persisted ? persisted.mimeType : null,
+              debugSourceUrl: persisted.debugSourceUrl,
+              sourceUrl: recoveryResult.result.imageUrl,
+            } as unknown) as Prisma.InputJsonValue,
+          },
+        });
       }
     } catch {
       console.warn(`[pipeline:recovery] shot recovery failed for ${failedShot.id}`);

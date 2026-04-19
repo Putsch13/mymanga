@@ -122,4 +122,32 @@ export interface RoutingContext {
   beatEventType?: string | null;
   /** Focus du panel depuis le blueprint premium ou shot-plan — prioritaire sur crowdCritical */
   subjectFocus?: "hero" | "npc" | "important_npc" | "enemy" | "antagonist" | "environment" | "group" | "prop" | "reaction" | "aftermath" | null;
+  /**
+   * P1.3 — Sujet dominant résolu à partir de `subjectFocus`, `cutawayType`,
+   * du cast et du shotType. Source de vérité pour savoir sur quoi le panel
+   * est réellement centré (sans biais héros implicite).
+   */
+  dominantSubject?: {
+    kind:
+      | "hero"
+      | "enemy"
+      | "ally"
+      | "npc"
+      | "group"
+      | "environment"
+      | "prop"
+      | "reaction"
+      | "aftermath"
+      | "none";
+    characterIndex: number | null;
+    characterTier:
+      | "MAIN_HERO"
+      | "SECONDARY_CORE"
+      | "IMPORTANT_SUPPORTING_CHARACTER"
+      | "RECURRING_NPC"
+      | "BACKGROUND_EXTRA"
+      | null;
+    provenance: "explicit" | "inferred" | "default";
+    reason: string;
+  };
 }

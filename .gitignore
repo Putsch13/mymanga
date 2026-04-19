@@ -3,9 +3,13 @@ node_modules
 .turbo
 dist
 coverage
+# Secrets — jamais versionner d'env réel (seul .env.example est autorisé).
 .env
 .env.local
 .env.*.local
+**/.env
+**/.env.local
+**/.env.*.local
 *.log
 .DS_Store
 __MACOSX
@@ -13,5 +17,5 @@ __MACOSX
 .vercel
 .cache
 *.tsbuildinfo
-Archive.zip
-Archive 2.zip
+# Archives potentiellement contenant des .env dé-référencés (zip -y)
+Archive*.zip

@@ -5,6 +5,7 @@ import {
 } from "@manga-ai-studio/ai";
 import { type PanelCharacterPlan } from "@manga-ai-studio/core";
 import type { SceneBlueprint } from "@manga-ai-studio/world";
+import { resolveDominantSubject } from "./dominant-subject";
 
 export function buildPanelCharacterPlan(input: {
   panelId: string;
@@ -152,6 +153,17 @@ export function buildRoutingContext(
         : /(close-up|closeup|gros plan)/.test(text)
           ? "closeup"
           : "medium");
+  // P0.4 — `heroFocus` n'est vrai que si `subjectFocus=hero` explicite, OU absence de focus avec un unique perso = héros. Un gros plan NPC/enemy avec hero présent n'est PAS reclassé hero.
+  const NON_HERO_FOCI = new Set(["npc", "important_npc", "enemy", "antagonist", "group", "environment", "aftermath", "prop", "reaction"]);
+  const heroFocus = subjectFocus === "hero" || (!subjectFocus && !NON_HERO_FOCI.has(subjectFocus ?? "") && heroPresent && panel.characters.length === 1);
+  // P1.3 — sujet dominant unique (remplace à terme les cascades heroFocus/subjectFocus/heroPresent).
+  const dominantSubject = resolveDominantSubject({
+    subjectFocus: subjectFocus ?? null,
+    cutawayType: null,
+    shotType,
+    panelCharacterRoles,
+    panelCharacterImportanceTiers,
+  });
   return {
     mode: "PANEL_DRAFT",
     contentIntensityLayer: intensityLayer,
@@ -162,7 +174,8 @@ export function buildRoutingContext(
     panelCharacterRoles,
     panelCharacterImportanceTiers,
     heroPresent,
-    heroFocus: heroPresent && (shotType === "closeup" || shotType === "extreme_closeup"),
+    heroFocus,
+    dominantSubject,
     purpose: panelContract?.purpose,
     npcCount: (panelContract?.npcPresence?.length ?? 0) > 0 || /(crowd|guard|merchant|passant|client|audience|foule|garde)/.test(text) ? 1 : 0,
     creatureCount: (panelContract?.creaturePresence?.length ?? 0) > 0 || /(creature|monster|spirit|dragon|familiar|beast|mutant)/.test(text) ? 1 : 0,
@@ -220,9 +233,7 @@ export function inferRequiredSceneExtras(scene: {
   if (/(prison|surveillance|checkpoint|guard|garde|palais|banque)/.test(text)) {
     extras.push({ archetype: "guard", anchorSlot: "security-edge" });
   }
-  if (/(arène|arena|foule|crowd|festival)/.test(text)) {
-    extras.push({ archetype: "crowd", anchorSlot: "backdrop-crowd" });
-  }
+  if (/(arène|arena|foule|crowd|festival)/.test(text)) extras.push({ archetype: "crowd", anchorSlot: "backdrop-crowd" });
   if (/(lycée|lycee|école|ecole|school|campus|cour de récré|cour du lycée|classe)/.test(text)) {
     extras.push({ archetype: "crowd", anchorSlot: "student-yard" });
     extras.push({ archetype: "passerby", anchorSlot: "corridor-depth" });

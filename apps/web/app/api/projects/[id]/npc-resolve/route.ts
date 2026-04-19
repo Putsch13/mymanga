@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getAppUser } from "@/lib/auth/get-app-user";
+import { notFound, unauthorized } from "@/lib/api-response";
 import { NPC_ONTOLOGY, resolveNpcWithAiFallback } from "@manga-ai-studio/world";
 import { detectSpeciesInDescription, resolveSpeciesArchetype } from "@manga-ai-studio/memory";
 import { prisma } from "@manga-ai-studio/db";
@@ -11,8 +12,18 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export async function POST(req: NextRequest, ctx: Ctx) {
   const user = await getAppUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!user) return unauthorized();
   const { id: projectId } = await ctx.params;
+
+  // P0.3 — ownership check : jamais d'écriture archetype sur un projet
+  // appartenant à un autre utilisateur. Convention homogène avec les autres
+  // routes (cf. style-pack/route.ts) : on renvoie 404 pour ne pas divulguer
+  // l'existence d'un projet tiers.
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, userId: user.id },
+    select: { id: true },
+  });
+  if (!project) return notFound();
 
   const body = await req.json() as {
     rawDescription: string;
@@ -38,6 +49,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         speciesLabel,
         universe,
         tone,
+        sourceModel: openai ? "openai:gpt-4o-mini" : "fallback:no-openai",
         generateWithAI: async (prompt) => {
           if (!openai) return "{}";
           const completion = await openai.chat.completions.create({

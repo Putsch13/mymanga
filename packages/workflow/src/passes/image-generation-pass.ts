@@ -272,7 +272,20 @@ export async function runImageGenerationPass(
           sceneImageId: `scene_keyframe_${sceneKeyframeId}`,
         });
         if (!persisted.ok) {
+          console.warn(
+            `[pipeline:keyframe] persist failed sceneKeyframeId=${sceneKeyframeId} reason=${persisted.reason} — skipping keyframe`,
+          );
           return null;
+        }
+
+        // P0.1 — on refuse de créer un MediaAsset canonique avec une URL non
+        // persistée (FAL/BFL signée/temporaire). Le keyframe reste sans image
+        // pour ce round — il sera retenté au prochain appel.
+        if (!persisted.persisted) {
+          console.warn(
+            `[pipeline:keyframe] skipping non-persisted keyframe sceneKeyframeId=${sceneKeyframeId} (url already stable but no canonical storageKey)`,
+          );
+          return persisted.url;
         }
 
         const mediaAsset = await prisma.mediaAsset.create({
@@ -284,10 +297,13 @@ export async function runImageGenerationPass(
             origin: "generated",
             ownerType: "scene_keyframe",
             ownerId: sceneKeyframeId,
-            storageProvider: persisted.persisted ? "supabase" : "fal",
-            bucket: persisted.persisted ? (process.env.STORAGE_BUCKET ?? "mymanga-images") : null,
+            storageProvider: "supabase",
+            // P0.2 — bucket/storageKey reflètent EXACTEMENT l'upload côté
+            // persistence, sans fallback reconstruit à la main (ancien
+            // `scene-keyframes/${id}` ne matchait jamais le chemin réel).
+            bucket: persisted.bucket,
             publicUrl: persisted.url,
-            storageKey: `scene-keyframes/${sceneKeyframeId}`,
+            storageKey: persisted.storageKey,
             metadata: ({
               requestId: generation.result.requestId ?? null,
               jobId: generation.result.jobId ?? null,
@@ -1123,16 +1139,18 @@ export async function runImageGenerationPass(
         });
 
         if (!persisted.ok) {
-          const persistError = (persisted as { error?: string }).error ?? "persist_failed";
+          // P0.1 — persistence échoue → panel `failed`, on NE persiste PAS
+          // l'URL temporaire comme canonique.
           await prisma.sceneImage.update({
             where: { id: item.sceneImageId },
             data: {
               status: "failed",
-              failureReason: `persist_failed: ${persistError}`,
+              failureReason: `persist_failed: ${persisted.reason}`,
               metadata: ({
                 ...item.baseMetadata,
-                error: persistError,
-                sourceUrl: bestAttempt.generation.result.imageUrl,
+                error: persisted.reason,
+                persistError: persisted.message,
+                debugSourceUrl: persisted.debugSourceUrl,
                 generationLog: bestAttempt.generation.log,
                 referenceTrace: panelReferenceTrace,
               } as unknown) as Prisma.InputJsonValue,
@@ -1273,8 +1291,14 @@ export async function runImageGenerationPass(
               falStrategy: finalRouting,
               seed: bestAttempt.generation.result.seed ?? null,
               persisted: persisted.persisted,
-              temporary: "temporary" in persisted ? (persisted.temporary as boolean) : undefined,
-              storageWarning: "warning" in persisted ? (persisted.warning as string) : undefined,
+              // P0.2 — metadata reflète EXACTEMENT l'objet réellement uploadé.
+              // Quand `persisted: false`, l'URL est déjà stable Supabase et on
+              // ne peut pas inférer de storageKey/bucket — on met `null`.
+              storageBucket: persisted.persisted ? persisted.bucket : null,
+              storageKey: persisted.persisted ? persisted.storageKey : null,
+              mimeType: persisted.persisted ? persisted.mimeType : null,
+              // URL FAL/BFL/data d'origine, conservée uniquement pour debug.
+              debugSourceUrl: persisted.debugSourceUrl,
               sourceUrl: bestAttempt.generation.result.imageUrl,
               requestedCanonicalRef: canonRef?.sourceUrl ?? canonRef?.publicUrl ?? canonRef?.signedUrl ?? canonRef?.falCdnUrl ?? null,
               canonRefUsed: characterReferenceResolution.trace.used[0]?.resolvedUrl ?? null,

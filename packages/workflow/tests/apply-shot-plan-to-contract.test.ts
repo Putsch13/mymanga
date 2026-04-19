@@ -44,7 +44,7 @@ describe("applyShotPlanToContract", () => {
     expect(out.cameraAngle).toBe(base.cameraAngle);
   });
 
-  it("applique shotType + cameraAngle + subjectFocus sans muter la source", () => {
+  it("applique shotType + cameraAngle + subjectFocus sans muter la source (et normalise les enums)", () => {
     const base = makeBaseContract();
     const shotPlanPanel = {
       panelNumber: 1,
@@ -58,7 +58,8 @@ describe("applyShotPlanToContract", () => {
     const out = applyShotPlanToContract(base, shotPlanPanel);
 
     expect(out.shotType).toBe("wide");
-    expect((out as { cameraAngle?: string }).cameraAngle).toBe("low");
+    // P1.1 — "low" (shot-plan) est normalisé vers "low_angle" (PanelContract).
+    expect((out as { cameraAngle?: string }).cameraAngle).toBe("low_angle");
     expect((out as { subjectFocus?: string }).subjectFocus).toBe("hero");
     expect((out as { heroCenterAllowed?: boolean }).heroCenterAllowed).toBe(true);
 
@@ -66,7 +67,26 @@ describe("applyShotPlanToContract", () => {
     expect(base.cameraAngle).toBe("eye_level");
   });
 
-  it("coerce les undefined en null", () => {
+  it("P1.1 — normalise le vocabulaire shot-plan vers la grammaire narrative-facts", () => {
+    const base = makeBaseContract();
+    const shotPlanPanel = {
+      panelNumber: 1,
+      shotType: "establishing",
+      cameraAngle: "birds_eye",
+      subjectFocus: "antagonist",
+      cutawayType: "crowd_reaction",
+      heroCenterAllowed: false,
+    } as unknown as Parameters<typeof applyShotPlanToContract>[1];
+
+    const out = applyShotPlanToContract(base, shotPlanPanel);
+
+    expect(out.shotType).toBe("wide");
+    expect((out as { cameraAngle?: string }).cameraAngle).toBe("high_angle");
+    expect((out as { subjectFocus?: string }).subjectFocus).toBe("enemy");
+    expect((out as { cutawayType?: string }).cutawayType).toBe("npc_group");
+  });
+
+  it("fallback : shotType inconnu → on préserve la valeur du contract d'origine", () => {
     const base = makeBaseContract();
     const shotPlanPanel = {
       panelNumber: 1,
@@ -78,6 +98,7 @@ describe("applyShotPlanToContract", () => {
     } as unknown as Parameters<typeof applyShotPlanToContract>[1];
 
     const out = applyShotPlanToContract(base, shotPlanPanel);
+    expect(out.shotType).toBe("medium");
     expect((out as { cameraAngle?: string | null }).cameraAngle ?? null).toBeNull();
     expect((out as { subjectFocus?: string | null }).subjectFocus ?? null).toBeNull();
     expect((out as { cutawayType?: string | null }).cutawayType ?? null).toBeNull();

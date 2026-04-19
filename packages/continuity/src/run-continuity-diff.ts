@@ -2,10 +2,16 @@ import type { PrismaClient } from "@manga-ai-studio/db";
 import type {
   ContinuityReport,
   ContinuityIssue,
+  ContinuityIssueType,
   CharacterState,
   OpenThread,
+  EventLedgerEntry,
 } from "./types";
 import { prohibitionIsViolated } from "./kernel/utils";
+import {
+  buildContinuityDiffLedger,
+  type ContinuityDiffEntry,
+} from "./build-continuity-diff-ledger";
 
 /**
  * Exécute une analyse de cohérence avant validation finale du chapitre.
@@ -115,40 +121,38 @@ export async function runContinuityDiff(
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 2. INJURY LOSS : vérifier que les blessures courantes ne disparaissent pas sans justification
+  // 2+3+5. P2.2 — Continuity diff ledger (injuries, outfit, relationships, possessions)
   // ──────────────────────────────────────────────────────────────────────────
-  for (const prevState of prevCharacterStates) {
-    const currentChar = characters.find((c) => c.id === prevState.characterId);
-    if (!currentChar) continue;
+  // On compare les `characterStates` précédents aux `characterStates` actuels
+  // produits par le `build-chapter-canon-state`. Les diffs non justifiés sont
+  // promus en ContinuityIssue. Les diffs justifiés (event ledger cohérent,
+  // outfit variation autorisée, …) ne polluent pas le rapport.
+  const currentCanonState = await prisma.chapterCanonState.findFirst({
+    where: { projectId: input.projectId, chapterId: input.chapterId },
+  });
+  const currentCharacterStates = (currentCanonState?.characterStates as CharacterState[] | undefined) ?? [];
+  const justifiedEvents =
+    (currentCanonState?.canonEvents as EventLedgerEntry[] | undefined)
+    ?? [];
 
-    if (prevState.currentState.injuries.length > 0) {
-      // Vérifier si des blessures ont disparu (heuristique simple : on suppose qu'elles doivent rester au moins 1 chapitre)
-      // TODO: enrichir avec un système de persistance de blessure (durée, guérison, etc.)
-      issues.push({
-        severity: "minor",
-        type: "injury_loss",
-        message: `${currentChar.name} : vérifier la persistance des blessures (${prevState.currentState.injuries.join(", ")})`,
-        subjectId: currentChar.id,
-        autoRepairable: false,
-      });
+  if (currentCharacterStates.length > 0) {
+    const ledger = buildContinuityDiffLedger({
+      previous: prevCharacterStates,
+      current: currentCharacterStates,
+      justifiedEvents,
+    });
+    const characterNameById = new Map(characters.map((c) => [c.id, c.name]));
+    for (const entry of ledger.entries) {
+      if (entry.justified) continue;
+      const issue = ledgerEntryToContinuityIssue(entry, characterNameById);
+      if (issue) issues.push(issue);
     }
   }
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // 3. OUTFIT DRIFT : vérifier que le costume ne change pas sans transition
-  // ──────────────────────────────────────────────────────────────────────────
-  // (heuristique basique : si outfit était X, et devient Y sans mention dans le script, c'est suspect)
-  // TODO: implémenter une vérification plus fine avec analyse du script
 
   // ──────────────────────────────────────────────────────────────────────────
   // 4. DIALOGUE DRIFT : vérifier que la voix du personnage reste cohérente
   // ──────────────────────────────────────────────────────────────────────────
   // (sera implémenté dans packages/dialogue)
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // 5. RELATIONSHIP DRIFT : vérifier que les relations ne repartent pas à zéro
-  // ──────────────────────────────────────────────────────────────────────────
-  // TODO: comparer relationshipStates entre previousCanonState et currentCanonState
 
   // ──────────────────────────────────────────────────────────────────────────
   // 6. THREAD DROP : vérifier que les fils narratifs ouverts ne sont pas abandonnés
@@ -245,4 +249,65 @@ export async function runContinuityDiff(
     issues,
     suggestedRepairs,
   };
+}
+
+/**
+ * P2.2 — Mappe une entrée du continuity diff ledger vers un ContinuityIssue
+ * typé conforme au schéma Zod. Les diffs justifiés doivent être filtrés EN
+ * AMONT par le caller.
+ */
+function ledgerEntryToContinuityIssue(
+  entry: ContinuityDiffEntry,
+  characterNameById: Map<string, string>,
+): ContinuityIssue | null {
+  const name = characterNameById.get(entry.characterId) ?? entry.characterId;
+  const from = entry.fromValue ?? "∅";
+  const to = entry.toValue ?? "∅";
+
+  switch (entry.type) {
+    case "injury_appeared":
+    case "injury_disappeared": {
+      const isLoss = entry.type === "injury_disappeared";
+      return {
+        severity: entry.severity,
+        type: "injury_loss" satisfies ContinuityIssueType,
+        message: isLoss
+          ? `${name} : blessure disparue sans justification (${from})`
+          : `${name} : nouvelle blessure introduite sans event associé (${to})`,
+        subjectId: entry.characterId,
+        autoRepairable: false,
+      };
+    }
+    case "outfit_changed":
+    case "outfit_reset":
+      return {
+        severity: entry.severity,
+        type: "outfit_drift" satisfies ContinuityIssueType,
+        message: `${name} : costume modifié (${from} → ${to})`,
+        subjectId: entry.characterId,
+        autoRepairable: true,
+      };
+    case "relationship_emerged":
+    case "relationship_shifted":
+    case "relationship_dropped":
+      return {
+        severity: entry.severity,
+        type: "relationship_drift" satisfies ContinuityIssueType,
+        message: `${name} → ${entry.targetCharacterId ?? "?"} : ${entry.type} (${from} → ${to})`,
+        subjectId: entry.characterId,
+        autoRepairable: false,
+      };
+    case "location_changed":
+      // Pas de type `location_drift` dans l'enum ; on ne remonte rien ici,
+      // la dérive de lieu est déjà couverte par les checks world-state.
+      return null;
+    case "possession_acquired":
+    case "possession_lost":
+    case "emotion_changed":
+    case "objective_changed":
+      // Pas encore mappés vers un ContinuityIssueType dédié — log seulement.
+      return null;
+    default:
+      return null;
+  }
 }

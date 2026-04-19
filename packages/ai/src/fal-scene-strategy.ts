@@ -22,13 +22,76 @@ function isHeroRole(role: string) {
   return /hero|protagon|main_hero|héros|heros/i.test(role);
 }
 
+/**
+ * P0.4 — La policy de référence minimale doit respecter le `subjectFocus`.
+ *
+ * Règles :
+ *   - `hero`                               → STRONG autorisé
+ *   - `npc` / `important_npc` / `enemy` /
+ *     `reaction` / `prop` / `environment` /
+ *     `aftermath` / `group`                → plafonné à LIGHT (jamais STRONG)
+ *   - close-up sans focus explicite        → STRONG uniquement si le seul
+ *                                            sujet probable est le héros
+ *
+ * La simple présence du héros ne force plus STRONG : auparavant, un close-up
+ * ennemi "avec héros dans le cast" recevait la référence canonique du héros
+ * (LoRA + canon ref) ce qui faisait un rendu "hero portrait" au lieu d'un
+ * rendu ennemi.
+ */
 function resolveMinimumReferencePolicy(ctx: RoutingContext): ReferencePolicy {
+  const explicitNonHeroFocus =
+    ctx.subjectFocus === "npc"
+    || ctx.subjectFocus === "important_npc"
+    || ctx.subjectFocus === "enemy"
+    || ctx.subjectFocus === "antagonist"
+    || ctx.subjectFocus === "group"
+    || ctx.subjectFocus === "environment"
+    || ctx.subjectFocus === "aftermath"
+    || ctx.subjectFocus === "prop"
+    || ctx.subjectFocus === "reaction";
+
+  // P1.3 — `dominantSubject` complète `subjectFocus`. Un panel dont le sujet
+  // dominant est clairement non-héros (inféré depuis le cast) ne doit pas
+  // passer STRONG même sans subjectFocus explicite.
+  const dom = ctx.dominantSubject;
+  const domIsNonHeroCharacter = dom
+    && dom.characterIndex !== null
+    && (dom.kind === "enemy" || dom.kind === "ally" || dom.kind === "npc" || dom.kind === "reaction");
+  const domIsEnvOrProp = dom && (dom.kind === "environment" || dom.kind === "prop" || dom.kind === "aftermath");
+  const domIsGroup = dom && dom.kind === "group";
+
+  // Focus explicite non-héros → le héros n'a pas voix au chapitre, on ne
+  // peut pas revenir à STRONG juste parce qu'il est présent dans la scène.
+  if (explicitNonHeroFocus || domIsNonHeroCharacter || domIsEnvOrProp || domIsGroup) {
+    if (
+      ctx.subjectFocus === "environment"
+      || ctx.subjectFocus === "prop"
+      || domIsEnvOrProp
+    ) {
+      return ctx.hasCanonReferences ? "LIGHT" : "NONE";
+    }
+    if ((ctx.panelCharacterImportanceTiers ?? []).includes("SECONDARY_CORE")) return "LIGHT";
+    if ((ctx.panelCharacterImportanceTiers ?? []).includes("IMPORTANT_SUPPORTING_CHARACTER")) return "LIGHT";
+    if (ctx.hasCanonReferences) return "LIGHT";
+    return "NONE";
+  }
+
   if (ctx.heroFocus) return "STRONG";
-  if (ctx.heroPresent) return "LIGHT";
+  if (dom && dom.kind === "hero") return "STRONG";
   if ((ctx.panelCharacterImportanceTiers ?? []).includes("SECONDARY_CORE")) return "STRONG";
   if ((ctx.panelCharacterImportanceTiers ?? []).includes("IMPORTANT_SUPPORTING_CHARACTER")) return "LIGHT";
   if ((ctx.panelCharacterImportanceTiers ?? []).includes("RECURRING_NPC") && ctx.hasCanonReferences) return "LIGHT";
-  if ((ctx.shotType === "closeup" || ctx.shotType === "extreme_closeup") && ctx.characterCountInScene > 0) return "STRONG";
+  // Close-up sans focus déclaré : STRONG uniquement si le héros est présent
+  // ET qu'il est bien le seul personnage du panel (sinon c'est probablement
+  // le focus d'un autre personnage).
+  if (
+    (ctx.shotType === "closeup" || ctx.shotType === "extreme_closeup")
+    && ctx.characterCountInScene === 1
+    && ctx.heroPresent
+  ) {
+    return "STRONG";
+  }
+  if (ctx.heroPresent) return "LIGHT";
   if (ctx.characterCountInScene > 0 && ctx.hasCanonReferences) return "LIGHT";
   return "NONE";
 }
@@ -54,9 +117,32 @@ export function computeFalSceneAssessment(ctx: RoutingContext): FalSceneAssessme
   const heroPresent =
     ctx.heroPresent === true
     || (ctx.panelCharacterRoles ?? []).some(isHeroRole);
+  // P0.4 — `heroFocus` n'est plus déduit de `heroPresent && closeup`.
+  // On respecte la valeur fournie par `buildRoutingContext`, qui est elle-même
+  // alignée sur le `subjectFocus` du blueprint (voir pipeline-scene-builder).
+  // Un close-up sur un NPC avec le héros présent ne doit plus être reclassé
+  // implicitement en hero focus.
+  const explicitNonHeroFocus =
+    ctx.subjectFocus === "npc"
+    || ctx.subjectFocus === "important_npc"
+    || ctx.subjectFocus === "enemy"
+    || ctx.subjectFocus === "antagonist"
+    || ctx.subjectFocus === "group"
+    || ctx.subjectFocus === "environment"
+    || ctx.subjectFocus === "aftermath"
+    || ctx.subjectFocus === "prop"
+    || ctx.subjectFocus === "reaction";
+  // P1.3 — `dominantSubject` est consulté en complément. Un panel avec sujet
+  // dominant non-héros (inféré) ne doit pas être verrouillé héros non plus.
+  const dom = ctx.dominantSubject;
+  const domForcesNonHero =
+    dom !== undefined
+    && dom.kind !== "hero"
+    && dom.kind !== "none";
   const heroFocus =
     ctx.heroFocus === true
-    || (heroPresent && (ctx.shotType === "closeup" || ctx.shotType === "extreme_closeup"));
+    && !explicitNonHeroFocus
+    && !domForcesNonHero;
   const environmentCritical = Boolean(
     ctx.shotType === "wide"
     || ctx.purpose === "establishing"
@@ -144,17 +230,9 @@ export function computeFalSceneAssessment(ctx: RoutingContext): FalSceneAssessme
   }
 
   // Ne pas écraser en CHARACTER_LOCK si le subjectFocus est explicitement non-héros
-  // (NPC/ennemi/groupe/environnement/prop/reaction/aftermath).
-  const explicitNonHeroFocus =
-    ctx.subjectFocus === "npc"
-    || ctx.subjectFocus === "important_npc"
-    || ctx.subjectFocus === "enemy"
-    || ctx.subjectFocus === "antagonist"
-    || ctx.subjectFocus === "group"
-    || ctx.subjectFocus === "environment"
-    || ctx.subjectFocus === "aftermath"
-    || ctx.subjectFocus === "prop"
-    || ctx.subjectFocus === "reaction";
+  // (NPC/ennemi/groupe/environnement/prop/reaction/aftermath). `heroFocus` est
+  // déjà neutralisé plus haut si un focus non-héros est déclaré, mais on garde
+  // la garde explicite par sécurité.
   if (heroFocus && panelCategory !== "LOCAL_FIX" && !explicitNonHeroFocus) {
     panelCategory = "CHARACTER_LOCK";
   }
