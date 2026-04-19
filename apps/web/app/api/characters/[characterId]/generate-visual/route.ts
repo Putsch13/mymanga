@@ -22,6 +22,8 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { persistGeneratedImageIfNeeded } from "@/lib/images/persist-generated-image";
 import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
 import { assertStableImageUrl } from "@/lib/images/assert-stable-image-url";
+import { assertStableCanonicalAsset } from "@/lib/images/assert-stable-canonical-asset";
+import { toProxiedServerUrl } from "@/lib/images/proxy-url.server";
 import { logCanonAudit } from "@/lib/canon/canon-audit-log";
 import { resolveCharacterVisualCanon, type CharacterCanonInput } from "@/lib/canon/resolve-character-visual-canon";
 import {
@@ -305,8 +307,15 @@ export async function POST(_req: Request, ctx: Ctx) {
       );
     }
 
-    // P0.3 : guard explicite — l'URL publique retournée doit être stable.
+    // P0.3 : guard explicite — l'URL publique retournée doit être stable ET
+    // (puisqu'on écrit un mediaAsset Supabase) le storageKey doit exister.
+    // `assertStableCanonicalAsset` remplace le simple check URL en durcissant
+    // le contrat Supabase (pas de mediaAsset.supabase sans storageKey).
     assertStableImageUrl(persisted.url, "generate-visual:persisted.url");
+    assertStableCanonicalAsset(
+      { url: persisted.url, storageProvider: "supabase", storageKey: persisted.storageKey },
+      "generate-visual:mediaAsset",
+    );
 
     const visualRef = await prisma.$transaction(async (tx) => {
       const previousLock = character.visualLocks[0] ?? null;
@@ -362,6 +371,16 @@ export async function POST(_req: Request, ctx: Ctx) {
         },
         version: nextVersion,
       });
+      // P0.3 — chaque URL du canonicalRefUrls doit passer le guard stable.
+      // Ce lock est le contrat canonique du personnage : pas de signed URL,
+      // pas de host provider temporaire.
+      for (const refUrl of nextLock.canonicalRefUrls) {
+        assertStableCanonicalAsset(
+          { url: refUrl },
+          "generate-visual:canonicalRefUrls",
+        );
+      }
+
       const storedLock = await tx.characterVisualLock.create({
         data: {
           projectId: character.project.id,
@@ -386,6 +405,12 @@ export async function POST(_req: Request, ctx: Ctx) {
           },
         },
       });
+      // P0.3 — dernier guard avant l'écriture de la visualRef canonique.
+      assertStableCanonicalAsset(
+        { url: persisted.url, storageProvider: "supabase", storageKey: persisted.storageKey },
+        "generate-visual:characterVisualRef",
+      );
+
       const createdRef = await tx.characterVisualRef.create({
         data: {
           characterId: character.id,
@@ -495,20 +520,10 @@ export async function POST(_req: Request, ctx: Ctx) {
       }
     }
 
-    // Signer puis proxifier l'URL pour affichage immédiat (évite CORS/ITP Safari)
+    // P0.4 — helper central (allowlist + HMAC). Remplace l'IIFE dupliqué.
     const signedImageUrl = await signSupabaseUrlIfNeeded(visualRef.createdRef.imageUrl);
     const urlForClient = signedImageUrl ?? visualRef.createdRef.imageUrl;
-    const proxiedUrl = urlForClient && !urlForClient.startsWith("/api/images/proxy")
-      ? (() => {
-          try {
-            const parsed = new URL(urlForClient);
-            const isExternal = ["supabase.co", "v3b.fal.media", "fal.media", "cdn.fal.ai"].some(
-              (h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`)
-            );
-            return isExternal ? `/api/images/proxy?url=${encodeURIComponent(urlForClient)}` : urlForClient;
-          } catch { return urlForClient; }
-        })()
-      : urlForClient;
+    const proxiedUrl = toProxiedServerUrl(urlForClient) ?? urlForClient;
     const visualRefForClient = { ...visualRef.createdRef, imageUrl: proxiedUrl };
 
     return NextResponse.json({ ok: true, visualRef: visualRefForClient });

@@ -20,6 +20,7 @@ import {
 } from "@/lib/chapter-studio";
 import { mergePremiumProductionPlan } from "@/lib/premium-chapter-contract";
 import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
+import { toProxiedServerUrl } from "@/lib/images/proxy-url.server";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -218,19 +219,7 @@ export async function GET(_req: Request, ctx: Ctx) {
           return { id: c.id, name: c.name, roleType: c.roleType, imageUrl: null };
         }
         const signed = (await signSupabaseUrlIfNeeded(rawUrl)) ?? rawUrl;
-        const proxied = (() => {
-          if (!signed) return null;
-          if (signed.startsWith("/api/images/proxy")) return signed;
-          try {
-            const parsed = new URL(signed);
-            const isExternal = ["supabase.co", "v3b.fal.media", "fal.media", "cdn.fal.ai"].some(
-              (h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`),
-            );
-            return isExternal ? `/api/images/proxy?url=${encodeURIComponent(signed)}` : signed;
-          } catch {
-            return signed;
-          }
-        })();
+        const proxied = toProxiedServerUrl(signed);
         return { id: c.id, name: c.name, roleType: c.roleType, imageUrl: proxied };
       }),
     ),

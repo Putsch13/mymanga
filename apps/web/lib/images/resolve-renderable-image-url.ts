@@ -53,22 +53,18 @@ export async function resolveRenderableImageUrl(
  * Renvoie une URL soit signée (Supabase), soit proxifiée via
  * `/api/images/proxy` pour les hosts externes qui posent des problèmes
  * CORS/ITP côté navigateur.
+ *
+ * P0.4 — délègue à `toProxiedServerUrl` : allowlist STRICTE (host Supabase
+ * du projet + hosts FAL/BFL connus uniquement, pas de `supabase.co`
+ * générique) + signature HMAC optionnelle. Plus de liste de hosts
+ * dupliquée ici.
  */
 export async function resolveSignedOrProxiedUrl(
   img: RenderableImageInput | null | undefined,
-  opts: { expiresInSeconds?: number; proxyHosts?: string[] } = {},
+  opts: { expiresInSeconds?: number } = {},
 ): Promise<string | null> {
   const signed = await resolveRenderableImageUrl(img, opts);
   if (!signed) return null;
-  if (signed.startsWith("/api/images/proxy")) return signed;
-  try {
-    const parsed = new URL(signed);
-    const hosts = opts.proxyHosts ?? ["supabase.co", "fal.media", "cdn.fal.ai", "bfl.ai"];
-    const shouldProxy = hosts.some(
-      (h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`),
-    );
-    return shouldProxy ? `/api/images/proxy?url=${encodeURIComponent(signed)}` : signed;
-  } catch {
-    return signed;
-  }
+  const { toProxiedServerUrl } = await import("./proxy-url.server");
+  return toProxiedServerUrl(signed) ?? signed;
 }

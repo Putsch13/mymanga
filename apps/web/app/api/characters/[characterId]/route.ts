@@ -6,12 +6,14 @@ import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
 import { getOwnedCharacter } from "@/lib/ownership";
 import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
+import { toProxiedServerUrl } from "@/lib/images/proxy-url.server";
 import {
   characterEditSchema,
   type CharacterEditInput,
   type CharacterVisualRefPatch,
 } from "@/lib/schemas/character-edit.schema";
 import { isStableImageUrl } from "@/lib/images/assert-stable-image-url";
+import { checkStableCanonicalAsset } from "@/lib/images/assert-stable-canonical-asset";
 import { logCanonAudit } from "@/lib/canon/canon-audit-log";
 
 type Ctx = { params: Promise<{ characterId: string }> };
@@ -23,24 +25,12 @@ export async function GET(_req: Request, ctx: Ctx) {
   const character = await getOwnedCharacter(user.id, characterId);
   if (!character) return notFound();
 
-  // Signer les URLs Supabase (bucket privé) puis proxifier (même domaine, évite CORS/ITP Safari)
-  function toProxied(url: string | null | undefined): string | null {
-    if (!url) return null;
-    if (url.startsWith("/api/images/proxy")) return url;
-    try {
-      const parsed = new URL(url);
-      const isExternal = ["supabase.co", "v3b.fal.media", "fal.media", "cdn.fal.ai"].some(
-        (h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`)
-      );
-      if (isExternal) return `/api/images/proxy?url=${encodeURIComponent(url)}`;
-    } catch { /* ignore */ }
-    return url;
-  }
-
+  // P0.4 — signature Supabase + proxy via helper central (allowlist stricte,
+  // HMAC si configuré). Plus de construction manuelle d'URL proxy.
   await Promise.all(
     (character.visualRefs ?? []).map(async (ref) => {
       const signed = (await signSupabaseUrlIfNeeded(ref.imageUrl)) ?? ref.imageUrl;
-      ref.imageUrl = toProxied(signed) ?? signed;
+      ref.imageUrl = toProxiedServerUrl(signed) ?? signed;
     }),
   );
 
@@ -136,12 +126,19 @@ async function applyVisualRefsDiff(
   const keptIds = new Set<string>();
 
   for (const ref of payload) {
-    if (!isStableImageUrl(ref.imageUrl)) {
+    // P0.3 — le guard central `checkStableCanonicalAsset` est la source de
+    // vérité pour toute écriture canonique. Ici on n'a pas le storageProvider
+    // côté payload, donc l'assertion se limite à l'URL, mais elle reste
+    // homogène avec le reste du codebase (même message, même raison).
+    const guard = checkStableCanonicalAsset({ url: ref.imageUrl });
+    if (!guard.ok) {
       console.warn(
-        `[character-patch] ignoring unstable imageUrl in visualRefs type=${ref.type} id=${ref.id ?? "(new)"}`,
+        `[character-patch] ignoring unstable imageUrl in visualRefs type=${ref.type} id=${ref.id ?? "(new)"} reason=${guard.reason} detail=${guard.detail}`,
       );
       continue;
     }
+    // Double-check (no-op si déjà passé checkStableCanonicalAsset).
+    if (!isStableImageUrl(ref.imageUrl)) continue;
     if (ref.id && existingById.has(ref.id)) {
       keptIds.add(ref.id);
       await tx.characterVisualRef.update({

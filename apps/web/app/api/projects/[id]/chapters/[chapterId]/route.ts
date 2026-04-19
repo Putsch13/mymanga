@@ -5,6 +5,7 @@ import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized, validationError } from "@/lib/api-response";
 import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
+import { toProxiedServerUrl } from "@/lib/images/proxy-url.server";
 import { patchChapterStudioSnapshot } from "@/lib/chapter-studio";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
@@ -94,29 +95,8 @@ export async function GET(_req: Request, ctx: Ctx) {
 
   if (!chapter) return notFound();
 
-  // Toutes les URLs externes passent par le proxy /api/images/proxy (même domaine).
-  // Cela évite les problèmes CORS/ITP/Safari avec Supabase et les URLs FAL expirées.
-  // Les URLs Supabase sont d'abord signées (accès bucket privé), puis proxifiées.
-  function toProxied(url: string | null | undefined): string | null {
-    if (!url) return null;
-    // Déjà proxifiée
-    if (url.startsWith("/api/images/proxy")) return url;
-    try {
-      const parsed = new URL(url);
-      const externalHosts = [
-        "v3b.fal.media", "fal.media", "cdn.fal.ai",
-        "supabase.co",
-      ];
-      const isExternal = externalHosts.some(
-        (h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`)
-      );
-      if (isExternal) {
-        return `/api/images/proxy?url=${encodeURIComponent(url)}`;
-      }
-    } catch { /* ignore */ }
-    return url;
-  }
-
+  // P0.4 — helper central (allowlist stricte + HMAC). Fini les listes de
+  // hosts dupliquées par route.
   let proxiedCount = 0;
   let signedCount = 0;
   await Promise.all(
@@ -125,21 +105,18 @@ export async function GET(_req: Request, ctx: Ctx) {
         ...scene.keyframes.map(async (keyframe) => {
           const original = keyframe.imageUrl;
           const signed = await signSupabaseUrlIfNeeded(keyframe.imageUrl);
-          keyframe.imageUrl = toProxied(signed ?? original);
+          keyframe.imageUrl = toProxiedServerUrl(signed ?? original);
         }),
         ...scene.images.map(async (img) => {
           const original = img.imageUrl;
-          // Signer d'abord (pour les buckets Supabase privés)
           const signed = await signSupabaseUrlIfNeeded(img.imageUrl);
           if (signed !== original) signedCount++;
-          // Puis proxifier (même domaine, évite CORS/ITP)
-          const proxied = toProxied(signed ?? original);
+          const proxied = toProxiedServerUrl(signed ?? original);
           if (proxied && proxied !== (signed ?? original)) proxiedCount++;
           img.imageUrl = proxied ?? signed ?? original;
-          // URGENCE 2 : préférer persistedUrl (stable) mais la proxifier aussi
           if ((img as { persistedUrl?: string | null }).persistedUrl) {
             const ps = await signSupabaseUrlIfNeeded((img as { persistedUrl?: string | null }).persistedUrl ?? null);
-            (img as { persistedUrl?: string | null }).persistedUrl = toProxied(ps ?? (img as { persistedUrl?: string | null }).persistedUrl) ?? (img as { persistedUrl?: string | null }).persistedUrl;
+            (img as { persistedUrl?: string | null }).persistedUrl = toProxiedServerUrl(ps ?? (img as { persistedUrl?: string | null }).persistedUrl) ?? (img as { persistedUrl?: string | null }).persistedUrl;
           }
         }),
       ],

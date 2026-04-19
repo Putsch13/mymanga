@@ -5,6 +5,7 @@ import { notFound, unauthorized } from "@/lib/api-response";
 import { NPC_ONTOLOGY, resolveNpcWithAiFallback } from "@manga-ai-studio/world";
 import { detectSpeciesInDescription, resolveSpeciesArchetype } from "@manga-ai-studio/memory";
 import { prisma } from "@manga-ai-studio/db";
+import { pickDeterministicHook } from "@/lib/npc/pick-deterministic-hook";
 
 const openai = process.env.OPENAI_API_KEY ? new OpenAI() : null;
 
@@ -113,6 +114,15 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   const best = scored[0]?.entry;
 
   if (best && confidence > 0.3 && !forceAI) {
+    // P0.2 — hook déterministe basé sur un hash des entrées stables.
+    // Math.random() cassait la reproductibilité audit/debug/replay.
+    const deterministicHook = pickDeterministicHook(best.interactionHooks, {
+      projectId,
+      rawDescription: body.rawDescription,
+      universe: body.universe,
+      tone: body.tone,
+      sceneLocation: body.sceneLocation,
+    });
     return NextResponse.json({
       strategy: scored.length > 1 ? "catalog_blend" : "catalog_match",
       confidence,
@@ -122,7 +132,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         interactionHooks: best.interactionHooks,
       },
       promptFragment: best.visualCues.slice(0, 3).join(", "),
-      narrativeHook: best.interactionHooks[Math.floor(Math.random() * best.interactionHooks.length)] ?? "",
+      narrativeHook: deterministicHook ?? "",
     });
   }
 

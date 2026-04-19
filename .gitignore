@@ -19,3 +19,5 @@ __MACOSX
 *.tsbuildinfo
 # Archives potentiellement contenant des .env dé-référencés (zip -y)
 Archive*.zip
+# Bundles d'audit générés par `pnpm audit:bundle` — ne jamais versionner.
+audit-bundle-*.tar.gz
