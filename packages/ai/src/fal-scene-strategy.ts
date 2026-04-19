@@ -132,6 +132,23 @@ export function computeFalSceneAssessment(ctx: RoutingContext): FalSceneAssessme
     || ctx.subjectFocus === "aftermath"
     || ctx.subjectFocus === "prop"
     || ctx.subjectFocus === "reaction";
+  // P0.1 (sprint 5) — un `cutawayType` explicite non-héros prime sur toute
+  // déduction héros, même si `subjectFocus` n'est pas renseigné et qu'un héros
+  // est présent dans la scène.
+  const cutawayForcesNonHero =
+    ctx.cutawayType === "environment"
+    || ctx.cutawayType === "environment_establishing"
+    || ctx.cutawayType === "location_transition"
+    || ctx.cutawayType === "prop_insert"
+    || ctx.cutawayType === "object_insert"
+    || ctx.cutawayType === "aftermath"
+    || ctx.cutawayType === "movement_trace"
+    || ctx.cutawayType === "reaction"
+    || ctx.cutawayType === "reaction_insert"
+    || ctx.cutawayType === "crowd"
+    || ctx.cutawayType === "npc_group"
+    || ctx.cutawayType === "surveillance"
+    || ctx.cutawayType === "threat_insert";
   // P1.3 — `dominantSubject` est consulté en complément. Un panel avec sujet
   // dominant non-héros (inféré) ne doit pas être verrouillé héros non plus.
   const dom = ctx.dominantSubject;
@@ -142,7 +159,8 @@ export function computeFalSceneAssessment(ctx: RoutingContext): FalSceneAssessme
   const heroFocus =
     ctx.heroFocus === true
     && !explicitNonHeroFocus
-    && !domForcesNonHero;
+    && !domForcesNonHero
+    && !cutawayForcesNonHero;
   const environmentCritical = Boolean(
     ctx.shotType === "wide"
     || ctx.purpose === "establishing"
@@ -167,10 +185,35 @@ export function computeFalSceneAssessment(ctx: RoutingContext): FalSceneAssessme
   );
 
   let panelCategory: FalPanelCategory = "CHARACTER_IN_SCENE";
+  // P0.1 (sprint 5) — cutawayType explicite : les cutaways décor / prop /
+  // aftermath ne doivent jamais devenir CHARACTER_LOCK, même en présence du
+  // héros dans la scène. On range ces cutaways en ESTABLISHING_ENVIRONMENT
+  // (pour que la policy de référence soit gérée via l'environnement), et les
+  // cutaways reaction/crowd/npc_group en CHARACTER_IN_SCENE (présence de
+  // personnages mais pas lockés sur le héros).
+  const cutawayIsEnvLike =
+    ctx.cutawayType === "environment"
+    || ctx.cutawayType === "environment_establishing"
+    || ctx.cutawayType === "location_transition"
+    || ctx.cutawayType === "aftermath"
+    || ctx.cutawayType === "movement_trace"
+    || ctx.cutawayType === "prop_insert"
+    || ctx.cutawayType === "object_insert";
+  const cutawayIsCharInScene =
+    ctx.cutawayType === "reaction"
+    || ctx.cutawayType === "reaction_insert"
+    || ctx.cutawayType === "crowd"
+    || ctx.cutawayType === "npc_group"
+    || ctx.cutawayType === "surveillance"
+    || ctx.cutawayType === "threat_insert";
   if (ctx.mode === "CHARACTER_SHEET" || ctx.mode === "CHARACTER_EXPRESSION_SET") {
     panelCategory = "CHARACTER_LOCK";
   } else if (ctx.needsInpaint || ctx.mode === "INPAINT_FIX" || ctx.needsPoseVariation || ctx.mode === "POSE_LOCK_VARIATION") {
     panelCategory = "LOCAL_FIX";
+  } else if (cutawayIsEnvLike) {
+    panelCategory = "ESTABLISHING_ENVIRONMENT";
+  } else if (cutawayIsCharInScene) {
+    panelCategory = "CHARACTER_IN_SCENE";
   } else if (ctx.subjectFocus === "environment" || ctx.subjectFocus === "aftermath") {
     panelCategory = "ESTABLISHING_ENVIRONMENT";
   } else if (
@@ -232,8 +275,14 @@ export function computeFalSceneAssessment(ctx: RoutingContext): FalSceneAssessme
   // Ne pas écraser en CHARACTER_LOCK si le subjectFocus est explicitement non-héros
   // (NPC/ennemi/groupe/environnement/prop/reaction/aftermath). `heroFocus` est
   // déjà neutralisé plus haut si un focus non-héros est déclaré, mais on garde
-  // la garde explicite par sécurité.
-  if (heroFocus && panelCategory !== "LOCAL_FIX" && !explicitNonHeroFocus) {
+  // la garde explicite par sécurité. Un cutaway explicite non-héros doit aussi
+  // bloquer la promotion finale en CHARACTER_LOCK (P0.1 sprint 5).
+  if (
+    heroFocus
+    && panelCategory !== "LOCAL_FIX"
+    && !explicitNonHeroFocus
+    && !cutawayForcesNonHero
+  ) {
     panelCategory = "CHARACTER_LOCK";
   }
 

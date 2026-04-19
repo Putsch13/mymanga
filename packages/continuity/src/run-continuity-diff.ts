@@ -215,14 +215,31 @@ export async function runContinuityDiff(
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 8. TIMELINE VIOLATION : vérifier que la chronologie est cohérente
+  // 8. TIMELINE VIOLATION : vérifier que la chronologie des events est
+  //    cohérente (P1.3 sprint 5). Un event ne doit pas contredire un event
+  //    antérieur irréversible (mort, power_unlock, death relationship, etc.).
+  //    On compare aussi l'ordre chapitreN/sceneN aux conséquences produites.
   // ──────────────────────────────────────────────────────────────────────────
-  // TODO: implémenter une vérification de chronologie basée sur les events
+  const prevEvents =
+    (previousCanonState.canonEvents as EventLedgerEntry[] | undefined) ?? [];
+  const allEvents = [...prevEvents, ...justifiedEvents];
+  for (const violation of detectTimelineViolations(allEvents)) {
+    issues.push(violation);
+  }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 9. CAUSALITY BREAK : vérifier qu'une conséquence d'un événement précédent n'est pas ignorée
+  // 9. CAUSALITY BREAK : vérifier qu'une conséquence d'un événement précédent
+  //    n'est pas ignorée silencieusement (P1.3 sprint 5).
+  //    - injury appliquée mais toujours absente de l'état courant → break.
+  //    - objet gagné puis perdu sans event intermédiaire → break.
+  //    - event `irreversible: true` dont la conséquence disparaît → break.
   // ──────────────────────────────────────────────────────────────────────────
-  // TODO: implémenter une analyse de causalité
+  for (const br of detectCausalityBreaks({
+    events: allEvents,
+    currentCharacterStates,
+  })) {
+    issues.push(br);
+  }
 
   // Calculer score global
   const criticalCount = issues.filter((i) => i.severity === "critical").length;
@@ -249,6 +266,169 @@ export async function runContinuityDiff(
     issues,
     suggestedRepairs,
   };
+}
+
+/**
+ * P1.3 (sprint 5) — Détection des violations temporelles à partir du ledger
+ * d'events `EventLedgerEntry`.
+ *
+ * Règles appliquées :
+ *   1. Un event postérieur ne peut pas mentionner un actor mort dans un event
+ *      irréversible antérieur (`eventType === "death" && irreversible`).
+ *   2. Un event `injuriesResolved` doit référencer une injury déjà appliquée
+ *      dans un event antérieur (sinon on soigne une blessure qui n'a jamais
+ *      existé).
+ *   3. Un event `objectsLost` doit référencer un objet déjà acquis (sinon on
+ *      perd un objet jamais possédé).
+ *
+ * Exportée pour pouvoir la tester isolément.
+ */
+export function detectTimelineViolations(
+  events: EventLedgerEntry[],
+): ContinuityIssue[] {
+  const issues: ContinuityIssue[] = [];
+  // Sort stable par (chapterNumber asc, sceneNumber asc, eventId).
+  const sorted = [...events].sort((a, b) => {
+    if ((a.chapterNumber ?? 0) !== (b.chapterNumber ?? 0)) {
+      return (a.chapterNumber ?? 0) - (b.chapterNumber ?? 0);
+    }
+    if ((a.sceneNumber ?? 0) !== (b.sceneNumber ?? 0)) {
+      return (a.sceneNumber ?? 0) - (b.sceneNumber ?? 0);
+    }
+    return a.eventId.localeCompare(b.eventId);
+  });
+
+  const deadActors = new Set<string>();
+  const injuriesSeen = new Set<string>();
+  const objectsOwned = new Set<string>();
+
+  for (const ev of sorted) {
+    // 1. Actor mort dans un event irréversible antérieur → ne peut plus agir.
+    if (ev.actorIds && ev.actorIds.length > 0) {
+      for (const actor of ev.actorIds) {
+        if (deadActors.has(actor)) {
+          issues.push({
+            severity: "critical",
+            type: "timeline_violation" satisfies ContinuityIssueType,
+            message: `Event ${ev.eventId} (${ev.title}) fait agir ${actor} alors qu'un event antérieur irréversible (mort) a été enregistré.`,
+            subjectId: actor,
+            autoRepairable: false,
+          });
+        }
+      }
+    }
+    // 2. injuriesResolved sans injury préalable.
+    if (ev.injuriesResolved && ev.injuriesResolved.length > 0) {
+      for (const inj of ev.injuriesResolved) {
+        if (!injuriesSeen.has(keyInjury(ev, inj))) {
+          issues.push({
+            severity: "major",
+            type: "timeline_violation" satisfies ContinuityIssueType,
+            message: `Event ${ev.eventId} soigne une blessure "${inj}" jamais appliquée dans un event antérieur.`,
+            subjectId: ev.actorIds?.[0] ?? null,
+            autoRepairable: false,
+          });
+        }
+      }
+    }
+    // 3. objectsLost sans acquisition préalable.
+    if (ev.objectsLost && ev.objectsLost.length > 0) {
+      for (const obj of ev.objectsLost) {
+        if (!objectsOwned.has(obj)) {
+          issues.push({
+            severity: "major",
+            type: "timeline_violation" satisfies ContinuityIssueType,
+            message: `Event ${ev.eventId} perd un objet "${obj}" jamais acquis auparavant.`,
+            subjectId: ev.actorIds?.[0] ?? null,
+            autoRepairable: false,
+          });
+        }
+      }
+    }
+
+    if (ev.injuriesApplied) {
+      for (const inj of ev.injuriesApplied) injuriesSeen.add(keyInjury(ev, inj));
+    }
+    if (ev.objectsGained) {
+      for (const obj of ev.objectsGained) objectsOwned.add(obj);
+    }
+    if (ev.objectsLost) {
+      for (const obj of ev.objectsLost) objectsOwned.delete(obj);
+    }
+    if (ev.eventType === "death" && ev.irreversible) {
+      for (const actor of ev.actorIds ?? []) deadActors.add(actor);
+    }
+  }
+  return issues;
+}
+
+function keyInjury(ev: EventLedgerEntry, inj: string): string {
+  const actor = ev.actorIds?.[0] ?? "_";
+  return `${actor}::${inj.toLowerCase().trim()}`;
+}
+
+/**
+ * P1.3 (sprint 5) — Détection des cassures de causalité.
+ *
+ * Règles :
+ *   - Une `injury` appliquée par un event antérieur doit encore apparaître
+ *     dans `characterState.visibleInjuries` OU avoir été explicitement
+ *     résolue par un event ultérieur. Sinon, la blessure a "disparu" sans
+ *     cause → causality break.
+ *   - Un event `irreversible: true` de type `power_unlock` / `reveal` dont
+ *     la conséquence (ici simplement l'impact narratif) n'apparaît nulle
+ *     part ailleurs peut être signalé (soft), mais on se limite aux injuries
+ *     pour éviter les faux positifs.
+ */
+export function detectCausalityBreaks(args: {
+  events: EventLedgerEntry[];
+  currentCharacterStates: CharacterState[];
+}): ContinuityIssue[] {
+  const issues: ContinuityIssue[] = [];
+  const charStateById = new Map<string, CharacterState>();
+  for (const cs of args.currentCharacterStates) {
+    charStateById.set(cs.characterId, cs);
+  }
+
+  // appliedInjuriesByActor : Map<actorId, Set<injuryLabel>>
+  const appliedInjuriesByActor = new Map<string, Set<string>>();
+  const resolvedInjuriesByActor = new Map<string, Set<string>>();
+
+  for (const ev of args.events) {
+    const actor = ev.actorIds?.[0];
+    if (!actor) continue;
+    if (ev.injuriesApplied && ev.injuriesApplied.length > 0) {
+      if (!appliedInjuriesByActor.has(actor)) appliedInjuriesByActor.set(actor, new Set());
+      for (const inj of ev.injuriesApplied) appliedInjuriesByActor.get(actor)!.add(inj.toLowerCase().trim());
+    }
+    if (ev.injuriesResolved && ev.injuriesResolved.length > 0) {
+      if (!resolvedInjuriesByActor.has(actor)) resolvedInjuriesByActor.set(actor, new Set());
+      for (const inj of ev.injuriesResolved) resolvedInjuriesByActor.get(actor)!.add(inj.toLowerCase().trim());
+    }
+  }
+
+  for (const [actor, applied] of appliedInjuriesByActor.entries()) {
+    const resolved = resolvedInjuriesByActor.get(actor) ?? new Set();
+    const state = charStateById.get(actor);
+    const visible = new Set(
+      (state?.visibleInjuries ?? []).map((i: string) => i.toLowerCase().trim()),
+    );
+    for (const inj of applied) {
+      if (resolved.has(inj)) continue; // soignée explicitement, OK
+      if (visible.has(inj)) continue;   // toujours visible, OK
+      // La blessure est appliquée par un event et n'est plus ni visible ni
+      // résolue → causalité rompue.
+      issues.push({
+        severity: "major",
+        type: "causality_break" satisfies ContinuityIssueType,
+        message: `Blessure "${inj}" appliquée par un event précédent pour ${actor}, mais absente de l'état courant (ni visible, ni résolue par un event ultérieur).`,
+        subjectId: actor,
+        autoRepairable: false,
+      });
+    }
+  }
+
+  return issues;
 }
 
 /**

@@ -5,7 +5,7 @@ import {
 } from "@manga-ai-studio/ai";
 import { type PanelCharacterPlan } from "@manga-ai-studio/core";
 import type { SceneBlueprint } from "@manga-ai-studio/world";
-import { resolveDominantSubject } from "./dominant-subject";
+import { buildRoutingContextV2 } from "./routing-context";
 
 export function buildPanelCharacterPlan(input: {
   panelId: string;
@@ -121,98 +121,50 @@ export function buildSceneKeyframeDraft(input: {
   };
 }
 
+/**
+ * Wrapper legacy — délègue à `buildRoutingContextV2` dans `routing-context.ts`.
+ * Conservé pour ne pas casser la signature positionnelle des appelants
+ * existants (image-generation-pass, tests, etc.).
+ */
 export function buildRoutingContext(
   intensityLayer: string,
   panel: StoryboardPanel,
-  panelContract: {
-    purpose?: string;
-    shotType?: "wide" | "medium" | "closeup" | "extreme_closeup" | "over_shoulder";
-    cameraAngle?: string;
-    npcPresence?: string[];
-    npcGroupPresence?: string[];
-    creaturePresence?: string[];
-    mustShowLocationSignals?: string[];
-  } | undefined,
+  panelContract:
+    | {
+        purpose?: string;
+        shotType?: "wide" | "medium" | "closeup" | "extreme_closeup" | "over_shoulder";
+        cameraAngle?: string;
+        npcPresence?: string[];
+        npcGroupPresence?: string[];
+        creaturePresence?: string[];
+        mustShowLocationSignals?: string[];
+        cutawayType?: string | null;
+      }
+    | undefined,
   stylePack: { backgroundDensity?: string | null } | null | undefined,
   hasCanonRef: boolean,
   adultEngine?: "realistic" | "fantasy",
   panelCharacterRoles: string[] = [],
-  panelCharacterImportanceTiers: Array<"MAIN_HERO" | "SECONDARY_CORE" | "IMPORTANT_SUPPORTING_CHARACTER" | "RECURRING_NPC" | "BACKGROUND_EXTRA"> = [],
+  panelCharacterImportanceTiers: Array<
+    "MAIN_HERO" | "SECONDARY_CORE" | "IMPORTANT_SUPPORTING_CHARACTER" | "RECURRING_NPC" | "BACKGROUND_EXTRA"
+  > = [],
   chapterLookProfileMode?: string | null,
   beatEventType?: string | null,
   subjectFocus?: RoutingContext["subjectFocus"],
 ): RoutingContext {
-  const text = `${panel.camera} ${panel.caption} ${panel.prompt}`.toLowerCase();
-  const heroPresent = panelCharacterRoles.some((role) => /hero|protagon|main_hero|héros|heros/i.test(role));
-  const shotType = panelContract?.shotType ?? (/(wide|establishing|panorama|vue d'ensemble)/.test(text)
-    ? "wide"
-    : /(over shoulder|over-shoulder|par-dessus l'épaule)/.test(text)
-      ? "over_shoulder"
-      : /(extreme close)/.test(text)
-        ? "extreme_closeup"
-        : /(close-up|closeup|gros plan)/.test(text)
-          ? "closeup"
-          : "medium");
-  // P0.4 — `heroFocus` n'est vrai que si `subjectFocus=hero` explicite, OU absence de focus avec un unique perso = héros. Un gros plan NPC/enemy avec hero présent n'est PAS reclassé hero.
-  const NON_HERO_FOCI = new Set(["npc", "important_npc", "enemy", "antagonist", "group", "environment", "aftermath", "prop", "reaction"]);
-  const heroFocus = subjectFocus === "hero" || (!subjectFocus && !NON_HERO_FOCI.has(subjectFocus ?? "") && heroPresent && panel.characters.length === 1);
-  // P1.3 — sujet dominant unique (remplace à terme les cascades heroFocus/subjectFocus/heroPresent).
-  const dominantSubject = resolveDominantSubject({
-    subjectFocus: subjectFocus ?? null,
-    cutawayType: null,
-    shotType,
-    panelCharacterRoles,
-    panelCharacterImportanceTiers,
-  });
-  return {
-    mode: "PANEL_DRAFT",
-    contentIntensityLayer: intensityLayer,
+  return buildRoutingContextV2({
+    intensityLayer,
+    panel,
+    panelContract,
+    stylePack: stylePack ?? null,
+    hasCanonRef,
     adultEngine,
-    isNewCharacter: false,
-    hasCanonReferences: hasCanonRef,
-    characterCountInScene: panel.characters.length,
     panelCharacterRoles,
     panelCharacterImportanceTiers,
-    heroPresent,
-    heroFocus,
-    dominantSubject,
-    purpose: panelContract?.purpose,
-    npcCount: (panelContract?.npcPresence?.length ?? 0) > 0 || /(crowd|guard|merchant|passant|client|audience|foule|garde)/.test(text) ? 1 : 0,
-    creatureCount: (panelContract?.creaturePresence?.length ?? 0) > 0 || /(creature|monster|spirit|dragon|familiar|beast|mutant)/.test(text) ? 1 : 0,
-    hasNpcGroup: (panelContract?.npcGroupPresence?.length ?? 0) > 0,
-    hasCreatureGroup: (panelContract?.creaturePresence?.length ?? 0) > 1,
-    shotType,
-    cameraAngle: panelContract?.cameraAngle,
-    environmentPriority:
-      (panelContract?.mustShowLocationSignals?.length ?? 0) >= 2
-      || /(environment|decor|décor|background|ruins|city|forest|garden|lab|arena|crowd|school|campus|courtyard)/.test(text)
-        ? "high"
-        : panel.characters.length >= 2
-          ? "medium"
-          : "low",
-    locationComplexity: Math.min(30, (panelContract?.mustShowLocationSignals?.length ?? 0) * 6),
-    environmentDensityRequired:
-      stylePack?.backgroundDensity === "high" || (panelContract?.shotType === "wide")
-        ? "high"
-        : stylePack?.backgroundDensity === "low"
-          ? "low"
-          : "medium",
-    continuityWeight: hasCanonRef ? 70 : 35,
-    scenePurpose: panel.caption,
-    styleBackgroundDensity: stylePack?.backgroundDensity ?? null,
-    styleReferenceRequired: hasCanonRef || /(style|render family|ink|shading)/.test(text),
-    needsInpaint: false,
-    needsPoseVariation: false,
-    preferPhotorealCover: false,
-    explicitBlocked: intensityLayer === "RESTRICTED_BLOCKED_VISUAL",
-    goreStylizedMature:
-      intensityLayer === "MATURE_DRAMA" ||
-      intensityLayer === "MATURE_VISUAL" ||
-      intensityLayer === "ADULT_EXPLICIT",
-    chapterLookProfileMode: chapterLookProfileMode ?? null,
-    beatEventType: beatEventType ?? null,
-    subjectFocus: subjectFocus ?? null,
-  };
+    chapterLookProfileMode,
+    beatEventType,
+    subjectFocus,
+  });
 }
 
 export function inferRequiredSceneExtras(scene: {

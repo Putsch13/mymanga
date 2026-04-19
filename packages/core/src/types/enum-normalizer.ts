@@ -284,3 +284,39 @@ export function normalizeShotPlanPanelEnums(input: {
     unknowns,
   };
 }
+
+/**
+ * P1.2 (sprint 5) — Lecture + normalisation des enums stockés dans un champ
+ * JSON Prisma (`panelContract` / `shotPlan` / `panelDebugTrace.shotPlan`).
+ *
+ * Les casts `value as string` à la frontière JSON sont inévitables (Prisma
+ * type les Json en `unknown`), mais on garantit ici qu'AUCUNE valeur brute
+ * ne s'échappe dans le routing : toute valeur passe par `normalize*` et
+ * devient soit canonique, soit `null` (avec warning dans `unknowns`).
+ *
+ * Usage typique :
+ *   const { subjectFocus, shotType, cameraAngle, cutawayType } =
+ *     readShotPlanEnumsFromJson(panelContractMeta, "retry-route");
+ */
+export function readShotPlanEnumsFromJson(
+  json: Record<string, unknown> | undefined | null,
+  context?: string,
+): {
+  shotType: CanonicalShotType | null;
+  cameraAngle: CanonicalCameraAngle | null;
+  subjectFocus: CanonicalSubjectFocus | null;
+  cutawayType: CanonicalCutawayType | null;
+  unknowns: string[];
+} {
+  if (!json) {
+    return { shotType: null, cameraAngle: null, subjectFocus: null, cutawayType: null, unknowns: [] };
+  }
+  const shotRaw = typeof json.shotType === "string" ? json.shotType : null;
+  const cameraRaw = typeof json.cameraAngle === "string" ? json.cameraAngle : null;
+  const focusRaw = typeof json.subjectFocus === "string" ? json.subjectFocus : null;
+  const cutRaw = typeof json.cutawayType === "string" ? json.cutawayType : null;
+  return normalizeShotPlanPanelEnums(
+    { shotType: shotRaw, cameraAngle: cameraRaw, subjectFocus: focusRaw, cutawayType: cutRaw },
+    context,
+  );
+}

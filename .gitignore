@@ -21,3 +21,5 @@ __MACOSX
 Archive*.zip
 # Bundles d'audit générés par `pnpm audit:bundle` — ne jamais versionner.
 audit-bundle-*.tar.gz
+audit-source-only.zip
+audit-source-only-*.zip

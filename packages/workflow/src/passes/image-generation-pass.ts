@@ -29,6 +29,10 @@ import { scoreVisualConsistency } from "@manga-ai-studio/visual-consistency";
 import { type SceneBlueprint } from "@manga-ai-studio/world";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { buildRoutingContext } from "../pipeline-scene-builder";
+import {
+  mapCanonicalToComplianceDominantSubject,
+  type DominantKind,
+} from "../compliance-dominant-subject";
 import { buildStableImageReference, resolveStableImageReferences } from "../stable-image-refs";
 import { persistImageIfNeeded } from "../pipeline-image-persistence";
 import { setJobProgress } from "../pipeline-job";
@@ -462,6 +466,7 @@ export async function runImageGenerationPass(
         npcGroupPresence?: string[];
         creaturePresence?: string[];
         mustShowLocationSignals?: string[];
+        cutawayType?: string | null;
       } | undefined;
       const stylePackMeta = item.baseMetadata.stylePack as {
         renderFamily?: string | null;
@@ -1036,26 +1041,21 @@ export async function runImageGenerationPass(
 
         if (panelBlueprint && rerollCount < MAX_REROLL) {
           const qScores = bestAttempt.validation.qualityScores as { backgroundPresenceScore?: number } | undefined;
-          // Le sujet dominant dépend du subjectFocus prévu par le blueprint, pas seulement
-          // du backgroundPresenceScore. Un panel focus=important_npc peut avoir un fond
-          // discret sans que le "dominant" soit le hero.
+          // P0.4 (sprint 5) — `dominantSubject` provient désormais du résolveur
+          // canonique (routingCtx.dominantSubject), construit à partir du
+          // blueprint (subjectFocus, cutawayType, cast, shotType, tiers). On
+          // élimine tout biais "hero par défaut" issu d'une heuristique locale
+          // basée uniquement sur backgroundPresenceScore. Le background n'est
+          // utilisé que pour enrichir `detectedSubjects` (pas pour choisir le
+          // sujet attendu).
           const blueprintFocus = (item.baseMetadata.panelContract as Record<string, unknown> | undefined)?.subjectFocus as string | null
             ?? (panelBlueprint as Record<string, unknown>).subjectFocus as string | null
             ?? null;
           const bgPresent = (qScores?.backgroundPresenceScore ?? 0) > 0.5;
-          const bgAbsent = (qScores?.backgroundPresenceScore ?? 0) < 0.4;
-          let dominantSubject: string = "hero";
-          if (blueprintFocus === "environment" || blueprintFocus === "aftermath") {
-            dominantSubject = "environment";
-          } else if (blueprintFocus === "enemy" || blueprintFocus === "antagonist") {
-            dominantSubject = "enemy";
-          } else if (blueprintFocus === "npc" || blueprintFocus === "important_npc") {
-            dominantSubject = "npc";
-          } else if (blueprintFocus === "prop") {
-            dominantSubject = "prop";
-          } else {
-            dominantSubject = bgAbsent ? "hero" : bgPresent ? "environment" : "hero";
-          }
+          const dominantSubject = mapCanonicalToComplianceDominantSubject(
+            (routingCtx.dominantSubject?.kind ?? "none") as DominantKind,
+            blueprintFocus,
+          );
           const renderedAnalysis = {
             detectedSubjects: [
               ...(bestAttempt.validation.issues ?? []).map((i: { type: string }) => i.type),

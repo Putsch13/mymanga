@@ -16,6 +16,7 @@ import {
   normalizeShotType,
   normalizeCameraAngle,
   normalizeShotPlanPanelEnums,
+  readShotPlanEnumsFromJson,
   CANONICAL_SUBJECT_FOCUS_VALUES,
   CANONICAL_CUTAWAY_VALUES,
   CANONICAL_SHOT_TYPE_VALUES,
@@ -166,6 +167,55 @@ describe("normalizeShotPlanPanelEnums", () => {
       cutawayType: "none",
     });
     expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
+
+describe("readShotPlanEnumsFromJson (P1.2)", () => {
+  it("renvoie tout null si l'entrée est null/undefined", () => {
+    const r = readShotPlanEnumsFromJson(null);
+    expect(r.shotType).toBeNull();
+    expect(r.subjectFocus).toBeNull();
+    expect(r.cutawayType).toBeNull();
+    expect(r.cameraAngle).toBeNull();
+    expect(r.unknowns).toEqual([]);
+  });
+
+  it("lit uniquement les string (ignore number, bool, object, null)", () => {
+    const r = readShotPlanEnumsFromJson({
+      shotType: 42,
+      cameraAngle: true,
+      subjectFocus: { nested: "bad" },
+      cutawayType: null,
+    } as unknown as Record<string, unknown>);
+    expect(r.shotType).toBeNull();
+    expect(r.cameraAngle).toBeNull();
+    expect(r.subjectFocus).toBeNull();
+    expect(r.cutawayType).toBeNull();
+    expect(r.unknowns).toEqual([]);
+  });
+
+  it("normalise les valeurs shot-plan depuis un JSON quelconque", () => {
+    const r = readShotPlanEnumsFromJson({
+      shotType: "establishing",
+      cameraAngle: "low",
+      subjectFocus: "antagonist",
+      cutawayType: "landscape",
+    });
+    expect(r.shotType).toBe("wide");
+    expect(r.cameraAngle).toBe("low_angle");
+    expect(r.subjectFocus).toBe("enemy");
+    expect(r.cutawayType).toBe("environment");
+  });
+
+  it("détecte les unknowns (drift) via `unknowns`", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const r = readShotPlanEnumsFromJson(
+      { subjectFocus: "supervillain_spotlight" },
+      "test",
+    );
+    expect(r.subjectFocus).toBeNull();
+    expect(r.unknowns).toContain("subjectFocus=supervillain_spotlight");
     warn.mockRestore();
   });
 });

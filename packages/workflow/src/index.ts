@@ -22,6 +22,19 @@ export {
 } from "./pipeline-helpers";
 export { normalizeLocationName, locationNamesEqual } from "./passes/narrative/location-matcher";
 export { logPipeline, logPipelineInfo, logPipelineWarn, logPipelineError } from "./lib/pipeline-logger";
+export {
+  emitHeroBiasOnNonHeroPanel,
+  emitNpcDriftDetected,
+  emitDecorDriftDetected,
+  emitPanelRetry,
+  emitNpcAiFallback,
+  emitImagePersistFailed,
+  emitManualVisualRefNonCanonical,
+  emitChapterStabilityScore,
+  computeChapterStabilityScore,
+  type BusinessMetricContext,
+  type BusinessMetricEvent,
+} from "./lib/business-metrics";
 export type { PipelineLogLevel, PipelineLogOptions } from "./lib/pipeline-logger";
 export {
   entityRegistrySchema,

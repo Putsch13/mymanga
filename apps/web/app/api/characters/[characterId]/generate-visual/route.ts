@@ -33,6 +33,11 @@ import {
 import { notFound, paymentRequired, unauthorized } from "@/lib/api-response";
 import { getOwnedCharacter } from "@/lib/ownership";
 import { sendCharacterLoraTrainingRequested } from "@manga-ai-studio/workflow";
+import {
+  isCharacterLockExpected,
+  resolveCharacterReferencePolicy,
+  shouldRefuseCharacterVisualForMissingRefs,
+} from "@/lib/characters/generate-visual-guards";
 
 type Ctx = { params: Promise<{ characterId: string }> };
 
@@ -205,13 +210,22 @@ export async function POST(_req: Request, ctx: Ctx) {
       raw.characterFingerprint && typeof raw.characterFingerprint === "object"
         ? (raw.characterFingerprint as Record<string, unknown>)
         : {};
-    const lockExpected =
-      character.visualRefs.length > 0
-      || character.visualLocks.length > 0
-      || activeLoras.length > 0
-      || character.canonLocked
-      || Object.keys(existingFingerprint).length > 0;
-    if (lockExpected && referenceImageUrls.length === 0 && activeLoras.length === 0) {
+    // P2.1 : guard central testable.
+    const lockState = {
+      visualRefsCount: character.visualRefs.length,
+      visualLocksCount: character.visualLocks.length,
+      activeLoraCount: activeLoras.length,
+      canonLocked: Boolean(character.canonLocked),
+      hasFingerprint: Object.keys(existingFingerprint).length > 0,
+    };
+    const lockExpected = isCharacterLockExpected(lockState);
+    if (
+      shouldRefuseCharacterVisualForMissingRefs({
+        state: lockState,
+        stableRefUrlCount: referenceImageUrls.length,
+        activeLoraCount: activeLoras.length,
+      })
+    ) {
       await refundReservation(
         prisma,
         user.id,
@@ -251,7 +265,7 @@ export async function POST(_req: Request, ctx: Ctx) {
         providerParams: {
           contentIntensityLayer: intensityLayer,
           mode: "CHARACTER_SHEET",
-          referencePolicy: lockExpected ? "STRONG" : "LIGHT",
+          referencePolicy: resolveCharacterReferencePolicy(lockState),
           panelCategory: "CHARACTER_LOCK",
           triggerWords: activeLoras.map((item) => item.triggerWord),
         },

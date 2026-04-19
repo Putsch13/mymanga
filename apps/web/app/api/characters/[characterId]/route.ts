@@ -15,6 +15,7 @@ import {
 import { isStableImageUrl } from "@/lib/images/assert-stable-image-url";
 import { checkStableCanonicalAsset } from "@/lib/images/assert-stable-canonical-asset";
 import { logCanonAudit } from "@/lib/canon/canon-audit-log";
+import { buildManualRefMetadata, resolveIsPrimary } from "@/lib/character/manual-visual-ref-policy";
 
 type Ctx = { params: Promise<{ characterId: string }> };
 
@@ -114,11 +115,29 @@ function buildCharacterUpdateData(body: CharacterEditInput): Prisma.CharacterUpd
  *
  * Immuables via PATCH : `mediaAssetId`, `sourceVisualLockId`. Les écritures
  * d'URLs nouvelles sont filtrées par isStableImageUrl (cf. P0.3).
+ *
+ * P0.3 (sprint 5) — Politique "Option B traçable" pour les visual refs
+ * manuelles :
+ *   - une ref manuelle (sans `mediaAssetId`) est TOUJOURS marquée
+ *     `metadata.source = "manual_import"`, `metadata.isCanonical = false`,
+ *     `metadata.assetProvenance = "external_stable_url"`.
+ *   - `isPrimary` est forcé à `false` sur toute ref manuelle (une ref
+ *     canonique primary ne peut venir QUE de `generate-visual`, qui crée un
+ *     `mediaAsset` associé).
+ *   - Seules les refs déjà liées à un `mediaAssetId` (créées par
+ *     `generate-visual`) peuvent conserver `isPrimary=true`.
+ *   - Une URL non stable (signée, FAL/BFL temporaire, data-URL, ...) est
+ *     systématiquement refusée par `checkStableCanonicalAsset`.
+ *
+ * Cette garde évite que l'UI PATCH puisse promouvoir une URL externe en ref
+ * canonique primary sans provenance asset.
  */
+
 async function applyVisualRefsDiff(
   tx: Prisma.TransactionClient,
   characterId: string,
   payload: CharacterVisualRefPatch[],
+  userId: string,
 ): Promise<void> {
   const existing = await tx.characterVisualRef.findMany({ where: { characterId } });
   const existingById = new Map(existing.map((r) => [r.id, r]));
@@ -137,9 +156,13 @@ async function applyVisualRefsDiff(
       );
       continue;
     }
-    // Double-check (no-op si déjà passé checkStableCanonicalAsset).
     if (!isStableImageUrl(ref.imageUrl)) continue;
     if (ref.id && existingById.has(ref.id)) {
+      const prev = existingById.get(ref.id)!;
+      const nextIsPrimary = resolveIsPrimary({
+        requestedIsPrimary: ref.isPrimary,
+        prevMediaAssetId: prev.mediaAssetId,
+      });
       keptIds.add(ref.id);
       await tx.characterVisualRef.update({
         where: { id: ref.id },
@@ -147,18 +170,21 @@ async function applyVisualRefsDiff(
           type: ref.type,
           imageUrl: ref.imageUrl,
           promptSnapshot: ref.promptSnapshot ?? null,
-          isPrimary: ref.isPrimary,
+          isPrimary: nextIsPrimary,
           archivedAt: null,
         },
       });
     } else {
+      // Création manuelle : pas de mediaAssetId, isPrimary forcé false,
+      // metadata de provenance obligatoire.
       await tx.characterVisualRef.create({
         data: {
           characterId,
           type: ref.type,
           imageUrl: ref.imageUrl,
           promptSnapshot: ref.promptSnapshot ?? null,
-          isPrimary: ref.isPrimary,
+          isPrimary: false,
+          metadata: buildManualRefMetadata(userId) as unknown as Prisma.InputJsonValue,
         },
       });
     }
@@ -209,7 +235,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
     });
 
     if (body.visualRefs) {
-      await applyVisualRefsDiff(tx, characterId, body.visualRefs);
+      await applyVisualRefsDiff(tx, characterId, body.visualRefs, user.id);
     }
 
     return tx.character.findUniqueOrThrow({

@@ -12,7 +12,14 @@
  *   - P1-6 : canBypassMatureContent respecte NODE_ENV=production
  */
 
-import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+
+// Pré-warm : le premier `await import("@manga-ai-studio/workflow")` coûte
+// ~1.5s de transform vitest en cold cache. Sans pré-warm, le premier `it`
+// du fichier mange tout son timeout (flake `Test timed out in 5000ms`).
+beforeAll(async () => {
+  await import("@manga-ai-studio/workflow");
+}, 30000);
 
 // ────────────────────────────────────────────────────────────────────────────
 // P1-1 — assertPremiumContractFromChapter

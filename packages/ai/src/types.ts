@@ -123,6 +123,14 @@ export interface RoutingContext {
   /** Focus du panel depuis le blueprint premium ou shot-plan — prioritaire sur crowdCritical */
   subjectFocus?: "hero" | "npc" | "important_npc" | "enemy" | "antagonist" | "environment" | "group" | "prop" | "reaction" | "aftermath" | null;
   /**
+   * Type de cutaway propagé depuis le panelContract (shot-plan). Un cutaway
+   * explicite (environment, prop_insert, aftermath, reaction, crowd, ...) doit
+   * primer sur toute déduction héros implicite. La valeur est une string libre
+   * (non validée ici) — la normalisation canonique est faite par
+   * `normalizeCutawayType` en amont.
+   */
+  cutawayType?: string | null;
+  /**
    * P1.3 — Sujet dominant résolu à partir de `subjectFocus`, `cutawayType`,
    * du cast et du shotType. Source de vérité pour savoir sur quoi le panel
    * est réellement centré (sans biais héros implicite).

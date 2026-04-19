@@ -8,6 +8,7 @@ import {
   resolvePremiumImageSize,
   detectVisualDrift,
 } from "@manga-ai-studio/ai";
+import { readShotPlanEnumsFromJson } from "@manga-ai-studio/core";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { canAccessMatureContent, canBypassMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
 import { notFound, unauthorized, validationError } from "@/lib/api-response";
@@ -21,6 +22,7 @@ import { buildCharacterRetryHints as buildCharacterRetryHintsShared } from "@/li
 import { readRetryBody as readRetryBodyShared } from "@/lib/retry/read-retry-body";
 import { createProjectCharacterResolver } from "@/lib/retry/resolve-project-characters";
 import { buildLocationMarkersLine } from "@/lib/retry/build-location-markers";
+import { extractCriticalPropsFromPanelContractMeta } from "@/lib/retry/extract-critical-props";
 import { resolvePanelLoras } from "@/lib/retry/resolve-panel-loras";
 import { buildRetryPrompts, resolveRerollKind } from "@/lib/retry/build-retry-prompts";
 import {
@@ -283,12 +285,13 @@ export async function POST(req: Request, ctx: Ctx) {
       })
     : null;
 
-  // Détecter si le panel a des props obligatoires (ne jamais les relâcher)
+  // P1.4 : détection props critiques déléguée à un helper testable qui
+  // normalise le JSON metadata. `hasMandatoryProps` pilote directement la
+  // reference policy et les retries ne doivent jamais relâcher un prop
+  // `mustBeVisible`.
   const panelContractMeta = metadata.panelContract as Record<string, unknown> | undefined;
-  const requiredPropsTyped = Array.isArray(panelContractMeta?.requiredPropsTyped)
-    ? panelContractMeta.requiredPropsTyped as Array<{ mustBeVisible: boolean }>
-    : [];
-  const hasMandatoryProps = requiredPropsTyped.some((p) => p.mustBeVisible);
+  const criticalPropsExtraction = extractCriticalPropsFromPanelContractMeta(panelContractMeta);
+  const hasMandatoryProps = criticalPropsExtraction.hasMandatoryProps;
 
   const retryReferenceDecision = resolveRetryReferencePolicy({
     retryMode,
@@ -444,20 +447,35 @@ export async function POST(req: Request, ctx: Ctx) {
     // BUG-13 : forceOverrides du body supersèdent les valeurs reconstruites du contract.
     // L'utilisateur peut ainsi dire "régénère cette case mais en wide + environment".
     const forceOverrides = retryBody.forceOverrides ?? {};
-    const retrySubjectFocus =
-      forceOverrides.subjectFocus
-      ?? (panelContractMeta.subjectFocus as string | null | undefined)
-      ?? (shotPlanMeta.planned as Record<string, unknown> | undefined)?.subjectFocus as string | null | undefined
+    // P1.2 (sprint 5) — Lecture + normalisation stricte des enums JSON.
+    // Le fallback `panelContractMeta → shotPlanMeta.planned → shotPlanMeta`
+    // est traité ici pour que chaque couche passe par les normaliseurs et
+    // qu'aucune valeur non-canonique n'atteigne le routing.
+    const contractEnums = readShotPlanEnumsFromJson(panelContractMeta, "retry-route/panelContract");
+    const plannedMeta = (shotPlanMeta.planned as Record<string, unknown> | undefined) ?? {};
+    const plannedEnums = readShotPlanEnumsFromJson(plannedMeta, "retry-route/shotPlan.planned");
+    const shotPlanEnums = readShotPlanEnumsFromJson(shotPlanMeta, "retry-route/shotPlan");
+    const retrySubjectFocus: string | null =
+      (forceOverrides.subjectFocus as string | null | undefined)
+      ?? contractEnums.subjectFocus
+      ?? plannedEnums.subjectFocus
       ?? null;
-    const retryShotType =
-      forceOverrides.shotType
-      ?? (panelContractMeta.shotType as string | null | undefined)
-      ?? (shotPlanMeta.shotType as string | null | undefined)
+    const retryShotType: string | null =
+      (forceOverrides.shotType as string | null | undefined)
+      ?? contractEnums.shotType
+      ?? shotPlanEnums.shotType
+      ?? plannedEnums.shotType
       ?? null;
-    const retryCameraAngle =
-      forceOverrides.cameraAngle
-      ?? (panelContractMeta.cameraAngle as string | null | undefined)
-      ?? (shotPlanMeta.cameraAngle as string | null | undefined)
+    const retryCameraAngle: string | null =
+      (forceOverrides.cameraAngle as string | null | undefined)
+      ?? contractEnums.cameraAngle
+      ?? shotPlanEnums.cameraAngle
+      ?? plannedEnums.cameraAngle
+      ?? null;
+    const retryCutawayType: string | null =
+      contractEnums.cutawayType
+      ?? plannedEnums.cutawayType
+      ?? shotPlanEnums.cutawayType
       ?? null;
     const retryPurpose = (panelContractMeta.purpose as string | null | undefined) ?? null;
     const heroPresentRetry = castOrderedNames.some((n) => {
@@ -475,11 +493,22 @@ export async function POST(req: Request, ctx: Ctx) {
         hasCanonReferences: hasCanonRef,
         characterCountInScene: characters.length > 0 ? characters.length : 1,
         heroPresent: heroPresentRetry,
-        heroFocus: retrySubjectFocus === "hero" && (retryShotType === "closeup" || retryShotType === "extreme_closeup"),
+        // P1.2 (sprint 5) — heroFocus ne peut plus être vrai si un cutaway
+        // non-héros est explicitement demandé (environment, prop, aftermath,
+        // reaction, crowd...). fal-scene-strategy bloquera aussi le
+        // CHARACTER_LOCK final via `cutawayForcesNonHero`.
+        heroFocus:
+          retrySubjectFocus === "hero"
+          && (retryShotType === "closeup" || retryShotType === "extreme_closeup")
+          && (retryCutawayType === null
+            || retryCutawayType === "none"
+            || retryCutawayType === "enemy"
+            || retryCutawayType === "enemy_reveal"),
         shotType: (retryShotType as "wide" | "medium" | "closeup" | "extreme_closeup" | "over_shoulder" | undefined) ?? undefined,
         cameraAngle: retryCameraAngle ?? undefined,
         purpose: retryPurpose ?? undefined,
         subjectFocus: retrySubjectFocus as "hero" | "npc" | "important_npc" | "enemy" | "antagonist" | "environment" | "group" | "prop" | "reaction" | "aftermath" | null | undefined,
+        cutawayType: retryCutawayType,
         needsInpaint: false,
         needsPoseVariation: false,
         preferPhotorealCover: false,

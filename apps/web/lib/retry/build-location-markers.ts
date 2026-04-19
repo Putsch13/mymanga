@@ -1,17 +1,63 @@
 /**
- * P5.1 + P4.2 — Construction des marqueurs décor pour un retry
+ * P1.4 (sprint 3) — Construction des marqueurs décor pour un retry
  * "environment" / "composition".
  *
- * Lit la Location associée à la scène et concatène :
- *   - name / type
- *   - établishedVisualBrief > visualBrief > description
- *   - metadata.architecturalFeatures[] (top 5)
- *   - metadata.palette[] (top 4)
+ * Cette fonction délègue désormais à `resolveLocationVisualCanon` afin de
+ * garantir UNE source unique de vérité pour le canon visuel des lieux. Les
+ * retries partageront ainsi les mêmes marqueurs que ceux utilisés par le
+ * narrative-pass et le studio (permanentArchitecture, canonicalProps,
+ * palette, lighting, canonicalViews). On n'utilise plus uniquement un
+ * sous-champ arbitraire (`architecturalFeatures`) du metadata brut.
  *
- * Retourne une chaîne type `location: Ecole Tōkai; type: school; brief; architectural markers (...); palette (...)` ou "" si la location est introuvable / null.
+ * Retourne une chaîne type :
+ *   `location: Ecole Tōkai; type: school; brief; architectural markers (...);
+ *    canonical props (...); palette (...); lighting (...); views (...);
+ *    canon-refs=N`
+ * ou "" si la location est introuvable / null.
  */
 
 import type { PrismaClient } from "@manga-ai-studio/db";
+import {
+  resolveLocationVisualCanon,
+  type LocationCanonInput,
+  type ResolvedLocationVisualCanon,
+} from "@/lib/canon/resolve-location-visual-canon";
+
+/**
+ * P1.4 — Pur formatage du canon → ligne textuelle. Séparé de l'accès Prisma
+ * pour pouvoir être testé sans DB et réutilisé ailleurs (ex: narrative-pass,
+ * canon-health, eval harness).
+ */
+export function formatLocationCanonMarkersLine(canon: ResolvedLocationVisualCanon): string {
+  const bits: string[] = [];
+  if (canon.label) bits.push(`location: ${canon.label}`);
+  if (canon.density) bits.push(`type: ${canon.density}`);
+  if (canon.establishedBrief && canon.establishedBrief.length > 0) {
+    bits.push(canon.establishedBrief.slice(0, 200));
+  }
+  if (canon.permanentArchitecture.length > 0) {
+    bits.push(`architectural markers (${canon.permanentArchitecture.slice(0, 5).join(", ")})`);
+  }
+  if (canon.canonicalProps.length > 0) {
+    bits.push(`canonical props (${canon.canonicalProps.slice(0, 5).join(", ")})`);
+  }
+  if (canon.canonicalPalette.length > 0) {
+    bits.push(`palette (${canon.canonicalPalette.slice(0, 4).join(", ")})`);
+  }
+  if (canon.canonicalLighting.length > 0) {
+    bits.push(`lighting (${canon.canonicalLighting.slice(0, 3).join(", ")})`);
+  }
+  if (canon.canonicalViews.length > 0) {
+    bits.push(`views (${canon.canonicalViews.slice(0, 3).join(", ")})`);
+  }
+  if (canon.referenceAssets.length > 0) {
+    bits.push(`canon-refs=${canon.referenceAssets.length}`);
+  }
+  if (canon.requiresVisualContinuity) {
+    bits.push("requires_visual_continuity");
+  }
+  return bits.join("; ");
+}
 
 export async function buildLocationMarkersLine(params: {
   prisma: PrismaClient;
@@ -19,38 +65,45 @@ export async function buildLocationMarkersLine(params: {
 }): Promise<string> {
   if (!params.locationId) return "";
   try {
-    const location = await params.prisma.location.findUnique({
-      where: { id: params.locationId },
-      select: {
-        name: true,
-        type: true,
-        description: true,
-        visualBrief: true,
-        establishedVisualBrief: true,
-        metadata: true,
-      },
-    }).catch(() => null);
+    const location = await params.prisma.location
+      .findUnique({
+        where: { id: params.locationId },
+        select: {
+          id: true,
+          name: true,
+          type: true,
+          description: true,
+          visualBrief: true,
+          establishedVisualBrief: true,
+          canonImageUrl: true,
+          visualRefs: true,
+          canonLocked: true,
+          metadata: true,
+        },
+      })
+      .catch(() => null);
     if (!location) return "";
 
-    const bits: string[] = [];
-    if (location.name) bits.push(`location: ${location.name}`);
-    if (location.type) bits.push(`type: ${location.type}`);
-    const brief = location.establishedVisualBrief ?? location.visualBrief ?? location.description ?? null;
-    if (brief && brief.length > 0) bits.push(brief.slice(0, 200));
-    const meta = location.metadata && typeof location.metadata === "object"
-      ? location.metadata as Record<string, unknown>
-      : {};
-    const archFeatures = Array.isArray(meta.architecturalFeatures)
-      ? (meta.architecturalFeatures as unknown[]).filter((v): v is string => typeof v === "string")
-      : [];
-    if (archFeatures.length > 0) bits.push(`architectural markers (${archFeatures.slice(0, 5).join(", ")})`);
-    const palette = Array.isArray(meta.palette)
-      ? (meta.palette as unknown[]).filter((v): v is string => typeof v === "string")
-      : [];
-    if (palette.length > 0) bits.push(`palette (${palette.slice(0, 4).join(", ")})`);
-    return bits.join("; ");
+    const canonInput: LocationCanonInput = {
+      id: location.id,
+      name: location.name,
+      type: location.type,
+      description: location.description,
+      visualBrief: location.visualBrief,
+      establishedVisualBrief: location.establishedVisualBrief,
+      canonImageUrl: location.canonImageUrl,
+      visualRefs: location.visualRefs,
+      canonLocked: location.canonLocked,
+      metadata: location.metadata,
+    };
+    const canon = resolveLocationVisualCanon(canonInput);
+    return formatLocationCanonMarkersLine(canon);
   } catch (locErr) {
-    console.warn(`[retry:location] failed to resolve canon for locationId=${params.locationId}: ${locErr instanceof Error ? locErr.message : locErr}`);
+    console.warn(
+      `[retry:location] failed to resolve canon for locationId=${params.locationId}: ${
+        locErr instanceof Error ? locErr.message : locErr
+      }`,
+    );
     return "";
   }
 }

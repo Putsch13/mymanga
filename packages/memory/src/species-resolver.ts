@@ -175,7 +175,7 @@ Réponds UNIQUEMENT avec un objet JSON :
   const promptHash = computePromptHash(prompt);
   const sourceModel = input.sourceModel ?? "openai:unknown";
 
-  const existing = await (prisma as any).speciesArchetype.findUnique({
+  const existing = await prisma.speciesArchetype.findUnique({
     where: { projectId_labelNormalized: { projectId: input.projectId, labelNormalized: normalized } },
   });
 
@@ -227,7 +227,7 @@ Réponds UNIQUEMENT avec un objet JSON :
     projectId: input.projectId,
     label: input.speciesLabel,
     labelNormalized: normalized,
-    baseVisualTraits: traits as object,
+    baseVisualTraits: traits as unknown as object,
     promptFragment: traits.promptFragment,
     generatedByAI: !effectiveSource.startsWith("fallback:"),
     schemaVersion: SPECIES_ARCHETYPE_SCHEMA_VERSION,
@@ -235,11 +235,36 @@ Réponds UNIQUEMENT avec un objet JSON :
     sourceModel: effectiveSource,
   };
 
-  // Upsert : si la row existait déjà (mais obsolète) on la met à jour, sinon on crée.
-  await (prisma as any).speciesArchetype.upsert({
-    where: { projectId_labelNormalized: { projectId: input.projectId, labelNormalized: normalized } },
-    update: payload,
-    create: payload,
+  // P1.1 (sprint 5) — Upsert transactionnel.
+  // L'appel LLM (`input.generateWithAI`) a été effectué en dehors de la
+  // transaction pour ne pas tenir un lock pendant un appel réseau long. La
+  // transaction porte donc uniquement sur la vérification finale (au cas où
+  // une autre requête concurrente a réécrit la row entre notre `findUnique`
+  // initial et maintenant) et l'upsert.
+  //
+  // La contrainte @@unique([projectId, labelNormalized]) garantit l'idempotence
+  // et empêche toute écriture dupliquée. Si deux requêtes concurrentes
+  // aboutissent ici avec la même clé, la seconde fait un update idempotent.
+  await prisma.$transaction(async (tx) => {
+    const fresh = await tx.speciesArchetype.findUnique({
+      where: { projectId_labelNormalized: { projectId: input.projectId, labelNormalized: normalized } },
+      select: { id: true, schemaVersion: true, promptHash: true },
+    });
+    // Si une autre requête a déjà mis à jour la row avec la même version ET le
+    // même promptHash, on n'a rien à faire (idempotence).
+    if (
+      fresh
+      && (fresh.schemaVersion ?? 1) === SPECIES_ARCHETYPE_SCHEMA_VERSION
+      && fresh.promptHash === promptHash
+      && !input.forceRegenerate
+    ) {
+      return;
+    }
+    await tx.speciesArchetype.upsert({
+      where: { projectId_labelNormalized: { projectId: input.projectId, labelNormalized: normalized } },
+      update: payload,
+      create: payload,
+    });
   });
 
   return {
