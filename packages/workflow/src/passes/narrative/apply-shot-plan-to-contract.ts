@@ -17,8 +17,19 @@ import { normalizeShotPlanPanelEnums } from "@manga-ai-studio/core";
 
 type ShotPlanPanel = ChapterShotPlan["pages"][number]["panels"][number];
 
-export type PanelContractWithShotPlan = PanelContract & {
-  cameraAngle?: string | null;
+/**
+ * On élargit explicitement le contract pour accepter cameraAngle/subjectFocus
+ * /cutawayType en `string | null` (et pas uniquement les enums stricts du
+ * PanelContract). Cela permet au shot-plan de remonter une valeur inconnue
+ * comme `null` sans casser le type, tout en conservant la richesse du contract
+ * pour tous les autres champs. Sans le `Omit`, l'intersection avec les champs
+ * strict de `PanelContract` collapsait sur les enums et rejetait `null`.
+ */
+export type PanelContractWithShotPlan = Omit<
+  PanelContract,
+  "cameraAngle" | "subjectFocus" | "cutawayType"
+> & {
+  cameraAngle: string | null;
   subjectFocus?: string | null;
   cutawayType?: string | null;
   heroCenterAllowed?: boolean | null;
@@ -29,7 +40,7 @@ export function applyShotPlanToContract(
   shotPlanPanel: ShotPlanPanel | undefined,
 ): PanelContractWithShotPlan {
   if (!shotPlanPanel) {
-    return contract as PanelContractWithShotPlan;
+    return contract as unknown as PanelContractWithShotPlan;
   }
   // Normalisation enums shot-plan → canonique (narrative-facts). Une valeur
   // inconnue logue un warning et retombe sur null (le callsite aval peut alors
@@ -50,7 +61,10 @@ export function applyShotPlanToContract(
   const shotType = normalized.shotType ?? contract.shotType;
 
   const widened: PanelContractWithShotPlan = {
-    ...contract,
+    ...(contract as unknown as Omit<
+      PanelContract,
+      "cameraAngle" | "subjectFocus" | "cutawayType"
+    >),
     shotType: shotType as PanelContract["shotType"],
     cameraAngle: normalized.cameraAngle,
     subjectFocus: normalized.subjectFocus,

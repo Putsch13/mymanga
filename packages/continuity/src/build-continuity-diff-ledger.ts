@@ -195,13 +195,17 @@ function diffOutfit(
   const currOutfitNormalized = normalizeLabel(currOutfit);
   const prevOutfitNormalized = normalizeLabel(prevOutfit);
 
-  const isAllowedVariation = currOutfitNormalized && allowedVariations.has(currOutfitNormalized);
+  const isAllowedVariation = Boolean(
+    currOutfitNormalized && allowedVariations.has(currOutfitNormalized),
+  );
   const justifiedByEvent = eventsOutfitChanges(events, curr.characterId);
 
   // Reset vers la baseline = changement "normal" (severity minor).
-  const isReset = baselineNormalized
-    && currOutfitNormalized === baselineNormalized
-    && prevOutfitNormalized !== baselineNormalized;
+  const isReset = Boolean(
+    baselineNormalized
+      && currOutfitNormalized === baselineNormalized
+      && prevOutfitNormalized !== baselineNormalized,
+  );
 
   entries.push({
     type: isReset ? "outfit_reset" : "outfit_changed",
