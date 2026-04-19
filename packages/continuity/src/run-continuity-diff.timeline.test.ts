@@ -148,23 +148,25 @@ describe("detectTimelineViolations (P1.3)", () => {
 });
 
 describe("detectCausalityBreaks (P1.3)", () => {
-  function makeState(overrides: Partial<CharacterState>): CharacterState {
+  function makeState(overrides: {
+    characterId?: string;
+    injuries?: string[];
+  }): CharacterState {
     return {
       characterId: overrides.characterId ?? "char-1",
-      outfit: overrides.outfit ?? null,
-      visibleInjuries: overrides.visibleInjuries ?? [],
-      relationships: overrides.relationships ?? [],
-      possessions: overrides.possessions ?? [],
-      currentEmotion: overrides.currentEmotion ?? null,
-      appearanceLocked: overrides.appearanceLocked ?? {
-        hairColor: null,
-        eyeColor: null,
-        scars: [],
-        tattoos: [],
-        fixedAccessories: [],
+      identity: {},
+      appearanceLocked: {},
+      psychologicalCanon: {},
+      physicalCanon: {},
+      currentState: {
+        injuries: overrides.injuries ?? [],
+        possessions: [],
+        knowledge: [],
+        obligations: [],
       },
-      currentObjective: overrides.currentObjective ?? null,
-    } as CharacterState;
+      continuityObligations: [],
+      relationshipStates: [],
+    };
   }
 
   it("blessure appliquée + toujours visible → pas de break", () => {
@@ -174,7 +176,7 @@ describe("detectCausalityBreaks (P1.3)", () => {
         injuriesApplied: ["cicatrice front"],
       }),
     ];
-    const states = [makeState({ characterId: "hero", visibleInjuries: ["cicatrice front"] })];
+    const states = [makeState({ characterId: "hero", injuries: ["cicatrice front"] })];
     expect(detectCausalityBreaks({ events, currentCharacterStates: states })).toHaveLength(0);
   });
 
@@ -183,7 +185,7 @@ describe("detectCausalityBreaks (P1.3)", () => {
       makeEvent({ eventId: "a", actorIds: ["hero"], injuriesApplied: ["coupure"] }),
       makeEvent({ eventId: "b", actorIds: ["hero"], injuriesResolved: ["coupure"] }),
     ];
-    const states = [makeState({ characterId: "hero", visibleInjuries: [] })];
+    const states = [makeState({ characterId: "hero", injuries: [] })];
     expect(detectCausalityBreaks({ events, currentCharacterStates: states })).toHaveLength(0);
   });
 
@@ -191,7 +193,7 @@ describe("detectCausalityBreaks (P1.3)", () => {
     const events = [
       makeEvent({ actorIds: ["hero"], injuriesApplied: ["cicatrice front"] }),
     ];
-    const states = [makeState({ characterId: "hero", visibleInjuries: [] })];
+    const states = [makeState({ characterId: "hero", injuries: [] })];
     const issues = detectCausalityBreaks({ events, currentCharacterStates: states });
     expect(issues).toHaveLength(1);
     expect(issues[0]!.type).toBe("causality_break");

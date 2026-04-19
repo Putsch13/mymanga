@@ -411,7 +411,7 @@ export function detectCausalityBreaks(args: {
     const resolved = resolvedInjuriesByActor.get(actor) ?? new Set();
     const state = charStateById.get(actor);
     const visible = new Set(
-      (state?.visibleInjuries ?? []).map((i: string) => i.toLowerCase().trim()),
+      (state?.currentState?.injuries ?? []).map((i: string) => i.toLowerCase().trim()),
     );
     for (const inj of applied) {
       if (resolved.has(inj)) continue; // soignée explicitement, OK
