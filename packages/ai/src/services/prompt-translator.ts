@@ -172,6 +172,67 @@ export function truncateByBudget(segments: string[], maxLength: number): string 
  *
  * Le résultat reste une string compatible avec le pipeline existant.
  */
+/**
+ * Traduit un prompt structuré par sections (`[TAG] contenu…`) en préservant :
+ *   - les tags de section (jamais traduits),
+ *   - les noms propres en `PascalCase` ou `CamelCase`,
+ *   - les IDs canoniques `canon:*`, `lora:*`, `npc:*`, `loc:*`,
+ *   - les ratings (`teen`, `mature`, `explicit_adult`).
+ *
+ * Passe uniquement par les dictionnaires contrôlés (pas d'interprétation
+ * libre). Si un segment contient du texte non traduit, il est conservé
+ * tel quel (la traduction n'est pas agressive pour éviter les pertes de sens).
+ */
+export function translateStructuredPrompt(structuredFr: string): string {
+  const lines = structuredFr.split("\n");
+  const out: string[] = [];
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (line.length === 0) {
+      out.push("");
+      continue;
+    }
+    const match = /^(\s*)(\[[A-Z_]+\])\s*(.*)$/.exec(line);
+    if (match) {
+      const [, indent, tag, rest] = match;
+      out.push(`${indent}${tag} ${translatePromptToEnglish(rest)}`.trimEnd());
+    } else {
+      out.push(translatePromptToEnglish(line));
+    }
+  }
+  return out.join("\n");
+}
+
+/**
+ * Vérifie qu'un prompt final est bien en anglais — heuristique simple basée
+ * sur la détection de tokens manifestement français encore présents.
+ * Retourne la liste des tokens FR détectés (vide = OK pour envoi provider).
+ */
+export function detectResidualFrenchTokens(prompt: string): string[] {
+  const frTokens = new Set<string>();
+  const lower = prompt.toLowerCase();
+  const redFlags = [
+    "héros",
+    "ennemi",
+    "château",
+    "forêt",
+    "décor",
+    "arrière-plan",
+    "premier plan",
+    "personnage principal",
+    "cheveux",
+    "yeux bleus",
+    "yeux verts",
+    "une jeune",
+    "le héros",
+    "la héroïne",
+  ];
+  for (const token of redFlags) {
+    if (lower.includes(token.toLowerCase())) frTokens.add(token);
+  }
+  return Array.from(frTokens);
+}
+
 export function composePrioritizedPrompt(
   segments: ReadonlyArray<{ priority: 1 | 2 | 3 | 4; text: string }>,
   maxLength = 1500,

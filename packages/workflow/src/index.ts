@@ -209,3 +209,17 @@ export type {
   HeroContaminationMetrics,
   PanelDriftInput,
 } from "./drift-metrics";
+// Chapter visual compiler — 70–75 images per chapter
+export {
+  buildChapterImagePlan,
+  resolveImageIntent,
+  resolveDominantSubjectForIntent,
+  validateChapterImagePlan,
+} from "./chapter-image-plan-builder";
+export type {
+  ChapterImagePlanItem,
+  ChapterImagePlanBuilderInput,
+  ChapterImagePlanValidationResult,
+  ChapterBeatPlanInput,
+  ChapterPanelPlanInput,
+} from "./chapter-image-plan-builder";

@@ -65,3 +65,7 @@ export * from "./services/manga-page-compositor";
 export * from "./services/dialogue-placer";
 export * from "./services/sfx-extractor";
 export * from "./services/physical-events-detector";
+export * from "./services/canonical-prompt-recipe-builder";
+export * from "./services/canon-binding-resolver";
+export * from "./services/packet-aware-reroll-advisor";
+export * from "./adapters/fal-prompt-payload-builder";

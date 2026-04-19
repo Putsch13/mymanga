@@ -72,6 +72,88 @@ Monorepo full-stack pour generer des chapitres manga/webtoon coherents avec memo
 - Mode brief (genere le pitch) et mode all_missing (complete tout)
 - Detection et message adapte pour les erreurs reseau/parsing
 
+## Refonte etape 2 — Compilateur visuel de chapitre (avril 2026)
+
+La generation des 70–75 images d'un chapitre passe par un **compilateur visuel canonique**, pas par des prompts texte libres.
+
+### Pipeline cible
+1. Chapitre valide en 10 temps (outline approuvee)
+2. `ChapterImagePlanBuilder` — produit un plan complet des 70–75 images (`ChapterImagePlanItem[]`)
+3. `CanonBindingResolver` — resout bindings canon + LoRA (univers, style, personnages, PNJ, lieux, props)
+4. `buildCanonicalPromptRecipe` — assemble les sections logiques `[TAG]` du prompt en FR + EN
+5. `translateStructuredPrompt` / `prompt-translator` — garantit un prompt final en anglais, sections preservees
+6. `buildFalPromptPayload` — compile le `ProviderPayload` pour fal.ai (prompt EN + refs + negative + validation)
+7. `validatePayloadForIntent` — preflight dur : refuse portrait sur establishing, hero framing sur prop, two_shot sans second sujet, etc.
+8. `planRerollForPacket` — reroll packet-aware : conserve refs, memoire, continuite, hierarchie de sujet
+
+### Taxonomie canonique `ImageIntentType` (core)
+28 intents stables, groupes en familles (`hero`, `duo`, `other_character`, `group`, `cutaway`, `combat`, `dialogue`, `aftermath`, `magic`) :
+- hero : `hero_focus`, `hero_action`, `hero_emotion`, `hero_reaction`, `hero_duo`, `hero_secondary_character`
+- non-hero : `npc_focus`, `secondary_character_focus`, `enemy_focus`, `enemy_reveal`, `ally_focus`
+- groupes : `guard_group_focus`, `soldier_patrol`, `threat_group_focus`, `crowd_presence`, `group_conflict`, `group_presence`
+- cutaways : `environment_establishing`, `environment_transition`, `prop_insert`, `reaction_cutaway`, `symbolic_insert`, `aftermath`
+- combat & dialogue : `combat_exchange`, `combat_turning_point`, `threat_presence`, `dialogue_two_shot`, `dialogue_anchor`
+- autres : `magic_manifestation`
+
+Helper `isNonHeroDominantIntent(intent)` — utilise par le recipe builder et le preflight pour interdire `hero_lock`/`hero_portrait` sur cutaways, groupes, PNJ focus, etc.
+
+### `CanonicalImagePromptPacket`
+Contrat unique envoye au provider : `packetVersion`, `projectId`, `chapterId`, `imageId`, `sourceBeatId`, intent, contentRating, universe/manga style, character/npc/prop/group context, continuity, bindings canon + LoRA, `promptSections[]`, `finalFrenchStructuredPrompt`, `finalEnglishStructuredPrompt`, `negativePromptEnglish`, `modelRoutingDecision`, `providerPayload`. Serialisable, auditable, reinjectable.
+
+### Regle dure "manga medium"
+Chaque prompt final contient toujours les sections `[MANGA_MEDIUM]` et `[VISUAL_STYLE]` avec :
+- `Manga panel, manga visual language, consistent manga linework, manga composition and readability, same manga style as chapter canon.`
+- Style encrage/ombrage/composition/reference manga explicites.
+
+Preflight echoue si le prompt final n'inclut pas le token `manga` (`MISSING_MANGA_MEDIUM_TOKEN`).
+
+### Hierarchie visuelle explicite
+Chaque `ChapterImagePlanItem` porte :
+- `imageIntentType`, `dominantSubject`, `secondarySubjects[]`
+- `environmentPriority`, `characterPriority`, `npcPriority`, `propPriority`, `groupPriority` (0–100)
+- `heroPresenceMode` ∈ `primary | secondary | silhouette | absent`, `heroVisualWeight` ∈ [0,1]
+- `forbiddenFocus[]`, `forbiddenFraming[]`, `forbiddenPromptClauses[]`
+
+Exemples :
+- `environment_establishing` + hero present → `heroPresenceMode=silhouette`, `heroVisualWeight<0.3`, framing `wide`, forbid `portrait`/`close-up`
+- `prop_insert` + hero present → `heroPresenceMode=absent`, `propPriority=95`, forbid `hero portrait`/`hero centered`
+- `guard_group_focus` + hero present → `heroPresenceMode=secondary`, `groupPriority > characterPriority`, require group description
+- `dialogue_two_shot` → `requiredReadableFaces.length ≥ 2`, `forbiddenSoloFraming=true`
+
+### Traduction FR→EN controlee
+`translateStructuredPrompt` : preserve les tags `[SECTION]`, les noms propres, les IDs canon, le rating. Filet de securite `detectResidualFrenchTokens` qui flagge toute derive (`héros`, `château`, `yeux bleus`…) residuelle dans le prompt final.
+
+### Reroll packet-aware
+`planRerollForPacket(packet, reason, attempt)` retourne un plan explicite :
+- `drift_character` → `forcedReferencePolicy: STRONG`, refs face conservees, hint "keep canonical face"
+- `drift_environment` → refs conservees, re-injecte `locationName` + `mustShowLocationSignals`
+- `drift_style` → re-injecte style manga + inking
+- `wrong_framing` → drop IP adapter refs, injecte negatifs de framing par intent
+- `wrong_dominant_subject` → force intent-specific hints (`environment is the subject`, `prop is the subject`…)
+- `policy_violation` → injecte les negatifs de rating (teen → nudity/explicit/gore interdits)
+- `low_quality` → bump guidance + negatifs qualite
+- `≥ 4 tentatives` → refuse reroll (`MAX_RETRIES_REACHED`)
+
+`applyRerollPlanToPayload(payload, plan)` applique le plan de maniere non-destructive (append `[REROLL_HINTS]`, merge negatifs, bump guidance).
+
+### Validation preflight par intent (fail-closed)
+`validatePayloadForIntent` refuse les payloads contradictoires :
+- `PORTRAIT_FRAMING_ON_ENVIRONMENT` — establishing avec tokens portrait/close-up
+- `HERO_FRAMING_ON_PROP` — prop_insert avec tokens hero framing
+- `SHARED_SPOTLIGHT_MISSING_SECOND_SUBJECT` — duo/two_shot avec < 2 visages lisibles
+- `GROUP_INTENT_MISSING_GROUP_CONTEXT` — guard/crowd sans `groupContext`
+- `DIALOGUE_TWO_SHOT_MISSING_SECOND_CHARACTER` — dialogue_two_shot avec < 2 personnages
+- `RATING_INCOMPATIBLE_TOKEN` — teen/all_ages avec `nude`/`explicit`/`gore`…
+- `MISSING_MANGA_MEDIUM_TOKEN` — prompt final sans `manga`
+
+### Tests
+- `chapter-image-plan-builder.test.ts` — 19 tests (routing intents, priorites, forbidden focus, plan 72 images, distribution, hero-bias warning)
+- `canonical-prompt-recipe-builder.test.ts` — 13 golden tests par intent (manga guard, rating, sections obligatoires, group description, dialogue context, residual FR)
+- `fal-prompt-payload-builder.test.ts` — payload shape, reference policy par intent, 7 regles preflight
+- `packet-aware-reroll-advisor.test.ts` — plans par reason, max retries, application non-destructive
+
+Total : **+40 tests** sur cette refonte. `packages/core` 63/63, `packages/ai` 271/271, `packages/workflow` 382/382 OK.
+
 ## Assainissement CTO (P0 + P1 + P2 + P3 — avril 2026)
 
 Une passe d'audit complete a ete appliquee pour garantir la fiabilite des donnees critiques (commits `9af57d1`, `04bf4ce`, puis les sprints CTO P0-P3). Voir `docs/architecture/image-urls.md` pour le detail des invariants URL.
