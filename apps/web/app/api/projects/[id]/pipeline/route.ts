@@ -14,6 +14,7 @@ import {
   assertPremiumContract,
   buildGenerationJobInputFromSnapshot,
   InvalidBlueprintsError,
+  IncompletePlanError,
   resolveApprovedOutlineFromSnapshot,
 } from "@/lib/premium-chapter-contract";
 import type { Prisma } from "@manga-ai-studio/db";
@@ -204,6 +205,21 @@ export async function POST(req: Request, ctx: Ctx) {
           code: err.code,
           totalInvalid: err.totalInvalid,
           invalidBlueprints: err.invalidBlueprints,
+          message: err.message,
+        },
+        { status: 422 },
+      );
+    }
+    if (err instanceof IncompletePlanError) {
+      console.warn(
+        `[pipeline] incomplete_plan chapterId=${body.chapterId} blueprints=${err.panelBlueprintCount} minimum=${err.minimumImages}`,
+      );
+      return NextResponse.json(
+        {
+          error: "incomplete_plan",
+          code: err.code,
+          panelBlueprintCount: err.panelBlueprintCount,
+          minimumImages: err.minimumImages,
           message: err.message,
         },
         { status: 422 },

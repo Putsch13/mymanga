@@ -219,6 +219,18 @@ export async function GET(_req: Request, ctx: Ctx) {
         meta.promptDebug && typeof meta.promptDebug === "object"
           ? (meta.promptDebug as Record<string, unknown>)
           : {};
+      // P0.4 — packet canonique persisté (source de vérité audit/review)
+      const canonicalPacket =
+        meta.canonicalPacket && typeof meta.canonicalPacket === "object"
+          ? (meta.canonicalPacket as Record<string, unknown>)
+          : null;
+      const canonicalPacketValidation =
+        meta.canonicalPacketValidation && typeof meta.canonicalPacketValidation === "object"
+          ? (meta.canonicalPacketValidation as Record<string, unknown>)
+          : null;
+      const packetRerollPlans = Array.isArray(meta.packetRerollPlans)
+        ? (meta.packetRerollPlans as Record<string, unknown>[])
+        : [];
       const falStrategy =
         meta.falStrategy && typeof meta.falStrategy === "object"
           ? (meta.falStrategy as Record<string, unknown>)
@@ -246,12 +258,82 @@ export async function GET(_req: Request, ctx: Ctx) {
         promptDebug: {
           finalPrompt:
             typeof promptDebug.finalPrompt === "string"
-              ? promptDebug.finalPrompt.slice(0, 1000)
+              ? promptDebug.finalPrompt.slice(0, 1500)
               : null,
-          promptWarnings: Array.isArray(promptDebug.promptWarnings)
-            ? (promptDebug.promptWarnings as string[])
-            : [],
+          // P0.4 — expose le negative final et les métadonnées runtime.
+          finalNegativePrompt:
+            typeof promptDebug.finalNegativePrompt === "string"
+              ? promptDebug.finalNegativePrompt.slice(0, 1000)
+              : null,
+          promptSource: typeof promptDebug.promptSource === "string" ? promptDebug.promptSource : null,
+          usedPacket: promptDebug.usedPacket === true,
+          packetVersion: typeof promptDebug.packetVersion === "string" ? promptDebug.packetVersion : null,
+          provider: typeof promptDebug.provider === "string" ? promptDebug.provider : null,
+          model: typeof promptDebug.model === "string" ? promptDebug.model : null,
+          referencePolicy:
+            typeof promptDebug.referencePolicy === "string" ? promptDebug.referencePolicy : null,
+          width: typeof promptDebug.width === "number" ? promptDebug.width : null,
+          height: typeof promptDebug.height === "number" ? promptDebug.height : null,
+          refsCount: typeof promptDebug.refsCount === "number" ? promptDebug.refsCount : null,
+          lorasCount: typeof promptDebug.lorasCount === "number" ? promptDebug.lorasCount : null,
+          seed: typeof promptDebug.seed === "number" ? promptDebug.seed : null,
+          origin: typeof promptDebug.origin === "string" ? promptDebug.origin : null,
+          requestedAt: typeof promptDebug.requestedAt === "string" ? promptDebug.requestedAt : null,
+          retryMode: typeof promptDebug.retryMode === "string" ? promptDebug.retryMode : null,
+          retryAttemptIndex:
+            typeof promptDebug.retryAttemptIndex === "number" ? promptDebug.retryAttemptIndex : null,
+          promptWarnings: Array.isArray(promptDebug.warnings)
+            ? (promptDebug.warnings as string[])
+            : Array.isArray(promptDebug.promptWarnings)
+              ? (promptDebug.promptWarnings as string[])
+              : [],
         },
+        // P0.4 — packet canonique brut + validation + reroll plans pour la review UI
+        canonicalPacket: canonicalPacket
+          ? {
+              packetVersion:
+                typeof canonicalPacket.packetVersion === "string" ? canonicalPacket.packetVersion : null,
+              imageIntentType:
+                typeof canonicalPacket.imageIntentType === "string"
+                  ? canonicalPacket.imageIntentType
+                  : null,
+              dominantSubjectKind:
+                typeof canonicalPacket.dominantSubjectKind === "string"
+                  ? canonicalPacket.dominantSubjectKind
+                  : null,
+              heroPresenceMode:
+                typeof canonicalPacket.heroPresenceMode === "string"
+                  ? canonicalPacket.heroPresenceMode
+                  : null,
+              contentRating:
+                typeof canonicalPacket.contentRating === "string"
+                  ? canonicalPacket.contentRating
+                  : null,
+              finalEnglishStructuredPrompt:
+                typeof canonicalPacket.finalEnglishStructuredPrompt === "string"
+                  ? (canonicalPacket.finalEnglishStructuredPrompt as string).slice(0, 1500)
+                  : null,
+              negativePromptEnglish:
+                typeof canonicalPacket.negativePromptEnglish === "string"
+                  ? (canonicalPacket.negativePromptEnglish as string).slice(0, 1000)
+                  : null,
+              modelRoutingDecision:
+                canonicalPacket.modelRoutingDecision &&
+                typeof canonicalPacket.modelRoutingDecision === "object"
+                  ? (canonicalPacket.modelRoutingDecision as Record<string, unknown>)
+                  : null,
+              providerPayload:
+                canonicalPacket.providerPayload &&
+                typeof canonicalPacket.providerPayload === "object"
+                  ? (canonicalPacket.providerPayload as Record<string, unknown>)
+                  : null,
+              buildWarnings: Array.isArray(canonicalPacket.buildWarnings)
+                ? (canonicalPacket.buildWarnings as string[])
+                : [],
+            }
+          : null,
+        canonicalPacketValidation,
+        packetRerollPlans: packetRerollPlans.slice(-5),
         referencePolicy:
           typeof generationLog.referencePolicy === "string"
             ? generationLog.referencePolicy

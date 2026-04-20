@@ -40,6 +40,11 @@ import type {
   NarrativeToPlanResult,
 } from "../chapter-image-plan-from-narrative";
 import { buildCanonicalPacketForPlannedImage } from "../canonical-packet-bridge";
+import {
+  resolveEffectivePanelPromptSource,
+  buildPromptDebugSnapshot,
+  type PromptDebugSnapshot,
+} from "../effective-prompt-source";
 import { planRerollForPacket, type RerollReason } from "@manga-ai-studio/ai";
 import type {
   CanonicalImagePromptPacket,
@@ -619,6 +624,29 @@ export async function runImageGenerationPass(
         }
       }
 
+      // ── Source de vérité du prompt effectif ─────────────────────────────
+      // Quand un packet canonique est présent ET que son preflight est
+      // valide, on utilise systématiquement le prompt canonique anglais +
+      // negative canonique. Sinon fallback legacy.
+      const effectiveSource = resolveEffectivePanelPromptSource({
+        canonicalPacket,
+        canonicalPacketValidation,
+        legacyPrompt: item.panel.prompt,
+        legacyNegativePrompt: item.panel.negativePrompt,
+      });
+      const effectivePositivePrompt = effectiveSource.prompt;
+      const effectiveNegativePrompt = effectiveSource.negativePrompt;
+      if (effectiveSource.source === "canonical") {
+        console.log(
+          `[pipeline:effective-prompt] panel=${item.sceneImageId} source=canonical packet=${effectiveSource.packetVersion}`,
+        );
+      }
+      if (effectiveSource.warnings.length > 0) {
+        console.warn(
+          `[pipeline:effective-prompt] panel=${item.sceneImageId} warnings=${effectiveSource.warnings.join(" | ")}`,
+        );
+      }
+
       /**
        * Map interne rerollKind -> RerollReason pour l'advisor packet-aware.
        */
@@ -724,8 +752,8 @@ export async function runImageGenerationPass(
       try {
         const preflight = validatePreflightPanel({
           panelId: item.sceneImageId,
-          positivePrompt: item.panel.prompt,
-          negativePrompt: item.panel.negativePrompt,
+          positivePrompt: effectivePositivePrompt,
+          negativePrompt: effectiveNegativePrompt,
           shotType: typeof (item.baseMetadata.panelContract as Record<string, unknown> | undefined)?.shotType === "string"
             ? String((item.baseMetadata.panelContract as Record<string, unknown>).shotType)
             : null,
@@ -993,8 +1021,8 @@ export async function runImageGenerationPass(
             imageUrl: generation.result.imageUrl,
             requiredCharacters: charactersWithFingerprints,
             metadata: {
-              prompt: item.panel.prompt,
-              negativePrompt: item.panel.negativePrompt,
+              prompt: effectivePositivePrompt,
+              negativePrompt: effectiveNegativePrompt,
               model: generation.result.model,
               sceneBlueprint: item.baseMetadata.sceneBlueprint as SceneBlueprint,
               panelContract: item.baseMetadata.panelContract as {
@@ -1037,7 +1065,7 @@ export async function runImageGenerationPass(
             };
           });
           const drift = detectVisualDrift({
-            prompt: item.panel.prompt,
+            prompt: effectivePositivePrompt,
             characters: panelCharDetailsWithTraits,
             usedLoras: referencePolicy !== "NONE" && panelLoras.length > 0,
             usedRefs: referencePolicy !== "NONE" && characterRefs.length > 0,
@@ -1062,11 +1090,11 @@ export async function runImageGenerationPass(
         const baseReferencePolicy = strategy.panelCategory === "ESTABLISHING_ENVIRONMENT" ? "NONE" : (strategy.referencePolicy ?? "LIGHT");
 
         // R08: Anti-repetition — detect identical consecutive prompts within a scene
-        let effectivePrompt = item.panel.prompt;
+        let effectivePromptAttempt = effectivePositivePrompt;
         let antiRepeatSeed: number | undefined;
         // A01: use SHA-256 hash instead of raw string slice
         const { createHash } = await import("crypto");
-        const promptHash = createHash("sha256").update(effectivePrompt ?? "").digest("hex").slice(0, 16);
+        const promptHash = createHash("sha256").update(effectivePromptAttempt ?? "").digest("hex").slice(0, 16);
         const sceneId = String(item.baseMetadata.sceneId ?? "");
         const prevHash = promptHashByScene.get(sceneId);
         if (prevHash && prevHash === promptHash && promptHash.length > 0) {
@@ -1074,7 +1102,7 @@ export async function runImageGenerationPass(
           const shotVariation = item.baseMetadata.panelDebugTrace && typeof (item.baseMetadata.panelDebugTrace as Record<string, unknown>).shotPlan === "object"
             ? `, ${((item.baseMetadata.panelDebugTrace as Record<string, unknown>).shotPlan as Record<string, unknown>)?.cameraAngle ?? "different angle"}`
             : ", slightly different camera angle";
-          effectivePrompt = (effectivePrompt ?? "") + shotVariation;
+          effectivePromptAttempt = (effectivePromptAttempt ?? "") + shotVariation;
           console.log(`[pipeline:anti-repeat] panel ${item.panel.panelNumber} hash collision with previous in scene ${sceneId}, applying seed=${antiRepeatSeed}`);
         }
         promptHashByScene.set(sceneId, promptHash);
@@ -1083,8 +1111,8 @@ export async function runImageGenerationPass(
           await generateAttempt({
             scenePass: strategy.panelCategory === "ESTABLISHING_ENVIRONMENT" ? "scene_base" : "character_reinforcement",
             referencePolicy: baseReferencePolicy,
-            positivePrompt: effectivePrompt,
-            negativePrompt: item.panel.negativePrompt,
+            positivePrompt: effectivePromptAttempt,
+            negativePrompt: effectiveNegativePrompt,
             sizePreset: strategy.sizePreset,
             seed: antiRepeatSeed,
           }),
@@ -1123,8 +1151,8 @@ export async function runImageGenerationPass(
             await generateAttempt({
               scenePass: "character_reinforcement",
               referencePolicy: "LIGHT",
-              positivePrompt: `${item.panel.prompt}, preserve character continuity while keeping full scene composition and readable environment`,
-              negativePrompt: item.panel.negativePrompt,
+              positivePrompt: `${effectivePositivePrompt}, preserve character continuity while keeping full scene composition and readable environment`,
+              negativePrompt: effectiveNegativePrompt,
               sizePreset: "reroll_scene",
             }),
             "LIGHT",
@@ -1219,9 +1247,9 @@ export async function runImageGenerationPass(
               await generateAttempt({
                 scenePass: "reroll",
                 referencePolicy: rerollPolicy,
-                positivePrompt: [item.panel.prompt, strongerEnvironmentPrompt, strongerInteractionPrompt, strongerCharacterPrompt].filter(Boolean).join(", "),
+                positivePrompt: [effectivePositivePrompt, strongerEnvironmentPrompt, strongerInteractionPrompt, strongerCharacterPrompt].filter(Boolean).join(", "),
                 negativePrompt: [
-                  item.panel.negativePrompt,
+                  effectiveNegativePrompt,
                   bestAttempt.rerollKind === "REROLL_ENVIRONMENT" ? "empty background, studio backdrop, flat grey backdrop, blurry environment" : "",
                   bestAttempt.rerollKind === "REROLL_INTERACTION" ? "weak social interaction, disconnected characters" : "",
                   bestAttempt.rerollKind === "REROLL_CHARACTER_FIDELITY" ? "wrong hair color, wrong outfit, inconsistent face" : "",
@@ -1320,8 +1348,8 @@ export async function runImageGenerationPass(
                 await generateAttempt({
                   scenePass: "reroll",
                   referencePolicy: "LIGHT",
-                  positivePrompt: [item.panel.prompt, extraPositive].filter(Boolean).join(", "),
-                  negativePrompt: item.panel.negativePrompt,
+                  positivePrompt: [effectivePositivePrompt, extraPositive].filter(Boolean).join(", "),
+                  negativePrompt: effectiveNegativePrompt,
                   sizePreset: "reroll_local",
                   rerollKind: "REROLL_COMPOSITION",
                   seed: Date.now() + 999,
@@ -1375,6 +1403,46 @@ export async function runImageGenerationPass(
         const finalRouting = bestAttempt.generation.routing;
         const finalProvider = bestAttempt.generation.result.provider;
         const finalModel = bestAttempt.generation.result.model;
+        const finalSeed = bestAttempt.generation.result.seed ?? null;
+        // P0.2 — on fige le payload provider réellement executé : prompt
+        // effectif, negative effectif, policy finale, refs/loras réellement
+        // utilisées. C'est ce qui sera persisté dans canonicalPacket.
+        const finalReferencePolicy: "NONE" | "LIGHT" | "STRONG" =
+          (finalRouting?.referencePolicy as "NONE" | "LIGHT" | "STRONG" | undefined) ?? baseReferencePolicy;
+        const finalRefsUsed = finalReferencePolicy === "NONE" ? sceneRefs : refs;
+        const finalLorasUsed = finalReferencePolicy === "NONE" ? [] : panelLoras;
+        const finalSize = getFalImageSizePreset(strategy.sizePreset);
+        const promptDebugSnapshot: PromptDebugSnapshot = buildPromptDebugSnapshot({
+          effective: effectiveSource,
+          provider: finalProvider,
+          model: finalModel,
+          referencePolicy: finalReferencePolicy,
+          width: finalSize.width,
+          height: finalSize.height,
+          refsCount: finalRefsUsed.length,
+          lorasCount: finalLorasUsed.length,
+          seed: finalSeed,
+          extraWarnings: rerollCount > 0 ? [`reroll_count:${rerollCount}`] : [],
+        });
+        if (canonicalPacket) {
+          canonicalPacket = {
+            ...canonicalPacket,
+            modelRoutingDecision: {
+              ...canonicalPacket.modelRoutingDecision,
+              modelId: finalModel ?? canonicalPacket.modelRoutingDecision.modelId,
+              referencePolicy: finalReferencePolicy,
+              reason: canonicalPacket.modelRoutingDecision.reason || "executed",
+            },
+            providerPayload: {
+              ...canonicalPacket.providerPayload,
+              prompt: effectivePositivePrompt,
+              negativePrompt: effectiveNegativePrompt,
+              width: finalSize.width,
+              height: finalSize.height,
+              seed: finalSeed,
+            },
+          };
+        }
         const primaryCharacterId =
           charactersWithFingerprints[0]?.characterId
           ?? rawCharacters.find((character: any) => character.name === item.panel.characters[0])?.id;
@@ -1384,7 +1452,7 @@ export async function runImageGenerationPass(
                 imageId: item.sceneImageId,
                 characterId: primaryCharacterId,
                 generatedMetadata: {
-                  prompt: item.panel.prompt,
+                  prompt: effectivePositivePrompt,
                 },
               })
             : null;
@@ -1499,6 +1567,8 @@ export async function runImageGenerationPass(
             ...(enrichedDebugTrace ? { debugTrace: enrichedDebugTrace as unknown as Prisma.InputJsonValue } : {}),
             metadata: ({
               ...item.baseMetadata,
+              // P0.4 — promptDebug : prompt final réellement envoyé + info runtime
+              promptDebug: promptDebugSnapshot as unknown as Record<string, unknown>,
               // Packet canonique pour audit / bible / LoRA future / reroll packet-aware
               ...(canonicalPacket
                 ? {
@@ -1543,7 +1613,7 @@ export async function runImageGenerationPass(
                 const intentMeta = item.baseMetadata.intentCard as { beatEventType?: string; motionLevel?: number; sfxForbiddenTypes?: string[]; mustShow?: string[] } | undefined;
                 const panelSfxRaw = Array.isArray(item.baseMetadata.sfx) ? item.baseMetadata.sfx as string[] : (typeof item.baseMetadata.sfx === "string" ? [item.baseMetadata.sfx] : null);
                 return runPanelQualityGate({
-                  panelPrompt: item.panel.prompt,
+                  panelPrompt: effectivePositivePrompt,
                   beatEventType: intentMeta?.beatEventType ?? null,
                   motionLevel: intentMeta?.motionLevel ?? undefined,
                   sfx: panelSfxRaw,

@@ -15,6 +15,7 @@ import {
   assertPremiumContract,
   buildGenerationJobInputFromSnapshot,
   InvalidBlueprintsError,
+  IncompletePlanError,
   resolveApprovedOutlineFromSnapshot,
 } from "@/lib/premium-chapter-contract";
 import { assertChapterCanonReadiness } from "@/lib/canon/assert-chapter-canon-readiness";
@@ -332,6 +333,22 @@ export async function POST(_req: Request, ctx: Ctx) {
           code: err.code,
           totalInvalid: err.totalInvalid,
           invalidBlueprints: err.invalidBlueprints,
+          message: err.message,
+        },
+        { status: 422 },
+      );
+    }
+    // P0.6 : plan incomplet = refus propre, pas d'expansion silencieuse.
+    if (err instanceof IncompletePlanError) {
+      console.warn(
+        `[launch] incomplete_plan chapterId=${chapterId} blueprints=${err.panelBlueprintCount} minimum=${err.minimumImages}`,
+      );
+      return NextResponse.json(
+        {
+          error: "incomplete_plan",
+          code: err.code,
+          panelBlueprintCount: err.panelBlueprintCount,
+          minimumImages: err.minimumImages,
           message: err.message,
         },
         { status: 422 },

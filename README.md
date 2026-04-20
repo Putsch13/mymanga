@@ -183,6 +183,50 @@ Le compilateur visuel est cable dans le pipeline de production :
    - `metadata.packetRerollPlans` — historique des plans de reroll packet-aware
    - Aucune migration Prisma requise (colonne `Json @default("{}")` deja presente)
 
+## Sprint CTO P0 — Canonique comme source de verite runtime (avril 2026)
+
+Cette passe finalise l'integration du compilateur visuel canonique (`CanonicalImagePromptPacket`) comme source de verite effective du pipeline d'images, et corrige les failles d'ownership/data-integrity restantes.
+
+### P0.1 — `canonicalPacket` branche comme source de verite runtime
+- Nouveau helper `packages/workflow/src/effective-prompt-source.ts` : `resolveEffectivePanelPromptSource({ canonicalPacket, legacyPanelPrompt, legacyNegativePrompt })` choisit automatiquement `finalEnglishStructuredPrompt`/`negativePromptEnglish` du packet s'ils sont valides, sinon fallback legacy.
+- `image-generation-pass.ts` consomme l'effective source dans toutes les phases : preflight, generateAttempt, rerolls, reinforcement pass, detection de visual drift, quality gate.
+- Tests unitaires : `packages/workflow/src/effective-prompt-source.test.ts`.
+
+### P0.2 — `providerPayload` reconcilie avec le payload reellement envoye
+- Apres chaque `generateAttempt` reussi, on met a jour `canonicalPacket.providerPayload` + `modelRoutingDecision` avec les decisions runtime (`finalModel`, `finalReferencePolicy`, `finalSize`, `finalSeed`, `refs` reels).
+- Persistence : le packet final stocke sur `SceneImage.metadata.canonicalPacket` correspond exactement a ce qui a ete envoye au provider (plus de divergence avec `falTrace.requestPayload`).
+
+### P0.3 — Retry route packet-aware
+- Nouveau module `apps/web/lib/retry/retry-packet-resolver.ts` :
+  - `resolveRetryPacketBase` lit `metadata.canonicalPacket` si present
+  - `resolveEffectiveRetryOverrides` applique la fusion tri-state (`undefined`=preserve, `null`=clear, `string`=set)
+  - `buildPacketAwareRetryPrompt` s'appuie sur `planRerollForPacket` de `@manga-ai-studio/ai`
+  - `retryBodySchema` (Zod) valide strictement le body POST
+- `apps/web/app/api/scene-images/[sceneImageId]/retry/route.ts` rejoue le contrat canonique au lieu d'un heritage partiel : `safeParse` + packet-aware reroll + repersistence du packet/prompt final.
+- Tests : `apps/web/tests/retry-packet-resolver.test.ts`.
+
+### P0.4 — `promptDebug` persiste et expose le prompt final reellement envoye
+- `buildPromptDebugSnapshot` centralise la construction de `SceneImage.metadata.promptDebug` (finalPrompt, finalNegativePrompt, provider, model, referencePolicy, packetVersion, seed, refsCount, lorasCount, warnings, origin/retry).
+- Persistence alignee sur **chaque generation** (pipeline principal + retry route) via `persistRetrySuccess` etendu.
+- API `GET /api/projects/:id/chapters/:chapterId` expose desormais `promptDebug` complet + `canonicalPacket` (champs-cles) + `canonicalPacketValidation` + `packetRerollPlans`.
+- UI `chapter-review-board.tsx` : bloc de debug visible sur chaque panel (prompt final, negatif, source, provider, modele, ref policy, seed, warnings, packet collapsible).
+
+### P0.5 — Ownership et validation HTTP durcies
+- `/api/projects/:id/pipeline-version` : `getOwnedProject` sur GET + POST, `upsert` (plus d'erreur au premier write), `safeParse` body.
+- `/api/projects/:id/recurring-npcs/:npcId/promote` : ownership NPC scoped au projet, Zod strict, `prisma.$transaction` atomique pour create character + update NPC.
+- `/api/projects/:id/relationships` : `safeParse` + verification que `sourceCharacterId` / `targetCharacterId` appartiennent au projet, refus d'auto-relations.
+
+### P0.6 — Blocage des plans incomplets
+- `buildGenerationJobInputFromSnapshot` (`apps/web/lib/premium-chapter-contract.ts`) leve desormais `IncompletePlanError` si `panelBlueprints.length < minimumImages`.
+- L'expansion automatique via `expandBlueprintsToMinimum` est releguee derriere le flag legacy `MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY=true`.
+- Routes `/launch` et `/pipeline` remontent un 422 explicite (`PREMIUM_CONTRACT_INCOMPLETE_PLAN`) au lieu de generer silencieusement un contrat gonfle.
+- Tests : `apps/web/tests/incomplete-plan-guard.test.ts`.
+
+### Tests P0
+- Suite complete verte : **379 tests `apps/web` + 393 tests `workflow` + 271 tests `ai`** (>1000 assertions au total).
+
+---
+
 ## Assainissement CTO (P0 + P1 + P2 + P3 — avril 2026)
 
 Une passe d'audit complete a ete appliquee pour garantir la fiabilite des donnees critiques (commits `9af57d1`, `04bf4ce`, puis les sprints CTO P0-P3). Voir `docs/architecture/image-urls.md` pour le detail des invariants URL.

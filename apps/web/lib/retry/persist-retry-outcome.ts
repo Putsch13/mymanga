@@ -164,6 +164,16 @@ export type PersistRetrySuccessInput = {
     chapterLookMismatch?: unknown;
   } | null;
   generationLog: unknown;
+  // P0.4 — prompt final réellement envoyé au provider
+  promptDebug?: Record<string, unknown> | null;
+  // P0.3 — userOverride recalculé (tri-état) à persister pour la prochaine passe
+  nextUserOverride?: Record<string, unknown> | null;
+  // P0.3 — packet canonique éventuellement mis à jour (providerPayload reflétant l'envoi réel)
+  updatedCanonicalPacket?: Record<string, unknown> | null;
+  // P0.3 — trace du plan de reroll packet-aware
+  packetRerollPlanEntry?: Record<string, unknown> | null;
+  // P0.3 — incrémenter le compteur de retry attempts sur le panel
+  nextRetryAttemptIndex?: number | null;
 };
 
 export async function persistRetrySuccess(input: PersistRetrySuccessInput): Promise<void> {
@@ -172,6 +182,8 @@ export async function persistRetrySuccess(input: PersistRetrySuccessInput): Prom
     persistedFlag, routingDecision, validation, shouldBlockForReview, retryMode,
     retryUsedLoras, retryUsedRefs, rerollKind, retryReferenceDecision,
     retryReferenceTrace, effectiveReferencePolicy, preDriftResult, generationLog,
+    promptDebug, nextUserOverride, updatedCanonicalPacket, packetRerollPlanEntry,
+    nextRetryAttemptIndex,
   } = input;
 
   const validationScore = validation.score;
@@ -253,6 +265,29 @@ export async function persistRetrySuccess(input: PersistRetrySuccessInput): Prom
         qaFailureReason: validation.qaFailureReason,
         qaBypassReason: validation.qaBypassReason,
         criticalQaBlocked: shouldBlockForReview,
+        // P0.4 — prompt final exact envoyé à FAL (EN structuré si packet présent)
+        ...(promptDebug ? { promptDebug } : {}),
+        // P0.3 — override utilisateur tri-état (explicit null clear, string set)
+        userOverride: nextUserOverride ?? null,
+        // P0.3 — packet canonique aligné avec l'exécution courante
+        ...(updatedCanonicalPacket ? { canonicalPacket: updatedCanonicalPacket } : {}),
+        // P0.3 — trace du plan de reroll packet-aware
+        ...(packetRerollPlanEntry
+          ? {
+              packetRerollPlans: [
+                ...((Array.isArray(baseMetadata.packetRerollPlans)
+                  ? (baseMetadata.packetRerollPlans as unknown[])
+                  : []) as unknown[]),
+                packetRerollPlanEntry,
+              ].slice(-10),
+            }
+          : {}),
+        retryAttemptIndex:
+          typeof nextRetryAttemptIndex === "number"
+            ? nextRetryAttemptIndex
+            : typeof baseMetadata.retryAttemptIndex === "number"
+              ? ((baseMetadata.retryAttemptIndex as number) + 1)
+              : 1,
       } as unknown) as Prisma.InputJsonValue,
     },
   });

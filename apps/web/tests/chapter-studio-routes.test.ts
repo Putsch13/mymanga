@@ -213,6 +213,8 @@ const ctxChapter = { params: Promise.resolve({ id: "project-1", chapterId: "chap
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // P0.6 — fixtures contiennent 1 blueprint pour 75 images ; on active le flag legacy.
+  process.env.MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY = "true";
   getAppUserMock.mockResolvedValue(user);
   checkRateLimitMock.mockResolvedValue({ ok: true });
   getGenerationStackStatusMock.mockReturnValue({

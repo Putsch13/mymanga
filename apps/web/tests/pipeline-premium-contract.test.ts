@@ -214,6 +214,10 @@ function buildPremiumChapterOutline(beatCount = 10) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // P0.6 — ces fixtures décrivent un plan legacy avec 1 blueprint pour 75 images.
+  // Le guard P0.6 refuserait ce cas. Comme ces tests valident d'autres aspects
+  // (job.input, legacy outline, source), on active l'expansion legacy.
+  process.env.MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY = "true";
   getAppUserMock.mockResolvedValue(user);
   checkRateLimitMock.mockResolvedValue({ ok: true });
   getGenerationStackStatusMock.mockReturnValue({

@@ -613,6 +613,30 @@ function validateBlueprint(bp: Record<string, unknown>): { valid: boolean; issue
  * 75 cases alors que N avaient disparu. Maintenant : on refuse de lancer la
  * pipeline et on demande une régénération du plan.
  */
+/**
+ * P0.6 — Erreur dédiée aux plans incomplets (panelBlueprints < minimumImages).
+ * Avant, ce cas était silencieusement "réparé" par `expandBlueprintsToMinimum`
+ * ce qui produisait 75 cases artificielles à partir d'un plan de 40. On
+ * préfère désormais bloquer la génération et exiger une régénération du plan.
+ * L'expansion reste disponible derrière un flag explicite pour permettre aux
+ * chapitres anciens (stale) de passer en mode dégradé.
+ */
+export class IncompletePlanError extends Error {
+  readonly code = "INCOMPLETE_PLAN";
+  readonly panelBlueprintCount: number;
+  readonly minimumImages: number;
+  constructor(panelBlueprintCount: number, minimumImages: number) {
+    super(
+      `Plan de production incomplet : ${panelBlueprintCount} blueprints pour un minimum de ${minimumImages}. ` +
+        `Régénère le plan dans le studio avant de lancer la pipeline ` +
+        `(flag legacy : MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY=true pour restaurer l'expansion automatique).`,
+    );
+    this.name = "IncompletePlanError";
+    this.panelBlueprintCount = panelBlueprintCount;
+    this.minimumImages = minimumImages;
+  }
+}
+
 export class InvalidBlueprintsError extends Error {
   readonly code = "INVALID_BLUEPRINTS";
   readonly invalidBlueprints: Array<{ panelNumber: number | null; issues: string[] }>;
@@ -657,23 +681,33 @@ export function buildGenerationJobInputFromSnapshot(opts: GenerationJobInputOpti
     throw new InvalidBlueprintsError(invalidBlueprints);
   }
 
-  // BUG-24 fix : si le plan persisté a moins de panels que le minimum requis
-  // (ex: plan antérieur au fix BUG-01 avec 40 panels au lieu de 75), on étend
-  // à la volée côté job input plutôt que d'exiger une régénération complète.
-  // Ça garantit que la génération d'images respecte toujours le contrat de 75
-  // cases, même pour des chapitres planifiés avant ce correctif.
+  // P0.6 — un plan incomplet (panelBlueprints < minimumImages) BLOQUE la
+  // génération par défaut. Avant : `expandBlueprintsToMinimum` étirait
+  // silencieusement à 75 cases en dupliquant des panels, ce qui contredit
+  // la promesse "aucune image sans vrai contrat visuel structuré".
+  //
+  // Flag legacy `MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY=true` : restaure
+  // l'expansion automatique pour débloquer des chapitres anciens en attendant
+  // leur régénération de plan.
   const minimumImages = typeof pp?.minimumImages === "number" && pp.minimumImages > 0
     ? pp.minimumImages
     : 75;
   let effectiveBlueprints = panelBlueprints;
   if (panelBlueprints.length > 0 && panelBlueprints.length < minimumImages) {
+    const allowExpansion = process.env.MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY === "true";
+    if (!allowExpansion) {
+      console.error(
+        `[buildGenerationJobInput] INCOMPLETE_PLAN panelBlueprints=${panelBlueprints.length} < minimumImages=${minimumImages} — blocage (flag legacy désactivé)`,
+      );
+      throw new IncompletePlanError(panelBlueprints.length, minimumImages);
+    }
     const beforeCount = panelBlueprints.length;
     effectiveBlueprints = expandBlueprintsToMinimum(
       panelBlueprints as PanelBlueprintPremium[],
       minimumImages,
     ) as unknown[];
     console.warn(
-      `[buildGenerationJobInput] panelBlueprints_expanded ${beforeCount} → ${effectiveBlueprints.length} (min=${minimumImages}) — plan stale détecté, expansion à la volée`,
+      `[buildGenerationJobInput] panelBlueprints_expanded_LEGACY ${beforeCount} → ${effectiveBlueprints.length} (min=${minimumImages}) — flag MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY actif`,
     );
   }
 

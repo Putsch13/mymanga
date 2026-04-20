@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
-import { notFound, unauthorized } from "@/lib/api-response";
+import { notFound, unauthorized, validationError } from "@/lib/api-response";
 import { getOwnedProject } from "@/lib/ownership";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -42,7 +42,39 @@ export async function POST(req: Request, ctx: Ctx) {
   const project = await getOwnedProject(user.id, projectId);
   if (!project) return notFound();
 
-  const body = bodySchema.parse(await req.json());
+  // P0.5 — safeParse + gestion d'erreur pour éviter les 500 sur body invalide.
+  let rawBody: unknown;
+  try {
+    rawBody = await req.json();
+  } catch {
+    return validationError("invalid_body");
+  }
+  const parsed = bodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return validationError(
+      parsed.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join(", "),
+    );
+  }
+  const body = parsed.data;
+
+  // P0.5 — les IDs de personnages doivent appartenir au projet courant,
+  // sinon on ouvre une faille cross-project (un user pourrait créer des
+  // relations entre un perso de son projet et un perso d'un projet tiers).
+  if (body.sourceCharacterId === body.targetCharacterId) {
+    return validationError("source_and_target_must_differ");
+  }
+  const charsInProject = await prisma.character.findMany({
+    where: {
+      projectId,
+      id: { in: [body.sourceCharacterId, body.targetCharacterId] },
+    },
+    select: { id: true },
+  });
+  const foundIds = new Set(charsInProject.map((c) => c.id));
+  if (!foundIds.has(body.sourceCharacterId) || !foundIds.has(body.targetCharacterId)) {
+    return validationError("character_not_in_project");
+  }
+
   const relationship = await prisma.characterRelationship.create({
     data: {
       projectId,

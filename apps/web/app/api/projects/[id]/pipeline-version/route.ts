@@ -2,6 +2,7 @@ import { NextResponse, NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
+import { getOwnedProject } from "@/lib/ownership";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -13,6 +14,13 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   const { id: projectId } = await params;
   const user = await getAppUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  // P0.5 — ownership check : un utilisateur ne doit pas pouvoir lire la
+  // configuration pipeline d'un projet tiers, même s'il devine l'UUID.
+  const project = await getOwnedProject(user.id, projectId);
+  if (!project) {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
 
   const settings = await prisma.projectSettings.findFirst({
     where: { projectId },
@@ -27,14 +35,30 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const user = await getAppUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const body = bodySchema.safeParse(await req.json());
+  // P0.5 — ownership check obligatoire AVANT toute écriture.
+  const project = await getOwnedProject(user.id, projectId);
+  if (!project) {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+
+  // P0.5 — parse du body avec gestion d'erreur (pas de 500 si body invalide ou absent).
+  let rawBody: unknown;
+  try {
+    rawBody = await req.json();
+  } catch {
+    return NextResponse.json({ error: "invalid_body" }, { status: 400 });
+  }
+  const body = bodySchema.safeParse(rawBody);
   if (!body.success) {
     return NextResponse.json({ error: body.error.flatten() }, { status: 400 });
   }
 
-  const updated = await prisma.projectSettings.update({
+  // P0.5 — upsert pour supporter le first-write (certains projets n'ont pas
+  // encore de ProjectSettings ; l'ancien `update` levait P2025).
+  const updated = await prisma.projectSettings.upsert({
     where: { projectId },
-    data: { pipelineVersion: body.data.pipelineVersion },
+    update: { pipelineVersion: body.data.pipelineVersion },
+    create: { projectId, pipelineVersion: body.data.pipelineVersion },
   });
 
   return NextResponse.json({

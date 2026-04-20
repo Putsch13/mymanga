@@ -96,7 +96,40 @@ type QAReportResponse = {
       relaxedConstraints?: string[];
       /** Patches auto-appliqués */
       autoAppliedPatches?: Array<{ type: string; description: string }>;
-      promptDebug: { finalPrompt?: string; promptWarnings?: string[]; resolvedPolicy?: Record<string, boolean> };
+      promptDebug: {
+        finalPrompt?: string;
+        finalNegativePrompt?: string | null;
+        promptSource?: string | null;
+        usedPacket?: boolean;
+        packetVersion?: string | null;
+        provider?: string | null;
+        model?: string | null;
+        referencePolicy?: string | null;
+        width?: number | null;
+        height?: number | null;
+        refsCount?: number | null;
+        lorasCount?: number | null;
+        seed?: number | null;
+        origin?: string | null;
+        retryMode?: string | null;
+        retryAttemptIndex?: number | null;
+        promptWarnings?: string[];
+        resolvedPolicy?: Record<string, boolean>;
+      };
+      canonicalPacket?: {
+        packetVersion: string | null;
+        imageIntentType: string | null;
+        dominantSubjectKind: string | null;
+        heroPresenceMode: string | null;
+        contentRating: string | null;
+        finalEnglishStructuredPrompt: string | null;
+        negativePromptEnglish: string | null;
+        modelRoutingDecision: Record<string, unknown> | null;
+        providerPayload: Record<string, unknown> | null;
+        buildWarnings: string[];
+      } | null;
+      canonicalPacketValidation?: Record<string, unknown> | null;
+      packetRerollPlans?: Array<Record<string, unknown>>;
       prompt: string | null;
       referencePolicy: string | null;
       panelCategory: string | null;
@@ -450,12 +483,98 @@ export function ChapterReviewBoard(input: {
                   ))}
                 </div>
               ) : null}
-              <p>{panel.prompt ?? "Aucun prompt."}</p>
+              {/* P0.4 — prompt final réellement envoyé (packet canonique si dispo), fallback legacy */}
               {panel.promptDebug?.finalPrompt ? (
-                <p className="rounded-lg bg-background/50 p-2 text-xs text-muted-foreground">{panel.promptDebug.finalPrompt}</p>
+                <div className="rounded-lg border border-primary/30 bg-primary/5 p-2 space-y-1">
+                  <p className="text-[10px] uppercase tracking-wider text-primary/80">
+                    Prompt final envoyé
+                    {panel.promptDebug.usedPacket ? " (canonique)" : " (legacy)"}
+                    {panel.promptDebug.origin ? ` · ${panel.promptDebug.origin}` : ""}
+                    {panel.promptDebug.retryMode ? ` · retry=${panel.promptDebug.retryMode}` : ""}
+                  </p>
+                  <p className="text-xs text-foreground">{panel.promptDebug.finalPrompt}</p>
+                  {panel.promptDebug.finalNegativePrompt ? (
+                    <p className="text-[10px] text-destructive/90">
+                      <span className="font-semibold">Negative:</span> {panel.promptDebug.finalNegativePrompt}
+                    </p>
+                  ) : null}
+                  <p className="text-[10px] text-muted-foreground">
+                    {[
+                      panel.promptDebug.provider && panel.promptDebug.model
+                        ? `${panel.promptDebug.provider}/${panel.promptDebug.model}`
+                        : null,
+                      panel.promptDebug.referencePolicy ? `ref=${panel.promptDebug.referencePolicy}` : null,
+                      panel.promptDebug.width && panel.promptDebug.height
+                        ? `${panel.promptDebug.width}×${panel.promptDebug.height}`
+                        : null,
+                      typeof panel.promptDebug.refsCount === "number"
+                        ? `refs=${panel.promptDebug.refsCount}`
+                        : null,
+                      typeof panel.promptDebug.lorasCount === "number"
+                        ? `loras=${panel.promptDebug.lorasCount}`
+                        : null,
+                      panel.promptDebug.seed != null ? `seed=${panel.promptDebug.seed}` : null,
+                      panel.promptDebug.packetVersion ? `packet=${panel.promptDebug.packetVersion}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                </div>
               ) : null}
+              <p className="text-xs text-muted-foreground">
+                <span className="font-semibold">Prompt source :</span>{" "}
+                {panel.prompt ?? "Aucun prompt source."}
+              </p>
               {panel.promptDebug?.promptWarnings?.length ? (
                 <p className="text-xs text-amber-500">Warnings: {panel.promptDebug.promptWarnings.join(", ")}</p>
+              ) : null}
+              {/* P0.4 — audit packet canonique + QA packet-aware */}
+              {panel.canonicalPacket ? (
+                <details className="rounded-lg border border-border/50 bg-muted/30 p-2 text-[11px]">
+                  <summary className="cursor-pointer font-semibold text-foreground">
+                    Canonical packet · {panel.canonicalPacket.imageIntentType ?? "?"}
+                    {panel.canonicalPacket.heroPresenceMode
+                      ? ` · hero=${panel.canonicalPacket.heroPresenceMode}`
+                      : ""}
+                    {panel.canonicalPacket.contentRating
+                      ? ` · ${panel.canonicalPacket.contentRating}`
+                      : ""}
+                  </summary>
+                  <div className="mt-2 space-y-1">
+                    {panel.canonicalPacket.modelRoutingDecision ? (
+                      <p>
+                        <span className="font-semibold">Routing:</span>{" "}
+                        {String(panel.canonicalPacket.modelRoutingDecision.modelId ?? "?")}{" "}
+                        · policy={String(panel.canonicalPacket.modelRoutingDecision.referencePolicy ?? "?")}
+                      </p>
+                    ) : null}
+                    {panel.canonicalPacket.buildWarnings.length > 0 ? (
+                      <p className="text-amber-600">
+                        Build warnings: {panel.canonicalPacket.buildWarnings.join(", ")}
+                      </p>
+                    ) : null}
+                    {panel.canonicalPacketValidation &&
+                    panel.canonicalPacketValidation.valid === false ? (
+                      <p className="text-destructive">
+                        Preflight invalid:{" "}
+                        {(panel.canonicalPacketValidation.errors as string[] | undefined)?.join(", ")}
+                      </p>
+                    ) : null}
+                    {panel.packetRerollPlans && panel.packetRerollPlans.length > 0 ? (
+                      <div>
+                        <p className="font-semibold">Packet reroll plans ({panel.packetRerollPlans.length})</p>
+                        <ul className="list-disc pl-4 text-[10px]">
+                          {panel.packetRerollPlans.slice(-3).map((plan, i) => (
+                            <li key={i}>
+                              attempt={String(plan.attempt)} · {String(plan.reason ?? plan.reasonNotes ?? "?")}
+                              {plan.origin ? ` · ${plan.origin}` : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </div>
+                </details>
               ) : null}
               {panel.imageUrl ? (
                 <div className={`grid gap-3 ${comparePanels[panel.panelId] && panel.previousImageUrl ? "md:grid-cols-2" : ""}`}>

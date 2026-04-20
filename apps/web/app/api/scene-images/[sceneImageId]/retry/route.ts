@@ -31,6 +31,13 @@ import {
   persistRetryException,
   persistRetrySuccess,
 } from "@/lib/retry/persist-retry-outcome";
+import {
+  resolveRetryPacketBase,
+  resolveEffectiveRetryOverrides,
+  buildPacketAwareRetryPrompt,
+  retryBodySchema,
+  type RetryBodyParsed,
+} from "@/lib/retry/retry-packet-resolver";
 import { resolveStableImageReferences } from "@manga-ai-studio/workflow";
 
 export const runtime = "nodejs";
@@ -126,7 +133,24 @@ export async function POST(req: Request, ctx: Ctx) {
   // BUG-14 : on supporte désormais POST avec body JSON { mode, overrides, … } en plus
   // du query string ?mode=X. Les deux cohabitent pendant la transition ; si le body
   // fournit une valeur, elle l'emporte sur la query string.
-  const retryBody = await readRetryBody(req);
+  // P0.3 — validation Zod stricte. Un body mal formé retourne 422 au lieu d'un 500.
+  const rawRetryBody = await readRetryBody(req);
+  const parsedBody = retryBodySchema.safeParse(rawRetryBody);
+  if (!parsedBody.success) {
+    return validationError(
+      "Body invalide: " + parsedBody.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join(", "),
+    );
+  }
+  const retryBodyParsed: RetryBodyParsed = parsedBody.data;
+  // Back-compat avec l'ancien RetryBody : on construit un objet au shape legacy
+  // pour les consumers qui dépendent encore des chaînes/undefined.
+  const retryBody: RetryBody = {
+    mode: retryBodyParsed.mode as RetryMode | undefined,
+    targetCharacterId: retryBodyParsed.targetCharacterId,
+    userPromptAdditions: retryBodyParsed.userPromptAdditions ?? undefined,
+    userPromptExclusions: retryBodyParsed.userPromptExclusions ?? undefined,
+    forceOverrides: (retryBodyParsed.forceOverrides ?? undefined) as RetryBody["forceOverrides"],
+  };
   const urlParams = new URL(req.url).searchParams;
   const retryMode = (retryBody.mode ?? (urlParams.get("mode") as RetryMode | null)) ?? null;
   const premiumSize = resolvePremiumImageSize("PANEL_DRAFT", {
@@ -417,25 +441,45 @@ export async function POST(req: Request, ctx: Ctx) {
     `negativePromptHint=${retryReferenceDecision.negativePromptHint ? "yes" : "no"}`
   );
 
-  // BUG-13 : persister le userOverride dans metadata pour que les rerolls futurs
-  // (auto ou manuels) conservent l'intention utilisateur même si le pipeline se relance.
-  const hasUserOverride =
-    Boolean(userPositive) ||
-    Boolean(userNegative) ||
-    Object.keys(retryBody.forceOverrides ?? {}).length > 0;
+  // BUG-13 + P0.3 : persister le userOverride avec fusion tri-état stricte.
+  // Règle : undefined = preserve, null = clear, string = set.
+  // L'ancien code faisait `userPositive || previousUserOverride || null`,
+  // ce qui rendait impossible le clear d'un override persisté.
   const previousUserOverride = (metadata.userOverride as Record<string, unknown> | undefined) ?? null;
-  const nextUserOverride = hasUserOverride
-    ? {
-        ...(previousUserOverride ?? {}),
-        userPromptAdditions: userPositive || previousUserOverride?.userPromptAdditions || null,
-        userPromptExclusions: userNegative || previousUserOverride?.userPromptExclusions || null,
-        forceOverrides: {
-          ...((previousUserOverride?.forceOverrides as Record<string, unknown> | undefined) ?? {}),
-          ...(retryBody.forceOverrides ?? {}),
-        },
-        updatedAt: new Date().toISOString(),
-      }
-    : previousUserOverride;
+  const effectiveOverrides = resolveEffectiveRetryOverrides({
+    previous: previousUserOverride
+      ? {
+          userPromptAdditions:
+            typeof previousUserOverride.userPromptAdditions === "string"
+              ? (previousUserOverride.userPromptAdditions as string)
+              : null,
+          userPromptExclusions:
+            typeof previousUserOverride.userPromptExclusions === "string"
+              ? (previousUserOverride.userPromptExclusions as string)
+              : null,
+          forceOverrides:
+            (previousUserOverride.forceOverrides as Record<string, unknown> | undefined) ?? {},
+        }
+      : null,
+    body: {
+      // Un champ absent du body = undefined = preserve.
+      // Si userPositive vient d'être saisi, on l'applique ; sinon preserve.
+      userPromptAdditions:
+        retryBodyParsed.userPromptAdditions !== undefined
+          ? retryBodyParsed.userPromptAdditions
+          : userPositive
+            ? userPositive
+            : undefined,
+      userPromptExclusions:
+        retryBodyParsed.userPromptExclusions !== undefined
+          ? retryBodyParsed.userPromptExclusions
+          : userNegative
+            ? userNegative
+            : undefined,
+      forceOverrides: retryBodyParsed.forceOverrides as Record<string, unknown> | null | undefined,
+    },
+  });
+  const nextUserOverride = effectiveOverrides.persisted;
 
   await prisma.sceneImage.update({
     where: { id: img.id },
@@ -489,6 +533,35 @@ export async function POST(req: Request, ctx: Ctx) {
       ?? shotPlanEnums.cutawayType
       ?? null;
     const retryPurpose = (panelContractMeta.purpose as string | null | undefined) ?? null;
+    // P0.3 — packet-aware retry. Si un canonicalPacket existe dans metadata,
+    // on repart de son prompt EN structuré + du negative canonique, et on
+    // compose les augments par-dessus. Sinon fallback legacy `img.prompt`.
+    const retryPacketBase = resolveRetryPacketBase({
+      metadataCanonicalPacket: metadata.canonicalPacket ?? null,
+      sceneImagePrompt: img.prompt,
+      sceneImageNegativePrompt: img.negativePrompt ?? null,
+    });
+    const retryAttemptIndex =
+      typeof metadata.retryAttemptIndex === "number" ? (metadata.retryAttemptIndex as number) : 0;
+    const packetAwarePrompt = retryPacketBase.packet
+      ? buildPacketAwareRetryPrompt({
+          packet: retryPacketBase.packet,
+          retryMode,
+          attemptIndex: retryAttemptIndex,
+          positiveAugment,
+          negativeAugment,
+          userPromptAdditions: effectiveOverrides.effectiveUserPromptAdditions,
+          userPromptExclusions: effectiveOverrides.effectiveUserPromptExclusions,
+        })
+      : null;
+
+    const effectivePositivePrompt = packetAwarePrompt
+      ? packetAwarePrompt.positivePrompt
+      : [retryPacketBase.basePrompt, positiveAugment].filter(Boolean).join(", ");
+    const effectiveNegativePrompt = packetAwarePrompt
+      ? packetAwarePrompt.negativePrompt
+      : [retryPacketBase.baseNegativePrompt || undefined, negativeAugment].filter(Boolean).join(", ");
+
     const heroPresentRetry = castOrderedNames.some((n) => {
       const c = resolveCharacterFromName(n)?.character;
       // fallback : si tier indisponible, on considère hero=true seulement si focus=hero
@@ -528,8 +601,8 @@ export async function POST(req: Request, ctx: Ctx) {
       },
       {
         mode: "PANEL_DRAFT",
-        positivePrompt: [img.prompt, positiveAugment].filter(Boolean).join(", "),
-        negativePrompt: [img.negativePrompt ?? undefined, negativeAugment].filter(Boolean).join(", "),
+        positivePrompt: effectivePositivePrompt,
+        negativePrompt: effectiveNegativePrompt,
         width: premiumSize.width,
         height: premiumSize.height,
         loras: referencePolicy === "NONE" ? undefined : (panelLoras.length > 0 ? panelLoras : undefined),
@@ -610,8 +683,9 @@ export async function POST(req: Request, ctx: Ctx) {
       imageUrl: persisted.url,
       requiredCharacters: charactersWithFingerprints,
       metadata: {
-        prompt: img.prompt,
-        negativePrompt: img.negativePrompt ?? undefined,
+        // P0.4 — on envoie le prompt final réellement exécuté, pas `img.prompt` legacy
+        prompt: effectivePositivePrompt,
+        negativePrompt: effectiveNegativePrompt,
         model: out.result.model,
         sceneBlueprint: metadata.sceneBlueprint as never,
         panelContract: metadata.panelContract as never,
@@ -694,6 +768,64 @@ export async function POST(req: Request, ctx: Ctx) {
           }
         : null,
       generationLog: out.log,
+      // P0.4 — prompt debug réel (source of truth pour la review UI)
+      promptDebug: {
+        finalPrompt: effectivePositivePrompt,
+        finalNegativePrompt: effectiveNegativePrompt,
+        promptSource: retryPacketBase.source,
+        usedPacket: retryPacketBase.source === "canonical",
+        packetVersion: retryPacketBase.packetVersion,
+        provider: out.result.provider,
+        model: out.result.model,
+        referencePolicy: effectiveReferencePolicy,
+        width: premiumSize.width,
+        height: premiumSize.height,
+        refsCount: referenceImageUrls.length,
+        lorasCount: panelLoras.length,
+        seed: out.result.seed ?? null,
+        requestedAt: new Date().toISOString(),
+        origin: "retry",
+        retryMode,
+        retryAttemptIndex: retryAttemptIndex + 1,
+        warnings: [],
+      },
+      // P0.3 — user override tri-état (null clear autorisé)
+      nextUserOverride: nextUserOverride as Record<string, unknown> | null,
+      // P0.3 — packet canonique aligné avec l'envoi réel
+      updatedCanonicalPacket: retryPacketBase.packet
+        ? ({
+            ...(retryPacketBase.packet as unknown as Record<string, unknown>),
+            providerPayload: {
+              ...((retryPacketBase.packet as unknown as { providerPayload: Record<string, unknown> }).providerPayload ?? {}),
+              prompt: effectivePositivePrompt,
+              negativePrompt: effectiveNegativePrompt,
+              width: premiumSize.width,
+              height: premiumSize.height,
+              seed: out.result.seed ?? null,
+            },
+            modelRoutingDecision: {
+              ...((retryPacketBase.packet as unknown as { modelRoutingDecision: Record<string, unknown> }).modelRoutingDecision ?? {}),
+              modelId: out.result.model,
+              referencePolicy: effectiveReferencePolicy,
+              reason: "retry_executed",
+            },
+          } as Record<string, unknown>)
+        : null,
+      // P0.3 — trace du plan de reroll packet-aware
+      packetRerollPlanEntry: packetAwarePrompt
+        ? {
+            attempt: retryAttemptIndex,
+            reason: packetAwarePrompt.reason,
+            allowed: packetAwarePrompt.allowed,
+            retryMode,
+            extraPromptHints: packetAwarePrompt.extraPromptHints,
+            extraNegativeTokens: packetAwarePrompt.extraNegativeTokens,
+            forcedReferencePolicy: packetAwarePrompt.referencePolicyOverride,
+            origin: "retry",
+            at: new Date().toISOString(),
+          }
+        : null,
+      nextRetryAttemptIndex: retryAttemptIndex + 1,
     });
 
     return NextResponse.json({ ok: true });

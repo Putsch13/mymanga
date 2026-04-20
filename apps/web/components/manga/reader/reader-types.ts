@@ -138,8 +138,38 @@ export type ReaderResponse = {
       prompt: string | null;
       promptDebug?: {
         finalPrompt: string | null;
+        finalNegativePrompt?: string | null;
+        promptSource?: string | null;
+        usedPacket?: boolean;
+        packetVersion?: string | null;
+        provider?: string | null;
+        model?: string | null;
+        referencePolicy?: string | null;
+        width?: number | null;
+        height?: number | null;
+        refsCount?: number | null;
+        lorasCount?: number | null;
+        seed?: number | null;
+        origin?: string | null;
+        requestedAt?: string | null;
+        retryMode?: string | null;
+        retryAttemptIndex?: number | null;
         promptWarnings: string[];
       } | null;
+      canonicalPacket?: {
+        packetVersion: string | null;
+        imageIntentType: string | null;
+        dominantSubjectKind: string | null;
+        heroPresenceMode: string | null;
+        contentRating: string | null;
+        finalEnglishStructuredPrompt: string | null;
+        negativePromptEnglish: string | null;
+        modelRoutingDecision: Record<string, unknown> | null;
+        providerPayload: Record<string, unknown> | null;
+        buildWarnings: string[];
+      } | null;
+      canonicalPacketValidation?: Record<string, unknown> | null;
+      packetRerollPlans?: Array<Record<string, unknown>>;
       releaseScore: number | null;
       backgroundPresenceScore: number | null;
       interactionScore: number | null;

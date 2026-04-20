@@ -237,6 +237,8 @@ function buildPremiumChapter(beatCount = 10) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // P0.6 — fixtures legacy avec 1 blueprint pour 75 images : on active le flag.
+  process.env.MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY = "true";
   getAppUserMock.mockResolvedValue(user);
   checkRateLimitMock.mockResolvedValue({ ok: true });
   getGenerationStackStatusMock.mockReturnValue({
