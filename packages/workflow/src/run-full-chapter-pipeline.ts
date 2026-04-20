@@ -10,6 +10,11 @@ import { runMemoryPass } from "./passes/memory-pass";
 import { runImageGenerationPass } from "./passes/image-generation-pass";
 import { runNarrativePass } from "./passes/narrative-pass";
 import { assertPremiumContractFromChapter } from "./passes/assert-premium-contract-guard";
+import {
+  buildChapterImagePlanFromNarrative,
+  deriveContentRatingFromProject,
+  deriveMangaStyleProfileFromStylePack,
+} from "./chapter-image-plan-from-narrative";
 
 export { setJobProgress } from "./pipeline-job";
 
@@ -186,6 +191,35 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       kernelValidationWarnings,
     } = narrativeResult;
 
+    // ── Étape 3.5 : Compilateur visuel de chapitre (plan canonique) ────────
+    // Transforme plannedImages + baseMetadata en `ChapterImagePlanItem[]`.
+    // Plan + validation persistés pour audit. Consommé par image-generation
+    // pass pour construire les `CanonicalImagePromptPacket` packet-aware.
+    const chapterImagePlan = buildChapterImagePlanFromNarrative({
+      projectId,
+      chapterId,
+      mangaStyleProfile: deriveMangaStyleProfileFromStylePack(stylePacks as Array<{ name?: string | null }>),
+      contentRating: deriveContentRatingFromProject({
+        intensityLayer,
+        settings: project?.settings as { contentRating?: string | null } | null | undefined,
+      }),
+      plannedImages: plannedImages as Parameters<typeof buildChapterImagePlanFromNarrative>[0]["plannedImages"],
+      rawCharacters: rawCharacters as Array<{ id: string; name: string; roleType?: string | null }>,
+    });
+    console.log(
+      `[pipeline:chapter-image-plan] chapter=${chapterId} items=${chapterImagePlan.plan.length} valid=${chapterImagePlan.validation.valid} issues=${chapterImagePlan.validation.issues.length} warnings=${chapterImagePlan.validation.warnings.length}`,
+    );
+    if (chapterImagePlan.validation.issues.length > 0) {
+      console.warn(
+        `[pipeline:chapter-image-plan] issues=${chapterImagePlan.validation.issues.join(" | ")}`,
+      );
+    }
+    if (chapterImagePlan.validation.warnings.length > 0) {
+      console.warn(
+        `[pipeline:chapter-image-plan] warnings=${chapterImagePlan.validation.warnings.join(" | ")}`,
+      );
+    }
+
     // ── Étape 4 : Génération des images réelles via FAL ────────────────────
     const imageResult = await runImageGenerationPass(
       { jobId, chapterId, projectId, userId: "", chapterNumber },
@@ -208,6 +242,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         loraByCharName,
         loraByCharId,
         effectiveCreativeControls,
+        chapterImagePlan,
       },
     );
     const { generatedCount, failedCount, chapterQualityReport, generationRunSummary } = imageResult;

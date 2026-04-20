@@ -151,8 +151,37 @@ Exemples :
 - `canonical-prompt-recipe-builder.test.ts` — 13 golden tests par intent (manga guard, rating, sections obligatoires, group description, dialogue context, residual FR)
 - `fal-prompt-payload-builder.test.ts` — payload shape, reference policy par intent, 7 regles preflight
 - `packet-aware-reroll-advisor.test.ts` — plans par reason, max retries, application non-destructive
+- `chapter-image-plan-from-narrative.test.ts` — adapter narrative → plan canonique (mapping subjectFocus, validation)
 
-Total : **+40 tests** sur cette refonte. `packages/core` 63/63, `packages/ai` 271/271, `packages/workflow` 382/382 OK.
+Total : **+45 tests** sur cette refonte. `packages/core` 99/99, `packages/ai` 271/271, `packages/workflow` 387/387 OK.
+
+### Integration live dans le pipeline
+Le compilateur visuel est cable dans le pipeline de production :
+
+1. **`buildChapterImagePlanFromNarrative`** (`packages/workflow/src/chapter-image-plan-from-narrative.ts`)
+   - Transforme `narrativeResult.plannedImages` + `baseMetadata.panelContract` en `ChapterImagePlanItem[]`
+   - Appele dans `run-full-chapter-pipeline.ts` juste apres le narrative pass, avant l'image pass
+   - Log la validation (`[pipeline:chapter-image-plan] items=N valid=bool issues=…`)
+   - Helpers : `deriveContentRatingFromProject`, `deriveMangaStyleProfileFromStylePack`
+
+2. **`buildCanonicalPacketForPlannedImage`** (`packages/workflow/src/canonical-packet-bridge.ts`)
+   - Construit le `CanonicalImagePromptPacket` complet pour chaque `PlannedImage`
+   - Injecte `buildCanonicalPromptRecipe` (sections FR+EN), `buildFalPromptPayload` (payload + preflight validation)
+   - Mappe les personnages reels (`rawCharacters`) vers `CharacterContextEntry[]` avec presence/weight selon l'intent
+   - Resout group/prop/npc/dialogue context a partir de `baseMetadata`
+   - Appele dans `image-generation-pass.ts` en amont de la boucle de reroll
+
+3. **Reroll packet-aware**
+   - Dans la boucle de reroll, `planRerollForPacket(packet, reason, attempt)` est appele a chaque tentative
+   - Mapping `rerollKind` -> `RerollReason` : `REROLL_CHARACTER_FIDELITY` -> `drift_character`, `REROLL_ENVIRONMENT` -> `drift_environment`, etc.
+   - Les plans (`keepRefs`, `forcedReferencePolicy`, `extraNegativeTokens`, `extraPromptHints`) sont accumules dans `packetRerollPlans[]`
+   - Non destructif : n'ecrase pas la logique rerollKind existante
+
+4. **Persistance sur `SceneImage.metadata`**
+   - `metadata.canonicalPacket` — packet JSON complet (auditable, reinjectable)
+   - `metadata.canonicalPacketValidation` — resultat preflight (`valid`, `errors[]`, `warnings[]`)
+   - `metadata.packetRerollPlans` — historique des plans de reroll packet-aware
+   - Aucune migration Prisma requise (colonne `Json @default("{}")` deja presente)
 
 ## Assainissement CTO (P0 + P1 + P2 + P3 — avril 2026)
 

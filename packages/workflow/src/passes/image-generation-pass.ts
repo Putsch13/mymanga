@@ -36,6 +36,21 @@ import {
 import { buildStableImageReference, resolveStableImageReferences } from "../stable-image-refs";
 import { persistImageIfNeeded } from "../pipeline-image-persistence";
 import { setJobProgress } from "../pipeline-job";
+import type {
+  NarrativeToPlanResult,
+} from "../chapter-image-plan-from-narrative";
+import { buildCanonicalPacketForPlannedImage } from "../canonical-packet-bridge";
+import { planRerollForPacket, type RerollReason } from "@manga-ai-studio/ai";
+import type {
+  CanonicalImagePromptPacket,
+  EnvironmentContext,
+  UniverseProfileRef,
+  MangaStyleProfileRef,
+  VisualClassification,
+  SceneContext,
+  ContinuityContext,
+  ContentRating,
+} from "@manga-ai-studio/core";
 import { computeChapterQualityReport } from "../pipeline-quality";
 import {
   buildPersistedChapterRuntimeState,
@@ -77,6 +92,12 @@ export async function runImageGenerationPass(
     loraByCharName: Map<string, any>;
     loraByCharId?: Map<string, any>;
     effectiveCreativeControls: any;
+    /**
+     * Plan canonique du chapitre (optionnel — si présent, le pipeline
+     * construit et persiste un `CanonicalImagePromptPacket` par image pour
+     * audit/bible/LoRA future + rerolls packet-aware).
+     */
+    chapterImagePlan?: NarrativeToPlanResult;
   },
 ) {
   const { jobId, chapterId, projectId, chapterNumber } = ctx;
@@ -98,7 +119,49 @@ export async function runImageGenerationPass(
     faceCloseupRefByName,
     loraByCharName,
     loraByCharId,
+    chapterImagePlan,
   } = input;
+
+  // ── Contexte canonique partagé pour la construction des packets ──────
+  // Build une seule fois au début du pass, puis réutilisé par image.
+  const canonicalUniverse: UniverseProfileRef = {
+    universeId: (project?.id as string) ?? projectId,
+    universeName: (project?.name as string) ?? "Unknown",
+    tone: (project?.primaryGenre as string) ?? "adventure",
+    era: null,
+    magicLevel: null,
+  };
+  const canonicalMangaStyle: MangaStyleProfileRef = {
+    styleId: (stylePacks[0]?.id as string) ?? "default",
+    styleName: (stylePacks[0]?.name as string) ?? "shonen_classic",
+    medium: "manga",
+    inkingStyle: "clean bold manga linework",
+    shadingStyle: "screen tones",
+    compositionStyle: "dynamic manga panel layout",
+    referenceMangaTitle: (stylePacks[0]?.referenceTitle as string | undefined) ?? null,
+  };
+  const canonicalContentRating: ContentRating = (() => {
+    const il = (intensityLayer ?? "").toLowerCase();
+    if (il.includes("explicit")) return "explicit_adult";
+    if (il.includes("mature") || il.includes("adult")) return "mature";
+    if (il.includes("teen")) return "teen";
+    return "teen";
+  })();
+  const canonicalVisualClassification: VisualClassification = {
+    rating: canonicalContentRating,
+    audience: canonicalContentRating === "teen" ? "teen 13+" : canonicalContentRating,
+    violenceLevel: canonicalContentRating === "mature" || canonicalContentRating === "explicit_adult" ? "moderate" : "mild",
+    sensualityLevel: canonicalContentRating === "explicit_adult" ? "explicit" : "none",
+    allowedTokens: [],
+    forbiddenTokens: [],
+  };
+  const canonicalContinuity: ContinuityContext = {
+    anchors: [],
+    recentBeatsSummary: "",
+    heroKnownInjuries: [],
+    heroKnownOutfit: null,
+    activeInventory: [],
+  };
 
     await setJobProgress(
       jobId,
@@ -458,6 +521,125 @@ export async function runImageGenerationPass(
       };
       const refs = [...sceneRefs, ...characterRefs];
       const hasCanonRef = characterRefs.length > 0 || panelLoras.length > 0;
+
+      // ── Construction du CanonicalImagePromptPacket (en amont) ──────────
+      // Construit une fois avant la boucle de reroll pour permettre
+      // l'analyse packet-aware et pour être persistable en metadata.
+      let canonicalPacket: CanonicalImagePromptPacket | null = null;
+      let canonicalPacketValidation: { valid: boolean; errors: string[]; warnings: string[] } | null = null;
+      const packetRerollPlans: Array<{
+        attempt: number;
+        reason: RerollReason;
+        allowed: boolean;
+        keepRefs: boolean;
+        keepIpAdapterRefs: boolean;
+        forcedReferencePolicy: string | null;
+        extraNegativeTokens: string[];
+        extraPromptHints: string[];
+        reasonNotes: string;
+      }> = [];
+      if (chapterImagePlan) {
+        const planItem = chapterImagePlan.planItemBySceneImageId.get(item.sceneImageId);
+        if (planItem) {
+          try {
+            const envContext: EnvironmentContext = {
+              locationId:
+                (item.baseMetadata.sceneId as string | undefined) ?? `scene_${item.sceneIndex}`,
+              locationName:
+                ((item.baseMetadata.panelContract as Record<string, unknown> | undefined)
+                  ?.environmentPrimary as string | undefined) ??
+                (item.panel.mood ?? "scene"),
+              locationCanonDescription:
+                (item.baseMetadata.sceneDescription as string | undefined) ??
+                "canonical scene per chapter bible",
+              timeOfDay: (item.baseMetadata.timeOfDay as string | undefined) ?? "day",
+              weather: null,
+              mustShowLocationSignals: planItem.requiredLocationSignals,
+              atmosphereTokens: [],
+            };
+            const sceneCtx: SceneContext = {
+              sceneId: (item.baseMetadata.sceneId as string | undefined) ?? `s${item.sceneIndex}`,
+              sceneFunction: planItem.storyFunction,
+              mood: item.panel.mood ?? "neutral",
+              tension: "medium",
+              actionSummary:
+                (item.baseMetadata.caption as string | undefined) ?? item.panel.prompt.slice(0, 200),
+            };
+            const bridge = buildCanonicalPacketForPlannedImage({
+              projectId,
+              chapterId,
+              sceneImageId: item.sceneImageId,
+              planItem,
+              baseMetadata: item.baseMetadata,
+              rawCharacters: rawCharacters as Array<{ id: string; name: string; roleType?: string | null; description?: string | null; visualDescription?: string | null }>,
+              universe: canonicalUniverse,
+              mangaStyle: canonicalMangaStyle,
+              environment: envContext,
+              chapterContext: {
+                title: (chapter?.title as string) ?? `Chapter ${chapterNumber}`,
+                summary: (chapter?.summary as string | undefined) ?? "",
+              },
+              beatContext: {
+                id: planItem.beatId,
+                title: `Beat ${planItem.beatIndex}`,
+                function: planItem.storyFunction,
+                previousId: null,
+                nextId: null,
+              },
+              sceneContext: sceneCtx,
+              continuityContext: canonicalContinuity,
+              contentRating: canonicalContentRating,
+              visualClassification: canonicalVisualClassification,
+              characterRefAssets: canonRef
+                ? [{
+                    characterId: focusName ?? "hero",
+                    assetId: (canonRef.id as string | undefined) ?? "ref",
+                    url: (canonRef.resolvedUrl ?? canonRef.sourceUrl ?? canonRef.publicUrl ?? canonRef.signedUrl ?? canonRef.falCdnUrl) ?? "",
+                    kind: isCloseupPanel ? "face" : "full",
+                  }]
+                : [],
+              styleRefAssets: [],
+              sceneRefAssets: sceneKeyframeUrl
+                ? [{ assetId: "scene_keyframe", url: sceneKeyframeUrl }]
+                : [],
+            });
+            canonicalPacket = bridge.packet;
+            canonicalPacketValidation = bridge.payload.validation;
+            if (!bridge.payload.validation.valid) {
+              console.warn(
+                `[pipeline:canonical-packet] preflight_failed sceneImageId=${item.sceneImageId} errors=${bridge.payload.validation.errors.join(" | ")}`,
+              );
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : "canonical_packet_build_failed";
+            console.warn(
+              `[pipeline:canonical-packet] build_error sceneImageId=${item.sceneImageId} err=${msg}`,
+            );
+          }
+        }
+      }
+
+      /**
+       * Map interne rerollKind -> RerollReason pour l'advisor packet-aware.
+       */
+      const rerollKindToReason = (
+        kind: "REROLL_ENVIRONMENT" | "REROLL_CHARACTER_FIDELITY" | "REROLL_INTERACTION" | "REROLL_STYLE" | "REROLL_COMPOSITION" | null | undefined,
+      ): RerollReason => {
+        switch (kind) {
+          case "REROLL_CHARACTER_FIDELITY":
+            return "drift_character";
+          case "REROLL_ENVIRONMENT":
+            return "drift_environment";
+          case "REROLL_STYLE":
+            return "drift_style";
+          case "REROLL_COMPOSITION":
+            return "wrong_framing";
+          case "REROLL_INTERACTION":
+            return "wrong_dominant_subject";
+          default:
+            return "low_quality";
+        }
+      };
       const panelContractMeta = item.baseMetadata.panelContract as {
         purpose?: string;
         shotType?: "wide" | "medium" | "closeup" | "extreme_closeup" | "over_shoulder";
@@ -978,6 +1160,36 @@ export async function runImageGenerationPass(
         if (shouldReroll && MAX_REROLL > 0) {
           console.warn(`[pipeline] reroll required panel=${item.sceneImageId} kind=${bestAttempt.rerollKind} score=${bestAttempt.validationScore.toFixed(2)}`);
           for (let attempt = 0; attempt < MAX_REROLL; attempt++) {
+            // ── Reroll advisor packet-aware ─────────────────────────────
+            // Si un packet canonique est disponible, on calcule un plan de
+            // reroll structuré (raison, hints, refs à préserver, negative
+            // tokens) et on le log pour audit. Non destructif : ne modifie
+            // pas la logique rerollKind existante.
+            if (canonicalPacket) {
+              try {
+                const reason = rerollKindToReason(bestAttempt.rerollKind);
+                const advice = planRerollForPacket(canonicalPacket, reason, attempt);
+                if (advice.allowed) {
+                  packetRerollPlans.push({
+                    attempt,
+                    reason,
+                    allowed: advice.allowed,
+                    keepRefs: advice.keepRefs,
+                    keepIpAdapterRefs: advice.keepIpAdapterRefs,
+                    forcedReferencePolicy: advice.forcedReferencePolicy ?? null,
+                    extraNegativeTokens: advice.extraNegativeTokens,
+                    extraPromptHints: advice.extraPromptHints,
+                    reasonNotes: advice.reason,
+                  });
+                }
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : "packet_reroll_error";
+                console.warn(
+                  `[pipeline:packet-reroll] advisor_error sceneImageId=${item.sceneImageId} err=${msg}`,
+                );
+              }
+            }
+
             const strongerEnvironmentPrompt =
               bestAttempt.rerollKind === "REROLL_ENVIRONMENT" || bestAttempt.rerollKind === "REROLL_COMPOSITION"
                 ? [
@@ -1287,6 +1499,14 @@ export async function runImageGenerationPass(
             ...(enrichedDebugTrace ? { debugTrace: enrichedDebugTrace as unknown as Prisma.InputJsonValue } : {}),
             metadata: ({
               ...item.baseMetadata,
+              // Packet canonique pour audit / bible / LoRA future / reroll packet-aware
+              ...(canonicalPacket
+                ? {
+                    canonicalPacket: canonicalPacket as unknown as Record<string, unknown>,
+                    canonicalPacketValidation: canonicalPacketValidation as unknown as Record<string, unknown> | null,
+                    packetRerollPlans: packetRerollPlans as unknown as Record<string, unknown>[],
+                  }
+                : {}),
               generationLog: finalLog,
               falStrategy: finalRouting,
               seed: bestAttempt.generation.result.seed ?? null,
