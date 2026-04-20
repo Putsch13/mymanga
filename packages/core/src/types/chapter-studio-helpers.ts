@@ -17,7 +17,9 @@ import {
   chapterStudioSnapshotSchema,
   productionOutlineSchema,
   productionPlanSchema,
+  type ChapterContractStatus,
   type ChapterImageCount,
+  type ChapterLaunchBlockedReason,
   type ChapterReadinessIssue,
   type ChapterReadinessReport,
   type ChapterStudioData,
@@ -284,6 +286,10 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
   }
 
   let imageCounts: ChapterImageCount;
+  let contractStatus: ChapterContractStatus;
+  let panelBlueprintCount = 0;
+  let launchBlocked = false;
+  let launchBlockedReason: ChapterLaunchBlockedReason | null = null;
 
   if (snapshot.data.productionPlan) {
     completedSteps.push("production_plan");
@@ -295,7 +301,50 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
       generatedImages: snapshot.data.readinessReport?.imageCounts.generatedImages ?? 0,
       rejectedImages: snapshot.data.readinessReport?.imageCounts.rejectedImages ?? 0,
     });
-    if (imageCounts.targetImages < imageCounts.minimumImages) {
+
+    const blueprints = snapshot.data.productionPlan.panelBlueprints;
+    panelBlueprintCount = Array.isArray(blueprints) ? blueprints.length : 0;
+    const minimumImages = imageCounts.minimumImages;
+
+    // P0.1 — contrat structurel : un plan dont le nombre de blueprints est
+    // inférieur au minimum d'images est *non lançable*. Le backend lève
+    // `IncompletePlanError` au launch ; on doit matérialiser ce blocage
+    // côté studio, pas attendre un crash au lancement.
+    if (panelBlueprintCount === 0) {
+      contractStatus = "missing_blueprints";
+      launchBlocked = true;
+      launchBlockedReason = "missing_blueprints";
+      addBlocker({
+        id: "production_plan_missing_blueprints",
+        step: "production_plan",
+        field: null,
+        message:
+          `Le plan ne contient aucun blueprint de panel (minimum requis : ${minimumImages} images). ` +
+          `Régénère le plan avant de lancer la génération.`,
+        ctaLabel: "Régénérer le plan",
+        action: "generate_outline",
+      });
+    } else if (panelBlueprintCount < minimumImages) {
+      contractStatus = "incomplete_blueprints";
+      launchBlocked = true;
+      launchBlockedReason = "incomplete_plan";
+      addBlocker({
+        id: "production_plan_incomplete_blueprints",
+        step: "production_plan",
+        field: null,
+        message:
+          `Le plan contient ${panelBlueprintCount} blueprints pour un minimum requis de ${minimumImages} images. ` +
+          `Régénère le plan avant de lancer la génération.`,
+        ctaLabel: "Régénérer le plan",
+        action: "generate_outline",
+      });
+    } else {
+      contractStatus = "ok";
+    }
+
+    // Avertissement historique sur `targetImages` (budget) — utile si le plan
+    // est cohérent en blueprints mais que targetImages reste sous le minimum.
+    if (imageCounts.targetImages < imageCounts.minimumImages && contractStatus === "ok") {
       addWarning({
         id: "production_plan_under_minimum_images",
         step: "production_plan",
@@ -307,6 +356,9 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
     }
   } else {
     imageCounts = normalizeChapterImageCounts(null);
+    contractStatus = "missing_production_plan";
+    launchBlocked = true;
+    launchBlockedReason = "missing_production_plan";
     addBlocker({
       id: "missing_production_plan",
       step: "production_plan",
@@ -385,6 +437,10 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
     warningItems,
     completedSteps,
     imageCounts,
+    panelBlueprintCount,
+    contractStatus,
+    launchBlocked,
+    launchBlockedReason,
   };
 }
 

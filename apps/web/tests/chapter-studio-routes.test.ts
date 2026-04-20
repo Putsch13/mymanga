@@ -187,20 +187,24 @@ function buildReadyStudio() {
         npcCoverage: { panelCount: 1, avgNpcCount: 2 },
         cutawayCoverage: { count: 1, ratio: 0.1 },
         dialogueAnchorCoverage: { anchored: 2, floating: 0 },
-        panelBlueprints: [
-          {
-            panelId: "panel-1",
-            beatId: "b1",
-            panelIndex: 0,
-            panelNumber: 1,
-            purpose: "Introduire le héros",
-            cameraAngle: "eye_level",
-            subjectFocus: "hero",
-            shotType: "medium",
-            requiredProps: [],
-            presenceObligations: [],
-          },
-        ],
+        // P0.6 — un "ready studio" doit présenter un contrat complet
+        // (panelBlueprints.length >= minimumImages). Auparavant un seul blueprint
+        // suffisait parce que la readiness ne vérifiait pas ce ratio ; depuis P0.1
+        // c'est un blocant explicite, donc le fixture doit fournir 75 panels.
+        panelBlueprints: Array.from({ length: 75 }, (_, i) => ({
+          panelId: `panel-${i + 1}`,
+          beatId: `b${(i % 10) + 1}`,
+          panelIndex: i,
+          panelNumber: i + 1,
+          purpose: "Progression",
+          cameraAngle: "eye_level",
+          // Rotation de shotTypes pour satisfaire le shot-variety-enforcer
+          // (sinon 75 panels tous "medium" tomberaient en SHOT_MONOTONY).
+          shotType: ["medium", "wide", "close_up", "establishing", "reaction", "over_shoulder"][i % 6],
+          subjectFocus: i % 3 === 0 ? "environment" : "hero",
+          requiredProps: [],
+          presenceObligations: [],
+        })),
       },
     },
   };
@@ -379,6 +383,51 @@ describe("routes Chapter Studio", () => {
 
     expect(payload.readiness.status).toBe("blocked");
     expect(payload.readiness.blockingIssues.length).toBeGreaterThan(0);
+  });
+
+  it("P0.6 — readiness route expose le blocant incomplete_blueprints avec le ratio", async () => {
+    const studioWithIncompletePlan = buildReadyStudio();
+    // Forcer 52/75 blueprints pour simuler le bug produit (symptôme visible user).
+    studioWithIncompletePlan.data.productionPlan.panelBlueprints = Array.from({ length: 52 }, (_, i) => ({
+      panelId: `panel-${i + 1}`,
+      beatId: `b${(i % 10) + 1}`,
+      panelIndex: i,
+      panelNumber: i + 1,
+      purpose: "Progression",
+      cameraAngle: "eye_level",
+      shotType: ["medium", "wide", "close_up"][i % 3]!,
+      subjectFocus: "hero",
+      requiredProps: [],
+      presenceObligations: [],
+    })) as never;
+    prismaMock.chapter.findFirst.mockResolvedValue({
+      id: "chapter-1",
+      projectId: "project-1",
+      chapterNumber: 3,
+      title: "Chapitre incomplet",
+      summary: "Résumé",
+      cliffhanger: "Fin",
+      userIntent: "intent",
+      outline: { studio: studioWithIncompletePlan },
+    });
+
+    const mod = await import("../app/api/projects/[id]/chapters/[chapterId]/readiness/route");
+    const response = await mod.GET(new Request("http://localhost"), ctxChapter);
+    const payload = await response.json();
+
+    expect(payload.readiness.status).toBe("blocked");
+    expect(payload.readiness.contractStatus).toBe("incomplete_blueprints");
+    expect(payload.readiness.launchBlocked).toBe(true);
+    expect(payload.readiness.launchBlockedReason).toBe("incomplete_plan");
+    expect(payload.readiness.panelBlueprintCount).toBe(52);
+    const hasIncompleteBlocker = payload.readiness.blockerItems.some(
+      (item: { id: string }) => item.id === "production_plan_incomplete_blueprints",
+    );
+    expect(hasIncompleteBlocker).toBe(true);
+    const incompleteMessage = payload.readiness.blockingIssues.find((msg: string) =>
+      msg.includes("52") && msg.includes("75"),
+    );
+    expect(incompleteMessage).toBeDefined();
   });
 
   it("refuse un launch studio si le chapitre n'est pas prêt", async () => {
@@ -672,6 +721,10 @@ describe("routes Chapter Studio", () => {
     expect(payload.ok).toBe(true);
     expect(payload.premiumMeta).toBeDefined();
     expect(typeof payload.premiumMeta.premiumReadinessScore).toBe("number");
+    // P0.5 — le contrat rebuilt a 0 blueprint pour 75 minimum → launchBlocked doit être signalé.
+    expect(payload.premiumMeta.launchBlocked).toBe(true);
+    expect(payload.premiumMeta.launchBlockedReason).toBe("missing_blueprints");
+    expect(payload.premiumMeta.minimumImages).toBe(75);
   });
 
   it("approved-outline PATCH reconstruit un contrat premium complet sans legacy_adapted", async () => {

@@ -569,9 +569,33 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
             onRewriteBeat={rewriteBeat}
             rewritingBeat={autofilling}
             onValidatePlan={() => {
-              const firstBlocker = blockerItems[0];
-              if (firstBlocker) {
-                void handleIssueAction(firstBlocker);
+              // P0.3 — si le contrat de production est incomplet (blueprints <
+              // minimumImages), on reste sur l'étape `plan` et on remonte le
+              // blocant spécifique au user, pas un blocant générique.
+              // Priorité au blocant "plan incomplet" car c'est celui qui empêche
+              // réellement le launch côté backend (IncompletePlanError).
+              const planBlocker =
+                blockerItems.find(
+                  (issue) =>
+                    issue.id === "production_plan_incomplete_blueprints" ||
+                    issue.id === "production_plan_missing_blueprints" ||
+                    issue.id === "missing_production_plan",
+                ) ?? blockerItems[0];
+              if (planBlocker) {
+                if (
+                  planBlocker.id === "production_plan_incomplete_blueprints" ||
+                  planBlocker.id === "production_plan_missing_blueprints"
+                ) {
+                  setMessage(planBlocker.message);
+                }
+                void handleIssueAction(planBlocker);
+                return;
+              }
+              if (readiness?.launchBlocked) {
+                setMessage(
+                  "Le plan n'est pas lançable : régénère le plan de production avant validation.",
+                );
+                goToFlowStep("plan", null, "production_plan");
                 return;
               }
               goToFlowStep("generation_review");

@@ -686,9 +686,16 @@ export function buildGenerationJobInputFromSnapshot(opts: GenerationJobInputOpti
   // silencieusement à 75 cases en dupliquant des panels, ce qui contredit
   // la promesse "aucune image sans vrai contrat visuel structuré".
   //
-  // Flag legacy `MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY=true` : restaure
-  // l'expansion automatique pour débloquer des chapitres anciens en attendant
-  // leur régénération de plan.
+  // P0.7 — Le flag `MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY=true` est
+  // **support-only** : il n'existe que pour débloquer temporairement des
+  // chapitres hérités dont le plan est stale. Il ne doit jamais être activé
+  // par défaut en production car :
+  //   - il masque un vrai défaut de contrat (plan premium incohérent)
+  //   - il duplique artificiellement des panels
+  //   - il crée une promesse visuelle fausse (N cases ≠ N beats distincts)
+  //   - il rend le QA final moins fiable
+  // Chaque activation laisse un `warn` très visible dans les logs pour
+  // faciliter le tracing côté observabilité / admin.
   const minimumImages = typeof pp?.minimumImages === "number" && pp.minimumImages > 0
     ? pp.minimumImages
     : 75;
@@ -707,7 +714,9 @@ export function buildGenerationJobInputFromSnapshot(opts: GenerationJobInputOpti
       minimumImages,
     ) as unknown[];
     console.warn(
-      `[buildGenerationJobInput] panelBlueprints_expanded_LEGACY ${beforeCount} → ${effectiveBlueprints.length} (min=${minimumImages}) — flag MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY actif`,
+      `[buildGenerationJobInput] ⚠️ LEGACY_EXPANSION_ACTIVE chapterId=${opts.chapterId ?? "?"} ` +
+      `panelBlueprints_expanded ${beforeCount} → ${effectiveBlueprints.length} (min=${minimumImages}) — ` +
+      `flag MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY=true. Ce flag est support-only et masque un plan incomplet.`,
     );
   }
 

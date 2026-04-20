@@ -444,6 +444,31 @@ export const chapterReadinessIssueSchema = z.object({
 
 export type ChapterReadinessIssue = z.infer<typeof chapterReadinessIssueSchema>;
 
+/**
+ * Diagnostic structuré du contrat de production.
+ * - `ok` : `panelBlueprints.length >= minimumImages` — le contrat peut partir en génération.
+ * - `missing_blueprints` : `productionPlan` présent mais `panelBlueprints` absent/vide.
+ * - `incomplete_blueprints` : `0 < panelBlueprints.length < minimumImages`.
+ * - `missing_production_plan` : pas de `productionPlan` du tout.
+ */
+export const chapterContractStatusSchema = z.enum([
+  "ok",
+  "missing_production_plan",
+  "missing_blueprints",
+  "incomplete_blueprints",
+]);
+
+export type ChapterContractStatus = z.infer<typeof chapterContractStatusSchema>;
+
+export const chapterLaunchBlockedReasonSchema = z.enum([
+  "incomplete_plan",
+  "missing_production_plan",
+  "missing_blueprints",
+  "invalid_blueprints",
+]);
+
+export type ChapterLaunchBlockedReason = z.infer<typeof chapterLaunchBlockedReasonSchema>;
+
 export const chapterReadinessReportSchema = z.object({
   status: z.enum(["blocked", "warning", "ready"]).default("blocked"),
   preparationScore: z.number().int().min(0).max(100).default(0),
@@ -453,6 +478,13 @@ export const chapterReadinessReportSchema = z.object({
   warningItems: z.array(chapterReadinessIssueSchema).default([]),
   completedSteps: z.array(chapterStudioStepSchema).default([]),
   imageCounts: chapterImageCountSchema.default({}),
+  // Diagnostic structuré du contrat de production — exposé pour éviter aux
+  // composants UI de recalculer la logique `panelBlueprints vs minimumImages`.
+  // Optionnel pour compatibilité ascendante avec snapshots persistés avant P0.
+  panelBlueprintCount: z.number().int().min(0).optional(),
+  contractStatus: chapterContractStatusSchema.optional(),
+  launchBlocked: z.boolean().optional(),
+  launchBlockedReason: chapterLaunchBlockedReasonSchema.nullable().optional(),
 });
 
 export type ChapterReadinessReport = z.infer<typeof chapterReadinessReportSchema>;

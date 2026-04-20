@@ -15,6 +15,7 @@ import { safeFetch } from "@/lib/safe-fetch";
 import { Tooltip, SliderField } from "./_components/pipeline-atoms";
 import { STEP_LABELS, type CreativityControls, type OutlinePreviewBeat, type PipelineJobState, type PipelinePreviewData } from "./_components/pipeline-types";
 import { computePipelineProgressValue, buildPipelineDegradedWarning } from "./_components/compute-progress";
+import { mapLaunchError, type LaunchErrorPayload } from "./_components/map-launch-error";
 import { usePipelineJobPolling } from "./_components/use-pipeline-job-polling";
 
 export default function ChapterGeneratorPage() {
@@ -245,11 +246,7 @@ export default function ChapterGeneratorPage() {
         } else {
           setPremiumContractMissing(null);
         }
-        setPipelineMsg(
-          (j as { error?: string }).error === "premium_contract_incomplete"
-            ? "Le plan du chapitre est incomplet. Retourne dans le studio, étape 3 « Plan », génère l'outline et le plan de production, puis reviens ici."
-            : (j as { message?: string }).message ?? (j as { error?: string }).error ?? "Erreur de lancement.",
-        );
+        setPipelineMsg(mapLaunchError(j as LaunchErrorPayload));
         setJobState(null);
         return;
       }
@@ -268,18 +265,10 @@ export default function ChapterGeneratorPage() {
           ...(j.ok === false ? { error: { message: j.message } } : {}),
         });
         if (!j.ok) {
-          setPipelineMsg(
-            (j as { error?: string }).error === "premium_contract_incomplete"
-              ? "Le plan du chapitre est incomplet. Retourne dans le studio, étape 3 « Plan », génère l'outline et le plan de production, puis reviens ici."
-              : (j as { message?: string }).message ?? (j as { error?: string }).error ?? "Erreur de lancement.",
-          );
+          setPipelineMsg(mapLaunchError(j as LaunchErrorPayload));
         }
       } else if (j.ok === false) {
-        setPipelineMsg(
-          (j as { error?: string }).error === "premium_contract_incomplete"
-            ? "Le plan du chapitre est incomplet. Retourne dans le studio, étape 3 « Plan », génère l'outline et le plan de production, puis reviens ici."
-            : (j as { message?: string }).message ?? (j as { error?: string }).error ?? "Erreur de lancement.",
-        );
+        setPipelineMsg(mapLaunchError(j as LaunchErrorPayload));
         setJobState(null);
       }
     } catch (e) {
@@ -335,11 +324,7 @@ export default function ChapterGeneratorPage() {
       });
       const pJ = await pRes.json().catch(() => ({}));
       if (!pRes.ok) {
-        setPipelineMsg(
-          (pJ as { error?: string }).error === "premium_contract_incomplete"
-            ? "Le plan du chapitre est incomplet. Retourne dans le studio, étape 3 « Plan », génère l'outline et le plan de production, puis reviens ici."
-            : (pJ as { message?: string }).message ?? (pJ as { error?: string }).error ?? "Erreur de lancement.",
-        );
+        setPipelineMsg(mapLaunchError(pJ as LaunchErrorPayload));
         return;
       }
       if (pJ.jobId) {
@@ -355,11 +340,7 @@ export default function ChapterGeneratorPage() {
           },
         });
       } else {
-        setPipelineMsg(
-          (pJ as { error?: string }).error === "premium_contract_incomplete"
-            ? "Le plan du chapitre est incomplet. Retourne dans le studio, étape 3 « Plan », génère l'outline et le plan de production, puis reviens ici."
-            : (pJ as { message?: string }).message ?? (pJ as { error?: string }).error ?? "Erreur de lancement.",
-        );
+        setPipelineMsg(mapLaunchError(pJ as LaunchErrorPayload));
       }
     } catch (e) {
       setPipelineMsg(e instanceof Error ? e.message : "Erreur réseau");

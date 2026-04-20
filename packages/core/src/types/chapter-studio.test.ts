@@ -133,8 +133,13 @@ describe("chapter studio domain", () => {
     });
 
     const report = buildChapterReadinessReport(snapshot);
-    expect(report.warnings.some((issue) => issue.includes("75"))).toBe(true);
-    expect(report.warningItems.some((issue) => issue.id === "production_plan_under_minimum_images" && issue.step === "production_plan")).toBe(true);
+    // P0.1 — un plan sans panelBlueprints est désormais un *blocant* de studio,
+    // pas un simple warning. Il faut régénérer le plan avant de lancer la génération.
+    expect(report.blockerItems.some((issue) => issue.id === "production_plan_missing_blueprints" && issue.step === "production_plan")).toBe(true);
+    expect(report.contractStatus).toBe("missing_blueprints");
+    expect(report.launchBlocked).toBe(true);
+    expect(report.launchBlockedReason).toBe("missing_blueprints");
+    expect(report.panelBlueprintCount).toBe(0);
     expect(report.warningItems.some((issue) => issue.id === "missing_continuity_notes" && issue.step === "canon")).toBe(true);
   });
 

@@ -43,6 +43,27 @@ export function ProductionPlanCard({ plan, productionOutlineSource }: {
     process.env.NODE_ENV !== "production" &&
     (productionOutlineSource === "legacy_adapted" || isLegacyContract(plan));
 
+  // P0.2 — bannière de statut contrat visuel explicite.
+  // Règle : rouge si `panelBlueprints` absent/vide OU `panelBlueprints.length < minimumImages`,
+  // vert si `panelBlueprints.length >= minimumImages`. La couleur "verte si > 0" de
+  // l'ancienne version était trompeuse — le backend refuse le launch dans ce cas.
+  const minimumImages = plan?.minimumImages ?? 75;
+  const blueprintCount = Array.isArray(plan?.panelBlueprints) ? plan.panelBlueprints.length : 0;
+  const hasProductionPlan = Boolean(plan);
+  const contractComplete = hasProductionPlan && blueprintCount >= minimumImages;
+  const contractBannerTone: "danger" | "success" | null = !hasProductionPlan
+    ? null
+    : contractComplete
+      ? "success"
+      : "danger";
+  const contractBannerMessage = !hasProductionPlan
+    ? null
+    : contractComplete
+      ? `Contrat complet — ${blueprintCount} / ${minimumImages} blueprints`
+      : blueprintCount === 0
+        ? `Contrat incomplet — aucun blueprint (minimum requis ${minimumImages})`
+        : `Contrat incomplet — ${blueprintCount} / ${minimumImages} blueprints`;
+
   return (
     <Card className="border-border/60 bg-card/40">
       {showLegacyWarning && (
@@ -50,6 +71,21 @@ export function ProductionPlanCard({ plan, productionOutlineSource }: {
           ⚠ Contrat hérité détecté — régénérez le plan de production
         </div>
       )}
+      {contractBannerTone && contractBannerMessage ? (
+        <div
+          data-testid="production-plan-contract-banner"
+          data-tone={contractBannerTone}
+          className={
+            contractBannerTone === "danger"
+              ? "rounded-t-lg border-b border-red-500/40 bg-red-500/10 px-4 py-2 text-xs font-semibold text-red-600"
+              : "rounded-t-lg border-b border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-600"
+          }
+        >
+          {contractBannerTone === "danger" ? "⚠ " : "✓ "}
+          {contractBannerMessage}
+          {contractBannerTone === "danger" ? " — régénère le plan avant de lancer la génération." : null}
+        </div>
+      ) : null}
       <CardHeader>
         <CardTitle className="text-base flex items-center justify-between">
           <span>Production Plan</span>
@@ -187,15 +223,21 @@ export function ProductionPlanCard({ plan, productionOutlineSource }: {
               </div>
             )}
 
-            {/* Panel blueprints count */}
+            {/* Panel blueprints count — rouge si < minimum, vert si >=, orange si vide */}
             {Array.isArray(plan?.panelBlueprints) && (
               <div>
                 <p className="text-muted-foreground">Panels planifiés</p>
                 <p className="font-semibold">
-                  {plan.panelBlueprints.length > 0 ? (
-                    <span className="text-green-600">{plan.panelBlueprints.length} panels planifiés</span>
+                  {plan.panelBlueprints.length === 0 ? (
+                    <span className="text-red-600">0 / {minimumImages} — aucun blueprint généré</span>
+                  ) : plan.panelBlueprints.length < minimumImages ? (
+                    <span className="text-red-600">
+                      {plan.panelBlueprints.length} / {minimumImages} — plan incomplet
+                    </span>
                   ) : (
-                    <span className="text-yellow-500">0 — aucun blueprint généré</span>
+                    <span className="text-emerald-600">
+                      {plan.panelBlueprints.length} / {minimumImages} — plan complet
+                    </span>
                   )}
                 </p>
               </div>

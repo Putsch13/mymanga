@@ -129,11 +129,46 @@ export async function PATCH(req: Request, ctx: Ctx) {
     };
   }
 
+  // P0.5 — Option B : marquer explicitement le snapshot comme `launchBlocked`
+  // quand le contrat reconstruit côté serveur reste incomplet (panelBlueprints
+  // < minimumImages). On ne refuse pas 422 pour éviter de casser les flux
+  // existants (éditions de beats, approbations partielles, etc.), mais on
+  // remonte un warning fort dans `premiumMeta` pour que le front puisse
+  // afficher une bannière "plan incomplet" au lieu de laisser le user
+  // découvrir le problème au launch.
+  const resolvedPlanRecord = asRecord(resolvedProductionPlan);
+  const resolvedBlueprintCount = Array.isArray(resolvedPlanRecord.panelBlueprints)
+    ? (resolvedPlanRecord.panelBlueprints as unknown[]).length
+    : 0;
+  const resolvedMinimumImages =
+    typeof resolvedPlanRecord.minimumImages === "number" && resolvedPlanRecord.minimumImages > 0
+      ? (resolvedPlanRecord.minimumImages as number)
+      : 75;
+  const launchBlocked = resolvedBlueprintCount < resolvedMinimumImages;
+  const launchBlockedReason =
+    !launchBlocked
+      ? null
+      : resolvedBlueprintCount === 0
+        ? "missing_blueprints"
+        : "incomplete_plan";
+  if (launchBlocked) {
+    (premiumMeta as Record<string, unknown>).launchBlocked = true;
+    (premiumMeta as Record<string, unknown>).launchBlockedReason = launchBlockedReason;
+    (premiumMeta as Record<string, unknown>).minimumImages = resolvedMinimumImages;
+    console.warn(
+      `[approved-outline] launch_blocked chapterId=${chapterId} projectId=${projectId} ` +
+      `reason=${launchBlockedReason} ` +
+      `panelBlueprintsCount=${resolvedBlueprintCount} minimumImages=${resolvedMinimumImages} ` +
+      `— le snapshot est persisté mais le studio doit bloquer le launch.`,
+    );
+  }
+
   console.info(
     `[approved-outline] PATCH chapterId=${chapterId} projectId=${projectId} ` +
     `beatCount=${approvedOutline.beats.length} ` +
     `panelBlueprintsCount=${(premiumMeta as Record<string, unknown>).panelBlueprintsCount ?? 0} ` +
     `premiumReadinessScore=${(premiumMeta as Record<string, unknown>).premiumReadinessScore ?? "n/a"} ` +
+    `launchBlocked=${launchBlocked} ` +
     `heroCenterRatio=${(premiumMeta as Record<string, unknown>).heroCenterRatio ?? "n/a"}`,
   );
 

@@ -71,12 +71,13 @@ export function ChapterGenerateLauncher({
     setLaunching(false);
 
     // BUG-NOUVEAU-C : le backend peut renvoyer des 422 avec des codes structurés
-    // (SHOT_MONOTONY, premium_contract_incomplete). Auparavant on affichait juste
-    // json.message en texte brut, ce qui donnait des messages techniques
-    // incompréhensibles. On rédige désormais un message actionnable pour chaque
-    // code connu et on garde le fallback générique pour les autres erreurs.
+    // (SHOT_MONOTONY, premium_contract_incomplete, INCOMPLETE_PLAN). Auparavant on
+    // affichait juste json.message en texte brut, ce qui donnait des messages
+    // techniques incompréhensibles. On rédige désormais un message actionnable pour
+    // chaque code connu et on garde le fallback générique pour les autres erreurs.
     if (!res.ok) {
       const code = typeof json.code === "string" ? json.code : null;
+      const errorKey = typeof json.error === "string" ? json.error : null;
       if (code === "SHOT_MONOTONY") {
         const pct = typeof json.varietyScore === "number"
           ? `${(json.varietyScore * 100).toFixed(0)}%`
@@ -87,7 +88,18 @@ export function ChapterGenerateLauncher({
         setMessage(
           `⚠️ Variété de plans insuffisante (${pct}).${missing} Retourne dans le studio et régénère le plan pour diversifier les shots.`
         );
-      } else if (code === "premium_contract_incomplete") {
+      } else if (code === "INCOMPLETE_PLAN" || errorKey === "incomplete_plan") {
+        // P0.4 — plan de production sous le minimum de blueprints. Le studio
+        // aurait dû bloquer avant l'appel, mais on sécurise côté launcher
+        // pour les cas où le snapshot studio est stale ou partiellement
+        // invalidé par une édition manuelle.
+        const count = typeof json.panelBlueprintCount === "number" ? json.panelBlueprintCount : null;
+        const minimum = typeof json.minimumImages === "number" ? json.minimumImages : null;
+        const ratio = count !== null && minimum !== null ? `${count} blueprints pour un minimum de ${minimum}` : "un plan incomplet";
+        setMessage(
+          `Le plan validé côté studio est incomplet : ${ratio}. Retourne à l'étape Plan et clique sur « Régénérer le plan » avant de relancer la génération.`
+        );
+      } else if (code === "premium_contract_incomplete" || errorKey === "premium_contract_incomplete") {
         const missing = Array.isArray(json.missing) && json.missing.length > 0
           ? (json.missing as string[]).join(", ")
           : "éléments inconnus";
