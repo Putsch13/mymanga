@@ -483,6 +483,11 @@ export const chapterReadinessReportSchema = z.object({
   // Optionnel pour compatibilité ascendante avec snapshots persistés avant P0.
   panelBlueprintCount: z.number().int().min(0).optional(),
   contractStatus: chapterContractStatusSchema.optional(),
+  // P1.1 — booléen dérivé `contractStatus === "ok"`, exposé pour éviter aux
+  // composants UI de refaire la comparaison. Source de vérité unique pour les
+  // badges "contrat complet" / "contrat incomplet" dans la plan-step et la
+  // pipeline page.
+  contractComplete: z.boolean().optional(),
   launchBlocked: z.boolean().optional(),
   launchBlockedReason: chapterLaunchBlockedReasonSchema.nullable().optional(),
 });

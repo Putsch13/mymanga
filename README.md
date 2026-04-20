@@ -326,6 +326,37 @@ Cette passe supprime la divergence UI/backend autour des plans de production inc
 - Suite complete verte : **112 tests `core` + 404 tests `workflow` + 271 tests `ai` + 394 tests `apps/web`** (total >1180 assertions).
 - Nouveaux tests cibles : `chapter-studio-readiness` (5), `pipeline-launch-error-mapping` (8), `chapter-studio-routes` (+1 pour le readiness route + 1 pour launchBlocked) = **15 tests supplementaires** pour verrouiller le bug `INCOMPLETE_PLAN`.
 
+### P1.1 — Diagnostic structure du contrat expose au readiness report
+- `packages/core/src/types/chapter-studio.ts` : `chapterReadinessReportSchema` expose desormais `contractComplete: boolean` (derive de `contractStatus === "ok"`). Source de verite unique pour l'UI — evite aux composants de refaire la comparaison `panelBlueprints >= minimumImages`.
+- `packages/core/src/types/chapter-studio-helpers.ts` : `buildChapterReadinessReport` renvoie `contractComplete` alongside des autres flags (`panelBlueprintCount`, `contractStatus`, `launchBlocked`, `launchBlockedReason`).
+- Tests : assertions ajoutees dans `chapter-studio-readiness.test.ts` sur `contractComplete` pour `missing_production_plan`, `incomplete_blueprints` et `ok`.
+
+### P1.2 — Observabilite structuree sur `incomplete_plan`
+- `apps/web/app/api/projects/[id]/chapters/[chapterId]/launch/route.ts` et `apps/web/app/api/projects/[id]/pipeline/route.ts` : les logs `[launch|pipeline] incomplete_plan` incluent desormais `userId`, `projectId`, `chapterId`, `blueprints`, `minimum`, `gap`, `productionPlanSource`, `productionOutlineSource`, `contractStatus` et `readinessLaunchBlocked`.
+- Objectif : mesurer cote obs combien de chapitres sortent incomplets en prod, pour quelle raison, et avec quel gap — permet de trier entre bug builder, drift edition manuelle, ou imports legacy.
+
+### P1.3 — Wording produit "Outline valide" vs "Contrat images complet"
+- `apps/web/components/studio/chapter-plan-step.tsx` : deux badges distincts dans la carte "Etat du chapitre avant generation" :
+  - `Outline valide` (vert si beats presents, muet sinon).
+  - `Contrat images complet (N/M)` (vert si N >= M, rouge si incomplet, muet si pas de plan).
+- Un hint rouge ("Contrat incomplet, régénère avant validation") apparait au-dessus du bouton "Valider le plan" quand le plan existe mais que le contrat est sous le minimum. Le bouton reste cliquable (`onValidatePlan` gere le blocage cote studio editor, voir P0.3) mais l'attribut `aria-disabled` + `title` informent les users techniques.
+
+### P1.4 — Banniere de reparation guidee
+- Nouveau composant `apps/web/components/studio/incomplete-plan-repair-banner.tsx` (`data-testid="incomplete-plan-repair-banner"`) monte en haut du studio quand `contractStatus` vaut `missing_blueprints` ou `incomplete_blueprints`.
+- Message adapte : "Ce chapitre utilise un plan incomplet (52/75 blueprints). La generation n'est pas lançable — régénère le plan pour rétablir un contrat images valide. Tes données canon et narratives ne sont pas perdues."
+- CTA "Régénérer le plan" qui cible directement l'etape `plan → production_plan` via `goToFlowStep` + `generateOutlines`. Reparation non destructive.
+
+### P2.1 — Fix cause racine : `minimumImages` dynamique dans le builder premium
+- `packages/ai/src/services/premium-chapter-contract-builder.ts` : `BuildPremiumChapterContractInput` accepte desormais `minimumPanels?: number`. Le builder utilise cette valeur pour `expandBlueprintsToMinimum` au lieu d'une constante `MINIMUM_PREMIUM_PANELS = 75` figée. Si omise, fallback 75 (aligne avec `schema.prisma`).
+- `apps/web/lib/premium-chapter-contract.ts` : `BuildPremiumContractInput.minimumPanels` propage la valeur au builder async.
+- `apps/web/app/api/projects/[id]/chapters/[chapterId]/approved-outline/route.ts` : lit `chapter.minimumImages` depuis la colonne Prisma et le transmet au builder lors de la reconstruction serveur. Cela elimine la regression "rebuild cape silencieusement a 75" quand un chapitre exige plus (ou quand `buildPanelBlueprintsFromBeat` sort trop peu apres filtrage).
+- Log ajoute `[premium-contract] incomplete_plan_after_build raw=X expanded=Y minimum=Z` pour tracer les cas rarissimes ou meme l'expansion ne peut pas atteindre le minimum (ex. `rawBlueprints` vides).
+- Tests : `packages/ai/src/services/premium-chapter-contract-builder.test.ts` (3 tests : defaut 75, extension a 100 si demande, valeur invalide fallback 75).
+
+### Tests finaux (P1+P2)
+- **63 tests `core` (+5 readiness) + 404 tests `workflow` + 271+3 tests `ai` + 394 tests `apps/web`** — toutes suites vertes.
+- Zero regression sur le pipeline existant. Les nouveaux flags `contractComplete`, `panelBlueprintCount`, `launchBlocked` sont optionnels cote schema pour rester compatibles avec les snapshots persistes avant ces passes.
+
 ---
 
 ## Assainissement CTO (P0 + P1 + P2 + P3 — avril 2026)

@@ -11,6 +11,7 @@ import { ChapterEditorSidebarSummary } from "./chapter-editor-sidebar-summary";
 import { ChapterGenerationReviewStep } from "./chapter-generation-review-step";
 import { ChapterOnboardingBanner } from "./chapter-onboarding-banner";
 import { ChapterPlanStep } from "./chapter-plan-step";
+import { IncompletePlanRepairBanner } from "./incomplete-plan-repair-banner";
 import {
   computeChapterSummary,
   computeFlowCompletion,
@@ -430,6 +431,20 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
         <ChapterOnboardingBanner
           projectId={projectId}
           hasCharacters={characterCatalog.length > 0}
+        />
+
+        {/* P1.4 — bannière de réparation guidée : reste visible en haut du
+            studio tant que le contrat images est incomplet. Clic "Régénérer
+            le plan" = on rejoue l'étape `plan` sans perdre le reste. */}
+        <IncompletePlanRepairBanner
+          contractStatus={readiness?.contractStatus}
+          panelBlueprintCount={readiness?.panelBlueprintCount}
+          minimumImages={readiness?.imageCounts.minimumImages}
+          generatingOutline={generatingOutline}
+          onRegeneratePlan={() => {
+            goToFlowStep("plan", null, "production_plan");
+            void generateOutlines();
+          }}
         />
 
         <div className="flex items-center gap-2">

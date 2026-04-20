@@ -70,6 +70,13 @@ export interface BuildPremiumContractInput {
   userIntent?: string | null;
   heroCharacterId?: string | null;
   existingStudioData?: Record<string, unknown> | null;
+  /**
+   * P2.1 — contrainte remontée depuis `Chapter.minimumImages` (défaut 75).
+   * Si omis, le builder retombe sur 75 pour rester compatible avec l'ancien
+   * comportement. Quand fourni, la reconstruction du plan garantit que le
+   * nombre de blueprints atteint cette cible.
+   */
+  minimumPanels?: number | null;
 }
 
 // ─── buildPremiumChapterContractFromApprovedOutline ───────────────────────────
@@ -86,6 +93,11 @@ export async function buildPremiumChapterContractFromApprovedOutline(
     heroCharacterId: input.heroCharacterId ?? null,
     projectGenre: input.projectGenre ?? null,
     projectTone: input.projectTone ?? null,
+    // P2.1 — on transmet le vrai minimum du chapitre pour éviter que le
+    // builder cape silencieusement à 75 quand le chapitre exige plus.
+    minimumPanels: typeof input.minimumPanels === "number" && input.minimumPanels > 0
+      ? input.minimumPanels
+      : undefined,
   });
 
   const productionOutline = raw.productionOutline as ProductionOutline;

@@ -212,6 +212,19 @@ export function ChapterPlanStep({
 }) {
   const hasOutline = (draft.editorialOutline?.beats?.length ?? 0) > 0 || (draft.productionOutline?.beats?.length ?? 0) > 0;
 
+  // P1.3 — wording produit : "Valider le plan" était ambigu (on pouvait le
+  // comprendre comme "prêt à générer" alors qu'il manque parfois des
+  // blueprints). On distingue explicitement deux choses :
+  //   1) Outline éditorial validé (déroulé narratif OK)
+  //   2) Contrat images complet (panelBlueprints.length >= minimumImages)
+  const hasProductionPlan = Boolean(draft.productionPlan);
+  const panelBlueprintCount = Array.isArray(draft.productionPlan?.panelBlueprints)
+    ? draft.productionPlan.panelBlueprints.length
+    : 0;
+  const minimumImages = imageCounts.minimumImages ?? draft.productionPlan?.minimumImages ?? 0;
+  const contractComplete = hasProductionPlan && panelBlueprintCount >= minimumImages && minimumImages > 0;
+  const outlineValidated = hasOutline;
+
   return (
     <div data-studio-section="plan" className="space-y-6">
 
@@ -427,6 +440,39 @@ export function ChapterPlanStep({
           <CardTitle className="text-base">État du chapitre avant génération</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
+          {/* P1.3 — deux badges distincts pour lever l'ambiguité entre
+              "outline narratif validé" et "contrat images complet". */}
+          <div className="flex flex-wrap items-center gap-2" data-testid="plan-step-statuses">
+            <span
+              data-testid="plan-status-outline"
+              data-tone={outlineValidated ? "success" : "muted"}
+              className={
+                outlineValidated
+                  ? "inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-200"
+                  : "inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-xs font-medium text-muted-foreground"
+              }
+            >
+              {outlineValidated ? "✓ Outline validé" : "○ Outline à générer"}
+            </span>
+            <span
+              data-testid="plan-status-contract"
+              data-tone={contractComplete ? "success" : hasProductionPlan ? "danger" : "muted"}
+              className={
+                contractComplete
+                  ? "inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-200"
+                  : hasProductionPlan
+                    ? "inline-flex items-center gap-1 rounded-full border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-200"
+                    : "inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-xs font-medium text-muted-foreground"
+              }
+            >
+              {contractComplete
+                ? `✓ Contrat images complet (${panelBlueprintCount}/${minimumImages})`
+                : hasProductionPlan
+                  ? `⚠ Contrat images incomplet (${panelBlueprintCount}/${minimumImages})`
+                  : "○ Contrat images à générer"}
+            </span>
+          </div>
+
           <div className="grid gap-4 md:grid-cols-5">
             <div><p className="text-muted-foreground">Préparation</p><p>{preparationScore}/100</p></div>
             <div><p className="text-muted-foreground">Images estimées</p><p>{imageCounts.estimatedImages}</p></div>
@@ -435,11 +481,34 @@ export function ChapterPlanStep({
             <div><p className="text-muted-foreground">Manquantes</p><p>{imageCounts.missingImages}</p></div>
           </div>
 
+          {/* P1.3 — si le contrat images est incomplet, on affiche un message
+              produit clair et on dirige le user vers "Régénérer le plan"
+              plutôt que de laisser "Valider le plan" comme action principale. */}
+          {hasProductionPlan && !contractComplete && (
+            <div
+              data-testid="plan-step-contract-hint"
+              className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-red-200"
+            >
+              Le contrat images est incomplet ({panelBlueprintCount}/{minimumImages} blueprints).
+              La génération n&apos;est pas lançable — régénère le plan avant validation.
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-3 justify-end">
             <Button type="button" variant="secondary" onClick={() => void onGenerateOutlines()} disabled={generatingOutline}>
               {generatingOutline ? "Génération..." : "Régénérer le plan"}
             </Button>
-            <Button type="button" onClick={onValidatePlan}>
+            <Button
+              type="button"
+              onClick={onValidatePlan}
+              data-testid="plan-step-validate"
+              aria-disabled={hasProductionPlan && !contractComplete ? true : undefined}
+              title={
+                hasProductionPlan && !contractComplete
+                  ? `Contrat incomplet (${panelBlueprintCount}/${minimumImages}) — régénère le plan avant validation.`
+                  : undefined
+              }
+            >
               Valider le plan
             </Button>
           </div>

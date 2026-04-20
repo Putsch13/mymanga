@@ -50,12 +50,21 @@ export async function PATCH(req: Request, ctx: Ctx) {
   const providedProductionOutline = body.productionOutline;
   const providedProductionPlan = body.productionPlan;
 
+  // P2.1 — on transmet le `minimumImages` réel du chapitre au builder premium
+  // pour empêcher la régression "rebuild cape silencieusement à 75". La
+  // valeur est lue depuis la colonne Chapter.minimumImages (défaut 75).
+  const chapterMinimumImages = typeof (chapter as { minimumImages?: number | null }).minimumImages === "number"
+    && (chapter as { minimumImages?: number | null }).minimumImages! > 0
+    ? (chapter as { minimumImages: number }).minimumImages
+    : 75;
+
   // Toujours reconstruire le contrat premium côté serveur pour validation
   const rebuiltContract = await buildPremiumChapterContractFromApprovedOutline({
     approvedOutline,
     heroCharacterId,
     projectGenre: project?.primaryGenre ?? null,
     projectTone: project?.tone ?? null,
+    minimumPanels: chapterMinimumImages,
   });
 
   if (providedProductionOutline && providedProductionPlan) {

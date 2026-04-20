@@ -439,6 +439,7 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
     imageCounts,
     panelBlueprintCount,
     contractStatus,
+    contractComplete: contractStatus === "ok",
     launchBlocked,
     launchBlockedReason,
   };

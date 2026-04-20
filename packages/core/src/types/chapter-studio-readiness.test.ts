@@ -134,6 +134,9 @@ describe("chapter readiness — contrat de production P0.1", () => {
     expect(report.launchBlocked).toBe(true);
     expect(report.launchBlockedReason).toBe("missing_production_plan");
     expect(report.panelBlueprintCount).toBe(0);
+    // P1.1 — `contractComplete` est exposé pour éviter aux composants UI de
+    // recalculer la comparaison `panelBlueprints >= minimumImages`.
+    expect(report.contractComplete).toBe(false);
     expect(report.blockerItems.some((i) => i.id === "missing_production_plan")).toBe(true);
   });
 
@@ -172,6 +175,7 @@ describe("chapter readiness — contrat de production P0.1", () => {
     const report = buildChapterReadinessReport(snapshot);
 
     expect(report.contractStatus).toBe("incomplete_blueprints");
+    expect(report.contractComplete).toBe(false);
     expect(report.launchBlocked).toBe(true);
     expect(report.launchBlockedReason).toBe("incomplete_plan");
     expect(report.panelBlueprintCount).toBe(52);
@@ -200,6 +204,7 @@ describe("chapter readiness — contrat de production P0.1", () => {
     const report = buildChapterReadinessReport(snapshot);
 
     expect(report.contractStatus).toBe("ok");
+    expect(report.contractComplete).toBe(true);
     expect(report.launchBlocked).toBe(false);
     expect(report.launchBlockedReason).toBeNull();
     expect(report.panelBlueprintCount).toBe(80);

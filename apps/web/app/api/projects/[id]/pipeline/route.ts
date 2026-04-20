@@ -211,8 +211,20 @@ export async function POST(req: Request, ctx: Ctx) {
       );
     }
     if (err instanceof IncompletePlanError) {
+      // P1.2 — observabilité structurée : on veut mesurer combien de
+      // chapitres sortent incomplets en prod et pour quelle raison.
+      const productionPlanSource =
+        (snapshot.data.productionPlan as { source?: string } | undefined)?.source ?? "unknown";
+      const productionOutlineSource =
+        (snapshot.data.productionOutline as { source?: string } | undefined)?.source ?? "unknown";
       console.warn(
-        `[pipeline] incomplete_plan chapterId=${body.chapterId} blueprints=${err.panelBlueprintCount} minimum=${err.minimumImages}`,
+        `[pipeline] incomplete_plan userId=${user.id} projectId=${projectId} chapterId=${body.chapterId} ` +
+        `blueprints=${err.panelBlueprintCount} minimum=${err.minimumImages} ` +
+        `gap=${err.minimumImages - err.panelBlueprintCount} ` +
+        `productionPlanSource=${productionPlanSource} ` +
+        `productionOutlineSource=${productionOutlineSource} ` +
+        `contractStatus=${snapshot.data.readinessReport?.contractStatus ?? "n/a"} ` +
+        `readinessLaunchBlocked=${snapshot.data.readinessReport?.launchBlocked ?? "n/a"}`,
       );
       return NextResponse.json(
         {

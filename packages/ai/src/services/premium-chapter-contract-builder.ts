@@ -28,6 +28,19 @@ export interface BuildPremiumChapterContractInput {
       locationChange?: string;
     };
   }>;
+  /**
+   * P2.1 — Budget minimum de panels pour ce chapitre. Permet au contrat
+   * premium d'honorer le `Chapter.minimumImages` réel (défaut 75 dans le
+   * schema Prisma) plutôt qu'une constante figée.
+   *
+   * Cause racine du bug "52 blueprints pour 75 minimum" historique :
+   * `buildPremiumChapterContract` utilisait `MINIMUM_PREMIUM_PANELS = 75`
+   * en dur. Un chapitre configuré avec `minimumImages > 75` (ou un plan
+   * rebuilt dont `buildPanelBlueprintsFromBeat` sortait trop peu de panels
+   * après filtrage) finissait avec un contrat sous le minimum — sans que le
+   * builder s'en aperçoive. On remonte maintenant la contrainte au caller.
+   */
+  minimumPanels?: number;
 }
 
 export interface ObjectStateFrame {
@@ -220,15 +233,31 @@ export function buildPremiumChapterContract(
   });
 
   const rawBlueprints = enrichedBeats.flatMap((b) => b._blueprints);
-  // READ-PREMIUM : garantir un minimum de 75 panels par chapitre (valeur Chapter.minimumImages
-  // par défaut dans schema.prisma). Sans ça, `buildPanelBlueprintsFromBeat` produit ~30 panels
-  // (≈3 par beat), et le reader n'affiche que ~8 cases visibles au user — le plan enrichit
-  // `targetImages` à 75 en mémoire mais `panelBlueprints.length` reste bloqué à 30.
-  const MINIMUM_PREMIUM_PANELS = 75;
-  const allBlueprints = expandBlueprintsToMinimum(rawBlueprints, MINIMUM_PREMIUM_PANELS);
+  // READ-PREMIUM : garantir un minimum de panels par chapitre.
+  // P2.1 — on respecte désormais le `minimumImages` réel du chapitre (passé
+  // par le caller) au lieu d'une constante figée à 75. Cela élimine la cause
+  // racine du bug "52 blueprints / 75 minimum" observé en prod quand un
+  // chapitre était configuré avec un minimum différent. Le défaut 75 reste
+  // aligné avec `schema.prisma` (Chapter.minimumImages @default(75)).
+  const MINIMUM_PREMIUM_PANELS_DEFAULT = 75;
+  const minimumPanels = typeof input.minimumPanels === "number" && input.minimumPanels > 0
+    ? input.minimumPanels
+    : MINIMUM_PREMIUM_PANELS_DEFAULT;
+  const allBlueprints = expandBlueprintsToMinimum(rawBlueprints, minimumPanels);
   if (allBlueprints.length > rawBlueprints.length) {
     console.log(
-      `[premium-contract] expanded panelBlueprints ${rawBlueprints.length} → ${allBlueprints.length} (min=${MINIMUM_PREMIUM_PANELS})`,
+      `[premium-contract] expanded panelBlueprints ${rawBlueprints.length} → ${allBlueprints.length} (min=${minimumPanels})`,
+    );
+  }
+  // P2.1 — si malgré l'expansion on reste sous le minimum (cas rarissime :
+  // `rawBlueprints.length === 0` alors qu'on demande un minimum > 0), on le
+  // log explicitement pour tracer l'incohérence côté observabilité.
+  if (allBlueprints.length < minimumPanels) {
+    console.warn(
+      `[premium-contract] incomplete_plan_after_build raw=${rawBlueprints.length} ` +
+      `expanded=${allBlueprints.length} minimum=${minimumPanels} — le builder n'a pas pu ` +
+      `atteindre le minimum (probablement rawBlueprints vides). La route PATCH approved-outline ` +
+      `persistera le snapshot avec launchBlocked=true.`,
     );
   }
   const focusBudget = computeChapterFocusBudget(allBlueprints);

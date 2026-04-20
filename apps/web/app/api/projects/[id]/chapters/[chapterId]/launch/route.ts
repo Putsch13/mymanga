@@ -340,8 +340,21 @@ export async function POST(_req: Request, ctx: Ctx) {
     }
     // P0.6 : plan incomplet = refus propre, pas d'expansion silencieuse.
     if (err instanceof IncompletePlanError) {
+      // P1.2 — observabilité structurée. On cherche combien de chapitres
+      // sortent incomplets en prod, avec quel gap et sous quelle source de
+      // contrat (premium vs legacy_adapted).
+      const productionPlanSource =
+        (snapshot.data.productionPlan as { source?: string } | undefined)?.source ?? "unknown";
+      const productionOutlineSource =
+        (snapshot.data.productionOutline as { source?: string } | undefined)?.source ?? "unknown";
       console.warn(
-        `[launch] incomplete_plan chapterId=${chapterId} blueprints=${err.panelBlueprintCount} minimum=${err.minimumImages}`,
+        `[launch] incomplete_plan userId=${user.id} projectId=${projectId} chapterId=${chapterId} ` +
+        `blueprints=${err.panelBlueprintCount} minimum=${err.minimumImages} ` +
+        `gap=${err.minimumImages - err.panelBlueprintCount} ` +
+        `productionPlanSource=${productionPlanSource} ` +
+        `productionOutlineSource=${productionOutlineSource} ` +
+        `contractStatus=${snapshot.data.readinessReport?.contractStatus ?? "n/a"} ` +
+        `readinessLaunchBlocked=${snapshot.data.readinessReport?.launchBlocked ?? "n/a"}`,
       );
       return NextResponse.json(
         {
