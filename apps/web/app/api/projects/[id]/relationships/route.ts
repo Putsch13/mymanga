@@ -4,6 +4,7 @@ import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized, validationError } from "@/lib/api-response";
 import { getOwnedProject } from "@/lib/ownership";
+import { parseJsonBody } from "@/lib/parse-json-body";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -42,19 +43,10 @@ export async function POST(req: Request, ctx: Ctx) {
   const project = await getOwnedProject(user.id, projectId);
   if (!project) return notFound();
 
-  // P0.5 — safeParse + gestion d'erreur pour éviter les 500 sur body invalide.
-  let rawBody: unknown;
-  try {
-    rawBody = await req.json();
-  } catch {
-    return validationError("invalid_body");
-  }
-  const parsed = bodySchema.safeParse(rawBody);
-  if (!parsed.success) {
-    return validationError(
-      parsed.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join(", "),
-    );
-  }
+  // P1.4 — parsing + validation unifies via parseJsonBody (400 malformed /
+  // 422 invalid) au lieu d'un try/catch + safeParse dans chaque route.
+  const parsed = await parseJsonBody(req, bodySchema);
+  if (!parsed.ok) return parsed.response;
   const body = parsed.data;
 
   // P0.5 — les IDs de personnages doivent appartenir au projet courant,

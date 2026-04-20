@@ -14,6 +14,7 @@ export * from "./narrative-facts";
 export * from "./panel-cast";
 export * from "./shot-plan";
 export * from "./enum-normalizer";
+export * from "./character-role";
 export * from "./page-layout-configs";
 export * from "./image-intent-taxonomy";
 export * from "./canonical-image-prompt-packet";

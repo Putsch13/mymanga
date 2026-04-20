@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { prisma } from "@manga-ai-studio/db";
-import { unauthorized, notFound, validationError } from "@/lib/api-response";
+import { unauthorized, notFound } from "@/lib/api-response";
 import { getOwnedProject } from "@/lib/ownership";
+import { parseJsonBody } from "@/lib/parse-json-body";
 
 type Ctx = { params: Promise<{ id: string; npcId: string }> };
 
@@ -25,18 +26,12 @@ export async function POST(req: Request, ctx: Ctx) {
     return notFound();
   }
 
-  let rawBody: unknown = {};
-  try {
-    rawBody = await req.json();
-  } catch {
-    rawBody = {};
-  }
-  const parsed = promoteBodySchema.safeParse(rawBody);
-  if (!parsed.success) {
-    return validationError(
-      parsed.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join(", "),
-    );
-  }
+  // P1.4 — parseJsonBody unifie (body vide autorise : la promotion peut se
+  // faire sans override de nom).
+  const parsed = await parseJsonBody(req, promoteBodySchema, {
+    allowEmptyBody: true,
+  });
+  if (!parsed.ok) return parsed.response;
 
   // P0.5 — on lit le NPC scoped au projectId (la clé unique stableNpcId est
   // globale, donc on ajoute explicitement projectId pour éviter toute

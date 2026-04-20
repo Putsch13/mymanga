@@ -38,7 +38,10 @@ import {
   retryBodySchema,
   type RetryBodyParsed,
 } from "@/lib/retry/retry-packet-resolver";
-import { resolveStableImageReferences } from "@manga-ai-studio/workflow";
+import {
+  resolveStableImageReferences,
+  evaluatePromptLanguage,
+} from "@manga-ai-studio/workflow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -568,6 +571,38 @@ export async function POST(req: Request, ctx: Ctx) {
       return c != null;
     }) && (retrySubjectFocus === "hero" || !retrySubjectFocus);
 
+    // P1.1 — garde linguistique runtime pour le retry : blocage strict si
+    // plusieurs tokens FR subsistent, warning en trace sinon. Evite l'envoi
+    // d'un prompt hybride FR/EN au provider.
+    const retryLanguageCheck = evaluatePromptLanguage({
+      positivePrompt: effectivePositivePrompt,
+      negativePrompt: effectiveNegativePrompt,
+    });
+    const retryLanguageWarnings: string[] = [];
+    if (retryLanguageCheck.outcome === "block") {
+      console.error(
+        `[retry] residual_french_blocked sceneImageId=${sceneImageId} tokens=${retryLanguageCheck.positiveTokens.join("|")}`,
+      );
+      return validationError(
+        "Le prompt final contient du français résiduel, envoi provider refusé.",
+        {
+          positiveTokens: retryLanguageCheck.positiveTokens,
+          negativeTokens: retryLanguageCheck.negativeTokens,
+          strictMode:
+            process.env.MANGA_PROMPT_LANGUAGE_GUARD_STRICT === "true"
+            || process.env.MANGA_PROMPT_LANGUAGE_GUARD_STRICT === "1",
+        },
+      );
+    }
+    if (retryLanguageCheck.outcome === "warn") {
+      retryLanguageWarnings.push(
+        `residual_french_tokens(retry):${retryLanguageCheck.positiveTokens.join("|")}${retryLanguageCheck.negativeTokens.length > 0 ? ` neg:${retryLanguageCheck.negativeTokens.join("|")}` : ""}`,
+      );
+      console.warn(
+        `[retry] residual_french_warn sceneImageId=${sceneImageId} tokens=${retryLanguageCheck.positiveTokens.join("|")}`,
+      );
+    }
+
     const out = await runRoutedImageGeneration(
       {
         mode: "PANEL_DRAFT",
@@ -787,7 +822,7 @@ export async function POST(req: Request, ctx: Ctx) {
         origin: "retry",
         retryMode,
         retryAttemptIndex: retryAttemptIndex + 1,
-        warnings: [],
+        warnings: retryLanguageWarnings,
       },
       // P0.3 — user override tri-état (null clear autorisé)
       nextUserOverride: nextUserOverride as Record<string, unknown> | null,

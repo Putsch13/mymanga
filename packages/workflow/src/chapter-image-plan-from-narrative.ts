@@ -14,6 +14,7 @@ import type {
   ContentRating,
   ImageIntentType,
 } from "@manga-ai-studio/core";
+import { canonicalizeCharacterRoleType } from "@manga-ai-studio/core";
 import {
   buildChapterImagePlan,
   validateChapterImagePlan,
@@ -68,16 +69,32 @@ function normalizeRating(value: unknown): ContentRating {
   return "teen";
 }
 
+/**
+ * P2.1 — on delegue la normalisation a `canonicalizeCharacterRoleType` (core)
+ * pour eviter les regex locales qui divergent entre modules. On conserve le
+ * signature historique (`hero | enemy | ally | npc | other`) pour ne pas
+ * casser les callers, mais la logique de reconnaissance est unique.
+ */
 function roleTypeToRole(
   roleType: string | null | undefined,
 ): "hero" | "enemy" | "ally" | "npc" | "other" {
-  if (!roleType) return "other";
-  const lower = roleType.toLowerCase();
-  if (/hero|protagon|main_hero|héros/i.test(lower)) return "hero";
-  if (/villain|antagon|enemy|boss|rival/i.test(lower)) return "enemy";
-  if (/ally|companion|support/i.test(lower)) return "ally";
-  if (/npc/i.test(lower)) return "npc";
-  return "other";
+  const canonical = canonicalizeCharacterRoleType(roleType);
+  switch (canonical) {
+    case "hero":
+      return "hero";
+    case "antagonist":
+    case "rival":
+      return "enemy";
+    case "ally":
+    case "support":
+    case "secondary":
+      return "ally";
+    case "npc":
+    case "recurring_npc":
+      return "npc";
+    default:
+      return "other";
+  }
 }
 
 function mapPlannedImageToPanelInput(
@@ -232,17 +249,121 @@ export function buildChapterImagePlanFromNarrative(
 
   const plan = buildChapterImagePlan(builderInput);
 
-  // Sur- ou sous-reconstitution : on garde la correspondance 1:1 par ordre
-  // (plan[i] correspond à plannedImages[i]) pour pouvoir attacher les items
-  // par `sceneImageId` ensuite.
-  const planItemBySceneImageId = new Map<string, ChapterImagePlanItem>();
-  for (let i = 0; i < input.plannedImages.length && i < plan.length; i++) {
-    planItemBySceneImageId.set(input.plannedImages[i].sceneImageId, plan[i]);
-  }
+  // P1.3 — mapping stable sceneImageId → planItem.
+  //
+  // Strategie :
+  //   1. On construit une cle deterministe `${pageIndex}|${panelIndex}|${beatId?}`
+  //      a partir de `baseMetadata` pour chaque plannedImage.
+  //   2. On tente de matcher chaque plannedImage sur le planItem ayant la meme
+  //      cle.
+  //   3. En fallback (cle partielle ou collision), on rebascule sur l'ordre
+  //      des tableaux en tracant l'evenement.
+  //
+  // Si les cardinalites different, on jette explicitement pour ne pas laisser
+  // passer un mapping silencieusement decale.
+  const planItemBySceneImageId = buildStablePlanItemMap(input.plannedImages, plan);
 
   const validation = validateChapterImagePlan(plan, Math.min(60, plan.length), 80);
 
   return { plan, validation, planItemBySceneImageId };
+}
+
+/**
+ * P1.3 — jointure stable sceneImageId ↔ planItem, avec fallback ordre si la
+ * cle composite n'est pas disponible. Expose via export pour tests cibles.
+ */
+export function buildStablePlanItemMap(
+  plannedImages: ReadonlyArray<NarrativePlannedImageLike>,
+  plan: ReadonlyArray<ChapterImagePlanItem>,
+): Map<string, ChapterImagePlanItem> {
+  const map = new Map<string, ChapterImagePlanItem>();
+
+  if (plannedImages.length === 0) return map;
+
+  if (plannedImages.length !== plan.length) {
+    // On refuse de bricoler un mapping partiel : le reste du pipeline va lire
+    // ce Map et traiter les entrees manquantes comme des bugs silencieux.
+    throw new Error(
+      `chapter-image-plan-from-narrative: cardinality_mismatch plannedImages=${plannedImages.length} plan=${plan.length}`,
+    );
+  }
+
+  // Construit un index `key → planItem index` pour les lookups deterministes.
+  const planIndexByKey = new Map<string, number>();
+  for (let i = 0; i < plan.length; i++) {
+    const p = plan[i];
+    const key = makePlanItemKey(p.pageIndex, p.panelIndex, p.beatId);
+    if (!planIndexByKey.has(key)) {
+      planIndexByKey.set(key, i);
+    }
+  }
+
+  let stableMatches = 0;
+  let orderFallbacks = 0;
+  for (let i = 0; i < plannedImages.length; i++) {
+    const planned = plannedImages[i];
+    const joinKey = deriveJoinKeyFromPlanned(planned);
+    let matchedPlanItem: ChapterImagePlanItem | undefined;
+    if (joinKey) {
+      const idx = planIndexByKey.get(joinKey);
+      if (idx !== undefined) {
+        matchedPlanItem = plan[idx];
+        stableMatches++;
+      }
+    }
+    if (!matchedPlanItem) {
+      matchedPlanItem = plan[i];
+      orderFallbacks++;
+    }
+    map.set(planned.sceneImageId, matchedPlanItem);
+  }
+
+  if (orderFallbacks > 0) {
+    console.warn(
+      `[chapter-image-plan] stable_mapping_partial stable=${stableMatches} orderFallbacks=${orderFallbacks} total=${plannedImages.length}`,
+    );
+  }
+
+  return map;
+}
+
+function makePlanItemKey(
+  pageIndex: number | null | undefined,
+  panelIndex: number | null | undefined,
+  beatId: string | null | undefined,
+): string {
+  return `${pageIndex ?? "?"}|${panelIndex ?? "?"}|${beatId ?? "?"}`;
+}
+
+function deriveJoinKeyFromPlanned(
+  planned: NarrativePlannedImageLike,
+): string | null {
+  const meta = planned.baseMetadata ?? {};
+  const pageIndex = pickNumber(meta.pageIndex) ?? pickNumber(meta.page);
+  const panelIndex =
+    pickNumber(meta.panelIndex)
+    ?? pickNumber(planned.panel?.panelNumber)
+    ?? null;
+  const beatId =
+    pickString(meta.beatId) ?? pickString(meta.sourceBeatId) ?? null;
+
+  if (pageIndex == null && panelIndex == null && beatId == null) {
+    return null;
+  }
+  return makePlanItemKey(pageIndex, panelIndex, beatId);
+}
+
+function pickNumber(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string") {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function pickString(v: unknown): string | null {
+  return typeof v === "string" && v.trim().length > 0 ? v : null;
 }
 
 /**

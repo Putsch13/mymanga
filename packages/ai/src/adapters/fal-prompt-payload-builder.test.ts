@@ -12,6 +12,8 @@ function makePacket(overrides: Partial<CanonicalImagePromptPacket> = {}): Canoni
     projectId: "proj",
     chapterId: "ch1",
     imageId: "img1",
+    sceneImageId: null,
+    panelBlueprintId: null,
     sourceBeatId: "b1",
     pageIndex: 0,
     panelIndex: 0,

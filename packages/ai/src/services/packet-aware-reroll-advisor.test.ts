@@ -11,6 +11,8 @@ function makePacket(intent: CanonicalImagePromptPacket["imageIntentType"] = "her
     projectId: "p",
     chapterId: "c",
     imageId: "i",
+    sceneImageId: null,
+    panelBlueprintId: null,
     sourceBeatId: "b",
     pageIndex: 0,
     panelIndex: 0,

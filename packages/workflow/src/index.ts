@@ -209,6 +209,29 @@ export type {
   HeroContaminationMetrics,
   PanelDriftInput,
 } from "./drift-metrics";
+// P0.1/P0.4 — Effective prompt source + promptDebug snapshot
+export {
+  resolveEffectivePanelPromptSource,
+  buildPromptDebugSnapshot,
+} from "./effective-prompt-source";
+export type {
+  EffectivePromptSource,
+  PromptSourceKind,
+  PromptDebugSnapshot,
+  ResolveEffectivePromptSourceInput,
+  BuildPromptDebugSnapshotInput,
+} from "./effective-prompt-source";
+// P1.1 — Runtime guard against residual French tokens in provider prompts
+export {
+  evaluatePromptLanguage,
+  enforcePromptLanguageGuard,
+  ResidualFrenchPromptError,
+} from "./prompt-language-guard";
+export type {
+  PromptLanguageGuardOutcome,
+  PromptLanguageGuardResult,
+  EvaluatePromptLanguageInput,
+} from "./prompt-language-guard";
 // Chapter visual compiler — 70–75 images per chapter
 export {
   buildChapterImagePlan,

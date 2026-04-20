@@ -546,7 +546,37 @@ export function ChapterReviewBoard(input: {
                         <span className="font-semibold">Routing:</span>{" "}
                         {String(panel.canonicalPacket.modelRoutingDecision.modelId ?? "?")}{" "}
                         · policy={String(panel.canonicalPacket.modelRoutingDecision.referencePolicy ?? "?")}
+                        {panel.canonicalPacket.modelRoutingDecision.reason
+                          ? ` · reason=${String(panel.canonicalPacket.modelRoutingDecision.reason)}`
+                          : ""}
                       </p>
+                    ) : null}
+                    {/* P1.5 — providerPayload : ce qui est réellement parti côté FAL */}
+                    {panel.canonicalPacket.providerPayload ? (
+                      <details className="mt-1 rounded border border-border/40 bg-background/40 p-1">
+                        <summary className="cursor-pointer text-[10px] uppercase tracking-wide text-muted-foreground">
+                          Provider payload
+                        </summary>
+                        <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap text-[10px] leading-tight">
+                          {JSON.stringify(panel.canonicalPacket.providerPayload, null, 2)}
+                        </pre>
+                      </details>
+                    ) : null}
+                    {panel.canonicalPacket.finalEnglishStructuredPrompt ? (
+                      <details className="mt-1 rounded border border-border/40 bg-background/40 p-1">
+                        <summary className="cursor-pointer text-[10px] uppercase tracking-wide text-muted-foreground">
+                          Prompt EN structure
+                        </summary>
+                        <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap text-[10px] leading-tight">
+                          {panel.canonicalPacket.finalEnglishStructuredPrompt}
+                        </pre>
+                        {panel.canonicalPacket.negativePromptEnglish ? (
+                          <div className="mt-1 text-[10px] text-destructive">
+                            <span className="font-semibold">NEG:</span>{" "}
+                            {panel.canonicalPacket.negativePromptEnglish}
+                          </div>
+                        ) : null}
+                      </details>
                     ) : null}
                     {panel.canonicalPacket.buildWarnings.length > 0 ? (
                       <p className="text-amber-600">

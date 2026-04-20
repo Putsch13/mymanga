@@ -278,11 +278,26 @@ export function buildCanonicalPacketForPlannedImage(
 
   const recipe = buildCanonicalPromptRecipe(recipeInput);
 
+  // P1.2 — on tente d'extraire un `panelBlueprintId` depuis le planItem ou
+  // le baseMetadata pour relier le packet au contrat narratif.
+  const rawBlueprintId =
+    (planItem as { panelBlueprintId?: string | null }).panelBlueprintId
+    ?? (baseMetadata.panelBlueprintId as string | undefined)
+    ?? (baseMetadata.blueprintId as string | undefined)
+    ?? null;
+  const panelBlueprintId: string | null =
+    typeof rawBlueprintId === "string" && rawBlueprintId.trim().length > 0
+      ? rawBlueprintId
+      : null;
+
   const packet: CanonicalImagePromptPacket = {
     packetVersion: CANONICAL_PACKET_VERSION,
     projectId: input.projectId,
     chapterId: input.chapterId,
     imageId: planItem.imageId,
+    // P1.2 — identifiant DB direct + panel blueprint pour audit/reroll stable.
+    sceneImageId: input.sceneImageId,
+    panelBlueprintId,
     sourceBeatId: input.beatContext.id,
     pageIndex: planItem.pageIndex,
     panelIndex: planItem.panelIndex,

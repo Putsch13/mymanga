@@ -45,6 +45,10 @@ import {
   buildPromptDebugSnapshot,
   type PromptDebugSnapshot,
 } from "../effective-prompt-source";
+import {
+  evaluatePromptLanguage,
+  ResidualFrenchPromptError,
+} from "../prompt-language-guard";
 import { planRerollForPacket, type RerollReason } from "@manga-ai-studio/ai";
 import type {
   CanonicalImagePromptPacket,
@@ -954,6 +958,28 @@ export async function runImageGenerationPass(
           seed?: number;
         }) => {
           const size = getFalImageSizePreset(params.sizePreset);
+
+          // P1.1 — garde linguistique runtime avant envoi provider.
+          // En mode strict on bloque l'envoi, sinon on persiste un warning dans
+          // promptDebug pour traquer les prompts hybrides FR/EN.
+          const languageCheck = evaluatePromptLanguage({
+            positivePrompt: params.positivePrompt,
+            negativePrompt: params.negativePrompt,
+          });
+          if (languageCheck.outcome === "block") {
+            console.error(
+              `[image-gen] residual_french_blocked sceneImageId=${item.sceneImageId} scenePass=${params.scenePass} tokens=${languageCheck.positiveTokens.join("|")}`,
+            );
+            throw new ResidualFrenchPromptError(languageCheck);
+          }
+          if (languageCheck.outcome === "warn") {
+            const warnLabel = `residual_french_tokens(${params.scenePass}):${languageCheck.positiveTokens.join("|")}${languageCheck.negativeTokens.length > 0 ? ` neg:${languageCheck.negativeTokens.join("|")}` : ""}`;
+            accumulatedLanguageWarnings.push(warnLabel);
+            console.warn(
+              `[image-gen] residual_french_warn sceneImageId=${item.sceneImageId} scenePass=${params.scenePass} tokens=${languageCheck.positiveTokens.join("|")}`,
+            );
+          }
+
           const requestPayload = {
             positivePrompt: params.positivePrompt,
             negativePrompt: params.negativePrompt,
@@ -1140,6 +1166,9 @@ export async function runImageGenerationPass(
           || strategy.crowdCritical
           || strategy.interactionCritical;
         let rerollCount = 0;
+        // P1.1 — accumule les residus FR detectes sur toutes les tentatives
+        // (base + rerolls + reinforcement) pour traçage dans promptDebug.
+        const accumulatedLanguageWarnings: string[] = [];
 
         if (
           sceneFirstEligible
@@ -1422,7 +1451,10 @@ export async function runImageGenerationPass(
           refsCount: finalRefsUsed.length,
           lorasCount: finalLorasUsed.length,
           seed: finalSeed,
-          extraWarnings: rerollCount > 0 ? [`reroll_count:${rerollCount}`] : [],
+          extraWarnings: [
+            ...(rerollCount > 0 ? [`reroll_count:${rerollCount}`] : []),
+            ...accumulatedLanguageWarnings,
+          ],
         });
         if (canonicalPacket) {
           canonicalPacket = {

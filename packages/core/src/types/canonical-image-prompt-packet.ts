@@ -31,7 +31,23 @@ export interface CanonicalImagePromptPacket {
   // ── Identité ─────────────────────────────────────────────────────────────
   projectId: string;
   chapterId: string;
+  /**
+   * Identifiant synthétique `chapterId__pX__pnlY` utile pour l'audit et la
+   * lecture humaine. A conserver mais NE PAS utiliser comme clé de jointure
+   * runtime — préférer `sceneImageId` (P1.2).
+   */
   imageId: string;
+  /**
+   * P1.2 — Identifiant DB direct vers la ligne `SceneImage` correspondant à
+   * ce packet. Permet un audit/reroll sans passer par l'ordre des tableaux.
+   * `null` uniquement durant la construction initiale (avant insertion DB).
+   */
+  sceneImageId: string | null;
+  /**
+   * P1.2 — Identifiant du panel blueprint source. Permet de relier le packet
+   * au contrat narratif pour les rerolls avancés.
+   */
+  panelBlueprintId: string | null;
   sourceBeatId: string;
   pageIndex: number;
   panelIndex: number;

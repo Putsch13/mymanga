@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { getOwnedProject } from "@/lib/ownership";
+import { parseJsonBody } from "@/lib/parse-json-body";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -41,28 +42,20 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
-  // P0.5 — parse du body avec gestion d'erreur (pas de 500 si body invalide ou absent).
-  let rawBody: unknown;
-  try {
-    rawBody = await req.json();
-  } catch {
-    return NextResponse.json({ error: "invalid_body" }, { status: 400 });
-  }
-  const body = bodySchema.safeParse(rawBody);
-  if (!body.success) {
-    return NextResponse.json({ error: body.error.flatten() }, { status: 400 });
-  }
+  // P1.4 — parsing + validation unifies via parseJsonBody.
+  const parsed = await parseJsonBody(req, bodySchema);
+  if (!parsed.ok) return parsed.response;
 
   // P0.5 — upsert pour supporter le first-write (certains projets n'ont pas
   // encore de ProjectSettings ; l'ancien `update` levait P2025).
   const updated = await prisma.projectSettings.upsert({
     where: { projectId },
-    update: { pipelineVersion: body.data.pipelineVersion },
-    create: { projectId, pipelineVersion: body.data.pipelineVersion },
+    update: { pipelineVersion: parsed.data.pipelineVersion },
+    create: { projectId, pipelineVersion: parsed.data.pipelineVersion },
   });
 
   return NextResponse.json({
     pipelineVersion: updated.pipelineVersion,
-    message: `Pipeline version switched to ${body.data.pipelineVersion}`,
+    message: `Pipeline version switched to ${parsed.data.pipelineVersion}`,
   });
 }
