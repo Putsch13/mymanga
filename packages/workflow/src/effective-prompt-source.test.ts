@@ -176,6 +176,87 @@ describe("resolveEffectivePanelPromptSource", () => {
   });
 });
 
+describe("resolveEffectivePanelPromptSource — strict canonical mode", () => {
+  it("bloque le fallback legacy quand le packet est absent et strict=true", () => {
+    const out = resolveEffectivePanelPromptSource({
+      canonicalPacket: null,
+      canonicalPacketValidation: null,
+      legacyPrompt: "legacy prompt",
+      legacyNegativePrompt: "legacy negative",
+      strictCanonicalMode: true,
+    });
+    expect(out.source).toBe("blocked");
+    expect(out.blocked).toBe(true);
+    expect(out.blockReason).toBe("canonical_packet_missing");
+    expect(out.warnings).toContain("legacy_prompt_fallback_blocked_strict_mode");
+  });
+
+  it("bloque le fallback legacy quand le packet est invalide et strict=true", () => {
+    const packet = makePacket();
+    const out = resolveEffectivePanelPromptSource({
+      canonicalPacket: packet,
+      canonicalPacketValidation: {
+        valid: false,
+        errors: ["PORTRAIT_FRAMING_ON_ENVIRONMENT"],
+        warnings: [],
+      },
+      legacyPrompt: "legacy prompt",
+      legacyNegativePrompt: "legacy negative",
+      strictCanonicalMode: true,
+    });
+    expect(out.source).toBe("blocked");
+    expect(out.blocked).toBe(true);
+    expect(out.blockReason).toBe("canonical_packet_invalid");
+  });
+
+  it("respecte le flag env MANGA_DISABLE_LEGACY_PANEL_PROMPTS=true", () => {
+    const prev = process.env.MANGA_DISABLE_LEGACY_PANEL_PROMPTS;
+    process.env.MANGA_DISABLE_LEGACY_PANEL_PROMPTS = "true";
+    try {
+      const out = resolveEffectivePanelPromptSource({
+        canonicalPacket: null,
+        canonicalPacketValidation: null,
+        legacyPrompt: "legacy prompt",
+        legacyNegativePrompt: "legacy negative",
+      });
+      expect(out.source).toBe("blocked");
+      expect(out.blocked).toBe(true);
+    } finally {
+      if (prev === undefined) {
+        delete process.env.MANGA_DISABLE_LEGACY_PANEL_PROMPTS;
+      } else {
+        process.env.MANGA_DISABLE_LEGACY_PANEL_PROMPTS = prev;
+      }
+    }
+  });
+
+  it("conserve le fallback legacy en mode non-strict (dev)", () => {
+    const out = resolveEffectivePanelPromptSource({
+      canonicalPacket: null,
+      canonicalPacketValidation: null,
+      legacyPrompt: "legacy prompt",
+      legacyNegativePrompt: "legacy negative",
+      strictCanonicalMode: false,
+    });
+    expect(out.source).toBe("legacy");
+    expect(out.blocked).toBeFalsy();
+    expect(out.prompt).toBe("legacy prompt");
+  });
+
+  it("passe en canonical sans bloquer même en strict si le packet est valide", () => {
+    const packet = makePacket();
+    const out = resolveEffectivePanelPromptSource({
+      canonicalPacket: packet,
+      canonicalPacketValidation: { valid: true, errors: [], warnings: [] },
+      legacyPrompt: "legacy prompt",
+      legacyNegativePrompt: "legacy negative",
+      strictCanonicalMode: true,
+    });
+    expect(out.source).toBe("canonical");
+    expect(out.blocked).toBeFalsy();
+  });
+});
+
 describe("buildPromptDebugSnapshot", () => {
   it("capture l'information runtime + warnings effective", () => {
     const effective = {

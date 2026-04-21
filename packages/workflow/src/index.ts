@@ -221,6 +221,21 @@ export type {
   ResolveEffectivePromptSourceInput,
   BuildPromptDebugSnapshotInput,
 } from "./effective-prompt-source";
+// Phase 1 — Prompt action linter + narrative truth pass
+export {
+  lintPromptAgainstActionContract,
+} from "./prompt-action-linter";
+export type {
+  LintPromptInput,
+  LintPromptResult,
+} from "./prompt-action-linter";
+export {
+  runNarrativeTruthPass,
+} from "./passes/narrative-truth-pass";
+export type {
+  NarrativeTruthInput,
+  NarrativeTruthResult,
+} from "./passes/narrative-truth-pass";
 // P1.1 — Runtime guard against residual French tokens in provider prompts
 export {
   evaluatePromptLanguage,

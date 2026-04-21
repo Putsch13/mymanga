@@ -4,7 +4,10 @@
  */
 
 import type { PanelContract } from "@manga-ai-studio/core";
-import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
+import type {
+  PanelBlueprintPremium,
+  BeatNarrativeContract,
+} from "@manga-ai-studio/core";
 import type { StoryboardPanel } from "@manga-ai-studio/ai";
 
 export interface PanelContractInput {
@@ -22,6 +25,13 @@ export interface PanelContractInput {
   visualAnchorIds: string[];
   /** Panel blueprint premium optionnel — enrichit le contrat avec les contraintes narratives */
   panelBlueprint?: PanelBlueprintPremium;
+  /**
+   * Beat-level narrative contract (Phase 1). When present, `purpose` is
+   * derived from the contract rather than free-text keywords — this is the
+   * only safe way to avoid accidentally promoting dialogue beats to
+   * `action`.
+   */
+  beatNarrativeContract?: BeatNarrativeContract;
 }
 
 /**
@@ -41,7 +51,10 @@ export async function buildPanelContract(input: PanelContractInput): Promise<Pan
     .filter(Boolean)
     .join(" ");
 
-  const purpose = deducePurpose(panel);
+  const purpose = deducePurpose(panel, {
+    panelBlueprint: input.panelBlueprint,
+    beatNarrativeContract: input.beatNarrativeContract,
+  });
   const shotType = deduceShotType(panel);
   const cameraAngle = deduceCameraAngle(panel);
   const requiredCharacters = panel.characters ?? [];
@@ -143,29 +156,93 @@ export async function buildPanelContract(input: PanelContractInput): Promise<Pan
   };
 }
 
-function deducePurpose(panel: StoryboardPanel): PanelContract["purpose"] {
+const VALID_PURPOSES = new Set<PanelContract["purpose"]>([
+  "establishing",
+  "reaction",
+  "dialogue",
+  "action",
+  "reveal",
+  "aftermath",
+]);
+
+/**
+ * Resolves the panel `purpose` in a strict priority order:
+ *   1. `panelBlueprint.purpose` — the authoritative value coming from the
+ *      premium chapter contract. This is already validated upstream.
+ *   2. `beatNarrativeContract.storyFunction` — mapped to a panel purpose
+ *      without ever promoting to `action` unless the beat itself is
+ *      explicitly in a combat envelope.
+ *   3. Structural signals on the panel (dialogue lines, narration).
+ *   4. As a last-resort heuristic, keyword scan — but the heuristic is
+ *      deliberately neutered: it will NOT return `action` from vague words
+ *      like "move" or "fight" anymore, to prevent the dialogue→combat drift
+ *      seen in production.
+ */
+function deducePurpose(
+  panel: StoryboardPanel,
+  opts: {
+    panelBlueprint?: PanelBlueprintPremium;
+    beatNarrativeContract?: BeatNarrativeContract;
+  } = {},
+): PanelContract["purpose"] {
+  const bpPurpose = opts.panelBlueprint?.purpose;
+  if (bpPurpose && VALID_PURPOSES.has(bpPurpose as PanelContract["purpose"])) {
+    return bpPurpose as PanelContract["purpose"];
+  }
+
+  const beat = opts.beatNarrativeContract;
+  if (beat) {
+    switch (beat.storyFunction) {
+      case "setup":
+        return "establishing";
+      case "aftermath":
+        return "aftermath";
+      case "revelation":
+        return "reveal";
+      case "discovery":
+        return "reveal";
+      case "dialogue_tension":
+      case "decision":
+      case "investigation":
+        return "dialogue";
+      case "movement":
+        // Only promote to `action` when the beat explicitly allows combat.
+        if (
+          beat.actionEnvelope === "combat_light" ||
+          beat.actionEnvelope === "combat_full"
+        ) {
+          return "action";
+        }
+        return "dialogue";
+      case "transition":
+        return "establishing";
+    }
+  }
+
+  // Structural, text-independent signals first.
+  if (panel.dialogue || (panel.dialogues?.length ?? 0) > 0) {
+    return "dialogue";
+  }
+
+  // Last-resort heuristic. Safe sub-purposes only — we never promote to
+  // `action` from free text because ambiguous words ("move", "fight" in a
+  // caption discussing fear-of-fighting, etc.) caused false combat panels
+  // in production. Action must come from a structured source.
   const desc = `${panel.caption ?? ""} ${panel.camera ?? ""} ${panel.prompt ?? ""}`.toLowerCase();
-  
   if (desc.includes("wide") || desc.includes("establish") || desc.includes("location")) {
     return "establishing";
   }
   if (desc.includes("react") || desc.includes("expression") || desc.includes("face")) {
     return "reaction";
   }
-  if (panel.dialogue || (panel.dialogues?.length ?? 0) > 0) {
-    return "dialogue";
-  }
   if (desc.includes("aftermath") || desc.includes("retomb") || desc.includes("après le choc")) {
     return "aftermath";
   }
-  if (desc.includes("action") || desc.includes("fight") || desc.includes("move")) {
-    return "action";
-  }
-  if (desc.includes("reveal") || desc.includes("show")) {
+  if (desc.includes("reveal")) {
     return "reveal";
   }
-  
-  return "dialogue"; // Défaut
+
+  return "dialogue";
 }
 
 function deduceShotType(panel: StoryboardPanel): PanelContract["shotType"] {

@@ -646,11 +646,41 @@ export async function runImageGenerationPass(
         console.log(
           `[pipeline:effective-prompt] panel=${item.sceneImageId} source=canonical packet=${effectiveSource.packetVersion}`,
         );
+      } else if (effectiveSource.source === "legacy") {
+        console.warn(
+          `[pipeline:effective-prompt] panel=${item.sceneImageId} source=legacy reason=${effectiveSource.blockReason ?? "fallback"}`,
+        );
       }
       if (effectiveSource.warnings.length > 0) {
         console.warn(
           `[pipeline:effective-prompt] panel=${item.sceneImageId} warnings=${effectiveSource.warnings.join(" | ")}`,
         );
+      }
+
+      // Phase 1 — Strict canonical prompt mode.
+      // When MANGA_DISABLE_LEGACY_PANEL_PROMPTS=true and the canonical packet
+      // is missing/invalid, refuse to send the legacy prompt to the provider.
+      // We persist the block reason so the review UI surfaces *why* the panel
+      // was not generated, and the panel is flagged for canonical-packet
+      // rebuild rather than downgraded to a lossy prompt.
+      if (effectiveSource.blocked) {
+        console.warn(
+          `[pipeline:effective-prompt] panel=${item.sceneImageId} BLOCKED reason=${effectiveSource.blockReason}`,
+        );
+        await prisma.sceneImage.update({
+          where: { id: item.sceneImageId },
+          data: {
+            status: "blocked",
+            failureReason: `canonical_prompt_strict_mode:${effectiveSource.blockReason ?? "canonical_packet_missing"}`,
+            metadata: ({
+              ...item.baseMetadata,
+              blockedReason: effectiveSource.blockReason ?? "canonical_packet_missing",
+              needsCanonicalPacketRebuild: true,
+              effectivePromptWarnings: effectiveSource.warnings,
+            } as unknown) as Prisma.InputJsonValue,
+          },
+        });
+        return "fail";
       }
 
       const panelContractMeta = item.baseMetadata.panelContract as {
