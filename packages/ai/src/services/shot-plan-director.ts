@@ -3,12 +3,28 @@
  *
  * Génère un plan de coupe manga cohérent depuis l'outline du chapitre,
  * avec diversité de shots, angles, transitions et emphases narratives.
+ *
+ * Phase 1 refactor — the director is now driven by `storyFunction` and
+ * `actionEnvelope` rather than the legacy `pageRole`. The legacy pageRole
+ * is still accepted (back-compat) but is passed through
+ * `beatContractFromLegacyRole` so that a `confrontation` beat no longer
+ * silently promotes to combat patterns.
+ *
+ * Key invariant: `ACTION_PATTERN` is only emitted when the beat's action
+ * envelope is `combat_light` or `combat_full`. A dialogue_tension beat
+ * with envelope `none` can NEVER produce an action pattern.
  */
 
 import type {
   ChapterShotPlan,
   PageShotPlan,
   PanelShotPlan,
+  StoryFunction,
+  ActionEnvelope,
+} from "@manga-ai-studio/core";
+import {
+  mapLegacyPageRoleToStoryFunction,
+  DEFAULT_ACTION_ENVELOPE_FOR_FUNCTION,
 } from "@manga-ai-studio/core";
 
 type ShotType = PanelShotPlan["shotType"];
@@ -28,7 +44,13 @@ interface ImportantCharacterHint {
 
 interface BeatInput {
   id: string;
+  /** Legacy field — kept for back-compat. Prefer storyFunction + actionEnvelope. */
   pageRole?: string;
+  /** Phase 1 — authoritative narrative intent. */
+  storyFunction?: StoryFunction;
+  /** Phase 1 — authoritative action envelope. Defaults to the envelope
+   *  recommended for the storyFunction, NEVER to a combat level. */
+  actionEnvelope?: ActionEnvelope;
   characters?: string[];
   location?: string;
   summary?: string;
@@ -53,72 +75,178 @@ const GENRE_TARGETS: Record<string, { wide: number; medium: number; closeup: num
 };
 const DEFAULT_TARGETS = { wide: 0.20, medium: 0.35, closeup: 0.30, cutaway: 0.15, rhythm: "standard" as Rhythm };
 
-// BUG-17 fix : noms alignés sur le vocabulaire reader (PAGE_LAYOUT_CONFIGS).
-// Avant, "grid_4"/"grid_6"/"asymmetric"/"double_page" n'étaient reconnus par
-// aucun consommateur → layout legacy A-F par fallback. Ici on mappe chaque
-// pageRole vers un template effectivement rendu par <MangaPageGrid>.
-// `cliffhanger` adopte double_spread : c'est le seul rôle qui émet cette valeur,
-// autrement "double_spread" ne sortait jamais du pipeline.
-const ROLE_TO_PAGE: Record<string, { pageTemplate: PageTemplate; emphasisDevice: string | null }> = {
-  establishing: { pageTemplate: "grid_2x2", emphasisDevice: null },
-  escalation: { pageTemplate: "grid_2x3", emphasisDevice: null },
-  confrontation: { pageTemplate: "asymmetric_hero", emphasisDevice: null },
-  revelation: { pageTemplate: "splash", emphasisDevice: "splash" },
-  aftermath: { pageTemplate: "grid_2x2", emphasisDevice: "silence_beat" },
-  cliffhanger: { pageTemplate: "double_spread", emphasisDevice: "extreme_closeup" },
-  dialogue: { pageTemplate: "grid_2x2", emphasisDevice: null },
-  action: { pageTemplate: "action_strip", emphasisDevice: null },
-  transition: { pageTemplate: "vertical_strip", emphasisDevice: "cutaway_insert" },
-};
-
+// Shot patterns. ACTION_PATTERN is only selected when the beat explicitly
+// allows combat — never inferred from a page role alone.
 const ACTION_PATTERN: ShotType[] = ["wide", "medium", "closeup", "medium"];
 const DIALOGUE_PATTERN: ShotType[] = ["medium", "over_shoulder", "closeup", "medium"];
 const CONTEMPLATIVE_PATTERN: ShotType[] = ["wide", "medium", "closeup", "wide"];
 const KINETIC_PATTERN: ShotType[] = ["wide", "medium", "closeup", "extreme_closeup"];
 
-function getPatternForRole(pageRole: string): ShotType[] {
-  if (pageRole === "action" || pageRole === "confrontation") return ACTION_PATTERN;
-  if (pageRole === "dialogue") return DIALOGUE_PATTERN;
-  if (pageRole === "aftermath" || pageRole === "establishing") return CONTEMPLATIVE_PATTERN;
-  return KINETIC_PATTERN;
+interface ResolvedIntent {
+  storyFunction: StoryFunction;
+  actionEnvelope: ActionEnvelope;
+  legacyPageRole: string;
+  explicitCombat: boolean;
 }
 
-function pickCameraAngle(shotType: ShotType, pageRole: string, panelIdx: number): CameraAngle {
+function resolveBeatIntent(beat: BeatInput): ResolvedIntent {
+  if (beat.storyFunction) {
+    const envelope =
+      beat.actionEnvelope ?? DEFAULT_ACTION_ENVELOPE_FOR_FUNCTION[beat.storyFunction];
+    const isCombat =
+      envelope === "combat_light" || envelope === "combat_full";
+    return {
+      storyFunction: beat.storyFunction,
+      actionEnvelope: envelope,
+      legacyPageRole: beat.pageRole ?? "",
+      explicitCombat: isCombat,
+    };
+  }
+  const legacy = beat.pageRole ?? "escalation";
+  const storyFunction = mapLegacyPageRoleToStoryFunction(legacy);
+  // Legacy rollout rule: only the literal page role "action" with no
+  // structured override is treated as combat. `confrontation` maps to
+  // dialogue_tension, which removes the silent combat promotion.
+  const explicitCombat = legacy === "action";
+  const envelope: ActionEnvelope = explicitCombat
+    ? "combat_full"
+    : (beat.actionEnvelope ?? DEFAULT_ACTION_ENVELOPE_FOR_FUNCTION[storyFunction]);
+  return { storyFunction, actionEnvelope: envelope, legacyPageRole: legacy, explicitCombat };
+}
+
+function getPatternForIntent(intent: ResolvedIntent): ShotType[] {
+  if (
+    intent.actionEnvelope === "combat_full" ||
+    intent.actionEnvelope === "combat_light"
+  ) {
+    return ACTION_PATTERN;
+  }
+  switch (intent.storyFunction) {
+    case "dialogue_tension":
+    case "decision":
+    case "investigation":
+      return DIALOGUE_PATTERN;
+    case "setup":
+    case "aftermath":
+      return CONTEMPLATIVE_PATTERN;
+    case "revelation":
+    case "discovery":
+      return KINETIC_PATTERN;
+    case "movement":
+      // Movement without combat still reads as kinetic but stays non-violent.
+      return KINETIC_PATTERN;
+    case "transition":
+      return CONTEMPLATIVE_PATTERN;
+    default:
+      return DIALOGUE_PATTERN;
+  }
+}
+
+function getTemplateForIntent(intent: ResolvedIntent): {
+  pageTemplate: PageTemplate;
+  emphasisDevice: string | null;
+} {
+  // Legacy pageRole hard overrides — these produce reader-template-visible
+  // pages that the rest of the pipeline depends on.
+  if (intent.legacyPageRole === "cliffhanger") {
+    return { pageTemplate: "double_spread", emphasisDevice: "extreme_closeup" };
+  }
+  if (intent.legacyPageRole === "revelation" || intent.storyFunction === "revelation") {
+    return { pageTemplate: "splash", emphasisDevice: "splash" };
+  }
+  if (intent.explicitCombat) {
+    return { pageTemplate: "asymmetric_hero", emphasisDevice: null };
+  }
+  switch (intent.storyFunction) {
+    case "aftermath":
+      return { pageTemplate: "grid_2x2", emphasisDevice: "silence_beat" };
+    case "transition":
+      return { pageTemplate: "vertical_strip", emphasisDevice: "cutaway_insert" };
+    case "setup":
+      return { pageTemplate: "grid_2x2", emphasisDevice: null };
+    case "discovery":
+    case "investigation":
+      return { pageTemplate: "grid_2x3", emphasisDevice: null };
+    default:
+      return { pageTemplate: "grid_2x2", emphasisDevice: null };
+  }
+}
+
+function pickAngleForIntent(
+  shotType: ShotType,
+  intent: ResolvedIntent,
+  panelIdx: number,
+): CameraAngle {
   if (shotType === "extreme_closeup") return "eye_level";
-  if (pageRole === "confrontation" && panelIdx === 0) return "low";
-  if (pageRole === "revelation") return panelIdx === 0 ? "dutch" : "eye_level";
-  if (pageRole === "establishing") return "birds_eye";
+  // Only promote to `low` (aggressive framing) when the beat explicitly
+  // allows combat. A dialogue_tension beat can still be heated without an
+  // aggressive angle forced by default.
+  if (intent.explicitCombat && panelIdx === 0) return "low";
+  if (intent.storyFunction === "revelation") return panelIdx === 0 ? "dutch" : "eye_level";
+  if (intent.storyFunction === "setup") return "birds_eye";
   if (shotType === "wide") return panelIdx % 3 === 0 ? "high" : "eye_level";
   return "eye_level";
 }
 
 function pickSubjectFocus(
   beat: BeatInput,
+  intent: ResolvedIntent,
   panelIdx: number,
   totalPanels: number,
   antagonistNames: Set<string>,
 ): SubjectFocus {
   const chars = beat.characters ?? [];
   if (panelIdx === totalPanels - 1 && totalPanels > 2) return "reaction";
-  if (panelIdx === 0 && (beat.pageRole === "establishing" || beat.pageRole === "transition")) return "environment";
+  if (
+    panelIdx === 0 &&
+    (intent.storyFunction === "setup" || intent.storyFunction === "transition")
+  ) {
+    return "environment";
+  }
   if (chars.some((c) => antagonistNames.has(c.toLowerCase()))) {
-    if (panelIdx === 1 || (panelIdx === 0 && beat.pageRole === "confrontation")) return "antagonist";
+    // Promote antagonist focus only on combat beats or on their clear
+    // dialogue showdown (panel 1+ keeps the antag visible).
+    if (panelIdx === 1 || (panelIdx === 0 && intent.explicitCombat)) {
+      return "antagonist";
+    }
+    // Outside combat the antag still anchors panel 1 so downstream rules
+    // (low-angle emphasis, antag close-up) can still apply.
+    if (panelIdx === 1) return "antagonist";
   }
   if (chars.length > 2 && panelIdx === 0) return "group";
   if (chars.length === 1) return "hero";
   return panelIdx % 2 === 0 ? "hero" : "important_npc";
 }
 
-function pickCutaway(panelIdx: number, totalPanels: number, pageRole: string): CutawayType {
-  if (pageRole === "transition") return "landscape";
+function pickCutaway(
+  panelIdx: number,
+  totalPanels: number,
+  intent: ResolvedIntent,
+): CutawayType {
+  if (intent.storyFunction === "transition") return "landscape";
   if (panelIdx === totalPanels - 1 && totalPanels >= 3) return "crowd_reaction";
   return "none";
 }
 
-function pickTransition(panelIdx: number, pageRole: string, prevPageRole: string | null): Transition {
-  if (panelIdx === 0 && prevPageRole && prevPageRole !== pageRole) return "scene_to_scene";
+function pickTransition(
+  panelIdx: number,
+  intent: ResolvedIntent,
+  prevIntent: ResolvedIntent | null,
+): Transition {
+  if (
+    panelIdx === 0 &&
+    prevIntent &&
+    prevIntent.storyFunction !== intent.storyFunction
+  ) {
+    return "scene_to_scene";
+  }
   if (panelIdx === 0) return "action_to_action";
-  if (pageRole === "transition" || pageRole === "aftermath") return "aspect_to_aspect";
+  if (
+    intent.storyFunction === "transition" ||
+    intent.storyFunction === "aftermath"
+  ) {
+    return "aspect_to_aspect";
+  }
   return panelIdx % 3 === 0 ? "subject_to_subject" : "action_to_action";
 }
 
@@ -135,24 +263,35 @@ export function directShotPlan(input: ShotPlanInput): ChapterShotPlan {
 
   const pages: PageShotPlan[] = [];
   const emphasis: ChapterShotPlan["emphasis"] = [];
-  let prevPageRole: string | null = null;
+  let prevIntent: ResolvedIntent | null = null;
 
   for (let beatIdx = 0; beatIdx < input.beats.length; beatIdx++) {
     const beat = input.beats[beatIdx];
-    const pageRole = beat.pageRole ?? "escalation";
-    const roleConfig = ROLE_TO_PAGE[pageRole] ?? ROLE_TO_PAGE.escalation;
-    const shotPattern = getPatternForRole(pageRole);
+    const intent = resolveBeatIntent(beat);
+    const roleConfig = getTemplateForIntent(intent);
+    const shotPattern = getPatternForIntent(intent);
     const pageNumber = beatIdx + 1;
 
     const panels: PanelShotPlan[] = [];
-    const numPanels = pageRole === "revelation" || pageRole === "cliffhanger" ? Math.min(panelsPerBeat, 3) : panelsPerBeat;
+    const shrinkForHighImpact =
+      intent.storyFunction === "revelation" ||
+      intent.legacyPageRole === "cliffhanger";
+    const numPanels = shrinkForHighImpact
+      ? Math.min(panelsPerBeat, 3)
+      : panelsPerBeat;
 
     for (let pi = 0; pi < numPanels; pi++) {
       const shotType = shotPattern[pi % shotPattern.length];
-      const cameraAngle = pickCameraAngle(shotType, pageRole, pi);
-      const subjectFocus = pickSubjectFocus(beat, pi, numPanels, antagonistNames);
-      const cutawayType = pickCutaway(pi, numPanels, pageRole);
-      const transitionFromPrevious = pickTransition(pi, pageRole, prevPageRole);
+      const cameraAngle = pickAngleForIntent(shotType, intent, pi);
+      const subjectFocus = pickSubjectFocus(
+        beat,
+        intent,
+        pi,
+        numPanels,
+        antagonistNames,
+      );
+      const cutawayType = pickCutaway(pi, numPanels, intent);
+      const transitionFromPrevious = pickTransition(pi, intent, prevIntent);
 
       panels.push({
         panelNumber: pi + 1,
@@ -167,7 +306,7 @@ export function directShotPlan(input: ShotPlanInput): ChapterShotPlan {
     }
 
     let respirationPanel: number | null = null;
-    if (numPanels >= 3 && pageRole !== "action" && pageRole !== "confrontation") {
+    if (numPanels >= 3 && !intent.explicitCombat) {
       const respIdx = numPanels - 1;
       panels[respIdx] = {
         ...panels[respIdx],
@@ -184,7 +323,7 @@ export function directShotPlan(input: ShotPlanInput): ChapterShotPlan {
       emphasis.push({
         pageNumber,
         panelNumber: roleConfig.emphasisDevice === "extreme_closeup" ? numPanels : 1,
-        reason: `${pageRole} emphasis`,
+        reason: `${intent.storyFunction} emphasis`,
         device: roleConfig.emphasisDevice as ChapterShotPlan["emphasis"][number]["device"],
       });
     }
@@ -209,7 +348,6 @@ export function directShotPlan(input: ShotPlanInput): ChapterShotPlan {
           npcPanel.shotType = "closeup";
           npcPanel.emphasisReason = `introduction ${char.name}`;
         } else if (panels.length >= 2) {
-          // Force 2nd panel as NPC closeup
           const targetPanel = panels[1]!;
           targetPanel.shotType = "closeup";
           targetPanel.subjectFocus = "important_npc";
@@ -218,7 +356,8 @@ export function directShotPlan(input: ShotPlanInput): ChapterShotPlan {
       }
     }
 
-    // Antagonist emphasis
+    // Antagonist emphasis — independent of action envelope: the antagonist's
+    // *presence* deserves a low angle whether the beat is verbal or combat.
     const hasAntag = (beat.characters ?? []).some((c) => antagonistNames.has(c.toLowerCase()));
     if (hasAntag) {
       const antagPanel = panels.find((p) => p.subjectFocus === "antagonist");
@@ -235,7 +374,7 @@ export function directShotPlan(input: ShotPlanInput): ChapterShotPlan {
       respirationPanel,
     });
 
-    prevPageRole = pageRole;
+    prevIntent = intent;
   }
 
   return {
@@ -250,3 +389,7 @@ export function directShotPlan(input: ShotPlanInput): ChapterShotPlan {
     emphasis,
   };
 }
+
+// Exposed for tests + downstream callers migrating to the new intent API.
+export { resolveBeatIntent, getPatternForIntent, getTemplateForIntent };
+export type { BeatInput, ResolvedIntent };

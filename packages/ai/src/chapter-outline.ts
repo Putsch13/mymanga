@@ -1,5 +1,9 @@
 import { z } from "zod";
-import type { StructuredBeatPayload } from "@manga-ai-studio/core";
+import type {
+  BeatNarrativeContract,
+  StructuredBeatPayload,
+} from "@manga-ai-studio/core";
+import { beatContractFromLegacyRole } from "@manga-ai-studio/core";
 import type { GenerationOperationalStatus } from "./generation-status";
 import { inferGenreMode, buildGenreDirectorPromptHints, getGenreDirectorConfig } from "./services/genre-director";
 
@@ -47,6 +51,42 @@ const structuredBeatPayloadSchema = z.object({
   setupPayoffHooks: z.array(outlineSetupPayoffHookSchema).default([]),
 });
 
+const STORY_FUNCTIONS = [
+  "setup",
+  "discovery",
+  "dialogue_tension",
+  "investigation",
+  "movement",
+  "revelation",
+  "aftermath",
+  "decision",
+  "transition",
+] as const;
+const ACTION_ENVELOPES = [
+  "none",
+  "micro",
+  "physical_nonviolent",
+  "combat_light",
+  "combat_full",
+] as const;
+const VISUAL_ESCALATION_POLICIES = [
+  "forbid_invented_action",
+  "allow_literal_only",
+  "allow_stylized_intensification",
+] as const;
+
+const beatNarrativeContractSchema = z.object({
+  beatId: z.string().min(1),
+  summary: z.string().min(1),
+  storyFunction: z.enum(STORY_FUNCTIONS),
+  actionEnvelope: z.enum(ACTION_ENVELOPES),
+  visualEscalationPolicy: z.enum(VISUAL_ESCALATION_POLICIES),
+  causalInputs: z.array(z.string()).default([]),
+  causalOutputs: z.array(z.string()).default([]),
+  forbiddenVisualEvents: z.array(z.string()).default([]),
+  requiredVisualEvents: z.array(z.string()).default([]),
+});
+
 const outlineResultSchema = z.object({
   title: z.string().min(1).optional(),
   summary: z.string().min(20),
@@ -68,6 +108,11 @@ const outlineResultSchema = z.object({
           worldConsequences: [],
           setupPayoffHooks: [],
         }),
+        // Phase 1: optional structured narrative contract. When absent, the
+        // normalizer derives a conservative default from pageRole via
+        // beatContractFromLegacyRole (which will NOT silently escalate to
+        // combat). When present, it overrides the legacy-derived fallback.
+        beatNarrativeContract: beatNarrativeContractSchema.optional(),
       }),
     )
     .min(3)
@@ -265,8 +310,39 @@ function normalizeOutlineResult(
         inferStructuredBeatPayload(ctx, beat, index, outline.beats.length),
         beat.structuredBeat,
       ),
+      beatNarrativeContract:
+        beat.beatNarrativeContract ??
+        deriveBeatNarrativeContractFromOutlineBeat({
+          chapterNumber: ctx.chapterNumber,
+          index,
+          summary: beat.summary,
+          pageRole: beat.pageRole,
+        }),
     })),
   };
+}
+
+/**
+ * Derives a BeatNarrativeContract from a legacy outline beat. Conservative by
+ * design: only the literal pageRole="action" promotes to combat_full. Every
+ * other legacy role resolves to its non-combat storyFunction default. Callers
+ * that want combat must emit a structured contract explicitly.
+ */
+export function deriveBeatNarrativeContractFromOutlineBeat(input: {
+  chapterNumber: number;
+  index: number;
+  summary: string;
+  /** Accept any string so callers upstream of the Zod parse can still use it. */
+  pageRole?: string;
+}): BeatNarrativeContract {
+  const beatId = `ch${input.chapterNumber}-beat${input.index + 1}`;
+  const legacyPageRole = input.pageRole ?? "escalation";
+  return beatContractFromLegacyRole({
+    beatId,
+    summary: input.summary,
+    legacyPageRole,
+    explicitCombat: legacyPageRole === "action",
+  });
 }
 
 function fallbackOutline(ctx: ChapterOutlineContext): ChapterOutlineResult {

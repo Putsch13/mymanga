@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { directShotPlan } from "./shot-plan-director";
+import {
+  directShotPlan,
+  resolveBeatIntent,
+  getPatternForIntent,
+  getTemplateForIntent,
+} from "./shot-plan-director";
 
 const COMBAT_BEATS = [
   { id: "b1", pageRole: "establishing", characters: ["Kaito", "Yuki"], location: "forest" },
@@ -135,5 +140,127 @@ describe("directShotPlan", () => {
       importantCharacters: [],
     });
     expect(plan.rhythm).toBe("contemplative");
+  });
+});
+
+describe("shot-plan-director — Phase 1 intent-driven behavior", () => {
+  it("resolveBeatIntent: confrontation legacy → dialogue_tension, pas combat", () => {
+    const intent = resolveBeatIntent({ id: "b", pageRole: "confrontation" });
+    expect(intent.storyFunction).toBe("dialogue_tension");
+    expect(intent.actionEnvelope).toBe("none");
+    expect(intent.explicitCombat).toBe(false);
+  });
+
+  it("resolveBeatIntent: pageRole=action → explicitCombat true", () => {
+    const intent = resolveBeatIntent({ id: "b", pageRole: "action" });
+    expect(intent.explicitCombat).toBe(true);
+    expect(intent.actionEnvelope).toBe("combat_full");
+  });
+
+  it("resolveBeatIntent: storyFunction dialogue_tension override domine pageRole=action", () => {
+    const intent = resolveBeatIntent({
+      id: "b",
+      pageRole: "action",
+      storyFunction: "dialogue_tension",
+    });
+    expect(intent.storyFunction).toBe("dialogue_tension");
+    expect(intent.explicitCombat).toBe(false);
+    expect(intent.actionEnvelope).toBe("none");
+  });
+
+  it("resolveBeatIntent: storyFunction movement + envelope combat_full → explicitCombat", () => {
+    const intent = resolveBeatIntent({
+      id: "b",
+      storyFunction: "movement",
+      actionEnvelope: "combat_full",
+    });
+    expect(intent.explicitCombat).toBe(true);
+  });
+
+  it("getPatternForIntent: dialogue_tension + none → DIALOGUE_PATTERN, jamais ACTION_PATTERN", () => {
+    const pattern = getPatternForIntent({
+      storyFunction: "dialogue_tension",
+      actionEnvelope: "none",
+      legacyPageRole: "",
+      explicitCombat: false,
+    });
+    expect(pattern).toEqual(["medium", "over_shoulder", "closeup", "medium"]);
+  });
+
+  it("getPatternForIntent: combat_full → ACTION_PATTERN", () => {
+    const pattern = getPatternForIntent({
+      storyFunction: "movement",
+      actionEnvelope: "combat_full",
+      legacyPageRole: "",
+      explicitCombat: true,
+    });
+    expect(pattern).toEqual(["wide", "medium", "closeup", "medium"]);
+  });
+
+  it("getTemplateForIntent: combat envelope → asymmetric_hero", () => {
+    const cfg = getTemplateForIntent({
+      storyFunction: "movement",
+      actionEnvelope: "combat_full",
+      legacyPageRole: "",
+      explicitCombat: true,
+    });
+    expect(cfg.pageTemplate).toBe("asymmetric_hero");
+  });
+
+  it("directShotPlan: confrontation sans explicit combat → aucun panel n'hérite d'angle low via explicitCombat", () => {
+    // Avec la règle Phase 1, pageRole=confrontation n'active plus combat, donc
+    // aucun forçage low-angle panel 0 via explicitCombat. Seul l'antag emphasis
+    // peut encore placer un low.
+    const plan = directShotPlan({
+      beats: [
+        {
+          id: "b",
+          pageRole: "confrontation",
+          characters: ["Kaito", "Yuki"],
+          location: "rooftop",
+        },
+      ],
+      genreMode: "shonen",
+      importantCharacters: [
+        { characterId: "c1", name: "Kaito", role: "hero" as const },
+      ],
+    });
+    const panel0 = plan.pages[0].panels[0];
+    // Sans antag, pas de low angle forcé par explicitCombat — donc eye_level/high.
+    expect(panel0.cameraAngle).not.toBe("low");
+  });
+
+  it("directShotPlan: storyFunction dialogue_tension → template non-asymmetric_hero", () => {
+    const plan = directShotPlan({
+      beats: [
+        {
+          id: "b",
+          storyFunction: "dialogue_tension",
+          actionEnvelope: "none",
+          characters: ["A", "B"],
+          location: "rooftop",
+        },
+      ],
+      genreMode: "shonen",
+      importantCharacters: [],
+    });
+    expect(plan.pages[0].template).not.toBe("asymmetric_hero");
+  });
+
+  it("directShotPlan: storyFunction movement + combat_full → template asymmetric_hero", () => {
+    const plan = directShotPlan({
+      beats: [
+        {
+          id: "b",
+          storyFunction: "movement",
+          actionEnvelope: "combat_full",
+          characters: ["A", "B"],
+          location: "arena",
+        },
+      ],
+      genreMode: "shonen",
+      importantCharacters: [],
+    });
+    expect(plan.pages[0].template).toBe("asymmetric_hero");
   });
 });
