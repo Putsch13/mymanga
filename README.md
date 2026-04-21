@@ -421,6 +421,50 @@ Une passe d'audit complete a ete appliquee pour garantir la fiabilite des donnee
 - Sprint CTO P0-P3 : `routing-context.cutaway.test.ts`, `fal-scene-strategy.cutaway.test.ts`, `compliance-dominant-subject.test.ts`, `npc-resolver.test.ts`, `manual-visual-ref-policy.test.ts`, `species-resolver.integration.test.ts`, `run-continuity-diff.timeline.test.ts`, `build-location-markers.test.ts`, `extract-critical-props.test.ts`, `generate-visual-guards.test.ts`, `npc-resolve-route.test.ts`, `business-metrics.test.ts`, `evals/fixtures.test.ts`, `audit-bundle-policy.test.ts`, `migration-p32-constraints.test.ts`
 - **Suite complete verte** : 349 tests `apps/web` + 21 fichiers `workflow` + 37 fichiers `ai` + 5 fichiers `continuity` + 4 fichiers `world` + 3 fichiers `core` + 2 fichiers `memory`
 
+## Sprint 1 — Reader manga/webtoon (avril 2026)
+
+Stabilisation du lecteur autour de **2 formats uniquement** : `manga` (pagine RTL) et `webtoon` (scroll vertical). Les autres formats sont supprimes cote UI.
+
+### Modules cree
+- `apps/web/components/manga/pagination/panel-importance.ts` — derive la criticite d'un panel (`splash`/`major`/`normal`/`insert`) a partir de `shotType`/`panelRole`/`slotType`.
+- `apps/web/components/manga/pagination/page-layout-types.ts` — whitelist des layouts supportes + capacite par layout.
+- `apps/web/components/manga/pagination/page-layout-rules.ts` — `computePageSizes()` (pas de pages a 5 panels) + `pickLayoutForPage()`.
+- `apps/web/components/manga/pagination/manga-pagination-engine.ts` — `buildMangaPagesFromPanels()` : garantit zero perte de panel, ordre preserve, scenes longues reparties.
+- `apps/web/components/manga/pagination/webtoon-flow-builder.ts` — `buildWebtoonFlowFromPanels()` : flux lineaire strict, aucun regroupement manga.
+- `apps/web/components/manga/reader/reader-viewport-controller.ts` — modes explicites `fit-page`/`fit-width`/`panel-focus` avec `object-fit: contain` par defaut.
+- `apps/web/lib/project-format.ts` — whitelist et normalisation des formats (`manga`/`webtoon`), legacy route vers `manga`.
+
+### Bugs corriges
+- Le `slice(0, 6)` silencieux de `pipelineScenesToPages` qui tronquait les panels au-dela du 6e. Desormais les scenes longues sont **reparties sur plusieurs pages** sans perte.
+- L'hypothese `scene === page` qui empechait 75+ panels d'etre tous visibles. Le pipeline passe par `flattenChapterPanels` + paginator.
+- Le mode full-page qui croppait le haut des pages : `fit-page` utilise maintenant `object-fit: contain`.
+
+### Tests Sprint 1 (+71 cas)
+`manga-pagination-engine.test.ts` (36), `webtoon-flow-builder.test.ts` (10), `reader-viewport-controller.test.ts` (8), `build-reader-pages.test.ts` (12), `project-format.test.ts` (5).
+
+## Sprint 2 — Composition panel + modele de bulles editable (avril 2026)
+
+Decoupage du monolithe `manga-panel.tsx` (~590 lignes) en composants atomiques et introduction d'un **modele d'edition des bulles** persistant.
+
+### Modules crees
+- `apps/web/components/manga/panel/bubble-layout-model.ts` — structure explicite d'une bulle editable : `bubbleId`/`kind`/`text`/`bounds` (%)/`tailAnchor`/`speakerId`/`priority`/`reservedZone`/`styleVariant`/`isEditable` + helpers geometriques (`bubbleOverlaps`, `clampBoundsToPanel`, `computeForbiddenOverlap`, `reservedZoneToBounds`).
+- `apps/web/components/manga/panel/bubble-compositor.ts` — `composePanelTextLayer()` : transforme `dialogue[] + narration + sfx + reservedZones + forbiddenZones + overrides` en `PanelTextLayer` (bulles + captions + sfx). Respecte les overrides persistes, evite les visages critiques, ordre stable.
+- `apps/web/components/manga/panel/panel-image.tsx` — rendu pur de l'image + etats (pending/failed/completed-empty) + retry silencieux sur provider cache casse.
+- `apps/web/components/manga/panel/panel-bubble-overlay.tsx` — rendu SVG des bulles depuis le `PanelTextLayer` (viewBox `0..100 x 0..100`, queue orientee).
+- `apps/web/components/manga/panel/panel-sfx-overlay.tsx` — SFX variants `sfx_bold`/`sfx_subtle` positionnes en pourcentage.
+- `apps/web/components/manga/panel/panel-caption-overlay.tsx` — cartouches narratifs.
+- `apps/web/components/manga/panel/panel-composed-view.tsx` — orchestration finale (image + overlays + edit controls + fallback text strip).
+- `apps/web/components/manga/panel/panel-edit-controls.tsx` — wrapper propre autour de l'ancien `PanelEditOverlay`.
+
+### Responsabilite clarifiee
+`manga-panel.tsx` est desormais un **thin wrapper** (~165 lignes) qui preserve l'API publique pour les 2 consommateurs existants (`webtoon-lazy-scroll.tsx`, `manga-page-grid.tsx`) et delegue toute la composition a `PanelComposedView`. Les bulles ont des `bubbleId` stables et peuvent etre persistees/editees sans toucher au rendu.
+
+### Tests Sprint 2 (+26 cas)
+`bubble-layout-model.test.ts` (9) : helpers geometriques, clamp, forbidden overlap. `bubble-compositor.test.ts` (17) : composition automatique, overrides persistes, reserved/forbidden zones, maxBubbles reader=6/webtoon=8, `mergeBubbleOverride` (undefined=preserve, null=clear).
+
+### Suite web verte
+**493 tests `apps/web`** passent (52 fichiers), typecheck OK, lint OK.
+
 ## Architecture
 
 ```mermaid
