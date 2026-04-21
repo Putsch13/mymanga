@@ -21,3 +21,4 @@ export * from "./canonical-image-prompt-packet";
 export * from "./pipeline-truth-report";
 export * from "./beat-narrative-contract";
 export * from "./action-contract";
+export * from "./canonical-style-contract";

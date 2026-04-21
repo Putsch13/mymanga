@@ -42,6 +42,7 @@ import type {
   NarrativeToPlanResult,
 } from "../chapter-image-plan-from-narrative";
 import { buildCanonicalPacketForPlannedImage } from "../canonical-packet-bridge";
+import { resolveCanonicalStyleContract } from "../style-contract-resolver";
 import {
   resolveEffectivePanelPromptSource,
   buildPromptDebugSnapshot,
@@ -142,14 +143,50 @@ export async function runImageGenerationPass(
     era: null,
     magicLevel: null,
   };
+  // Phase 2 truth: replace the silent
+  //   `stylePacks[0]?.name ?? "shonen_classic"`
+  // fallback with a resolved CanonicalStyleContract. The contract surfaces
+  // drift risk, so the truth report can flag a suspicious style without
+  // silently generating a realistic panel.
+  const canonicalStyleContract = resolveCanonicalStyleContract({
+    stylePack: stylePacks[0] ?? null,
+    presetSlug: (project?.stylePresetSlug as string | undefined) ?? null,
+  });
+  if (
+    canonicalStyleContract.source === "unresolved" ||
+    canonicalStyleContract.styleDriftRiskScore >= 0.5
+  ) {
+    console.warn(
+      "[image-generation-pass] style contract drift risk",
+      {
+        projectId,
+        chapterId,
+        source: canonicalStyleContract.source,
+        drift: canonicalStyleContract.styleDriftRiskScore,
+        reasons: canonicalStyleContract.styleDriftReasons,
+      },
+    );
+  }
   const canonicalMangaStyle: MangaStyleProfileRef = {
-    styleId: (stylePacks[0]?.id as string) ?? "default",
-    styleName: (stylePacks[0]?.name as string) ?? "shonen_classic",
+    styleId: canonicalStyleContract.styleId,
+    styleName: canonicalStyleContract.styleName,
     medium: "manga",
-    inkingStyle: "clean bold manga linework",
-    shadingStyle: "screen tones",
+    inkingStyle:
+      canonicalStyleContract.lineWeight === "heavy"
+        ? "heavy bold manga linework"
+        : canonicalStyleContract.lineWeight === "fine"
+          ? "fine precise manga linework"
+          : "clean manga linework",
+    shadingStyle:
+      canonicalStyleContract.shadingMode === "ink_bw"
+        ? "ink black-and-white screen tones"
+        : canonicalStyleContract.shadingMode === "cel_shading"
+          ? "cel shaded manga rendering"
+          : canonicalStyleContract.shadingMode === "painterly"
+            ? "painterly ink washes"
+            : "cross-hatching manga rendering",
     compositionStyle: "dynamic manga panel layout",
-    referenceMangaTitle: (stylePacks[0]?.referenceTitle as string | undefined) ?? null,
+    referenceMangaTitle: canonicalStyleContract.referenceMangaTitle,
   };
   const canonicalContentRating: ContentRating = (() => {
     const il = (intensityLayer ?? "").toLowerCase();
