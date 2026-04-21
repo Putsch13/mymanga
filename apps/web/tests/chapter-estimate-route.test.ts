@@ -46,6 +46,20 @@ vi.mock("@manga-ai-studio/ai", () => ({
   // Couche LLM — retourne null en test (pas de clé API)
   enrichNarrativeFactsWithLLM: vi.fn().mockResolvedValue(null),
   mergeNarrativeFacts: vi.fn().mockImplementation((heuristic: unknown[]) => heuristic),
+  // P2.1bis — route estimate appelle désormais `expandBlueprintsToMinimum`
+  // pour garantir un contrat complet (panelBlueprints.length >= minimumImages).
+  // Mock : retourne le tableau d'origine, padded à `minimumPanels` en clonant
+  // le premier élément (comportement équivalent à l'implémentation réelle
+  // pour les besoins du test — sans les variations shotType détaillées).
+  expandBlueprintsToMinimum: vi.fn().mockImplementation((blueprints: unknown[], minimumPanels: number) => {
+    if (!Array.isArray(blueprints) || blueprints.length === 0) return blueprints ?? [];
+    if (blueprints.length >= minimumPanels) return blueprints;
+    const padded = [...blueprints];
+    while (padded.length < minimumPanels) {
+      padded.push({ ...(blueprints[0] as Record<string, unknown>), panelNumber: padded.length + 1 });
+    }
+    return padded;
+  }),
 }));
 
 const ctx = { params: Promise.resolve({ id: "project-1" }) };
@@ -325,6 +339,79 @@ describe("chapter estimate route", () => {
     expect(buildPanelBlueprintsFromBeatMock).toHaveBeenCalledTimes(10);
     expect(computeChapterFocusBudgetMock).toHaveBeenCalledTimes(1);
     expect(computePremiumReadinessScoreMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("P2.1bis — sort un productionPlan avec panelBlueprints.length >= minimumImages (pas 55/75 ni 30/75)", async () => {
+    // Cas utilisateur reel : "Régénérer le plan" sortait avec 55 blueprints
+    // pour un minimum de 75, ce qui bloquait immédiatement le launch côté
+    // studio avec `contractStatus=incomplete_blueprints`. La route estimate
+    // doit maintenant appeler `expandBlueprintsToMinimum` en respectant
+    // `chapter.minimumImages` pour éviter cette divergence.
+    prismaMock.chapter.findFirst.mockResolvedValue({
+      id: "chapter-3",
+      chapterNumber: 3,
+      title: "Chapitre 3",
+      status: "draft",
+      minimumImages: 75,
+    });
+    // Le builder de blueprints sort intentionnellement peu (2 par beat × 10 beats = 20),
+    // comme ça se produit en prod avec certains chapitres.
+    buildPanelBlueprintsFromBeatMock.mockImplementation((beat: { beatId: string }) => [
+      makePremiumBlueprint(beat.beatId, 1),
+      makePremiumBlueprint(beat.beatId, 2),
+    ]);
+
+    const mod = await import("../app/api/projects/[id]/chapters/estimate/route");
+    const response = await mod.POST(
+      new Request("http://localhost", {
+        method: "POST",
+        body: JSON.stringify({
+          chapterId: "chapter-3",
+          chapterNumber: 3,
+          userIntent: "Régénérer le plan (cas bug utilisateur)",
+        }),
+      }),
+      ctx,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.productionPlan).toBeDefined();
+    expect(payload.productionPlan.minimumImages).toBe(75);
+    // Cœur du fix : le contrat renvoyé doit honorer le minimum du chapitre.
+    expect(payload.productionPlan.panelBlueprints.length).toBeGreaterThanOrEqual(75);
+  });
+
+  it("P2.1bis — respecte un minimumImages custom > 75 (ex. chapitre exigeant 100)", async () => {
+    prismaMock.chapter.findFirst.mockResolvedValue({
+      id: "chapter-special",
+      chapterNumber: 5,
+      title: "Chapitre spécial",
+      status: "draft",
+      minimumImages: 100,
+    });
+    buildPanelBlueprintsFromBeatMock.mockImplementation((beat: { beatId: string }) => [
+      makePremiumBlueprint(beat.beatId, 1),
+      makePremiumBlueprint(beat.beatId, 2),
+    ]);
+
+    const mod = await import("../app/api/projects/[id]/chapters/estimate/route");
+    const response = await mod.POST(
+      new Request("http://localhost", {
+        method: "POST",
+        body: JSON.stringify({
+          chapterId: "chapter-special",
+          chapterNumber: 5,
+          userIntent: "Chapitre long avec contrat images 100.",
+        }),
+      }),
+      ctx,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.productionPlan.minimumImages).toBe(100);
+    expect(payload.productionPlan.panelBlueprints.length).toBeGreaterThanOrEqual(100);
   });
 
   it("productionPlan contient cutawayCoverage (cutawayComplianceScore calculable)", async () => {

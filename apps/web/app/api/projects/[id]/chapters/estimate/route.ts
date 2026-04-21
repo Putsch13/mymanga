@@ -9,6 +9,7 @@ import {
   computePremiumReadinessScore,
   enrichNarrativeFactsWithLLM,
   mergeNarrativeFacts,
+  expandBlueprintsToMinimum,
 } from "@manga-ai-studio/ai";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { buildApprovedOutlineVersion, buildProductionPlanFromOutline } from "@manga-ai-studio/core";
@@ -57,6 +58,11 @@ export async function POST(req: Request, ctx: Ctx) {
           chapterNumber: true,
           title: true,
           status: true,
+          // P2.1bis — on a besoin du minimum du chapitre pour garantir que
+          // le contrat sort avec panelBlueprints.length >= minimumImages.
+          // Sans ça, la régénération produit ~30-55 panels alors que le
+          // chapitre en demande 75+ et le studio bloque immédiatement.
+          minimumImages: true,
         },
       })
     : null;
@@ -197,7 +203,32 @@ export async function POST(req: Request, ctx: Ctx) {
     };
   }));
 
-  const allBlueprints = enrichedBeats.flatMap((b) => b._blueprints);
+  const rawBlueprints = enrichedBeats.flatMap((b) => b._blueprints);
+  // P2.1bis — bug visible côté studio : "Régénérer le plan" appelait cette
+  // route et sortait avec 30-55 blueprints alors que `Chapter.minimumImages`
+  // vaut 75 (défaut Prisma). Résultat : le contrat était immédiatement
+  // marqué `incomplete_blueprints` et le studio bloquait le launch. On
+  // aligne ici l'expansion avec `buildPremiumChapterContract` en utilisant
+  // le vrai minimum du chapitre (ou 75 en fallback).
+  const chapterMinimumImages =
+    typeof targetChapter?.minimumImages === "number" && targetChapter.minimumImages > 0
+      ? targetChapter.minimumImages
+      : 75;
+  const allBlueprints = expandBlueprintsToMinimum(rawBlueprints, chapterMinimumImages);
+  if (allBlueprints.length > rawBlueprints.length) {
+    console.log(
+      `[estimate] expanded panelBlueprints ${rawBlueprints.length} → ${allBlueprints.length} ` +
+      `(min=${chapterMinimumImages}) chapterId=${targetChapter?.id ?? "new"}`,
+    );
+  }
+  if (allBlueprints.length < chapterMinimumImages) {
+    console.warn(
+      `[estimate] incomplete_plan_after_build raw=${rawBlueprints.length} ` +
+      `expanded=${allBlueprints.length} minimum=${chapterMinimumImages} chapterId=${targetChapter?.id ?? "new"} ` +
+      `— l'expansion n'a pas pu atteindre le minimum (rawBlueprints probablement vides). ` +
+      `Le studio bloquera le launch via contractStatus=incomplete_blueprints.`,
+    );
+  }
   const focusBudget = computeChapterFocusBudget(allBlueprints);
   const premiumReadinessScore = computePremiumReadinessScore(allBlueprints);
 
@@ -221,7 +252,10 @@ export async function POST(req: Request, ctx: Ctx) {
   };
 
   const productionPlan = {
-    ...buildProductionPlanFromOutline(productionOutline),
+    // P2.1bis — on propage le `minimumImages` du chapitre dans le productionPlan
+    // construit, sinon `buildProductionPlanFromOutline` retombe sur son défaut
+    // interne (75) et le snapshot peut diverger de la colonne Chapter.minimumImages.
+    ...buildProductionPlanFromOutline(productionOutline, { minimumImages: chapterMinimumImages }),
     panelBlueprints: allBlueprints,
     focusDistribution: focusBudget.focusDistribution,
     shotDistribution: focusBudget.shotDistribution,
@@ -276,6 +310,7 @@ export async function POST(req: Request, ctx: Ctx) {
     `chapterNumber=${targetChapterNumber} estimateMode=${estimateMode} ` +
     `beatsCount=${productionOutline.beats.length} ` +
     `productionPlanPages=${Array.isArray((productionPlan as Record<string, unknown>).pages) ? ((productionPlan as Record<string, unknown>).pages as unknown[]).length : 0} ` +
+    `rawBlueprints=${rawBlueprints.length} expandedBlueprints=${allBlueprints.length} minimumImages=${chapterMinimumImages} ` +
     `progressionOk=${progressionCheck.ok} progressionScore=${progressionCheck.progressionScore.toFixed(2)}`,
   );
 
