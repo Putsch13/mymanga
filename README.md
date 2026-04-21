@@ -465,6 +465,52 @@ Decoupage du monolithe `manga-panel.tsx` (~590 lignes) en composants atomiques e
 ### Suite web verte
 **493 tests `apps/web`** passent (52 fichiers), typecheck OK, lint OK.
 
+## Sprint 3 — Fiabilite prompt FAL + shot plan narratif (avril 2026)
+
+Objectif : gagner en fiabilite et en dynamique visuelle sur les 70-75 cases d'un chapitre.
+
+### Probleme adresse
+- Le prompt envoye a FAL contenait les markers `[TAG]` + sauts de ligne du prompt structure canonique. FLUX/SDXL ne parsent pas ces tags — ils polluent le signal.
+- La `CONTENT_CLASSIFICATION` (audience teen, violence moderate…) leak dans le prompt diffusion alors que c'est pur metadata narrative.
+- Le token `manga` etait simplement verifie comme "present quelque part" — il pouvait arriver en 500e char et etre noye.
+- Aucun plan narratif lisible n'etait expose avant generation : on dependait des budgets opaques pour savoir si les 70-75 cases allaient etre variees.
+
+### Sprint A — Prompt FAL manga-first dense
+- `packages/ai/src/prompts/fal-prompt-flattener.ts` — transforme les sections `[TAG]` en un prompt FAL-optimise :
+  - commence TOUJOURS par `manga panel, manga linework, screentone shading, manga composition, <style tokens>...`
+  - ordre par priorite visuelle : style → sujet dominant → action → environnement → props → canon → interdits
+  - supprime `CONTENT_CLASSIFICATION` / `STORY_CONTEXT` / `DIALOGUE_CONTEXT` du prompt diffusion (elles restent dans `extra.structuredPromptForDebug` pour debug/logs)
+  - tronque proprement a `maxLength` (default 1200) au dernier separateur
+  - helper `auditFalPrompt()` detecte les regressions : non-manga-first, [TAG] residuels, classification leak, longueur hors bornes
+- Integration dans `buildFalPromptPayload()` : `payload.prompt = flattenStructuredPromptForFal(packet.finalEnglishStructuredPrompt)` + `payload.extra.promptAuditIssues` si anomalie + `payload.extra.structuredPromptForDebug` conserve le prompt brut pour audit humain.
+- **Rule 8 durcie** : le token `manga` DOIT apparaitre dans les **50 premiers caracteres** (avant : n'importe ou).
+- **Rule 9 nouvelle** : aucun `[TAG]` residuel dans le prompt diffusion.
+- **Rule 10 nouvelle** : `content rating:` / `audience teen|mature|…` declenchent un warning.
+
+### Sprint B — Chapter Shot Plan expose
+- `packages/ai/src/services/shot-planning/chapter-shot-plan.ts` — `buildChapterShotPlan()` produit un **plan narratif lisible** des 70-75 cases avant generation :
+  - `entries[]` : 1 ligne par panel, format `medium · PNJ ★ — merchant notices hero arriving at market gate`
+  - catégorisation en 13 categories (`hero_lead`, `hero_duo`, `enemy_focus`, `npc_focus`, `group_or_crowd`, `environment_wide`, `environment_insert`, `prop_insert`, `reaction_cutaway`, `aftermath`, `dialogue_anchor`, `ally_focus`, `other`)
+  - `distribution` : total, ratio heros, ratio cutaways, unique shot types, compteurs env/PNJ/inserts/reactions
+  - `reliability.launchAllowed` + `blockers[]` / `warnings[]`
+  - `humanReadable` : rendu texte complet prêt pour UI studio / logs / export
+- **Seuils durs** (`SHOT_PLAN_THRESHOLDS`) pour chapitres >= 10 panels :
+  - `heroLeadRatio <= 55%` (sinon blocker `HERO_OVERLOAD`)
+  - `cutawayRatio >= 15%` (sinon blocker `MISSING_CUTAWAYS`)
+  - `environmentPanels >= 2` (sinon blocker `MISSING_ENVIRONMENT`)
+  - `uniqueShotTypes >= 3` (sinon blocker `SHOT_MONOTONY`)
+  - warning `HERO_STREAK` si >= 6 panels heros consecutifs
+- Integration `/api/projects/[id]/chapters/estimate` : `productionPlan.shotPlan` contient le plan complet + reliability.
+- Integration `/api/projects/[id]/chapters/[chapterId]/launch` : **bloque la launch** (HTTP 422 `SHOT_PLAN_UNRELIABLE`) si `reliability.launchAllowed === false`, renvoie blockers + humanReadable a l'UI.
+
+### Tests Sprint 3 (+34 cas)
+- `fal-prompt-flattener.test.ts` (16) : invariants manga-first, [TAG] strippe, classification filtree, ordre respecte, troncature propre, audit detecte regressions.
+- `fal-prompt-flattener.integration.test.ts` (6) : chaine reelle canonical-recipe → flatten → audit clean, sur hero_focus / environment_establishing / prop_insert / hero_duo / crowd_presence + sweep sur 12 intent types.
+- `chapter-shot-plan.test.ts` (12) : plan vide bloquant, plan 100% heros bloquant (HERO_OVERLOAD + MISSING_CUTAWAYS + SHOT_MONOTONY + MISSING_ENVIRONMENT cumules), plan equilibre passe, petit plan (<10) tolerant, streak heros detecte, human-readable complet, headlines avec badge ★ pour contractualCritical.
+
+### Suite totale verte apres Sprint 3
+**308 tests `packages/ai`** (44 fichiers) + **493 tests `apps/web`** (52 fichiers) = **801 tests** passent. Typecheck OK, lint OK.
+
 ## Architecture
 
 ```mermaid

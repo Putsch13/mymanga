@@ -145,11 +145,15 @@ function makeInput(packet: CanonicalImagePromptPacket, refs: FalPromptPayloadInp
 }
 
 describe("buildFalPromptPayload — payload shape", () => {
-  it("uses finalEnglishStructuredPrompt as prompt (never FR)", () => {
+  it("uses flattened English prompt (manga-first, no [TAG], never FR)", () => {
+    // Sprint A — On ne passe plus le prompt structuré brut mais une forme
+    // dense manga-first. Le structuré reste dans `extra.structuredPromptForDebug`.
     const packet = makePacket();
     const { payload } = buildFalPromptPayload(makeInput(packet));
-    expect(payload.prompt).toBe(packet.finalEnglishStructuredPrompt);
+    expect(payload.prompt.toLowerCase().startsWith("manga panel")).toBe(true);
+    expect(/\[[A-Z_]+\]/.test(payload.prompt)).toBe(false);
     expect(payload.prompt).not.toBe(packet.finalFrenchStructuredPrompt);
+    expect(payload.extra?.structuredPromptForDebug).toBe(packet.finalEnglishStructuredPrompt);
   });
 
   it("sets negativePrompt from packet", () => {

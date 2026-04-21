@@ -69,3 +69,5 @@ export * from "./services/canonical-prompt-recipe-builder";
 export * from "./services/canon-binding-resolver";
 export * from "./services/packet-aware-reroll-advisor";
 export * from "./adapters/fal-prompt-payload-builder";
+export * from "./prompts/fal-prompt-flattener";
+export * from "./services/shot-planning/chapter-shot-plan";

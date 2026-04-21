@@ -21,6 +21,10 @@ import type {
   LoraBinding,
 } from "@manga-ai-studio/core";
 import { isNonHeroDominantIntent } from "@manga-ai-studio/core";
+import {
+  auditFalPrompt,
+  flattenStructuredPromptForFal,
+} from "../prompts/fal-prompt-flattener";
 
 export interface FalPromptPayloadInput {
   packet: CanonicalImagePromptPacket;
@@ -270,9 +274,30 @@ export function validatePayloadForIntent(
     }
   }
 
-  // Rule 8: prompt en anglais (check final — manga guard)
+  // Rule 8 (Sprint A — durcie) : le token `manga` DOIT apparaître dans les 50
+  // premiers caractères. Un prompt diffusion où le style arrive à la fin est
+  // noyé par les autres tokens ; FLUX privilégie largement la tête du prompt.
   if (!promptLower.includes("manga")) {
     errors.push(`MISSING_MANGA_MEDIUM_TOKEN: final prompt does not reference manga medium`);
+  } else {
+    const mangaIdx = promptLower.indexOf("manga");
+    if (mangaIdx > 50) {
+      errors.push(
+        `MANGA_TOKEN_TOO_LATE: 'manga' appears at char ${mangaIdx}, max 50 for head-of-prompt weighting`,
+      );
+    }
+  }
+
+  // Rule 9 (Sprint A) : pas de marqueurs `[TAG]` résiduels (ceux-ci servent
+  // au debug structuré et au LLM narratif, pas à la diffusion).
+  if (/\[[A-Z_]+\]/.test(payload.prompt)) {
+    errors.push(`TAG_MARKERS_PRESENT: structured [TAG] markers leaked into diffusion prompt`);
+  }
+
+  // Rule 10 (Sprint A) : pas de métadonnées de classification dans le prompt
+  // diffusion (elles polluent le signal et ne guident pas l'image).
+  if (/content rating:|audience\s+(teen|mature|all_ages|explicit)/i.test(payload.prompt)) {
+    warnings.push(`CLASSIFICATION_IN_PROMPT: rating metadata present in diffusion prompt`);
   }
 
   return {
@@ -327,8 +352,17 @@ export function buildFalPromptPayload(input: FalPromptPayloadInput): FalPromptPa
 
   const loraExtra = buildLoraExtraPayload(packet.loraBindings);
 
+  // Sprint A — On ne passe PLUS le prompt structuré brut (avec `[TAG]` et
+  // sauts de ligne) au provider. Il reste dans le packet pour debug/logs,
+  // mais la diffusion reçoit un prompt dense manga-first.
+  const flattenedPrompt = flattenStructuredPromptForFal(
+    packet.finalEnglishStructuredPrompt,
+    { maxLength: 1200 },
+  );
+  const promptAuditIssues = auditFalPrompt(flattenedPrompt);
+
   const payload: ProviderPayload = {
-    prompt: packet.finalEnglishStructuredPrompt,
+    prompt: flattenedPrompt,
     negativePrompt: packet.negativePromptEnglish,
     width: dims.width,
     height: dims.height,
@@ -341,6 +375,8 @@ export function buildFalPromptPayload(input: FalPromptPayloadInput): FalPromptPa
       ...loraExtra,
       modelId: routing.modelId,
       referencePolicy: routing.referencePolicy,
+      promptAuditIssues: promptAuditIssues.length > 0 ? promptAuditIssues : undefined,
+      structuredPromptForDebug: packet.finalEnglishStructuredPrompt,
     },
   };
 

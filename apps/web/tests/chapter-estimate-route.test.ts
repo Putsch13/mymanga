@@ -60,6 +60,28 @@ vi.mock("@manga-ai-studio/ai", () => ({
     }
     return padded;
   }),
+  // Sprint B — shot plan est ajouté au productionPlan. Mock minimal qui
+  // renvoie une structure stable pour ne pas casser les tests existants.
+  buildChapterShotPlan: vi.fn().mockImplementation(
+    (input: { blueprints?: unknown[]; projectTitle?: string | null; chapterTitle?: string | null }) => ({
+      projectTitle: input.projectTitle ?? null,
+      chapterTitle: input.chapterTitle ?? null,
+      entries: Array.isArray(input.blueprints) ? input.blueprints.map((_, i) => ({ panelNumber: i + 1 })) : [],
+      distribution: {
+        totalPanels: Array.isArray(input.blueprints) ? input.blueprints.length : 0,
+        byCategory: {},
+        heroLeadRatio: 0,
+        cutawayRatio: 0.25,
+        uniqueShotTypes: 3,
+        environmentPanels: 2,
+        npcPanels: 1,
+        propInsertPanels: 1,
+        reactionPanels: 1,
+      },
+      reliability: { score: 1, launchAllowed: true, warnings: [], blockers: [] },
+      humanReadable: "mocked shot plan",
+    }),
+  ),
 }));
 
 const ctx = { params: Promise.resolve({ id: "project-1" }) };

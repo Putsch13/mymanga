@@ -184,6 +184,52 @@ export async function POST(_req: Request, ctx: Ctx) {
         `[launch] contractual_focus_check_failed (non-blocking): ${focusErr instanceof Error ? focusErr.message : focusErr}`,
       );
     }
+
+    // Sprint B — Shot Plan reliability guard. On relit le shot plan persisté
+    // dans `productionPlan.shotPlan` (produit par /estimate) et on bloque
+    // la launch si un blocker est présent (HERO_OVERLOAD, MISSING_CUTAWAYS,
+    // MISSING_ENVIRONMENT, SHOT_MONOTONY, EMPTY_PLAN). C'est un filet en plus
+    // du contractual focus, avec un rapport human-readable pour l'auteur.
+    try {
+      // Note : le type public de productionPlan ne liste pas shotPlan (c'est
+      // un champ additionnel persisté par /estimate). Cast contrôlé.
+      const productionPlanLoose = snapshot.data.productionPlan as (typeof snapshot.data.productionPlan & {
+        shotPlan?: {
+          reliability?: {
+            launchAllowed?: boolean;
+            score?: number;
+            blockers?: Array<{ code: string; message: string; severity: string }>;
+          };
+          humanReadable?: string;
+        };
+      }) | null | undefined;
+      const persistedShotPlan = productionPlanLoose?.shotPlan ?? null;
+      if (persistedShotPlan?.reliability && persistedShotPlan.reliability.launchAllowed === false) {
+        const blockers = persistedShotPlan.reliability.blockers ?? [];
+        console.warn(
+          `[launch] shot_plan_unreliable chapterId=${chapterId} ` +
+            `score=${(persistedShotPlan.reliability.score ?? 0).toFixed(2)} ` +
+            `blockers=${JSON.stringify(blockers.map((b) => b.code))}`,
+        );
+        return NextResponse.json(
+          {
+            error:
+              "Le shot plan du chapitre a des blocages critiques " +
+              "(héros trop centré, pas assez de coupes, décor absent, cadrages monotones). " +
+              "Régénère le plan de production.",
+            code: "SHOT_PLAN_UNRELIABLE",
+            score: persistedShotPlan.reliability.score,
+            blockers,
+            humanReadable: persistedShotPlan.humanReadable,
+          },
+          { status: 422 },
+        );
+      }
+    } catch (shotPlanErr) {
+      console.warn(
+        `[launch] shot_plan_check_failed (non-blocking): ${shotPlanErr instanceof Error ? shotPlanErr.message : shotPlanErr}`,
+      );
+    }
   }
 
   // P0.5 : garde "canon health" sur les personnages critiques (hero,

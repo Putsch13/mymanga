@@ -10,6 +10,7 @@ import {
   enrichNarrativeFactsWithLLM,
   mergeNarrativeFacts,
   expandBlueprintsToMinimum,
+  buildChapterShotPlan,
 } from "@manga-ai-studio/ai";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { buildApprovedOutlineVersion, buildProductionPlanFromOutline } from "@manga-ai-studio/core";
@@ -296,6 +297,14 @@ export async function POST(req: Request, ctx: Ctx) {
     // pour que launch/route.ts puisse bloquer les chapitres trop héros-centrés
     // ou sans plan de coupe contractuel.
     focusBudget,
+    // Sprint B — Shot plan narratif lisible avant génération. Contient
+    // entries (1 ligne par panel), distribution (ratios, unique shots, cutaways),
+    // reliability (launchAllowed, blockers, warnings) et humanReadable (texte UI).
+    shotPlan: buildChapterShotPlan({
+      projectTitle: context.project.title ?? null,
+      chapterTitle: targetChapter?.title ?? null,
+      blueprints: allBlueprints,
+    }),
   };
 
   const contextDigest = [
