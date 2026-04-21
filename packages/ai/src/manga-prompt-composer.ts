@@ -1,3 +1,24 @@
+/**
+ * @deprecated LEGACY fallback prompt composer (Sprint C).
+ *
+ * Ce fichier est conserve uniquement comme fallback pour les cas ou le
+ * `CanonicalImagePromptPacket` (voir `packages/ai/src/services/canonical-prompt-recipe-builder.ts`)
+ * n'est pas disponible. Le chemin de production doit passer par :
+ *
+ *   canonical-prompt-recipe-builder.ts
+ *     → fal-prompt-flattener.ts
+ *     → fal-prompt-payload-builder.ts
+ *     → provider FAL
+ *
+ * Chaque invocation runtime des exports publics de ce fichier
+ * (`composeMangaPanelPrompt`, `composeChapterCoverPrompt`) est loguee une fois
+ * par process pour mesurer la part de trafic legacy restant. Objectif : tomber
+ * a 0% d'invocations en production pour pouvoir supprimer ce module.
+ *
+ * Ne pas ajouter de nouvelle logique ici. Toute nouveaute va dans le chemin
+ * canonical.
+ */
+
 import type { PanelMood } from "./chapter-pipeline";
 import type { SceneBlueprint } from "@manga-ai-studio/world";
 import type { ChapterLookProfile } from "@manga-ai-studio/core";
@@ -10,6 +31,21 @@ import type { PanelIntentCard } from "./services/panel-intent-card";
 import { buildPanelIntentPromptBlock, buildPanelIntentNegativeBlock } from "./services/panel-intent-card";
 import { getPropVisualDescriptor } from "./services/prop-visual-library";
 import { getStylePreset, stylePresetExtraTerms } from "./style-presets";
+
+// ─── Legacy usage tracking ────────────────────────────────────────────────────
+// On logue une fois par process pour mesurer la part de trafic legacy.
+// Cible : 0 invocation en prod. Les tests sautent volontairement ce warning.
+const __legacyComposerWarnedFor = new Set<string>();
+function warnLegacyComposer(entry: string): void {
+  if (process.env.NODE_ENV === "test" || process.env.VITEST) return;
+  if (__legacyComposerWarnedFor.has(entry)) return;
+  __legacyComposerWarnedFor.add(entry);
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[manga-prompt-composer:legacy] ${entry} invoked — ` +
+    `fallback path, canonical packet should be preferred (see Sprint C).`,
+  );
+}
 
 export interface CharacterRef {
   name: string;
@@ -511,8 +547,13 @@ function buildCompositionDirective(blueprint: { subjectFocus: string; heroCenter
  * Compose un prompt image structuré pour un panel manga.
  * Intègre le style du projet, les descriptions canoniques des personnages,
  * la caméra, le mood et les contraintes de contenu.
+ *
+ * @deprecated LEGACY fallback. Prefer the canonical pipeline :
+ *   `buildCanonicalPromptRecipe` -> `flattenStructuredPromptForFal`
+ *   -> `buildFalPromptPayload`. Voir `packages/ai/src/services/canonical-prompt-recipe-builder.ts`.
  */
 export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt {
+  warnLegacyComposer("composeMangaPanelPrompt");
   const layer = input.contentIntensityLayer ?? "TEEN";
 
   if (layer === "RESTRICTED_BLOCKED_VISUAL") {
@@ -995,6 +1036,10 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
 
 /**
  * Compose un prompt pour une image de couverture de chapitre.
+ *
+ * @deprecated LEGACY fallback. Le chemin canonical n'a pas encore de recette
+ * cover dediee — cette fonction reste donc active en prod le temps que la
+ * couverture rejoigne le canonical packet. Chaque invocation est loguee.
  */
 export function composeChapterCoverPrompt(input: {
   stylePack?: StylePackRef | null;
@@ -1004,6 +1049,7 @@ export function composeChapterCoverPrompt(input: {
   mood: PanelMood;
   contentIntensityLayer?: string;
 }): ComposedPrompt {
+  warnLegacyComposer("composeChapterCoverPrompt");
   const visualStyle = resolveVisualStyle(input.stylePack);
   const moodDesc = MOOD_DESCRIPTORS[input.mood] ?? "dramatic";
   const charDescs =

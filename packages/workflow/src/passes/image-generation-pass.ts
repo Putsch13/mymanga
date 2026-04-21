@@ -25,6 +25,8 @@ import { reportRenderedCoverage } from "./image-generation/coverage-report";
 import { runRecoveryPass } from "./image-generation/recovery-pass";
 import { generateChapterCover } from "./image-generation/chapter-cover";
 import { persistFalTrace } from "./image-generation/fal-trace";
+import { rerollKindToReason } from "./image-generation/reroll-reason-mapper";
+import { applyPromptAntiRepeat } from "./image-generation/prompt-anti-repeat";
 import { scoreVisualConsistency } from "@manga-ai-studio/visual-consistency";
 import { type SceneBlueprint } from "@manga-ai-studio/world";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
@@ -651,27 +653,6 @@ export async function runImageGenerationPass(
         );
       }
 
-      /**
-       * Map interne rerollKind -> RerollReason pour l'advisor packet-aware.
-       */
-      const rerollKindToReason = (
-        kind: "REROLL_ENVIRONMENT" | "REROLL_CHARACTER_FIDELITY" | "REROLL_INTERACTION" | "REROLL_STYLE" | "REROLL_COMPOSITION" | null | undefined,
-      ): RerollReason => {
-        switch (kind) {
-          case "REROLL_CHARACTER_FIDELITY":
-            return "drift_character";
-          case "REROLL_ENVIRONMENT":
-            return "drift_environment";
-          case "REROLL_STYLE":
-            return "drift_style";
-          case "REROLL_COMPOSITION":
-            return "wrong_framing";
-          case "REROLL_INTERACTION":
-            return "wrong_dominant_subject";
-          default:
-            return "low_quality";
-        }
-      };
       const panelContractMeta = item.baseMetadata.panelContract as {
         purpose?: string;
         shotType?: "wide" | "medium" | "closeup" | "extreme_closeup" | "over_shoulder";
@@ -1115,23 +1096,31 @@ export async function runImageGenerationPass(
 
         const baseReferencePolicy = strategy.panelCategory === "ESTABLISHING_ENVIRONMENT" ? "NONE" : (strategy.referencePolicy ?? "LIGHT");
 
-        // R08: Anti-repetition — detect identical consecutive prompts within a scene
-        let effectivePromptAttempt = effectivePositivePrompt;
-        let antiRepeatSeed: number | undefined;
-        // A01: use SHA-256 hash instead of raw string slice
-        const { createHash } = await import("crypto");
-        const promptHash = createHash("sha256").update(effectivePromptAttempt ?? "").digest("hex").slice(0, 16);
-        const sceneId = String(item.baseMetadata.sceneId ?? "");
-        const prevHash = promptHashByScene.get(sceneId);
-        if (prevHash && prevHash === promptHash && promptHash.length > 0) {
-          antiRepeatSeed = Math.floor(Math.random() * 2147483647);
-          const shotVariation = item.baseMetadata.panelDebugTrace && typeof (item.baseMetadata.panelDebugTrace as Record<string, unknown>).shotPlan === "object"
-            ? `, ${((item.baseMetadata.panelDebugTrace as Record<string, unknown>).shotPlan as Record<string, unknown>)?.cameraAngle ?? "different angle"}`
-            : ", slightly different camera angle";
-          effectivePromptAttempt = (effectivePromptAttempt ?? "") + shotVariation;
-          console.log(`[pipeline:anti-repeat] panel ${item.panel.panelNumber} hash collision with previous in scene ${sceneId}, applying seed=${antiRepeatSeed}`);
+        // R08: Anti-repetition — detect identical consecutive prompts within a scene.
+        // A01: use SHA-256 hash instead of raw string slice. Helper extrait dans
+        // `image-generation/prompt-anti-repeat.ts` Sprint C.
+        const cameraAngleHint =
+          item.baseMetadata.panelDebugTrace &&
+          typeof (item.baseMetadata.panelDebugTrace as Record<string, unknown>).shotPlan === "object"
+            ? String(
+                ((item.baseMetadata.panelDebugTrace as Record<string, unknown>).shotPlan as Record<string, unknown>)
+                  ?.cameraAngle ?? "different angle",
+              )
+            : undefined;
+        const antiRepeat = applyPromptAntiRepeat({
+          positivePrompt: effectivePositivePrompt,
+          sceneId: String(item.baseMetadata.sceneId ?? ""),
+          cameraAngleHint,
+          promptHashByScene,
+        });
+        const effectivePromptAttempt = antiRepeat.effectivePrompt;
+        const antiRepeatSeed = antiRepeat.antiRepeatSeed;
+        if (antiRepeat.hadCollision) {
+          console.log(
+            `[pipeline:anti-repeat] panel ${item.panel.panelNumber} hash collision with previous in scene ` +
+              `${String(item.baseMetadata.sceneId ?? "")}, applying seed=${antiRepeatSeed}`,
+          );
         }
-        promptHashByScene.set(sceneId, promptHash);
 
         let bestAttempt = await validateAttempt(
           await generateAttempt({

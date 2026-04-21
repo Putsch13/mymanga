@@ -511,6 +511,46 @@ Objectif : gagner en fiabilite et en dynamique visuelle sur les 70-75 cases d'un
 ### Suite totale verte apres Sprint 3
 **308 tests `packages/ai`** (44 fichiers) + **493 tests `apps/web`** (52 fichiers) = **801 tests** passent. Typecheck OK, lint OK.
 
+## Sprint C — Refacto des gros fichiers (avril 2026)
+
+Objectif : decouper les trois monolithes du pipeline pour gagner en lisibilite et testabilite, sans changer le comportement runtime.
+
+### `packages/ai/src/services/panel-blueprint-builder.ts` — 1176 → 51 lignes
+
+L'ancien fichier concentrait : detection de beat, 6 jeux de templates, construction blueprint, enrichissement (70-75 panels), 4 budgets de diversite, helper gore. Decoupe en sous-modules `packages/ai/src/services/blueprints/` :
+
+- `panel-templates.ts` — taxonomy `BeatType`, `PanelTemplate`, `detectBeatType`, les 6 jeux de templates (COMBAT / TENSE_DIALOGUE / INFILTRATION / REVEAL / PUBLIC_SCENE / GENERIC) + `getTemplatesForBeatType`.
+- `base-builder.ts` — `PanelBlueprintContext` + `buildPanelBlueprintsFromBeat` (noyau).
+- `blueprint-enrichment.ts` — `expandBlueprintsToMinimum` pour atteindre les 70-75 panels du contrat premium.
+- `blueprint-budgets.ts` — `computeChapterFocusBudget`, `computeShotVarietyBudget`, `computeCutawayBudget`, `computeContractualFocusAdequacy`, `computePremiumReadinessScore`.
+- `gore-directives.ts` — `buildGoreDirectives`.
+
+`panel-blueprint-builder.ts` devient une facade de re-export pour ne pas casser les imports (notamment via `export *` dans `packages/ai/src/index.ts`).
+
+### `packages/ai/src/manga-prompt-composer.ts` — marquage `@deprecated`
+
+Ce composer legacy (1026 lignes) reste actif comme fallback tant qu'un `CanonicalImagePromptPacket` n'est pas disponible. Sprint C :
+
+- Banner `@deprecated` en tete de fichier qui renvoie explicitement vers la chaine canonical (`canonical-prompt-recipe-builder` → `fal-prompt-flattener` → `fal-prompt-payload-builder`).
+- JSDoc `@deprecated` sur les deux exports publics `composeMangaPanelPrompt` et `composeChapterCoverPrompt`.
+- Log `warnLegacyComposer()` une fois par process quand l'un de ces points est invoque, pour mesurer la part de trafic legacy restant (silencieux dans `NODE_ENV=test` / `VITEST=true`).
+
+Objectif : tomber a 0% d'invocations en production pour pouvoir supprimer le module.
+
+### `packages/workflow/src/passes/image-generation-pass.ts` — helpers extraits
+
+Le gros `runImageGenerationPass` (~1825 lignes) reste a refactoriser plus profondement, mais Sprint C isole les helpers les plus intriques :
+
+- `image-generation/reroll-reason-mapper.ts` — `rerollKindToReason` etait defini inline au milieu de la boucle de generation. Extrait en helper pur + 2 tests unitaires.
+- `image-generation/prompt-anti-repeat.ts` — `applyPromptAntiRepeat` remplace le code ad-hoc (hash SHA-256 + detection collision scene + variation cameraAngle). Helper pur + 4 tests unitaires (pas de collision, collision avec variation, utilisation du cameraAngleHint, isolation entre scenes).
+
+### Tests Sprint C (+6 cas)
+- `reroll-reason-mapper.test.ts` (2) : mapping exhaustif + fallback `low_quality`.
+- `prompt-anti-repeat.test.ts` (4) : hash stable, collision applique variation + seed, `cameraAngleHint` utilise, isolation cross-scene.
+
+### Suite totale verte apres Sprint C
+36 `core`-adjacents + 68 `core` + 19 `memory` + 39 `continuity` + **308** `packages/ai` + **410** `packages/workflow` (+6) + **493** `apps/web` = **1373 tests** passent. Typecheck OK (seules restent les erreurs pre-existantes de `fal-adapter-shared.test.ts` et des fixtures `workflow/src/evals/`). Lint OK sur les fichiers touches.
+
 ## Architecture
 
 ```mermaid
