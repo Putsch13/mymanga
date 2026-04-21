@@ -210,14 +210,28 @@ export interface PipelineScene {
 
 type MangaGridLayout = "A" | "B" | "C" | "D" | "E" | "F";
 
+/**
+ * @deprecated Sprint 1 — Reader refacto
+ *
+ * Cette fonction souffrait du bug utilisateur principal : elle assumait
+ * `scene === page` et faisait un `slice(0, 6)` silencieux sur les panels
+ * au-delà de 6 par scène (un simple `console.warn` les dropait).
+ *
+ * Le reader officiel utilise maintenant `buildPagesFromChapter` (dans
+ * `reader/build-reader-pages.ts`) qui s'appuie sur `buildMangaPagesFromPanels`
+ * (répartition multi-pages, aucun panel perdu).
+ *
+ * Cette fonction est conservée pour la rétrocompatibilité des consommateurs
+ * externes (export PDF, routes composites) mais ne tronque plus : les panels
+ * en excès débordent vers des pages supplémentaires, ce qui est aligné avec
+ * le moteur de pagination moderne.
+ */
 export function pipelineScenesToPages(
   scenes: PipelineScene[],
   storyboardPages?: Array<{ pageNumber: number; layout: string }>,
 ): UniversalMangaPage[] {
-  // BUG-READER-A : les layouts A-F ont chacun un nombre fixe de slots CSS.
-  // Au-delà de 6 panels, ils débordaient du grid et se superposaient. On mappe
-  // maintenant explicitement chaque count vers un layout compatible, et on
-  // tronque le nombre de panels à 6 en amont pour ne jamais laisser déborder.
+  // Sprint 1 : on garde une notion de "max slots par layout A–F" (6), mais
+  // on ne tronque plus : les panels en surplus produisent plusieurs pages.
   const MAX_PANELS_PER_PAGE = 6;
   function normalizeLayout(layout: MangaGridLayout, panelCount: number): MangaGridLayout {
     if (panelCount <= 4) return "F";
@@ -226,25 +240,31 @@ export function pipelineScenesToPages(
       const sixLayouts: MangaGridLayout[] = ["A", "B", "D"];
       return sixLayouts.includes(layout) ? layout : "A";
     }
-    // 7+ panels : fallback sécurisé (ne devrait plus arriver grâce au slice).
     return "A";
   }
 
-  return scenes.map((scene, idx) => {
+  return scenes.flatMap((scene, idx) => {
     const sbPage = storyboardPages?.[idx];
     const rawLayout = (sbPage?.layout as MangaGridLayout) ?? "A";
 
     const rawImages = (scene.images ?? []).slice().sort((a, b) => a.panelNumber - b.panelNumber);
+
+    // Sprint 1 : répartit les panels en excès sur plusieurs pages au lieu
+    // de les droper. Si une scène a 12 panels, on émet 2 pages de 6.
     if (rawImages.length > MAX_PANELS_PER_PAGE) {
       console.warn(
-        `[pipelineScenesToPages] scene=${scene.id} panels=${rawImages.length} > ${MAX_PANELS_PER_PAGE} — troncature pour éviter le débordement des slots CSS`,
+        `[pipelineScenesToPages] scene=${scene.id} panels=${rawImages.length} > ${MAX_PANELS_PER_PAGE} — split en pages multiples (le reader moderne utilise buildPagesFromChapter + buildMangaPagesFromPanels)`,
       );
     }
 
-    const panels: UniversalPanel[] = rawImages
-      .slice(0, MAX_PANELS_PER_PAGE)
-      .map((img) => {
-        // URGENCE 3 / P0.4 : helper centralisé persistedUrl > imageUrl.
+    const imageGroups: PipelinePanel[][] = [];
+    for (let i = 0; i < rawImages.length; i += MAX_PANELS_PER_PAGE) {
+      imageGroups.push(rawImages.slice(i, i + MAX_PANELS_PER_PAGE));
+    }
+    if (imageGroups.length === 0) imageGroups.push([]);
+
+    return imageGroups.map((group, groupIdx) => {
+      const panels: UniversalPanel[] = group.map((img) => {
         const effectiveImageUrl = getStableImageUrl({
           persistedUrl: (img as { persistedUrl?: string | null }).persistedUrl ?? null,
           imageUrl: img.imageUrl,
@@ -269,33 +289,35 @@ export function pipelineScenesToPages(
         };
       });
 
-    // Garde : si aucun panel, créer un placeholder pour éviter une page visuellement vide
-    if (panels.length === 0) {
+      if (panels.length === 0) {
+        return {
+          id: scene.id,
+          layout: "F" as MangaGridLayout,
+          panels: [{
+            mood: "dramatic" as AnyPanelMood,
+            imageUrl: null,
+            status: "pending",
+            narration: "Génération en cours…",
+          }],
+        };
+      }
+
+      const layout = normalizeLayout(rawLayout, panels.length);
+      const dynamicTemplate = scene.pageLayoutTemplate as ExtendedLayoutTemplate | null | undefined;
+
+      // Si la scène a été splittée en plusieurs pages, on suffixe l'id pour
+      // éviter les collisions côté dedupe.
+      const pageId = imageGroups.length > 1 ? `${scene.id}__${groupIdx + 1}` : scene.id;
+
       return {
-        id: scene.id,
-        layout: "F" as MangaGridLayout,
-        panels: [{
-          mood: "dramatic" as AnyPanelMood,
-          imageUrl: null,
-          status: "pending",
-          narration: "Génération en cours…",
-        }],
+        id: pageId,
+        layout,
+        layoutTemplate: dynamicTemplate ?? undefined,
+        isSplashPage: groupIdx === 0 ? (scene.isSplashPage ?? false) : false,
+        isDoublePage: groupIdx === 0 ? (scene.isDoublePage ?? false) : false,
+        panels,
       };
-    }
-
-    const layout = normalizeLayout(rawLayout, panels.length);
-
-    // URGENCE 3 : utiliser le template dynamique si présent (priorité sur le layout A-F)
-    const dynamicTemplate = scene.pageLayoutTemplate as ExtendedLayoutTemplate | null | undefined;
-
-    return {
-      id: scene.id,
-      layout,
-      layoutTemplate: dynamicTemplate ?? undefined,
-      isSplashPage: scene.isSplashPage ?? false,
-      isDoublePage: scene.isDoublePage ?? false,
-      panels,
-    };
+    });
   });
 }
 

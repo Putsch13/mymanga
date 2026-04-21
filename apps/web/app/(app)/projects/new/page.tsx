@@ -57,7 +57,13 @@ const VISUAL_PRESETS = [
   "horreur sombre, Junji Ito",
   "trait épuré, minimaliste",
 ];
-const FORMAT_PRESETS = ["manga", "webtoon", "roman graphique"];
+// Sprint 1 — Reader refacto : on ne garde que les 2 formats officiellement
+// supportés par le reader. "roman graphique" était proposé mais sans aucun
+// chemin de lecture dédié (tombait en manga par défaut). Pour éviter la
+// confusion produit, on le retire du preset. Les projets existants avec
+// `format="roman graphique"` en DB continuent de fonctionner (le reader
+// les lit comme du manga) mais on ne l'expose plus à la création.
+const FORMAT_PRESETS = ["manga", "webtoon"] as const;
 const RATING_PRESETS = ["GENERAL", "TEEN", "MATURE", "ADULT_RESTRICTED"] as const;
 const INTENSITY_PRESETS = [
   { key: "GENERAL_SAFE", label: "Tout public" },

@@ -1,19 +1,33 @@
 /**
- * P5.2 — Construction des pages universelles à partir d'un chapitre.
+ * Construction des pages universelles à partir d'un chapitre.
  *
- * - `dedupeReaderPages` : garde une seule occurrence par clé stable
- *   (id de page, ou concat des ids de panels à défaut). On ne coupe
- *   JAMAIS quand l'identité est absente, pour ne pas masquer des
- *   pages narrativement distinctes qui partagent les mêmes textes
- *   (silences, SFX répétés, dialogue d'un mot).
- * - `buildPagesFromChapter` : map scène→page en conservant le layout,
- *   et délègue à `pipelineScenesToPages` du grid. Idem logique
- *   identique 1:1 à la version inline du reader.
+ * Sprint 1 — Reader refacto : on remplace l'ancien `pipelineScenesToPages`
+ * (qui faisait `slice(0, 6)` par scène et droppait silencieusement les
+ * panels au-delà) par le nouveau `buildMangaPagesFromPanels` qui :
+ *   - ne perd jamais un panel
+ *   - répartit intelligemment les scènes longues sur plusieurs pages
+ *   - isole les splashs
+ *
+ * `buildWebtoonFlow` est exposé en parallèle pour le mode webtoon (scroll
+ * vertical linéaire).
+ *
+ * `dedupeReaderPages` reste disponible pour retirer d'éventuels doublons
+ * exacts qu'un consommateur amont aurait introduits (pas strictement
+ * nécessaire avec le nouveau moteur, mais gardé pour sécurité).
  */
 
-import { flattenPagesToPanels, pipelineScenesToPages, type UniversalMangaPage } from "../manga-page-grid";
+import { flattenPagesToPanels, type PipelinePanel, type UniversalMangaPage, type UniversalPanel } from "../manga-page-grid";
+import {
+  buildMangaPagesFromPanels,
+  type MangaPaginatorPanel,
+} from "../pagination/manga-pagination-engine";
+import {
+  buildWebtoonFlowFromPanels,
+  type WebtoonBlock,
+} from "../pagination/webtoon-flow-builder";
+import type { AnyPanelMood } from "../manga-panel";
 import { getStableImageUrl } from "@/lib/images/get-stable-image-url";
-import type { ChapterPayload } from "./reader-types";
+import type { ChapterPayload, SceneImage } from "./reader-types";
 
 export function dedupeReaderPages(pages: UniversalMangaPage[]): UniversalMangaPage[] {
   const seen = new Set<string>();
@@ -36,13 +50,88 @@ export function dedupeReaderPages(pages: UniversalMangaPage[]): UniversalMangaPa
   return deduped;
 }
 
+/**
+ * Convertit un `SceneImage` (DB) en `UniversalPanel` (reader).
+ * Garantit que `sceneId` est présent pour que le paginator respecte les
+ * frontières de scène.
+ */
+function sceneImageToUniversalPanel(img: SceneImage, sceneId: string): UniversalPanel & {
+  sceneId: string;
+  panelNumber: number;
+  shotType: string | null;
+  cutawayType: string | null;
+  panelRole: string | null;
+  slotType: string | null;
+} {
+  const effectiveImageUrl = getStableImageUrl({
+    persistedUrl: img.persistedUrl,
+    imageUrl: img.imageUrl,
+  });
+  const dialogueArray = Array.isArray(img.metadata?.dialogue)
+    ? img.metadata.dialogue
+    : img.metadata?.dialogue
+      ? [img.metadata.dialogue]
+      : undefined;
+  const dialogues = Array.isArray(img.metadata?.dialogues) ? img.metadata.dialogues : dialogueArray;
+  const firstDialogue = Array.isArray(img.metadata?.dialogue)
+    ? img.metadata.dialogue[0]
+    : img.metadata?.dialogue;
+
+  const layoutMeta = img.metadata?.layoutMeta as
+    | { slotType?: string | null; targetAspectRatio?: string; layoutTemplate?: string }
+    | undefined;
+  const rawMetadata = img.metadata as Record<string, unknown> | undefined;
+  const shotType = (rawMetadata?.shotType as string | undefined) ?? null;
+  const cutawayType = (rawMetadata?.cutawayType as string | undefined) ?? null;
+  const panelRole = (rawMetadata?.panelRole as string | undefined) ?? null;
+
+  return {
+    id: img.id,
+    sceneId,
+    panelNumber: img.panelNumber,
+    mood: (img.metadata?.mood as AnyPanelMood) ?? "dramatic",
+    imageUrl: effectiveImageUrl,
+    status: img.status,
+    provider: img.provider ?? null,
+    model: img.model ?? null,
+    error: (img.metadata?.error ?? img.metadata?.blockedReason) ?? null,
+    dialogue: firstDialogue?.text,
+    dialogues,
+    speaker: firstDialogue?.speaker,
+    narration: img.metadata?.narration,
+    sfx: img.metadata?.sfx,
+    caption: img.metadata?.caption,
+    textScale: img.metadata?.textScale,
+    renderMeta: img.metadata?.renderMeta,
+    layoutMeta: img.metadata?.layoutMeta,
+    shotType,
+    cutawayType,
+    panelRole,
+    slotType: layoutMeta?.slotType ?? null,
+  };
+}
+
+/**
+ * Aplatis toutes les scènes d'un chapitre en une liste ordonnée de panels.
+ * Ordre : par scène (ordre DB), puis par `panelNumber` intra-scène.
+ */
+function flattenChapterPanels(chapter: ChapterPayload) {
+  const out: ReturnType<typeof sceneImageToUniversalPanel>[] = [];
+  for (const scene of chapter.scenes) {
+    const sortedImages = [...scene.images].sort((a, b) => a.panelNumber - b.panelNumber);
+    for (const img of sortedImages) {
+      out.push(sceneImageToUniversalPanel(img, scene.id));
+    }
+  }
+  return out;
+}
+
+/**
+ * Construit les pages manga à partir d'un chapitre, via le nouveau
+ * pagination engine (aucun panel perdu, scène > 6 panels répartie sur
+ * plusieurs pages).
+ */
 export function buildPagesFromChapter(chapter: ChapterPayload): UniversalMangaPage[] {
-  const storyboard = chapter.storyboard as {
-    pages?: Array<{ pageNumber: number; layout: string }>;
-  } | null;
-
-  const sbPages = storyboard?.pages ?? [];
-
   if (chapter.scenes.length === 0) {
     return [
       {
@@ -57,26 +146,108 @@ export function buildPagesFromChapter(chapter: ChapterPayload): UniversalMangaPa
     ];
   }
 
-  const pipelineScenes = chapter.scenes.map((scene) => ({
-    id: scene.id,
-    pageLayoutTemplate: scene.pageLayoutTemplate,
-    isSplashPage: scene.isSplashPage,
-    isDoublePage: scene.isDoublePage,
-    dramaticWeight: scene.dramaticWeight,
-    images: scene.images.map((img) => ({
-      id: img.id,
-      panelNumber: img.panelNumber,
-      mood: img.metadata?.mood,
-      imageUrl: getStableImageUrl({ persistedUrl: img.persistedUrl, imageUrl: img.imageUrl }),
-      persistedUrl: img.persistedUrl,
-      status: img.status,
-      provider: img.provider,
-      model: img.model,
-      metadata: img.metadata,
-    })),
+  const panels = flattenChapterPanels(chapter);
+  if (panels.length === 0) {
+    return [];
+  }
+
+  const paginatorPanels: MangaPaginatorPanel[] = panels.map((p) => ({
+    id: p.id,
+    sceneId: p.sceneId,
+    panelNumber: p.panelNumber,
+    shotType: p.shotType,
+    cutawayType: p.cutawayType,
+    panelRole: p.panelRole,
+    slotType: p.slotType,
+    isSplash: null,
   }));
 
-  return dedupeReaderPages(pipelineScenesToPages(pipelineScenes, sbPages));
+  // Flag splash depuis la DB : si la scène est marquée splash et ne contient
+  // qu'un panel, on propage l'info au paginator.
+  for (let i = 0; i < panels.length; i++) {
+    const scene = chapter.scenes.find((s) => s.id === panels[i]!.sceneId);
+    if (scene?.isSplashPage && scene.images.length === 1) {
+      paginatorPanels[i]!.isSplash = true;
+    }
+  }
+
+  const paginatorOutput = buildMangaPagesFromPanels(paginatorPanels);
+
+  const universalPages: UniversalMangaPage[] = paginatorOutput.map((page, pageIdx) => {
+    // Mappe chaque panel paginator vers l'UniversalPanel complet (avec imageUrl/dialogue/etc).
+    const universalPanels = page.panels.map((paginatorPanel) => {
+      const full = panels.find((p) => p.id === paginatorPanel.id);
+      if (!full) {
+        return {
+          id: paginatorPanel.id,
+          mood: "dramatic" as AnyPanelMood,
+          imageUrl: null,
+        } satisfies UniversalPanel;
+      }
+      return full as UniversalPanel;
+    });
+
+    // Le layout moderne (PageLayoutTemplate) est prioritaire. On fournit
+    // aussi un fallback `layout` A–F compatible avec l'ancien
+    // MangaPageGrid si le template n'est pas reconnu.
+    const legacyLayout = mapPaginatorLayoutToLegacy(page.layout);
+
+    return {
+      id: page.dominantSceneId ?? `page-${pageIdx + 1}`,
+      layout: legacyLayout,
+      layoutTemplate: page.layout,
+      isSplashPage: page.isSplashPage,
+      isDoublePage: page.isDoublePage,
+      panels: universalPanels,
+    };
+  });
+
+  return universalPages;
+}
+
+/**
+ * Construit le flux webtoon (scroll vertical linéaire) à partir d'un chapitre.
+ * Aucun grouping de pages — tous les panels s'affichent dans l'ordre.
+ */
+export function buildWebtoonFlowFromChapter(
+  chapter: ChapterPayload,
+): WebtoonBlock<ReturnType<typeof sceneImageToUniversalPanel>>[] {
+  if (chapter.scenes.length === 0) return [];
+  const panels = flattenChapterPanels(chapter);
+  return buildWebtoonFlowFromPanels(panels);
+}
+
+/**
+ * Mappe un layout paginator moderne vers un layout legacy A–F compatible
+ * avec l'ancien rendu `MangaPageGrid`. Le champ `layoutTemplate` porte la
+ * vraie info moderne ; `layout` n'est gardé que pour la compatibilité.
+ */
+function mapPaginatorLayoutToLegacy(layout: string): "A" | "B" | "C" | "D" | "E" | "F" {
+  switch (layout) {
+    case "splash":
+      return "F";
+    case "double_spread":
+      return "F";
+    case "grid_2x2":
+      return "F";
+    case "grid_2x3":
+      return "A";
+    case "action_strip":
+      return "B";
+    case "asymmetric_hero":
+      return "C";
+    case "cinematic_bar":
+      return "E";
+    case "focus_closeup":
+      return "D";
+    case "vertical_strip":
+      return "E";
+    default:
+      return "A";
+  }
 }
 
 export { flattenPagesToPanels };
+
+// Types utilitaires (exposés pour les tests).
+export type { PipelinePanel };
