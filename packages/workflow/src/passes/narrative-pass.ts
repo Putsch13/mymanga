@@ -59,6 +59,12 @@ import { buildStableImageReference } from "../stable-image-refs";
 import { buildCanonAndLoraIndex } from "./narrative/canon-and-lora-index";
 import { buildSceneAnchorsByIndex } from "./narrative/scene-anchor-builder";
 import { normalizeLocationName } from "./narrative/location-matcher";
+import { LEGACY_STD_NEGATIVE } from "./narrative/panel-prompt-constants";
+import type {
+  LegacyPendingImageWrite,
+  LegacyPlannedImage,
+} from "./narrative/planned-image-types";
+import { persistPlannedImages } from "./narrative/persist-planned-images";
 import { logPipelineInfo, logPipelineWarn, logPipelineError } from "../lib/pipeline-logger";
 import { parseEntityRegistry } from "../schemas/pipeline-contracts";
 import { applyShotPlanToContract } from "./narrative/apply-shot-plan-to-contract";
@@ -93,16 +99,20 @@ import {
 } from "../pipeline-quality";
 import type { PipelineContext } from "../pipeline-types";
 
-const STD_NEGATIVE =
-  "blurry, deformed hands, extra limbs, wrong hair color, inconsistent outfit, bad anatomy, watermark, text overlay, low quality, duplicate character";
+/**
+ * Alias legacy du négatif standard, extrait vers
+ * `./narrative/panel-prompt-constants` pour pouvoir le partager avec
+ * les modules image-planning sans dupliquer la source.
+ */
+const STD_NEGATIVE = LEGACY_STD_NEGATIVE;
 const PANEL_DRAFT_SIZE = getPremiumImageSize("PANEL_DRAFT");
 
-type PlannedImage = {
-  sceneImageId: string;
-  panel: StoryboardPanel;
-  sceneIndex: number;
-  baseMetadata: Record<string, unknown>;
-};
+/**
+ * Alias local du type extrait. On garde le nom historique `PlannedImage`
+ * pour limiter la churn dans le gros `runNarrativePass` ci-dessous ;
+ * le type réel vit dans `./narrative/planned-image-types.ts`.
+ */
+type PlannedImage = LegacyPlannedImage;
 
 export type NarrativePassResult = {
   // G03: typed outputs — input types remain any[] pending Prisma import refactor (tech debt)
@@ -964,19 +974,10 @@ export async function runNarrativePass(
     const plannedImages: PlannedImage[] = [];
     const sceneBlueprintsByScene = new Map<number, SceneBlueprint[]>();
 
-    // C05: collect computed image data outside transactions for micro-tx writes
-    interface PendingImageWrite {
-      sceneId: string;
-      sceneKeyframeId: string;
-      panelNumber: number;
-      panel: typeof revisedBundle.storyboard.pages[0]["panels"][0];
-      composedPositive: string | undefined;
-      composedNegative: string | undefined;
-      baseMetadata: Record<string, unknown>;
-      panelCast: unknown;
-      panelCanonRefs: string[];
-      sceneIndex: number;
-    }
+    // C05: collect computed image data outside transactions for micro-tx writes.
+    // Le type est désormais défini dans `./narrative/planned-image-types.ts`
+    // pour pouvoir être consommé par `persistPlannedImages` sans duplication.
+    type PendingImageWrite = LegacyPendingImageWrite;
     const pendingImageWrites: PendingImageWrite[] = [];
 
     // P0-5: Tx A — chapter metadata seule (<5s).
@@ -1992,59 +1993,14 @@ export async function runNarrativePass(
       { timeout: 60_000, maxWait: 20_000 },
     );
 
-    // C05: Tx C — write images in micro-transactions of 8 (scenes already committed above)
-    for (let imgBatch = 0; imgBatch < pendingImageWrites.length; imgBatch += 8) {
-      const imgSlice = pendingImageWrites.slice(imgBatch, imgBatch + 8);
-      await prisma.$transaction(async (tx) => {
-        for (const pi of imgSlice) {
-          const panelDebugTraceData = (pi.baseMetadata as Record<string, unknown>).panelDebugTrace ?? null;
-          const imageData = {
-            renderingMode: "PANEL_DRAFT" as const,
-            sceneKeyframeId: pi.sceneKeyframeId,
-            prompt: pi.composedPositive,
-            negativePrompt: pi.composedNegative,
-            status: "planned",
-            width: PANEL_DRAFT_SIZE.width,
-            height: PANEL_DRAFT_SIZE.height,
-            referenceImageIds: pi.panelCanonRefs as unknown as Prisma.InputJsonValue,
-            metadata: pi.baseMetadata as unknown as Prisma.InputJsonValue,
-            panelCast: pi.panelCast as unknown as Prisma.InputJsonValue,
-            debugTrace: (panelDebugTraceData ?? null) as unknown as Prisma.InputJsonValue,
-          };
-
-          const existingImage = await tx.sceneImage.findUnique({
-            where: { sceneId_panelNumber: { sceneId: pi.sceneId, panelNumber: pi.panelNumber } },
-            select: { id: true, userValidatedAt: true },
-          });
-
-          let created: { id: string };
-          if (existingImage?.userValidatedAt) {
-            created = existingImage;
-            await tx.sceneImage.update({
-              where: { id: existingImage.id },
-              data: {
-                metadata: pi.baseMetadata as unknown as Prisma.InputJsonValue,
-                panelCast: pi.panelCast as unknown as Prisma.InputJsonValue,
-                debugTrace: (panelDebugTraceData ?? null) as unknown as Prisma.InputJsonValue,
-              },
-            });
-          } else {
-            created = await tx.sceneImage.upsert({
-              where: { sceneId_panelNumber: { sceneId: pi.sceneId, panelNumber: pi.panelNumber } },
-              create: { sceneId: pi.sceneId, panelNumber: pi.panelNumber, ...imageData },
-              update: imageData,
-            });
-          }
-
-          plannedImages.push({
-            sceneImageId: created.id,
-            panel: { ...pi.panel, prompt: pi.composedPositive ?? pi.panel.prompt, negativePrompt: pi.composedNegative ?? pi.panel.negativePrompt },
-            sceneIndex: pi.sceneIndex,
-            baseMetadata: pi.baseMetadata,
-          });
-        }
-      }, { timeout: 15_000 });
-    }
+    // C05: Tx C — write images in micro-transactions of 8 (scenes already committed above).
+    // La logique complète vit dans `./narrative/persist-planned-images.ts` (extraction
+    // isoBehaviour pour préparer le split v3 du render path sans changer le comportement).
+    const persisted = await persistPlannedImages({
+      pendingImageWrites,
+      panelDraftSize: PANEL_DRAFT_SIZE,
+    });
+    plannedImages.push(...persisted);
 
     // P0-5 / P0.8 : Tx D — flip final "ready_for_render" UNIQUEMENT après
     // succès de Tx A + Tx B + Tx C. Garantit qu'aucun chapter marqué "ready"

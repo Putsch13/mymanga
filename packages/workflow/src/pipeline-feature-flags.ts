@@ -25,11 +25,34 @@ export function isPipelineV3StoryboardEnabled(): boolean {
 }
 
 /**
+ * Active l'appel FAL réel depuis le render-pass v3.
+ * Quand désactivé, le render-pass ne fait que persister specs + prompts
+ * (shadow mode) — c'est la pipeline legacy qui fait le vrai rendu image.
+ * À activer UNIQUEMENT après validation QA des prompts/routes en shadow.
+ * Requiert PIPELINE_V3_STORYBOARD=true également.
+ */
+export function isPipelineV3RenderFalEnabled(): boolean {
+  return parseBoolEnv("PIPELINE_V3_RENDER_FAL", false);
+}
+
+/**
+ * Active l'appel LLM réel du manga-editor-agent (IA2).
+ * Par défaut, l'agent utilise un stub déterministe qui produit un
+ * StoryboardPlan structurellement valide mais non créatif. Activer le
+ * flag branche un appel OpenAI avec JSON strict (requiert OPENAI_API_KEY).
+ */
+export function isPipelineV3MangaEditorLlmEnabled(): boolean {
+  return parseBoolEnv("PIPELINE_V3_MANGA_EDITOR_LLM", false);
+}
+
+/**
  * Expose de manière structurée tous les flags connus.
  * Utile pour logs de diagnostic au démarrage du pipeline.
  */
 export function getPipelineFeatureFlags() {
   return {
     pipelineV3Storyboard: isPipelineV3StoryboardEnabled(),
+    pipelineV3RenderFal: isPipelineV3RenderFalEnabled(),
+    pipelineV3MangaEditorLlm: isPipelineV3MangaEditorLlmEnabled(),
   } as const;
 }

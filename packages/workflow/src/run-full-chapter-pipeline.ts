@@ -14,9 +14,13 @@ import { runStoryboardPass } from "./passes/storyboard-pass";
 import { runPageQaPass } from "./passes/page-qa-pass";
 import { runRenderPass } from "./passes/render-pass";
 import { loadChapterVisualMemory } from "./passes/load-chapter-visual-memory";
+import { createDefaultPanelImageGenerator } from "./passes/default-panel-image-generator";
 import { createDefaultChapterStyleBible } from "@manga-ai-studio/ai/contracts";
 import { assertPremiumContractFromChapter } from "./passes/assert-premium-contract-guard";
-import { isPipelineV3StoryboardEnabled } from "./pipeline-feature-flags";
+import {
+  isPipelineV3StoryboardEnabled,
+  isPipelineV3RenderFalEnabled,
+} from "./pipeline-feature-flags";
 import {
   buildChapterImagePlanFromNarrative,
   deriveContentRatingFromProject,
@@ -188,6 +192,10 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           console.log(
             `[pipeline:v3:visual-memory] chars=${visualMemoryResult.stats.charactersLoaded} missing_face=${visualMemoryResult.stats.charactersMissingFaceRef} env=${visualMemoryResult.stats.environmentsLoaded} style=${visualMemoryResult.stats.styleRefsLoaded}`,
           );
+          const renderFalEnabled = isPipelineV3RenderFalEnabled();
+          console.log(
+            `[pipeline:v3:render] fal_real_enabled=${renderFalEnabled} (flag PIPELINE_V3_RENDER_FAL)`,
+          );
           const renderPassResult = await runRenderPass({
             chapterId,
             storyboardPlan: storyboardPassResult.storyboardPlan,
@@ -199,6 +207,9 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               roleType: (c as { roleType?: string | null }).roleType ?? null,
             })),
             mainCharacterIds: focusCharacterIds,
+            generatePanelImage: renderFalEnabled
+              ? createDefaultPanelImageGenerator()
+              : undefined,
           });
           console.log(
             `[pipeline:v3:render] total=${renderPassResult.summary.totalPanels} specs=${renderPassResult.specs.length} failed=${renderPassResult.summary.failedCount} panel_qa_ok=${renderPassResult.panelQa.okCount}/${renderPassResult.panelQa.okCount + renderPassResult.panelQa.failCount}`,

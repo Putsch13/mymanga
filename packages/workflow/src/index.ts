@@ -5,6 +5,8 @@ export * from "./chapter-runtime-helpers";
 // Pipeline v3 — feature flags + passes (Story Architect -> Manga Editor -> Panel Renderer)
 export {
   isPipelineV3StoryboardEnabled,
+  isPipelineV3RenderFalEnabled,
+  isPipelineV3MangaEditorLlmEnabled,
   getPipelineFeatureFlags,
 } from "./pipeline-feature-flags";
 export { runStoryPass } from "./passes/story-pass";
@@ -29,6 +31,11 @@ export type {
   LoadChapterVisualMemoryInput,
   LoadChapterVisualMemoryResult,
 } from "./passes/load-chapter-visual-memory";
+export { createDefaultPanelImageGenerator } from "./passes/default-panel-image-generator";
+export type {
+  DefaultPanelImageGeneratorArgs,
+  DefaultPanelImageGeneratorResult,
+} from "./passes/default-panel-image-generator";
 export {
   saveStoryArc,
   loadStoryArc,

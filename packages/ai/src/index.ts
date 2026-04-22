@@ -135,6 +135,7 @@ export * from "./services/shot-planning/chapter-shot-plan";
 // Pipeline v3 — Story Architect / Manga Editor / Panel Renderer
 export * from "./agents/story-architect-agent";
 export * from "./agents/manga-editor-agent";
+export * from "./agents/manga-editor-agent-llm";
 export * from "./services/chapter-visual-memory";
 export * from "./services/render-spec-builder";
 export * from "./services/minimal-panel-prompt-builder";

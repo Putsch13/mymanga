@@ -45,6 +45,19 @@ export interface RenderedPanelDescriptor {
   spec: PanelRenderSpec;
   prompt: { positive: string; negative: string };
   route: FalRenderRoute;
+  imageUrl?: string | null;
+  provider?: string | null;
+  model?: string | null;
+  seed?: number | null;
+}
+
+export interface GeneratePanelImageResult {
+  ok: boolean;
+  error?: string;
+  imageUrl?: string;
+  provider?: string;
+  model?: string;
+  seed?: number | null;
 }
 
 export interface RunRenderPassInput {
@@ -61,7 +74,7 @@ export interface RunRenderPassInput {
     prompt: string;
     negative: string;
     route: FalRenderRoute;
-  }) => Promise<{ ok: boolean; error?: string }>;
+  }) => Promise<GeneratePanelImageResult>;
 }
 
 export interface RunRenderPassResult {
@@ -119,7 +132,8 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
     const prompt = buildMinimalPanelPrompt(spec);
     const route = resolveFalRenderRoute(spec);
 
-    rendered.push({ spec, prompt, route });
+    const descriptor: RenderedPanelDescriptor = { spec, prompt, route };
+    rendered.push(descriptor);
 
     if (!input.generatePanelImage) {
       skippedCount += 1;
@@ -133,8 +147,13 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
         negative: prompt.negative,
         route,
       });
-      if (res.ok) renderedCount += 1;
-      else {
+      if (res.ok) {
+        renderedCount += 1;
+        descriptor.imageUrl = res.imageUrl ?? null;
+        descriptor.provider = res.provider ?? null;
+        descriptor.model = res.model ?? null;
+        descriptor.seed = res.seed ?? null;
+      } else {
         failedCount += 1;
         errors.push({ panelId: panel.panelId, error: res.error ?? "render_failed" });
       }

@@ -11,16 +11,24 @@
 
 import {
   runMangaEditorAgent,
+  runMangaEditorAgentLlm,
   validateStoryboardPlan,
   type StoryArc,
   type StoryboardPlan,
 } from "@manga-ai-studio/ai";
 import { saveStoryboardPlan } from "../persistence/storyboard-persistence";
+import { isPipelineV3MangaEditorLlmEnabled } from "../pipeline-feature-flags";
 
 export interface RunStoryboardPassInput {
   storyArc: StoryArc;
   targetPanelCount?: number;
   heroCharacterIds?: string[];
+  /**
+   * Override du flag `PIPELINE_V3_MANGA_EDITOR_LLM`. Utile pour tests.
+   * Quand `true`, l'agent LLM est tenté (fallback stub si OpenAI absent).
+   * Quand `false`, le stub déterministe est utilisé directement.
+   */
+  useLlmEditor?: boolean;
 }
 
 export interface RunStoryboardPassResult {
@@ -32,7 +40,9 @@ export interface RunStoryboardPassResult {
 export async function runStoryboardPass(
   input: RunStoryboardPassInput,
 ): Promise<RunStoryboardPassResult> {
-  const { storyboardPlan, warnings } = await runMangaEditorAgent({
+  const useLlm = input.useLlmEditor ?? isPipelineV3MangaEditorLlmEnabled();
+  const editor = useLlm ? runMangaEditorAgentLlm : runMangaEditorAgent;
+  const { storyboardPlan, warnings } = await editor({
     storyArc: input.storyArc,
     targetPanelCount: input.targetPanelCount,
     heroCharacterIds: input.heroCharacterIds,
