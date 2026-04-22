@@ -40,6 +40,7 @@ vi.mock("@/lib/generation/stack-readiness", () => ({
 vi.mock("@manga-ai-studio/workflow", () => ({
   sendChapterGenerateRequested: sendChapterGenerateRequestedMock,
   runFullChapterPipelineFromJob: runFullChapterPipelineFromJobMock,
+  isPipelineV3StoryboardEnabled: () => true,
 }));
 
 vi.mock("@manga-ai-studio/billing", () => ({

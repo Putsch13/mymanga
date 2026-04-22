@@ -40,6 +40,29 @@ export type StoryboardRenderMode =
   | "hero_closeup"
   | "npc_closeup"
   | "enemy_closeup"
+  /**
+   * Révélation d'un antagoniste / ennemi visible — cadrage menaçant,
+   * posture identifiable, distinct de `enemy_closeup` qui focalise
+   * l'émotion. Utilisé pour "première apparition de l'ennemi".
+   */
+  | "enemy_reveal"
+  /**
+   * Révélation d'une ou plusieurs créatures (animaux fantastiques,
+   * monstres, espèces non-humanoïdes). OBLIGATOIRE dès qu'un beat
+   * introduit une créature — un `establishing_environment` ne couvre pas.
+   */
+  | "creature_reveal"
+  /**
+   * Silhouette menaçante observée de loin ou en backlit. Obligatoire
+   * pour les beats "ombre / silhouette / observateur invisible".
+   */
+  | "threat_silhouette"
+  /**
+   * Dialogue en post-combat / post-événement — cadrage moyen, émotion
+   * contenue, décor altéré en arrière-plan. Distinct de combat_aftermath
+   * qui est un plan large muet.
+   */
+  | "aftermath_dialogue"
   | "insert_object"
   | "surveillance_reveal"
   | "group_tension"
@@ -68,6 +91,17 @@ export type StoryboardSubjectFocus =
   | "group"
   | "environment"
   | "prop"
+  /**
+   * Créature / animal fantastique / monstre. Distinct de `enemy`
+   * (humanoïde antagoniste) — obligatoire quand le beat introduit une
+   * espèce non-humaine.
+   */
+  | "creature"
+  /**
+   * Menace observée de loin (silhouette, ombre, présence ambiante
+   * identifiable mais sans visage clair).
+   */
+  | "threat"
   | "reaction";
 
 export type StoryboardCutawayType =
@@ -167,6 +201,10 @@ export const STORYBOARD_RENDER_MODES: readonly StoryboardRenderMode[] = [
   "hero_closeup",
   "npc_closeup",
   "enemy_closeup",
+  "enemy_reveal",
+  "creature_reveal",
+  "threat_silhouette",
+  "aftermath_dialogue",
   "insert_object",
   "surveillance_reveal",
   "group_tension",
@@ -189,6 +227,8 @@ export const STORYBOARD_SUBJECT_FOCUSES: readonly StoryboardSubjectFocus[] = [
   "group",
   "environment",
   "prop",
+  "creature",
+  "threat",
   "reaction",
 ] as const;
 

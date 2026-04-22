@@ -852,6 +852,31 @@ export async function runImageGenerationPass(
           itemIntentCardMeta?.beatEventType ?? null,
           (blueprintMeta?.subjectFocus as RoutingContext["subjectFocus"]) ?? null,
         );
+        // PREMIUM HARD GUARD — interdiction absolue de router un panel "unknown".
+        // Un panel premium sans subjectFocus explicite, sans renderMode, ou
+        // catégorisé "unknown" côté routing, ne doit jamais partir à FAL :
+        // c'est la cause racine des prompts contradictoires + routing aveugle.
+        const premiumRenderMode = (item.baseMetadata as Record<string, unknown> | undefined)?.renderMode;
+        const premiumStrategyInputKind = (item.baseMetadata as Record<string, unknown> | undefined)?.strategyInputPanelKind;
+        if (
+          routingCtx.subjectFocus == null ||
+          (routingCtx.subjectFocus as string) === "none" ||
+          !premiumRenderMode ||
+          premiumStrategyInputKind === "unknown"
+        ) {
+          const detail = {
+            panelNumber: item.panel?.panelNumber ?? null,
+            subjectFocus: routingCtx.subjectFocus ?? null,
+            renderMode: premiumRenderMode ?? null,
+            strategyInputPanelKind: premiumStrategyInputKind ?? null,
+          };
+          console.error(
+            `[image-generation] premium_panel_routing_invalid ${JSON.stringify(detail)}`,
+          );
+          throw new Error(
+            `premium_panel_routing_invalid: unknown panel or missing subject focus/renderMode (${JSON.stringify(detail)})`,
+          );
+        }
         const strategy = computeFalSceneAssessment(routingCtx);
         const panelCriticality = classifyPanelCriticality({
           shotType: panelContractMeta?.shotType,
@@ -1006,6 +1031,44 @@ export async function runImageGenerationPass(
           seed?: number;
         }) => {
           const size = getFalImageSizePreset(params.sizePreset);
+
+          // PREMIUM HARD GUARD — héros présent + referencePolicy=NONE interdit.
+          // Un panel où un main_character apparaît doit toujours avoir un canal
+          // de référence (LIGHT minimum, STRONG pour closeup/dialogue clé).
+          const panelContainsMainHero = panelCharacterRoles.some(
+            (r) => r === "main_character" || r === "main" || r === "MAIN_CHARACTER",
+          ) || panelCharacterTiers.some((t) => (t as string) === "main" || t === "MAIN_HERO");
+          if (panelContainsMainHero && params.referencePolicy === "NONE") {
+            console.error(
+              `[image-gen] hero_without_refs_blocked sceneImageId=${item.sceneImageId} ` +
+                `panelNumber=${item.panel?.panelNumber ?? "?"} roles=${panelCharacterRoles.join(",")}`,
+            );
+            throw new Error(
+              "premium_panel_hero_without_refs: Main hero panel cannot be rendered with referencePolicy=NONE",
+            );
+          }
+
+          // PREMIUM HARD GUARD — un prompt qui annonce un lock fort (hard_lock,
+          // subject lock, character lock) doit réellement avoir des refs ou
+          // des LoRAs. Sinon c'est un mensonge qui part à FAL.
+          const promptClaimsHardLock =
+            /hard[_\s-]?lock|subject[_\s-]?lock|character[_\s-]?lock/i.test(
+              params.positivePrompt,
+            );
+          if (
+            promptClaimsHardLock &&
+            params.referencePolicy !== "NONE" &&
+            refs.length === 0 &&
+            panelLoras.length === 0
+          ) {
+            console.error(
+              `[image-gen] hard_lock_without_refs_blocked sceneImageId=${item.sceneImageId} ` +
+                `panelNumber=${item.panel?.panelNumber ?? "?"} policy=${params.referencePolicy}`,
+            );
+            throw new Error(
+              "premium_panel_hard_lock_without_refs: prompt claims hard/subject/character lock but no refs or LoRAs are available",
+            );
+          }
 
           // P1.1 — garde linguistique runtime avant envoi provider.
           // En mode strict on bloque l'envoi, sinon on persiste un warning dans

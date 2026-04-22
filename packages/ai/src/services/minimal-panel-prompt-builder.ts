@@ -67,6 +67,15 @@ export function buildPromptSubjectBlock(spec: PanelRenderSpec): string {
   if (spec.renderMode === "insert_object") {
     return `SUBJECT: isolated object insert, object fills frame, no character body or face in shot.`;
   }
+  if (spec.renderMode === "creature_reveal") {
+    return `SUBJECT: non-human creature(s) as primary subject, species-consistent silhouette and proportions, characters (if present) relegated to observer role in midground.`;
+  }
+  if (spec.renderMode === "threat_silhouette") {
+    return `SUBJECT: looming silhouette / unidentified figure observed from distance, backlit or obscured, no clear facial features, atmospheric menace.`;
+  }
+  if (spec.renderMode === "enemy_reveal") {
+    return `SUBJECT: antagonist revealed in menacing framing, identifiable posture and gear, hero absent or reduced to reaction foreground.`;
+  }
   const chars = spec.visibleCharacters;
   if (chars.length === 0) {
     return `SUBJECT: environment only, no identifiable character.`;
@@ -105,6 +114,12 @@ export function buildPromptEnvironmentBlock(spec: PanelRenderSpec): string {
   ) {
     return `ENVIRONMENT: ${loc}, shallow depth, ${densityHint} kept soft behind subject.`;
   }
+  if (spec.renderMode === "threat_silhouette") {
+    return `ENVIRONMENT: ${loc}, backlit atmosphere, strong contre-jour, subject reduced to shape.`;
+  }
+  if (spec.renderMode === "aftermath_dialogue") {
+    return `ENVIRONMENT: ${loc}, subdued lighting post-event, debris or altered state visible in background.`;
+  }
   return `ENVIRONMENT: ${loc}, ${densityHint}, consistent with chapter continuity.`;
 }
 
@@ -137,6 +152,114 @@ export function buildPromptStyleBlock(spec: PanelRenderSpec): string {
     .join(", ") + ".";
 }
 
+/**
+ * Matrice stricte d'interdictions par `renderMode`. Un panel en mode X
+ * ne DOIT jamais contenir les tokens listés dans son entrée — ni dans
+ * le positif (assertion au build), ni dans le négatif (ajoutés
+ * automatiquement pour verrouiller le modèle).
+ *
+ * Règles alignées avec la directive H6 de l'audit hardening premium.
+ */
+export const FORBIDDEN_BY_RENDER_MODE: Record<PanelRenderSpec["renderMode"], string[]> = {
+  establishing_environment: [
+    "tight face",
+    "hero portrait",
+    "eyes only",
+    "face filling frame",
+    "extreme close-up",
+    "close-up portrait",
+  ],
+  silent_transition: [
+    "tight face",
+    "hero portrait",
+    "face filling frame",
+  ],
+  reaction_closeup: [
+    "wide establishing shot",
+    "wide establishing",
+    "full background detail",
+    "characters small in frame",
+    "environmental panel",
+    "crowd composition",
+  ],
+  hero_closeup: [
+    "wide establishing shot",
+    "full environment visible",
+    "characters small in frame",
+    "crowd composition",
+  ],
+  npc_closeup: [
+    "wide establishing shot",
+    "full environment visible",
+    "crowd composition",
+  ],
+  enemy_closeup: [
+    "wide establishing shot",
+    "full environment visible",
+    "crowd composition",
+  ],
+  insert_object: [
+    "close-up portrait",
+    "face filling frame",
+    "hero close-up",
+    "hero portrait",
+    "full character portrait",
+    "full body character",
+    "group shot",
+    "subject lock [hero]",
+  ],
+  dialogue_two_shot: [
+    "prop insert as primary subject",
+    "object insert as primary subject",
+    "extreme close-up on object",
+  ],
+  dialogue_over_shoulder: [
+    "prop insert as primary subject",
+    "object insert as primary subject",
+  ],
+  surveillance_reveal: [
+    "hero close-up",
+    "face filling frame",
+  ],
+  group_tension: [
+    "extreme close-up",
+    "isolated object insert",
+  ],
+  combat_exchange: [
+    "environment cutaway",
+    "characters small in frame",
+    "serene atmosphere",
+    "static pose",
+  ],
+  combat_aftermath: [
+    "active combat pose",
+    "mid-swing weapon",
+  ],
+  enemy_reveal: [
+    "characters small in frame",
+    "wide establishing shot",
+    "hero close-up",
+  ],
+  creature_reveal: [
+    "tight face",
+    "hero portrait",
+    "face filling frame",
+    "close-up portrait",
+    "hero close-up",
+  ],
+  threat_silhouette: [
+    "clear facial features",
+    "face filling frame",
+    "hero close-up",
+    "well-lit subject",
+  ],
+  aftermath_dialogue: [
+    "active combat pose",
+    "mid-swing weapon",
+    "wide establishing shot",
+  ],
+};
+
 export function buildPromptNegativeBlock(spec: PanelRenderSpec): string {
   const baseNegatives = [
     "3d render",
@@ -155,11 +278,62 @@ export function buildPromptNegativeBlock(spec: PanelRenderSpec): string {
   ];
   const drift = spec.constraints.forbiddenDrift;
   const mustNot = spec.constraints.mustNotShow;
-  const full = Array.from(new Set([...baseNegatives, ...drift, ...mustNot]));
-  if (spec.renderMode === "establishing_environment") full.push("tight face", "hero portrait");
-  if (spec.renderMode === "insert_object") full.push("full body character", "group shot");
-  if (spec.renderMode === "reaction_closeup") full.push("wide establishing", "crowd composition");
+  const modeBans = FORBIDDEN_BY_RENDER_MODE[spec.renderMode] ?? [];
+  const full = Array.from(new Set([...baseNegatives, ...drift, ...mustNot, ...modeBans]));
   return full.join(", ");
+}
+
+/**
+ * Erreur levée quand un `PanelRenderSpec` produit un prompt positif qui
+ * contient des tokens explicitement interdits par son `renderMode`.
+ * Aucun fallback silencieux : on fail loud pour forcer un rework amont.
+ */
+export class ContradictoryPanelPromptError extends Error {
+  readonly renderMode: PanelRenderSpec["renderMode"];
+  readonly violations: string[];
+  constructor(renderMode: PanelRenderSpec["renderMode"], violations: string[]) {
+    super(
+      `Contradictory panel prompt for renderMode=${renderMode}: forbidden tokens present: ${violations.join(", ")}`,
+    );
+    this.name = "ContradictoryPanelPromptError";
+    this.renderMode = renderMode;
+    this.violations = violations;
+  }
+}
+
+/**
+ * Retourne la liste des tokens interdits présents dans le prompt positif.
+ * Vide si OK. La détection est case-insensitive et ignore la ponctuation
+ * immédiatement adjacente.
+ */
+export function detectContradictoryTokens(
+  spec: PanelRenderSpec,
+  positive: string,
+): string[] {
+  const bans = FORBIDDEN_BY_RENDER_MODE[spec.renderMode] ?? [];
+  const haystack = positive.toLowerCase();
+  const hits: string[] = [];
+  for (const ban of bans) {
+    const needle = ban.toLowerCase();
+    if (haystack.includes(needle)) hits.push(ban);
+  }
+  return hits;
+}
+
+/**
+ * Build + assertion stricte. Utiliser sur le chemin premium v3 pour
+ * refuser les specs qui produisent un prompt contradictoire (ex: un
+ * insert_object avec "hero portrait" dans le subject/action blocks).
+ */
+export function buildMinimalPanelPromptStrict(
+  spec: PanelRenderSpec,
+): BuiltPromptResult {
+  const built = buildMinimalPanelPrompt(spec);
+  const violations = detectContradictoryTokens(spec, built.positive);
+  if (violations.length > 0) {
+    throw new ContradictoryPanelPromptError(spec.renderMode, violations);
+  }
+  return built;
 }
 
 function describeCharacter(c: PanelRenderVisibleCharacter): string {

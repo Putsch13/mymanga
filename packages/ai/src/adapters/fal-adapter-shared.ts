@@ -241,8 +241,20 @@ export function buildFalGenerationRequest(input: GenerateImageInput) {
   // COST-1 : résolution du modèle optimal (schnell vs dev selon criticité)
   const optimalModel = resolveOptimalFalModel(panelCriticality, panelCategory, referencePolicy, rerollKind, contentLayer);
 
-  const translatedPositive = optimizePromptForFal(input.positivePrompt);
-  const translatedNegative = buildFalNegativePrompt(input.negativePrompt);
+  // PREMIUM H16 — bypass du prompt-translator sur le chemin premium v3.
+  // Le builder `minimal-panel-prompt-builder` produit déjà un prompt
+  // anglais court, structuré, non contradictoire. Le passer à
+  // `optimizePromptForFal` le retraduit partiellement (token FR/EN
+  // résiduels, troncatures aléatoires, mélange français/anglais dans les
+  // adjectifs de couleur ou de lieu). Pour les panels v3, on passe
+  // `providerParams.skipPromptTranslation = true`.
+  const skipTranslation = input.providerParams?.skipPromptTranslation === true;
+  const translatedPositive = skipTranslation
+    ? input.positivePrompt
+    : optimizePromptForFal(input.positivePrompt);
+  const translatedNegative = skipTranslation
+    ? (input.negativePrompt ?? "")
+    : buildFalNegativePrompt(input.negativePrompt);
   const activeLoras = input.loras?.filter((l) => l.url) ?? [];
   const loraPromptPrefix = activeLoras.map((l) => l.triggerWord).filter(Boolean).join(", ");
   const promptWithLoras = loraPromptPrefix ? `${loraPromptPrefix}, ${translatedPositive}` : translatedPositive;

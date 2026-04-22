@@ -4,7 +4,11 @@ import { computeShotVarietyBudget, computeContractualFocusAdequacy } from "@mang
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { isUnlimitedAdminEmail } from "@/lib/auth/get-app-user";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
-import { runFullChapterPipelineFromJob, sendChapterGenerateRequested } from "@manga-ai-studio/workflow";
+import {
+  runFullChapterPipelineFromJob,
+  sendChapterGenerateRequested,
+  isPipelineV3StoryboardEnabled,
+} from "@manga-ai-studio/workflow";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
 import { badRequest, notFound, unauthorized, validationError } from "@/lib/api-response";
@@ -41,6 +45,27 @@ export async function POST(_req: Request, ctx: Ctx) {
   const stack = getGenerationStackStatus();
   if (!stack.canGenerateChapters) {
     return validationError("La stack de génération n'est pas prête pour un chapitre complet.", stack);
+  }
+
+  // HARD GUARD : le launch premium DOIT tourner via la pipeline v3 (Story
+  // Architect → Manga Editor → Panel Renderer). Le legacy path cumule trop
+  // de bugs (padding 40→75, routing aveugle, prompts contradictoires,
+  // referencePolicy NONE sur héros, coverage mensongère). On refuse
+  // explicitement la launch si le flag v3 n'est pas actif — pas de
+  // fallback silencieux.
+  if (!isPipelineV3StoryboardEnabled()) {
+    console.warn(
+      `[launch] premium_pipeline_v3_required chapterId=${chapterId} — set PIPELINE_V3_STORYBOARD=true to enable premium rendering`,
+    );
+    return NextResponse.json(
+      {
+        error: "premium_pipeline_v3_required",
+        code: "PREMIUM_PIPELINE_V3_REQUIRED",
+        message:
+          "Le lancement premium nécessite la pipeline v3 (PIPELINE_V3_STORYBOARD=true). Le chemin legacy est désactivé pour les chapitres premium.",
+      },
+      { status: 409 },
+    );
   }
 
   const chapter = await prisma.chapter.findFirst({

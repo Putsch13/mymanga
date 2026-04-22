@@ -272,7 +272,10 @@ const BEAT_TYPE_ADDONS: Record<string, string> = {
   combat: "speed lines, motion blur, impact burst, kinetic energy lines, manga action sfx styling",
   action_gore: "speed lines, impact burst, blood splatter ink style, visceral wound detail, heavy manga gore sfx, body damage visible, extreme combat impact",
   chase: "speed lines, blur trail, motion streak, horizontal momentum lines, kinetic manga panel",
-  revelation: "dramatic sunburst background, manga reveal panel, screen tone burst, radial lines emanating",
+  // H7 : "revelation" n'injecte plus d'effets lumineux auto (sunburst,
+  // screen tone burst, radial lines). Un reveal doit être décidé par l'IA2
+  // via renderMode=insert_object ou creature_reveal + mustShow explicite.
+  revelation: "manga reveal panel framing, emphasized subject clarity",
   emotional: "emotion screen tone, sparkle effects, soft diagonal screen tone, manga emotional moment",
   infiltration: "deep ink shadows, cross-hatching, noir manga style, stealth atmosphere, high contrast",
   confrontation: "dramatic impact lines, manga standoff panel, tension lines between figures",
@@ -513,33 +516,21 @@ export function buildNpcMemoryBlock(recurringNpcs: Array<{ label: string; shortV
     `\n=== FIN MÉMOIRE NPC ===\n`;
 }
 
-function buildCompositionDirective(blueprint: { subjectFocus: string; heroCenterAllowed?: boolean }): string {
-  const focus = blueprint.subjectFocus;
-
-  if (focus === "environment" || focus === "aftermath") {
-    return "COMPOSITION: Le personnage principal NE DOIT PAS être au centre. Plan large sur le décor, l'architecture ou l'atmosphère. Si des personnages apparaissent, ils sont petits, en silhouette ou en arrière-plan.";
-  }
-  if (focus === "npc") {
-    return "COMPOSITION: Centré sur les personnages secondaires ou la foule. Le héros principal est absent ou en arrière-plan flou. Montrer les visages, réactions et postures des NPC.";
-  }
-  if (focus === "important_npc") {
-    return "COMPOSITION: Un PNJ important est le sujet principal de ce panel. Plan centré sur ce personnage — son expression, sa posture, son émotion. Le héros peut être présent mais en réaction ou en arrière-plan. Lisibilité maximale du PNJ, visage bien visible.";
-  }
-  if (focus === "enemy" || focus === "antagonist") {
-    return "COMPOSITION: L'antagoniste ou le garde est le sujet principal. Cadrage menaçant, contre-plongée ou angle bas. Le héros est absent ou en réaction floue en arrière-plan.";
-  }
-  if (focus === "group") {
-    return "COMPOSITION: Plan de groupe — héros ET personnages secondaires dans le même cadre. Tous les personnages clés sont lisibles. Tension spatiale ou dynamique sociale clairement visible.";
-  }
-  if (focus === "prop") {
-    return "COMPOSITION: Insert sur un objet, une arme, un symbole ou un détail de décor. Pas de visage humain en sujet principal. Cadrage serré, mise au point nette sur l'objet.";
-  }
-  if (focus === "reaction" && !blueprint.heroCenterAllowed) {
-    return "COMPOSITION: Plan de réaction sur un personnage AUTRE que le héros principal. Émotion visible : surprise, peur, colère, tristesse.";
-  }
-  if (focus === "reaction" && blueprint.heroCenterAllowed) {
-    return "COMPOSITION: Gros plan sur la réaction du personnage principal. Expression émotionnelle intense, lisible, premier plan.";
-  }
+/**
+ * SUPPRIMÉ (audit hardening H5) — `buildCompositionDirective` injectait
+ * des blocs prose FR longs et parfois contradictoires dans chaque prompt
+ * (ex: "COMPOSITION: Le personnage principal NE DOIT PAS être au centre ...").
+ *
+ * Ces directives éditoriales doivent être décidées en amont par l'IA2
+ * (manga-editor-agent) puis encodées dans le `renderMode` / `subjectFocus`
+ * du `StoryboardPanel`. Elles ne doivent PLUS être transformées en prose
+ * qui rentre dans le prompt image.
+ *
+ * Le helper est conservé en no-op pour ne pas casser l'API des call-sites
+ * legacy, mais renvoie toujours "" : plus aucune directive globale n'est
+ * injectée par le composer.
+ */
+function buildCompositionDirective(_blueprint: { subjectFocus: string; heroCenterAllowed?: boolean }): string {
   return "";
 }
 
@@ -779,15 +770,17 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     addSection("beatEffects", "Beat FX / Manga Effects", BEAT_TYPE_ADDONS[input.beatType], 3);
   }
 
-  // Magic / supernatural effects detection from action text (P3 contextuel)
-  const magicKeywords = /\b(magi[ceq]|spell|aura|energy|glow|power|supernatural|incantation|sorcell|enchant|invoc|rituel|rune|arcane|mystique|mana|pouvoir|gardien|gardienne|[eé]veil|[eé]veille|r[eé]v[eè]le|r[eé]v[eé]lation|capacit[eé]|don)\b/i;
-  if (magicKeywords.test(input.action ?? "") || magicKeywords.test(input.sceneContext ?? "")) {
-    addSection("magicEffect", "Magic Effects",
-      "magical energy visible and readable, aura or glow effect emanating from character hands or body, " +
-      "speed lines from magic source, dramatic light burst, energy particles, mystical light rays, " +
-      "manga magical effect, screen tone burst for reveal, radial lines from power source",
-      3);
-  }
+  // SUPPRIMÉ (H7) — détection magique auto par regex sur `action` /
+  // `sceneContext`. Cette heuristique ajoutait "magical energy visible,
+  // aura or glow effect, light rays, screen tone burst..." à n'importe
+  // quel panel contenant un mot clef (magie, aura, énergie, pouvoir,
+  // gardien, réveil, capacité, etc.). Résultat : des inserts objets, des
+  // dialogues calmes ou des plans combat recevaient des effets lumineux
+  // parasites et partaient en prompt contradictoire.
+  //
+  // Ces effets ne doivent être injectés QUE si le storyboard (IA2) les
+  // demande explicitement via `panel.mustShow` / `renderMode=creature_reveal`
+  // / `requiredProps`. Pas d'auto-injection.
 
   // STYLE-1 + IMG-3 : Style anchor (P2 important — cohérence intra-chapitre)
   if (input.chapterStyleAnchor) {
@@ -825,16 +818,10 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
     addSection("npcPresence", "Background NPC Characters", `BACKGROUND CHARACTERS: ${npcBlock}`, 3);
   }
 
-  if (input.subjectFocus) {
-    const compositionDirective = buildCompositionDirective({
-      subjectFocus: input.subjectFocus,
-      heroCenterAllowed: input.heroCenterAllowed ?? false,
-    });
-    if (compositionDirective) {
-      // P1 critique : sur un cutaway, c'est ça qui empêche le hero au centre.
-      addSection("compositionDirective", "Composition Directive", compositionDirective, 1);
-    }
-  }
+  // SUPPRIMÉ (H5) — section "Composition Directive" injectée
+  // automatiquement à chaque panel. Le cadrage / subject focus doit être
+  // décidé en amont par l'IA2 (manga-editor-agent) via `renderMode`, pas
+  // transformé en prose FR en prompt.
 
   if (!charDescs && input.characters && input.characters.length > 0) {
     promptWarnings.push("character_lock_missing");
@@ -882,12 +869,10 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
         ),
       });
     }
-    if (blueprint.constraints.hard.length > 0) {
-      prioritizedParts.push({
-        priority: 3,
-        text: sanitizeSectionText(`Mandatory constraints: ${blueprint.constraints.hard.join(", ")}.`),
-      });
-    }
+    // SUPPRIMÉ (H5) — le bloc `Mandatory constraints: ...` transformait
+    // les contraintes en prose rentrant dans le prompt. Elles doivent
+    // être validées en amont (render-spec-validator + storyboard-validator)
+    // pas incrustées dans le texte envoyé à FAL.
     // Premium hard constraints (verrous critiques du blueprint).
     const pb = blueprint.promptBridge;
     if (pb.focusLine) prioritizedParts.push({ priority: 1, text: sanitizeSectionText(pb.focusLine) });
@@ -902,18 +887,13 @@ export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt
       text: sanitizeSectionText(`Subtext: ${input.dialogueHint.slice(0, 120)}.`),
     });
   }
-  // Tail décoratif — coupé en premier si budget dépassé.
-  prioritizedParts.push({
-    priority: 4,
-    text: "Readable background, strong environment, coherent manga composition, clear spatial relation between characters and place.",
-  });
-  if (input.characters && input.characters.length > 0) {
-    // Continuity lock character : critique (P1) — Flux ne doit pas muter l'apparence.
-    prioritizedParts.push({
-      priority: 1,
-      text: "Keep character continuity stable: same hair, same face, same outfit, same silhouette.",
-    });
-  }
+  // SUPPRIMÉ (H5) — deux tails prose globaux injectés à tous les panels :
+  //   • "Readable background, strong environment, coherent manga composition..."
+  //   • "Keep character continuity stable: same hair, same face, same outfit..."
+  // Ces prose globales diluent le prompt, rentrent en contradiction avec
+  // les inserts et contribuent au "prompt roman". La continuité visuelle
+  // doit être garantie par les refs / LoRAs / visual locks, pas par de la
+  // prose ajoutée à chaque prompt.
 
   // Tri stable par priorité croissante : P1 → P2 → P3 → P4. Les segments d'une
   // même priorité conservent leur ordre d'insertion.

@@ -33,6 +33,34 @@ const ENRICHMENT_VARIANTS: EnrichmentVariant[] = [
   { shotType: "over_shoulder", subjectFocus: "duo", cameraAngle: "eye_level", cutawayType: "none", purpose: "over-shoulder reaction shot" },
 ];
 
+/**
+ * H2 — padding 40→75 SUPPRIMÉ du chemin premium.
+ *
+ * Le storyboard premium DOIT nativement produire le nombre de panels
+ * cible (70-75). Si le générateur amont ne sort pas assez de beats/
+ * blueprints, on FAIT ÉCHOUER la launch plutôt que de bourrer des
+ * fausses cases cutaway/reaction/prop qui pollue ensuite le routing
+ * FAL et génère des prompts contradictoires.
+ *
+ * Pour laisser passer l'ancien comportement sur des tests unitaires ou
+ * un mode debug local, on accepte UNE seule porte de sortie explicite :
+ * `MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY=true`. Elle ne doit JAMAIS
+ * être activée en prod premium.
+ */
+
+export class BlueprintEnrichmentDisabledError extends Error {
+  readonly rawCount: number;
+  readonly minimumPanels: number;
+  constructor(rawCount: number, minimumPanels: number) {
+    super(
+      `premium_raw_panels_under_target: raw=${rawCount} minimum=${minimumPanels} — padding désactivé (H2). Le storyboard doit produire nativement ≥ minimum.`,
+    );
+    this.name = "BlueprintEnrichmentDisabledError";
+    this.rawCount = rawCount;
+    this.minimumPanels = minimumPanels;
+  }
+}
+
 export function expandBlueprintsToMinimum(
   blueprints: PanelBlueprintPremium[],
   minimumPanels: number,
@@ -40,6 +68,17 @@ export function expandBlueprintsToMinimum(
   if (blueprints.length >= minimumPanels || blueprints.length === 0) {
     return blueprints;
   }
+
+  const legacyAllowed = process.env.MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY === "true";
+  if (!legacyAllowed) {
+    console.error(
+      `[blueprint-enrichment] padding_refused raw=${blueprints.length} minimum=${minimumPanels} — set MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY=true ONLY for debug/tests.`,
+    );
+    throw new BlueprintEnrichmentDisabledError(blueprints.length, minimumPanels);
+  }
+  console.warn(
+    `[blueprint-enrichment] LEGACY padding enabled — raw=${blueprints.length} → target=${minimumPanels}. DO NOT USE IN PREMIUM PROD.`,
+  );
 
   const result: PanelBlueprintPremium[] = [...blueprints];
   // Repartir les panels ajoutes en round-robin sur les beats pour ne pas

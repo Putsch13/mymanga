@@ -627,15 +627,27 @@ export async function POST(req: Request, ctx: Ctx) {
       return validationError(packetAwarePrompt.reason);
     }
 
-    // AUDIT COMMIT 5 — plus de fallback legacy : le packet canonique est
-    // désormais obligatoire (guard tout en haut de la route). Le prompt final
-    // vient toujours de `packetAwarePrompt`.
-    const effectivePositivePrompt = packetAwarePrompt
-      ? packetAwarePrompt.positivePrompt
-      : [retryPacketBase.basePrompt, positiveAugment].filter(Boolean).join(", ");
-    const effectiveNegativePrompt = packetAwarePrompt
-      ? packetAwarePrompt.negativePrompt
-      : [retryPacketBase.baseNegativePrompt || undefined, negativeAugment].filter(Boolean).join(", ");
+    // PREMIUM HARD GUARD — le packet canonique est obligatoire pour le retry
+    // premium. Plus de reconstruction bricolée à partir de `retryPacketBase`
+    // (supprime les fallbacks qui recollaient des bouts FR/EN et des prompts
+    // contradictoires). Si `packetAwarePrompt` manque, on refuse — aucune
+    // recomposition silencieuse.
+    if (!packetAwarePrompt) {
+      console.warn(
+        `[retry] packet_aware_prompt_missing sceneImageId=${sceneImageId} source=${retryPacketBase.source}`,
+      );
+      return NextResponse.json(
+        {
+          error: "packet_aware_prompt_missing",
+          code: "PREMIUM_PACKET_REQUIRED",
+          message:
+            "packetAwarePrompt est requis pour un retry premium. Le chemin legacy de reconstruction de prompt est désactivé.",
+        },
+        { status: 422 },
+      );
+    }
+    const effectivePositivePrompt = packetAwarePrompt.positivePrompt;
+    const effectiveNegativePrompt = packetAwarePrompt.negativePrompt;
 
     // AUDIT COMMIT 10 — log structuré unique pour observabilité retry.
     console.log(

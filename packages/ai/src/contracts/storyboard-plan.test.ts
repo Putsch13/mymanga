@@ -15,11 +15,15 @@ describe("StoryboardPlan contract", () => {
     expect(STORYBOARD_LAYOUT_TEMPLATES).toContain("staggered_5");
   });
 
-  it("expose 13 renderModes", () => {
-    expect(STORYBOARD_RENDER_MODES.length).toBe(13);
+  it("expose les renderModes v3 (≥13 incluant les modes H11 creature/threat/enemy/aftermath)", () => {
+    expect(STORYBOARD_RENDER_MODES.length).toBeGreaterThanOrEqual(13);
     expect(STORYBOARD_RENDER_MODES).toContain("establishing_environment");
     expect(STORYBOARD_RENDER_MODES).toContain("insert_object");
     expect(STORYBOARD_RENDER_MODES).toContain("combat_exchange");
+    expect(STORYBOARD_RENDER_MODES).toContain("creature_reveal");
+    expect(STORYBOARD_RENDER_MODES).toContain("threat_silhouette");
+    expect(STORYBOARD_RENDER_MODES).toContain("enemy_reveal");
+    expect(STORYBOARD_RENDER_MODES).toContain("aftermath_dialogue");
   });
 
   it("expose shotTypes, subjectFocuses, cutawayTypes", () => {

@@ -39,6 +39,7 @@ import {
   shouldRefuseCharacterVisualForMissingRefs,
 } from "@/lib/characters/generate-visual-guards";
 import { createVisualLockWithRetry } from "@/lib/characters/visual-lock-create-with-retry";
+import { generateAndPersistFaceCloseupRef } from "@/lib/characters/face-closeup-generator";
 
 type Ctx = { params: Promise<{ characterId: string }> };
 
@@ -470,6 +471,77 @@ export async function POST(_req: Request, ctx: Ctx) {
         visualRefId: visualRef.createdRef.id,
         userId: user.id,
       });
+    }
+
+    // H9 — générer une face closeup ref dédiée après la primary ref
+    // (best-effort : si ça échoue on n'écrase pas la primary, mais on
+    // loggue). Le guard premium `characterHasDedicatedFaceCloseupRef`
+    // bloquera les panels closeup ultérieurs si cette étape n'a pas
+    // produit de face ref.
+    try {
+      const faceResult = await generateAndPersistFaceCloseupRef({
+        prisma,
+        characterId: character.id,
+        projectId: character.project.id,
+        sourceVisualLockId: visualRef.storedLock.id,
+        positivePrompt: lockedPositive,
+        negativePrompt: lockedNegative,
+        referenceImageUrls: [persisted.url, ...stableRefUrls].slice(0, 4),
+        runGenerate: async (prompt, negative, refs) => {
+          const out = await runRoutedImageGeneration(
+            {
+              mode: "CHARACTER_SHEET",
+              contentIntensityLayer: intensityLayer,
+              adultEngine,
+              isNewCharacter: false,
+              hasCanonReferences: true,
+              characterCountInScene: 1,
+              continuityWeight: 95,
+              needsInpaint: false,
+              needsPoseVariation: false,
+              preferPhotorealCover: false,
+              explicitBlocked: intensityLayer === "RESTRICTED_BLOCKED_VISUAL",
+              goreStylizedMature:
+                intensityLayer === "MATURE_VISUAL" || intensityLayer === "ADULT_EXPLICIT",
+            },
+            {
+              mode: "CHARACTER_SHEET",
+              positivePrompt: prompt,
+              negativePrompt: negative,
+              width: characterSheetSize.width,
+              height: characterSheetSize.height,
+              referenceImageUrls: refs.length > 0 ? refs : undefined,
+              loras: activeLoras.length > 0 ? activeLoras : undefined,
+              providerParams: {
+                contentIntensityLayer: intensityLayer,
+                mode: "CHARACTER_SHEET",
+                referencePolicy: "STRONG",
+                panelCategory: "CHARACTER_FACE_CLOSEUP",
+                triggerWords: activeLoras.map((item) => item.triggerWord),
+              },
+            },
+          );
+          if (!out.ok) return { ok: false, reason: out.reason };
+          return {
+            ok: true,
+            imageUrl: out.result.imageUrl,
+            provider: out.result.provider,
+            model: out.result.model,
+            requestId: out.result.requestId ?? null,
+            jobId: out.result.jobId ?? null,
+            seed: out.result.seed ?? null,
+          };
+        },
+      });
+      if (!faceResult.ok) {
+        console.warn(
+          `[generate-visual] face_closeup_missed characterId=${character.id} error=${faceResult.error ?? faceResult.skipped ?? "unknown"}`,
+        );
+      }
+    } catch (faceErr) {
+      console.warn(
+        `[generate-visual] face_closeup_exception (non-blocking): ${faceErr instanceof Error ? faceErr.message : faceErr}`,
+      );
     }
 
     await settleReservedTokens(prisma, user.id, reservation.reservationId, estimatedTokens);

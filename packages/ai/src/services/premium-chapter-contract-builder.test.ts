@@ -1,11 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, afterEach } from "vitest";
 import { buildPremiumChapterContract } from "./premium-chapter-contract-builder";
 
 /**
- * P2.1 — le builder premium doit respecter le `minimumImages` réel du
- * chapitre (remonté via `input.minimumPanels`) au lieu d'un 75 figé. C'est
- * la cause racine du bug "52 blueprints pour 75 minimum" quand certains
- * chapitres ont un `minimumImages` supérieur à 75.
+ * H2 — padding désactivé pour le chemin premium. Le builder doit
+ * désormais fail quand le nombre de blueprints nativement produits
+ * reste sous le minimum demandé. Les tests vérifient que :
+ *   - sans le flag legacy, le builder throw
+ *   - avec `MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY=true` (uniquement
+ *     pour debug/tests), l'ancien comportement est toujours accessible
  */
 
 function buildApprovedOutline(beatCount: number) {
@@ -28,39 +30,42 @@ function buildApprovedOutline(beatCount: number) {
   } as unknown as Parameters<typeof buildPremiumChapterContract>[0]["approvedOutline"];
 }
 
-describe("buildPremiumChapterContract — P2.1 minimumPanels", () => {
-  it("respecte la valeur par défaut 75 quand minimumPanels n'est pas fourni", () => {
-    const result = buildPremiumChapterContract({
-      approvedOutline: buildApprovedOutline(10),
-      heroCharacterId: "hero_1",
-      projectGenre: "action",
-      projectTone: "dramatic",
-    });
-
-    expect(result.panelBlueprints.length).toBeGreaterThanOrEqual(75);
+describe("buildPremiumChapterContract — H2 padding interdit", () => {
+  afterEach(() => {
+    delete process.env.MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY;
   });
 
-  it("étend les blueprints jusqu'à `minimumPanels` quand supérieur au défaut", () => {
-    const result = buildPremiumChapterContract({
-      approvedOutline: buildApprovedOutline(10),
-      heroCharacterId: "hero_1",
-      projectGenre: "action",
-      projectTone: "dramatic",
-      minimumPanels: 100,
-    });
-
-    expect(result.panelBlueprints.length).toBeGreaterThanOrEqual(100);
+  it("THROW quand raw blueprints < minimum (défaut 75) sans flag legacy", () => {
+    expect(() =>
+      buildPremiumChapterContract({
+        approvedOutline: buildApprovedOutline(10),
+        heroCharacterId: "hero_1",
+        projectGenre: "action",
+        projectTone: "dramatic",
+      }),
+    ).toThrow(/premium_raw_panels_under_target/);
   });
 
-  it("ignore une valeur invalide (0 ou négative) et tombe sur le défaut 75", () => {
+  it("THROW aussi quand on demande un minimum supérieur et raw < minimum", () => {
+    expect(() =>
+      buildPremiumChapterContract({
+        approvedOutline: buildApprovedOutline(10),
+        heroCharacterId: "hero_1",
+        projectGenre: "action",
+        projectTone: "dramatic",
+        minimumPanels: 100,
+      }),
+    ).toThrow(/premium_raw_panels_under_target/);
+  });
+
+  it("autorise le padding UNIQUEMENT via MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY=true", () => {
+    process.env.MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY = "true";
     const result = buildPremiumChapterContract({
       approvedOutline: buildApprovedOutline(10),
       heroCharacterId: "hero_1",
       projectGenre: "action",
       projectTone: "dramatic",
-      minimumPanels: 0,
     });
-
     expect(result.panelBlueprints.length).toBeGreaterThanOrEqual(75);
   });
 });

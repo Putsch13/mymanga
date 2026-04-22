@@ -74,6 +74,10 @@ export function createDefaultPanelImageGenerator(
           v3RenderMode: spec.renderMode,
           v3SubjectFocus: spec.subjectFocus,
           v3CutawayType: spec.cutawayType,
+          // PREMIUM H16 — le prompt vient déjà de `buildMinimalPanelPromptStrict`
+          // (anglais propre, court, non contradictoire). On interdit au
+          // fal-adapter-shared de re-traduire le prompt par dessus.
+          skipPromptTranslation: true,
         },
       });
       return {

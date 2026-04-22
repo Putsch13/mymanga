@@ -24,7 +24,10 @@ describe("composeMangaPanelPrompt with scene blueprint", () => {
     });
 
     expect(result.positive).toContain("Continuity");
-    expect(result.positive).toContain("Mandatory constraints");
+    // H5 — le bloc "Mandatory constraints: ..." a été retiré du prompt
+    // composé (les contraintes sont validées en amont). On vérifie
+    // désormais que le prompt N'inclut PAS cette prose générique.
+    expect(result.positive).not.toContain("Mandatory constraints");
     expect(result.negative).toContain("empty background");
   });
 

@@ -33,6 +33,8 @@ export const FAL_RENDER_ROUTE_MODEL_IDS = {
   groupFocused: "fal-panel-group-v3",
   combatFocused: "fal-panel-combat-v3",
   dialogueFocused: "fal-panel-dialogue-v3",
+  creatureFocused: "fal-panel-creature-v3",
+  threatFocused: "fal-panel-threat-v3",
 } as const;
 
 interface RouteBase {
@@ -134,6 +136,34 @@ const RENDER_MODE_ROUTE_TABLE: Record<StoryboardRenderMode, RouteBase> = {
     referencePolicy: "LIGHT",
     sizePreset: "landscape",
     retryPolicy: "standard",
+  },
+  enemy_reveal: {
+    modelId: FAL_RENDER_ROUTE_MODEL_IDS.characterFocused,
+    panelCategory: "ENEMY_REVEAL",
+    referencePolicy: "STRONG",
+    sizePreset: "portrait",
+    retryPolicy: "strict_character",
+  },
+  creature_reveal: {
+    modelId: FAL_RENDER_ROUTE_MODEL_IDS.creatureFocused,
+    panelCategory: "CREATURE_REVEAL",
+    referencePolicy: "LIGHT",
+    sizePreset: "landscape",
+    retryPolicy: "strict_environment",
+  },
+  threat_silhouette: {
+    modelId: FAL_RENDER_ROUTE_MODEL_IDS.threatFocused,
+    panelCategory: "THREAT_SILHOUETTE",
+    referencePolicy: "LIGHT",
+    sizePreset: "landscape",
+    retryPolicy: "strict_environment",
+  },
+  aftermath_dialogue: {
+    modelId: FAL_RENDER_ROUTE_MODEL_IDS.dialogueFocused,
+    panelCategory: "AFTERMATH_DIALOGUE",
+    referencePolicy: "STRONG",
+    sizePreset: "square",
+    retryPolicy: "strict_character",
   },
 };
 

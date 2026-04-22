@@ -203,6 +203,16 @@ function pickSubjectFocus(mode: StoryboardRenderMode): StoryboardSubjectFocus {
     case "combat_exchange":
     case "combat_aftermath":
       return "hero";
+    case "enemy_reveal":
+      return "enemy";
+    case "creature_reveal":
+      return "creature";
+    case "threat_silhouette":
+      return "threat";
+    case "aftermath_dialogue":
+      return "group";
+    default:
+      return "environment";
   }
 }
 
@@ -226,6 +236,14 @@ function pickShotType(mode: StoryboardRenderMode): StoryboardShotType {
       return "closeup";
     case "insert_object":
       return "extreme_closeup";
+    case "enemy_reveal":
+    case "creature_reveal":
+    case "threat_silhouette":
+      return "wide";
+    case "aftermath_dialogue":
+      return "medium";
+    default:
+      return "medium";
   }
 }
 

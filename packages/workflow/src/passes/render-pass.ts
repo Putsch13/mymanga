@@ -23,7 +23,8 @@
 
 import {
   assertValidRenderSpec,
-  buildMinimalPanelPrompt,
+  buildMinimalPanelPromptStrict,
+  ContradictoryPanelPromptError,
   buildPanelRenderSpec,
   MissingMainCharacterRefError,
   resolveFalRenderRoute,
@@ -129,7 +130,20 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
     }
 
     specs.push(spec);
-    const prompt = buildMinimalPanelPrompt(spec);
+    let prompt;
+    try {
+      prompt = buildMinimalPanelPromptStrict(spec);
+    } catch (err) {
+      if (err instanceof ContradictoryPanelPromptError) {
+        errors.push({
+          panelId: panel.panelId,
+          error: `contradictory_prompt:${err.renderMode}:${err.violations.join("|")}`,
+        });
+        failedCount += 1;
+        continue;
+      }
+      throw err;
+    }
     const route = resolveFalRenderRoute(spec);
 
     const descriptor: RenderedPanelDescriptor = { spec, prompt, route };

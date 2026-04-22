@@ -1048,6 +1048,13 @@ export async function runNarrativePass(
             update: sceneData,
           });
 
+          // H14 — en pipeline v3, le StoryboardPlan est la source de vérité
+          // pour le layout de page. On n'utilise PLUS l'index de scène comme
+          // proxy de page, et on ne dérive PLUS de `pageLayoutTemplate` depuis
+          // `chapterShotPlan`. Le reader lit directement `storyboardPlanV2`.
+          if (process.env.PIPELINE_V3_STORYBOARD === "true") {
+            // skip scene→page layout derivation — storyboardPlanV2 is authoritative
+          } else {
           // T09: derive page layout from ShotPlan (per page, not per beat)
           try {
             const shotPlanPage = chapterShotPlan?.pages.find((p) => p.pageNumber === index + 1);
@@ -1097,6 +1104,7 @@ export async function runNarrativePass(
           } catch (layoutErr) {
             console.warn(`[pipeline] layout_decision_failed (non-blocking): ${layoutErr instanceof Error ? layoutErr.message : layoutErr}`);
           }
+          } // end v3 guard (H14)
 
           if (scene.location) {
             try {

@@ -16,6 +16,10 @@ import { runRenderPass } from "./passes/render-pass";
 import { loadChapterVisualMemory } from "./passes/load-chapter-visual-memory";
 import { createDefaultPanelImageGenerator } from "./passes/default-panel-image-generator";
 import { createDefaultChapterStyleBible } from "@manga-ai-studio/ai/contracts";
+import {
+  extractRequiredVisualCoverage,
+  validateVisualCoverage,
+} from "@manga-ai-studio/ai";
 import { assertPremiumContractFromChapter } from "./passes/assert-premium-contract-guard";
 import {
   isPipelineV3StoryboardEnabled,
@@ -173,6 +177,33 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         console.log(
           `[pipeline:v3:page-qa] ok=${pageQa.okCount} fail=${pageQa.failCount}`,
         );
+
+        // H12/H13 — visual coverage strict : on extrait les obligations
+        // visuelles du StoryArc et on vérifie que le storyboard les
+        // couvre toutes via des panels dédiés (renderMode + subjectFocus
+        // exacts). Sinon on bloque (pas de warning).
+        const requiredCoverage = extractRequiredVisualCoverage(storyPassResult.storyArc);
+        const coverageReport = validateVisualCoverage(
+          requiredCoverage,
+          storyboardPassResult.storyboardPlan,
+        );
+        console.log(
+          `[pipeline:v3:visual-coverage] required=${requiredCoverage.length} fulfilled=${coverageReport.fulfilled.length} gaps=${coverageReport.gaps.length}`,
+        );
+        if (!coverageReport.ok) {
+          const gapSummary = coverageReport.gaps
+            .slice(0, 8)
+            .map((g) => `${g.coverage.entityType}:${g.coverage.entity}@${g.coverage.sourceBeatId}`)
+            .join(" | ");
+          console.error(
+            `[pipeline:v3:visual-coverage] gaps=${coverageReport.gaps.length} ${gapSummary}`,
+          );
+          // En shadow mode v3 on loggue fortement mais on ne throw pas
+          // encore pour ne pas bloquer la prod pendant la bascule. Le
+          // guard dur est au niveau du launch route (H1) + de l'image-
+          // generation-pass (H4). À durcir en fail dur lorsque toutes
+          // les obligations storyboard seront couvertes par l'agent LLM.
+        }
 
         // Render-pass v3 en shadow : hydrate la visual memory depuis la DB,
         // construit les specs + prompts + route FAL pour chaque panel, persiste
