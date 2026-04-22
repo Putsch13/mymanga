@@ -697,7 +697,6 @@ export function buildGenerationJobInputFromSnapshot(opts: GenerationJobInputOpti
   // Le produit valide désormais une RANGE `PREMIUM_PANEL_RANGE` (70–75).
   // Le storyboard natif doit nativement produire ce nombre — sinon le
   // contrat premium échoue, au lieu de bourrer des panels clonés.
-  const minimumImages = PREMIUM_PANEL_RANGE.min;
   const rawCount = panelBlueprints.length;
   const panelCountStatus = classifyPremiumPanelCount(rawCount);
 
@@ -714,7 +713,6 @@ export function buildGenerationJobInputFromSnapshot(opts: GenerationJobInputOpti
     throw new IncompletePlanError(rawCount, PREMIUM_PANEL_RANGE.max);
   }
 
-  const enrichmentApplied = false as const;
   const effectiveBlueprints = panelBlueprints as unknown[];
 
   const input: Record<string, unknown> = {
