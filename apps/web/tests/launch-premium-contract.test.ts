@@ -47,10 +47,26 @@ vi.mock("@/lib/age-gate", () => ({
 
 vi.mock("@manga-ai-studio/ai", () => ({
   computeShotVarietyBudget: () => ({ varietyScore: 0.8, missingShots: [] }),
-  // BUG-24 : expandBlueprintsToMinimum est appelé par buildGenerationJobInputFromSnapshot
-  // pour étendre les plans stale à la volée. En test, on renvoie simplement les blueprints
-  // tels quels (la logique d'expansion est testée indépendamment dans panel-blueprint-builder.test.ts).
-  expandBlueprintsToMinimum: (blueprints: unknown[]) => blueprints,
+  // AUDIT v2 — l'enrichisseur narratif est maintenant appelé de manière
+  // explicite par buildGenerationJobInputFromSnapshot pour garantir
+  // `panelBlueprints.length >= minimumImages`. En test, on duplique le
+  // dernier blueprint jusqu'au minimum (suffisant pour valider que la route
+  // launch passe le guard).
+  expandBlueprintsToMinimum: (blueprints: unknown[], minimum: number) => {
+    if (blueprints.length === 0 || blueprints.length >= minimum) return blueprints;
+    const result = [...blueprints];
+    let i = 0;
+    while (result.length < minimum) {
+      const seed = blueprints[i % blueprints.length] as Record<string, unknown>;
+      result.push({
+        ...seed,
+        panelNumber: result.length + 1,
+        panelId: `${seed.panelId ?? "panel"}_enrich_${result.length + 1}`,
+      });
+      i += 1;
+    }
+    return result;
+  },
   buildPremiumChapterContractAsync: async () => ({ productionOutline: {}, productionPlan: {}, panelBlueprints: [], coverage: {} }),
 }));
 

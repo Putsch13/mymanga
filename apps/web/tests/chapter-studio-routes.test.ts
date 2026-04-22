@@ -62,9 +62,24 @@ const buildPremiumChapterContractAsyncMock = vi.fn();
 vi.mock("@manga-ai-studio/ai", () => ({
   buildPremiumChapterContract: buildPremiumChapterContractMock,
   buildPremiumChapterContractAsync: buildPremiumChapterContractAsyncMock,
-  // BUG-24 : expandBlueprintsToMinimum utilisé par buildGenerationJobInputFromSnapshot.
-  // Pass-through en test.
-  expandBlueprintsToMinimum: (blueprints: unknown[]) => blueprints,
+  // AUDIT v2 — expandBlueprintsToMinimum est appelé explicitement par
+  // buildGenerationJobInputFromSnapshot pour garantir le minimum d'images.
+  // En test on duplique le dernier blueprint jusqu'au minimum.
+  expandBlueprintsToMinimum: (blueprints: unknown[], minimum: number) => {
+    if (blueprints.length === 0 || blueprints.length >= minimum) return blueprints;
+    const result = [...blueprints];
+    let i = 0;
+    while (result.length < minimum) {
+      const seed = blueprints[i % blueprints.length] as Record<string, unknown>;
+      result.push({
+        ...seed,
+        panelNumber: result.length + 1,
+        panelId: `${seed.panelId ?? "panel"}_enrich_${result.length + 1}`,
+      });
+      i += 1;
+    }
+    return result;
+  },
   computeShotVarietyBudget: () => ({ varietyScore: 0.8, missingShots: [] }),
 }));
 

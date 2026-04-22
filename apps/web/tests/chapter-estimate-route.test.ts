@@ -43,6 +43,24 @@ vi.mock("@manga-ai-studio/ai", () => ({
   buildPanelBlueprintsFromBeat: buildPanelBlueprintsFromBeatMock,
   computeChapterFocusBudget: computeChapterFocusBudgetMock,
   computePremiumReadinessScore: computePremiumReadinessScoreMock,
+  // Enrichisseur narratif : passthrough sauf si sous le minimum, auquel cas
+  // on duplique le dernier blueprint jusqu'à atteindre le minimum (suffisant
+  // pour valider le comportement de la route).
+  expandBlueprintsToMinimum: (blueprints: unknown[], minimum: number) => {
+    if (blueprints.length === 0 || blueprints.length >= minimum) return blueprints;
+    const result = [...blueprints];
+    let i = 0;
+    while (result.length < minimum) {
+      const seed = blueprints[i % blueprints.length] as Record<string, unknown>;
+      result.push({
+        ...seed,
+        panelNumber: result.length + 1,
+        panelId: `${seed.panelId ?? "panel"}_enrich_${result.length + 1}`,
+      });
+      i += 1;
+    }
+    return result;
+  },
   // Couche LLM — retourne null en test (pas de clé API)
   enrichNarrativeFactsWithLLM: vi.fn().mockResolvedValue(null),
   mergeNarrativeFacts: vi.fn().mockImplementation((heuristic: unknown[]) => heuristic),
@@ -349,11 +367,11 @@ describe("chapter estimate route", () => {
     expect(computePremiumReadinessScoreMock).toHaveBeenCalledTimes(1);
   });
 
-  it("AUDIT COMMIT 1 — renvoie planStatus=incomplete quand rawBlueprints < minimumImages (pas d'expansion silencieuse)", async () => {
-    // La route estimate ne doit plus "gonfler" artificiellement le plan via
-    // `expandBlueprintsToMinimum`. Elle doit exposer explicitement le fait
-    // que le plan est incomplet pour que le studio puisse afficher la vraie
-    // dette de découpage.
+  it("AUDIT v2 — applique l'enrichissement narratif quand rawBlueprints < minimumImages", async () => {
+    // Le découpage narratif s'adapte à la matière (20 blueprints raw) mais
+    // le contrat du produit exige 75 images. La route applique donc
+    // `expandBlueprintsToMinimum` de manière explicite et expose
+    // enrichmentApplied=true + rawBlueprintCount + enrichedBlueprintCount.
     prismaMock.chapter.findFirst.mockResolvedValue({
       id: "chapter-3",
       chapterNumber: 3,
@@ -381,15 +399,16 @@ describe("chapter estimate route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    // raw = 2 × 10 = 20 blueprints, minimum = 75 => incomplete
-    expect(payload.planStatus).toBe("incomplete");
+    expect(payload.planStatus).toBe("ready");
     expect(payload.rawBlueprintCount).toBe(20);
+    expect(payload.enrichedBlueprintCount).toBe(75);
+    expect(payload.enrichmentApplied).toBe(true);
+    expect(payload.enrichmentAddedCount).toBe(55);
     expect(payload.minimumImages).toBe(75);
-    // Aucune invention de panels : panelBlueprints === rawBlueprints
-    expect(payload.productionPlan.panelBlueprints.length).toBe(20);
+    expect(payload.productionPlan.panelBlueprints.length).toBe(75);
   });
 
-  it("AUDIT COMMIT 1 — renvoie planStatus=ready quand rawBlueprints >= minimumImages", async () => {
+  it("AUDIT v2 — pas d'enrichissement quand rawBlueprints >= minimumImages (passthrough)", async () => {
     prismaMock.chapter.findFirst.mockResolvedValue({
       id: "chapter-4",
       chapterNumber: 4,
@@ -419,6 +438,9 @@ describe("chapter estimate route", () => {
     expect(response.status).toBe(200);
     expect(payload.planStatus).toBe("ready");
     expect(payload.rawBlueprintCount).toBe(20);
+    expect(payload.enrichedBlueprintCount).toBe(20);
+    expect(payload.enrichmentApplied).toBe(false);
+    expect(payload.enrichmentAddedCount).toBe(0);
     expect(payload.minimumImages).toBe(10);
   });
 

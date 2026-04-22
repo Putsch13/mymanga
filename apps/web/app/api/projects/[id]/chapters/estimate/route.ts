@@ -10,6 +10,7 @@ import {
   enrichNarrativeFactsWithLLM,
   mergeNarrativeFacts,
   buildChapterShotPlan,
+  expandBlueprintsToMinimum,
 } from "@manga-ai-studio/ai";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { buildApprovedOutlineVersion, buildProductionPlanFromOutline } from "@manga-ai-studio/core";
@@ -204,26 +205,53 @@ export async function POST(req: Request, ctx: Ctx) {
   }));
 
   const rawBlueprints = enrichedBeats.flatMap((b) => b._blueprints);
-  // AUDIT COMMIT 1 — on ne gonfle plus artificiellement le plan pour atteindre
-  // `minimumImages`. Si le découpage narratif n'atteint pas le seuil, on renvoie
-  // explicitement `planStatus=incomplete` pour exposer la vraie dette au studio
-  // au lieu d'inventer des panels via `expandBlueprintsToMinimum`.
+
+  // AUDIT v2 — le nombre de blueprints narratifs s'adapte à la matière (un
+  // chapitre produit naturellement entre 30 et 60 beats-panels), mais le
+  // contrat du produit garantit `minimumImages` images à rendre. On applique
+  // donc l'enrichissement narratif (plans de coupe, reactions, inserts,
+  // environment shots dérivés des beats existants via
+  // `expandBlueprintsToMinimum`). Chaque blueprint produit ensuite son propre
+  // prompt → fal, donc les images sont bien différenciées (hero, combat,
+  // plan de coupe…).
+  //
+  // Invariants audit :
+  //   - rawBlueprintCount = matière narrative brute (visible dans l'UI)
+  //   - enrichedBlueprintCount = images à rendre (>= minimum si la matière
+  //     narrative fournit au moins 1 beat exploitable)
+  //   - planStatus = "incomplete" uniquement si aucun blueprint exploitable
+  //     après enrichissement (cas hard : outline vide)
+  //   - enrichmentApplied exposé explicitement pour que le studio puisse
+  //     l'afficher (plus de "réparation silencieuse")
   const chapterMinimumImages =
     typeof targetChapter?.minimumImages === "number" && targetChapter.minimumImages > 0
       ? targetChapter.minimumImages
       : 75;
-  const allBlueprints = rawBlueprints;
+
+  const allBlueprints = expandBlueprintsToMinimum(rawBlueprints, chapterMinimumImages);
+  const enrichmentApplied = allBlueprints.length > rawBlueprints.length;
+  const enrichmentCount = allBlueprints.length - rawBlueprints.length;
   const isIncompletePlan = allBlueprints.length < chapterMinimumImages;
+
   if (isIncompletePlan) {
     console.warn(
-      `[estimate] incomplete_plan raw=${rawBlueprints.length} minimum=${chapterMinimumImages} ` +
-      `chapterId=${targetChapter?.id ?? "new"}`,
+      `[estimate] incomplete_plan raw=${rawBlueprints.length} enriched=${allBlueprints.length} ` +
+      `minimum=${chapterMinimumImages} chapterId=${targetChapter?.id ?? "new"}`,
     );
   }
-  // AUDIT COMMIT 10 — log structuré blueprint_quality
+
+  if (enrichmentApplied) {
+    console.log(
+      `[estimate] enrichment_applied chapterId=${targetChapter?.id ?? "new"} ` +
+      `raw=${rawBlueprints.length} enriched=${allBlueprints.length} added=${enrichmentCount} ` +
+      `minimum=${chapterMinimumImages}`,
+    );
+  }
+
   console.log(
     `[estimate] blueprint_quality chapterId=${targetChapter?.id ?? "new"} ` +
-    `raw=${rawBlueprints.length} minimum=${chapterMinimumImages} ` +
+    `raw=${rawBlueprints.length} enriched=${allBlueprints.length} ` +
+    `minimum=${chapterMinimumImages} enrichmentApplied=${enrichmentApplied} ` +
     `status=${isIncompletePlan ? "incomplete" : "ready"}`,
   );
   const focusBudget = computeChapterFocusBudget(allBlueprints);
@@ -315,7 +343,7 @@ export async function POST(req: Request, ctx: Ctx) {
     `chapterNumber=${targetChapterNumber} estimateMode=${estimateMode} ` +
     `beatsCount=${productionOutline.beats.length} ` +
     `productionPlanPages=${Array.isArray((productionPlan as Record<string, unknown>).pages) ? ((productionPlan as Record<string, unknown>).pages as unknown[]).length : 0} ` +
-    `rawBlueprints=${rawBlueprints.length} blueprints=${allBlueprints.length} minimumImages=${chapterMinimumImages} planStatus=${isIncompletePlan ? "incomplete" : "ready"} ` +
+    `rawBlueprints=${rawBlueprints.length} blueprints=${allBlueprints.length} enrichmentApplied=${enrichmentApplied} minimumImages=${chapterMinimumImages} planStatus=${isIncompletePlan ? "incomplete" : "ready"} ` +
     `progressionOk=${progressionCheck.ok} progressionScore=${progressionCheck.progressionScore.toFixed(2)}`,
   );
 
@@ -367,6 +395,9 @@ export async function POST(req: Request, ctx: Ctx) {
     productionPlan,
     planStatus: isIncompletePlan ? "incomplete" : "ready",
     rawBlueprintCount: rawBlueprints.length,
+    enrichedBlueprintCount: allBlueprints.length,
+    enrichmentApplied,
+    enrichmentAddedCount: enrichmentCount,
     minimumImages: chapterMinimumImages,
     planPresentation: {
       editorialLabel: "Résumé du chapitre (5 grands temps)",

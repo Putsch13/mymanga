@@ -11,7 +11,7 @@ import {
   type ProductionOutline,
   type ProductionPlan,
 } from "@manga-ai-studio/core";
-import { buildPremiumChapterContractAsync } from "@manga-ai-studio/ai";
+import { buildPremiumChapterContractAsync, expandBlueprintsToMinimum } from "@manga-ai-studio/ai";
 
 // ─── Constante canonique des champs premium ───────────────────────────────────
 
@@ -691,22 +691,45 @@ export function buildGenerationJobInputFromSnapshot(opts: GenerationJobInputOpti
     throw new InvalidBlueprintsError(invalidBlueprints);
   }
 
-  // AUDIT COMMIT 2 — plan incomplet = erreur dure. Plus aucune réparation
-  // silencieuse via `expandBlueprintsToMinimum` dans le chemin standard. Si
-  // le découpage narratif n'atteint pas `minimumImages`, on refuse la
-  // génération et on exige une régénération du plan dans le studio.
+  // AUDIT v2 — le contrat images (minimumImages, ex: 75) garantit le nombre
+  // d'images à rendre, pas le nombre de beats narratifs. Le découpage
+  // narratif s'adapte à la matière (généralement 30-60 blueprints). On
+  // applique donc un enrichissement narratif explicite pour produire des
+  // plans de coupe / reactions / inserts / environment shots dérivés des
+  // beats existants (voir `expandBlueprintsToMinimum`). Chaque blueprint
+  // enrichi produit ensuite son propre prompt différencié vers fal.
+  //
+  // Le guard `IncompletePlanError` est conservé UNIQUEMENT comme filet en
+  // cas de matière narrative trop faible (0 beat exploitable). Dans ce cas
+  // l'enrichisseur ne peut rien construire et on exige une régénération.
   const minimumImages = typeof pp?.minimumImages === "number" && pp.minimumImages > 0
     ? pp.minimumImages
     : 75;
-  if (panelBlueprints.length < minimumImages) {
-    // AUDIT COMMIT 10 — log structuré pour corréler avec estimate/route
+
+  const rawCount = panelBlueprints.length;
+  const enrichedBlueprints = expandBlueprintsToMinimum(
+    panelBlueprints as never[],
+    minimumImages,
+  ) as unknown[];
+  const enrichmentApplied = enrichedBlueprints.length > rawCount;
+
+  if (enrichedBlueprints.length < minimumImages) {
     console.error(
-      `[contract] incomplete_plan panelBlueprints=${panelBlueprints.length} minimumImages=${minimumImages} ` +
-      `chapterId=${opts.chapterId ?? "?"}`,
+      `[contract] incomplete_plan panelBlueprints=${rawCount} enriched=${enrichedBlueprints.length} ` +
+      `minimumImages=${minimumImages} chapterId=${opts.chapterId ?? "?"}`,
     );
-    throw new IncompletePlanError(panelBlueprints.length, minimumImages);
+    throw new IncompletePlanError(enrichedBlueprints.length, minimumImages);
   }
-  const effectiveBlueprints = panelBlueprints;
+
+  if (enrichmentApplied) {
+    console.log(
+      `[contract] enrichment_applied chapterId=${opts.chapterId ?? "?"} ` +
+      `raw=${rawCount} enriched=${enrichedBlueprints.length} ` +
+      `added=${enrichedBlueprints.length - rawCount} minimumImages=${minimumImages}`,
+    );
+  }
+
+  const effectiveBlueprints = enrichedBlueprints;
 
   const input: Record<string, unknown> = {
     source: opts.source,
