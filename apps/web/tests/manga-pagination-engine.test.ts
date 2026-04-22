@@ -126,6 +126,68 @@ describe("manga pagination — pickLayoutForPage", () => {
   });
 });
 
+describe("AUDIT COMMIT 9 — pickLayoutForPage content-aware", () => {
+  it("3 panels + beatRole=revelation => asymmetric_hero (même sans major)", () => {
+    expect(
+      pickLayoutForPage([
+        { importance: "normal", beatRole: "revelation" },
+        { importance: "normal" },
+        { importance: "normal" },
+      ]),
+    ).toBe("asymmetric_hero");
+  });
+
+  it("3 panels + beatRole=cliffhanger => asymmetric_hero", () => {
+    expect(
+      pickLayoutForPage([
+        { importance: "normal" },
+        { importance: "normal", beatRole: "cliffhanger" },
+        { importance: "normal" },
+      ]),
+    ).toBe("asymmetric_hero");
+  });
+
+  it("3 panels dominés par environment => cinematic_bar", () => {
+    expect(
+      pickLayoutForPage([
+        { importance: "normal", dominantSubject: "environment" },
+        { importance: "normal", dominantSubject: "environment" },
+        { importance: "normal", dominantSubject: "prop" },
+      ]),
+    ).toBe("cinematic_bar");
+  });
+
+  it("6 panels full environment/inserts => grid_2x3, pas action_strip", () => {
+    const page = Array.from({ length: 6 }, () => ({
+      importance: "insert" as const,
+      dominantSubject: "environment" as const,
+    }));
+    expect(pickLayoutForPage(page)).toBe("grid_2x3");
+  });
+
+  it("6 panels avec un hero dominant => action_strip", () => {
+    const page = [
+      { importance: "normal" as const, dominantSubject: "hero" as const },
+      ...Array.from({ length: 5 }, () => ({ importance: "normal" as const })),
+    ];
+    expect(pickLayoutForPage(page)).toBe("action_strip");
+  });
+
+  it("6 panels full dialogue/reaction => grid_2x3 (pas action_strip)", () => {
+    const page = Array.from({ length: 6 }, () => ({
+      importance: "normal" as const,
+      dialogueDensity: "high" as const,
+    }));
+    expect(pickLayoutForPage(page)).toBe("grid_2x3");
+  });
+
+  it("hints absents => comportement legacy inchangé (6 normaux => grid_2x3)", () => {
+    expect(
+      pickLayoutForPage(Array.from({ length: 6 }, () => ({ importance: "normal" as const }))),
+    ).toBe("grid_2x3");
+  });
+});
+
 describe("manga pagination — Phase 4 allowFivePanel", () => {
   it("computePageSizes(5, {allowFivePanel:true}) → [5]", () => {
     expect(computePageSizes(5, { allowFivePanel: true })).toEqual([5]);

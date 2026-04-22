@@ -16,8 +16,12 @@ import { describe, it, expect } from "vitest";
 import {
   buildLocationMarkersLine,
   formatLocationCanonMarkersLine,
+  formatCompactLocationCanonMarkersLine,
 } from "@/lib/retry/build-location-markers";
-import { resolveLocationVisualCanon } from "@/lib/canon/resolve-location-visual-canon";
+import {
+  resolveLocationVisualCanon,
+  summarizeLocationCanonForPrompt,
+} from "@/lib/canon/resolve-location-visual-canon";
 
 describe("formatLocationCanonMarkersLine (P1.4)", () => {
   it("inclut nom, type, brief, architecture, props, palette, lighting, views", () => {
@@ -112,7 +116,7 @@ describe("buildLocationMarkersLine (P1.4)", () => {
     expect(out).toBe("");
   });
 
-  it("utilise le canon unifié (permanentArchitecture + canonicalProps + palette) quand disponible", async () => {
+  it("AUDIT COMMIT 8 — mode compact par défaut : ligne courte centrée prompt", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const prisma = makePrisma({
       id: "loc-s",
@@ -131,11 +135,78 @@ describe("buildLocationMarkersLine (P1.4)", () => {
       },
     }) as any;
     const out = await buildLocationMarkersLine({ prisma, locationId: "loc-s" });
+    // Budget prompt : pas de phrases "location:" ni "requires_visual_continuity"
+    expect(out.length).toBeLessThanOrEqual(180);
+    expect(out).toContain("Sanctuaire Inari");
+    expect(out).toContain("vermillion torii path");
+    expect(out).not.toContain("requires_visual_continuity");
+    expect(out).not.toContain("architectural markers (");
+  });
+
+  it("utilise le canon unifié en mode full (debug/UI)", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const prisma = makePrisma({
+      id: "loc-s",
+      name: "Sanctuaire Inari",
+      type: "shrine",
+      description: null,
+      visualBrief: null,
+      establishedVisualBrief: "Ancient wooden shrine on a mossy cliff",
+      canonImageUrl: null,
+      visualRefs: [],
+      canonLocked: true,
+      metadata: {
+        permanentArchitecture: ["vermillion torii path", "stone fox statues"],
+        canonicalProps: ["stone wash basin", "paper ema charms"],
+        palette: ["vermillion", "slate", "moss"],
+      },
+    }) as any;
+    const out = await buildLocationMarkersLine({ prisma, locationId: "loc-s", format: "full" });
     expect(out).toContain("location: Sanctuaire Inari");
     expect(out).toContain("vermillion torii path");
     expect(out).toContain("stone wash basin");
     expect(out).toContain("vermillion, slate, moss");
     expect(out).toContain("requires_visual_continuity");
+  });
+
+  it("AUDIT COMMIT 8 — formatCompactLocationCanonMarkersLine tronque à ~180 chars", () => {
+    const canon = resolveLocationVisualCanon({
+      id: "loc-big",
+      name: "Cathédrale Noire",
+      type: "cathedral",
+      canonLocked: true,
+      metadata: {
+        permanentArchitecture: Array.from({ length: 10 }, (_, i) => `arch-${i}-very-long-description`),
+        canonicalProps: Array.from({ length: 10 }, (_, i) => `prop-${i}-with-details`),
+        palette: ["vermillion", "slate", "moss", "onyx", "ivory"],
+        canonicalLighting: ["overcast afternoon", "moonlit night"],
+        canonicalViews: ["wide establishing shot", "low angle rooftop"],
+      },
+    });
+    const compact = formatCompactLocationCanonMarkersLine(canon, { maxLength: 180 });
+    expect(compact.length).toBeLessThanOrEqual(180);
+    expect(compact).toContain("Cathédrale Noire");
+  });
+
+  it("AUDIT COMMIT 8 — summarizeLocationCanonForPrompt renvoie une structure plafonnée", () => {
+    const canon = resolveLocationVisualCanon({
+      id: "loc-sum",
+      name: "Dojo Kuroi",
+      type: "dojo",
+      metadata: {
+        permanentArchitecture: ["tatami mats", "wooden beams", "sliding door", "kamidana altar"],
+        canonicalProps: ["bokken rack", "tea kettle"],
+        palette: ["cream", "black", "cedar"],
+        canonicalLighting: ["lantern glow", "morning haze"],
+        canonicalViews: ["wide floor", "corner alcove"],
+      },
+    });
+    const summary = summarizeLocationCanonForPrompt(canon, { maxEach: 2 });
+    expect(summary.architecture.length).toBeLessThanOrEqual(2);
+    expect(summary.props.length).toBeLessThanOrEqual(2);
+    expect(summary.palette.length).toBeLessThanOrEqual(2);
+    expect(summary.lighting.length).toBeLessThanOrEqual(2);
+    expect(summary.views.length).toBeLessThanOrEqual(2);
   });
 
   it("capture les erreurs Prisma et retourne \"\" sans throw", async () => {

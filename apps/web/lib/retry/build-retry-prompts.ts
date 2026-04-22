@@ -33,31 +33,77 @@ export type RetryPrompts = {
   userNegative: string;
 };
 
+/**
+ * AUDIT COMMIT 5 — nettoyage lexical des overrides utilisateur avant qu'ils
+ * ne finissent dans le prompt final. Règles :
+ *   - trim + collapse whitespace
+ *   - suppression des sauts de ligne
+ *   - suppression des ponctuations répétées (`!!!!`, `.....`, `,,,,`)
+ *   - suppression des doubles espaces
+ *   - plafond optionnel sur la longueur
+ */
+export function sanitizeUserPromptInput(
+  raw: string | null | undefined,
+  max: number = 400,
+): string {
+  if (typeof raw !== "string") return "";
+  let value = raw.replace(/[\r\n\t]+/g, " ");
+  value = value.replace(/([!?.,;:])\1{1,}/g, "$1");
+  value = value.replace(/\s+/g, " ").trim();
+  if (value.length > max) value = value.slice(0, max).trim();
+  return value;
+}
+
+/**
+ * AUDIT COMMIT 11 — helper partagé pour tronquer proprement un snippet
+ * de prompt sans couper un mot au milieu.
+ */
+export function compactPromptSnippet(value: string, max = 180): string {
+  if (!value) return "";
+  const cleaned = value.replace(/\s+/g, " ").trim();
+  if (cleaned.length <= max) return cleaned;
+  const hard = cleaned.slice(0, max);
+  const lastComma = hard.lastIndexOf(",");
+  if (lastComma > max * 0.6) return hard.slice(0, lastComma).trim();
+  const lastSpace = hard.lastIndexOf(" ");
+  if (lastSpace > max * 0.6) return hard.slice(0, lastSpace).trim();
+  return hard.trim();
+}
+
+/**
+ * AUDIT COMMIT 4 — les anciens augments "legacy" étaient trop bavards
+ * ("readable environment, strong background, visible architecture, clear
+ * foreground midground background") et re-polluaient les prompts canoniques.
+ * On les remplace par des hints compacts et sobres. `locationMarkersLine` est
+ * tronqué proprement à 160 chars avant d'être concaténé.
+ */
 export function buildRetryPrompts(input: BuildRetryPromptsInput): RetryPrompts {
   const { retryMode, retryReferenceDecision, characterHints, locationMarkersLine } = input;
 
+  const compactLocationMarkers = compactPromptSnippet(locationMarkersLine ?? "", 160);
+
   const legacyPositiveAugment = retryMode === "environment"
-    ? ["readable environment, strong background, visible architecture, clear foreground midground background", locationMarkersLine].filter(Boolean).join(", ")
+    ? ["environment continuity, readable architecture", compactLocationMarkers].filter(Boolean).join(", ")
     : retryMode === "character"
       ? (characterHints?.positive ?? "")
       : retryMode === "interaction"
-        ? "clear body language, readable interaction, characters connected to environment"
+        ? "clear interaction"
         : retryMode === "style"
-          ? "consistent manga style, clean line art, coherent shading"
+          ? "consistent linework, stable style"
           : retryMode === "composition"
-            ? ["balanced manga composition, spatial clarity, dynamic framing", locationMarkersLine].filter(Boolean).join(", ")
+            ? ["clear staging, readable framing", compactLocationMarkers].filter(Boolean).join(", ")
             : "";
 
   const legacyNegativeAugment = retryMode === "environment"
-    ? "empty background, studio backdrop, flat grey backdrop, blurry environment"
+    ? "empty background, flat backdrop"
     : retryMode === "character"
       ? (characterHints?.negative ?? "")
       : retryMode === "interaction"
-        ? "weak social interaction, disconnected characters"
+        ? "disconnected characters"
         : retryMode === "style"
-          ? "style drift, muddy rendering, off-model manga style"
+          ? "style drift, muddy rendering"
           : retryMode === "composition"
-            ? "floating character, poor framing, weak staging"
+            ? "poor framing, weak staging"
             : "";
 
   const basePositiveAugment = retryReferenceDecision.positivePromptHint

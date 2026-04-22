@@ -6,6 +6,7 @@ import { NPC_ONTOLOGY, resolveNpcWithAiFallback } from "@manga-ai-studio/world";
 import { detectSpeciesInDescription, resolveSpeciesArchetype } from "@manga-ai-studio/memory";
 import { prisma } from "@manga-ai-studio/db";
 import { pickDeterministicHook } from "@/lib/npc/pick-deterministic-hook";
+import { safeNarrativeHook } from "@/lib/npc/safe-narrative-hook";
 
 const openai = process.env.OPENAI_API_KEY ? new OpenAI() : null;
 
@@ -63,6 +64,15 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         },
       });
 
+      // AUDIT COMMIT 6 — on sépare explicitement le fragment visuel (utilisé
+      // dans les prompts image) du hook narratif (jamais injecté dans
+      // l'image). `promptFragment` reste pour la back-compat court-terme
+      // mais les consumers doivent migrer vers `visualPromptFragment`.
+      const visualPromptFragment = traits.promptFragment;
+      const interactionHooks = [
+        `Un membre de l'espèce ${speciesLabel} avec les traits distinctifs de la race`,
+        `Variation individuelle sur la base commune de l'espèce`,
+      ];
       return NextResponse.json({
         strategy: isNew ? "species_created" : "species_recalled",
         confidence: 0.95,
@@ -71,12 +81,11 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         topMatch: {
           label: speciesLabel,
           visualCues: [traits.morphology, traits.skinTexture, ...traits.distinctiveMarkers.slice(0, 1)],
-          interactionHooks: [
-            `Un membre de l'espèce ${speciesLabel} avec les traits distinctifs de la race`,
-            `Variation individuelle sur la base commune de l'espèce`,
-          ],
+          interactionHooks,
         },
-        promptFragment: traits.promptFragment,
+        visualPromptFragment,
+        promptFragment: visualPromptFragment,
+        interactionHooks,
         narrativeHook: `Un·e ${speciesLabel} avec les traits caractéristiques de son espèce.`,
       });
     } catch (err) {
@@ -123,6 +132,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       tone: body.tone,
       sceneLocation: body.sceneLocation,
     });
+    // AUDIT COMMIT 6 — champ visuel séparé du hook narratif.
+    const visualPromptFragment = best.visualCues.slice(0, 3).join(", ");
     return NextResponse.json({
       strategy: scored.length > 1 ? "catalog_blend" : "catalog_match",
       confidence,
@@ -131,13 +142,17 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         visualCues: best.visualCues,
         interactionHooks: best.interactionHooks,
       },
-      promptFragment: best.visualCues.slice(0, 3).join(", "),
+      visualPromptFragment,
+      promptFragment: visualPromptFragment,
+      interactionHooks: best.interactionHooks,
       narrativeHook: deterministicHook ?? "",
     });
   }
 
   if (!openai) {
     if (best) {
+      // AUDIT COMMIT 6 — visuel / narratif explicitement séparés.
+      const visualPromptFragment = best.visualCues.slice(0, 2).join(", ");
       return NextResponse.json({
         strategy: "catalog_fallback",
         confidence,
@@ -146,8 +161,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
           visualCues: best.visualCues,
           interactionHooks: best.interactionHooks,
         },
-        promptFragment: best.visualCues.slice(0, 2).join(", "),
-        narrativeHook: best.interactionHooks[0] ?? "",
+        visualPromptFragment,
+        promptFragment: visualPromptFragment,
+        interactionHooks: best.interactionHooks,
+        narrativeHook: safeNarrativeHook(best.interactionHooks),
       });
     }
     return NextResponse.json({
@@ -158,7 +175,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         visualCues: [],
         interactionHooks: [],
       },
+      visualPromptFragment: body.rawDescription,
       promptFragment: body.rawDescription,
+      interactionHooks: [],
       narrativeHook: "Un personnage intriguant : " + body.rawDescription.slice(0, 60),
     });
   }
@@ -185,11 +204,14 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         visualCues: aiNpc.visualCues,
         interactionHooks: aiNpc.interactionHooks,
       },
+      visualPromptFragment: aiNpc.promptFragment,
       promptFragment: aiNpc.promptFragment,
+      interactionHooks: aiNpc.interactionHooks,
       narrativeHook: aiNpc.narrativeHook,
     });
   } catch {
     if (best) {
+      const visualPromptFragment = best.visualCues.slice(0, 2).join(", ");
       return NextResponse.json({
         strategy: "catalog_fallback",
         confidence,
@@ -198,8 +220,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
           visualCues: best.visualCues,
           interactionHooks: best.interactionHooks,
         },
-        promptFragment: best.visualCues.slice(0, 2).join(", "),
-        narrativeHook: best.interactionHooks[0] ?? "",
+        visualPromptFragment,
+        promptFragment: visualPromptFragment,
+        interactionHooks: best.interactionHooks,
+        narrativeHook: safeNarrativeHook(best.interactionHooks),
       });
     }
     return NextResponse.json({ error: "resolution_failed" }, { status: 500 });

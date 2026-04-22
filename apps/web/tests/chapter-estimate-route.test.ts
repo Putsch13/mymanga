@@ -46,20 +46,6 @@ vi.mock("@manga-ai-studio/ai", () => ({
   // Couche LLM — retourne null en test (pas de clé API)
   enrichNarrativeFactsWithLLM: vi.fn().mockResolvedValue(null),
   mergeNarrativeFacts: vi.fn().mockImplementation((heuristic: unknown[]) => heuristic),
-  // P2.1bis — route estimate appelle désormais `expandBlueprintsToMinimum`
-  // pour garantir un contrat complet (panelBlueprints.length >= minimumImages).
-  // Mock : retourne le tableau d'origine, padded à `minimumPanels` en clonant
-  // le premier élément (comportement équivalent à l'implémentation réelle
-  // pour les besoins du test — sans les variations shotType détaillées).
-  expandBlueprintsToMinimum: vi.fn().mockImplementation((blueprints: unknown[], minimumPanels: number) => {
-    if (!Array.isArray(blueprints) || blueprints.length === 0) return blueprints ?? [];
-    if (blueprints.length >= minimumPanels) return blueprints;
-    const padded = [...blueprints];
-    while (padded.length < minimumPanels) {
-      padded.push({ ...(blueprints[0] as Record<string, unknown>), panelNumber: padded.length + 1 });
-    }
-    return padded;
-  }),
   // Sprint B — shot plan est ajouté au productionPlan. Mock minimal qui
   // renvoie une structure stable pour ne pas casser les tests existants.
   buildChapterShotPlan: vi.fn().mockImplementation(
@@ -363,12 +349,11 @@ describe("chapter estimate route", () => {
     expect(computePremiumReadinessScoreMock).toHaveBeenCalledTimes(1);
   });
 
-  it("P2.1bis — sort un productionPlan avec panelBlueprints.length >= minimumImages (pas 55/75 ni 30/75)", async () => {
-    // Cas utilisateur reel : "Régénérer le plan" sortait avec 55 blueprints
-    // pour un minimum de 75, ce qui bloquait immédiatement le launch côté
-    // studio avec `contractStatus=incomplete_blueprints`. La route estimate
-    // doit maintenant appeler `expandBlueprintsToMinimum` en respectant
-    // `chapter.minimumImages` pour éviter cette divergence.
+  it("AUDIT COMMIT 1 — renvoie planStatus=incomplete quand rawBlueprints < minimumImages (pas d'expansion silencieuse)", async () => {
+    // La route estimate ne doit plus "gonfler" artificiellement le plan via
+    // `expandBlueprintsToMinimum`. Elle doit exposer explicitement le fait
+    // que le plan est incomplet pour que le studio puisse afficher la vraie
+    // dette de découpage.
     prismaMock.chapter.findFirst.mockResolvedValue({
       id: "chapter-3",
       chapterNumber: 3,
@@ -376,8 +361,6 @@ describe("chapter estimate route", () => {
       status: "draft",
       minimumImages: 75,
     });
-    // Le builder de blueprints sort intentionnellement peu (2 par beat × 10 beats = 20),
-    // comme ça se produit en prod avec certains chapitres.
     buildPanelBlueprintsFromBeatMock.mockImplementation((beat: { beatId: string }) => [
       makePremiumBlueprint(beat.beatId, 1),
       makePremiumBlueprint(beat.beatId, 2),
@@ -390,7 +373,7 @@ describe("chapter estimate route", () => {
         body: JSON.stringify({
           chapterId: "chapter-3",
           chapterNumber: 3,
-          userIntent: "Régénérer le plan (cas bug utilisateur)",
+          userIntent: "Régénérer le plan.",
         }),
       }),
       ctx,
@@ -398,19 +381,21 @@ describe("chapter estimate route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.productionPlan).toBeDefined();
-    expect(payload.productionPlan.minimumImages).toBe(75);
-    // Cœur du fix : le contrat renvoyé doit honorer le minimum du chapitre.
-    expect(payload.productionPlan.panelBlueprints.length).toBeGreaterThanOrEqual(75);
+    // raw = 2 × 10 = 20 blueprints, minimum = 75 => incomplete
+    expect(payload.planStatus).toBe("incomplete");
+    expect(payload.rawBlueprintCount).toBe(20);
+    expect(payload.minimumImages).toBe(75);
+    // Aucune invention de panels : panelBlueprints === rawBlueprints
+    expect(payload.productionPlan.panelBlueprints.length).toBe(20);
   });
 
-  it("P2.1bis — respecte un minimumImages custom > 75 (ex. chapitre exigeant 100)", async () => {
+  it("AUDIT COMMIT 1 — renvoie planStatus=ready quand rawBlueprints >= minimumImages", async () => {
     prismaMock.chapter.findFirst.mockResolvedValue({
-      id: "chapter-special",
-      chapterNumber: 5,
-      title: "Chapitre spécial",
+      id: "chapter-4",
+      chapterNumber: 4,
+      title: "Chapitre 4",
       status: "draft",
-      minimumImages: 100,
+      minimumImages: 10,
     });
     buildPanelBlueprintsFromBeatMock.mockImplementation((beat: { beatId: string }) => [
       makePremiumBlueprint(beat.beatId, 1),
@@ -422,9 +407,9 @@ describe("chapter estimate route", () => {
       new Request("http://localhost", {
         method: "POST",
         body: JSON.stringify({
-          chapterId: "chapter-special",
-          chapterNumber: 5,
-          userIntent: "Chapitre long avec contrat images 100.",
+          chapterId: "chapter-4",
+          chapterNumber: 4,
+          userIntent: "Plan suffisant.",
         }),
       }),
       ctx,
@@ -432,8 +417,9 @@ describe("chapter estimate route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.productionPlan.minimumImages).toBe(100);
-    expect(payload.productionPlan.panelBlueprints.length).toBeGreaterThanOrEqual(100);
+    expect(payload.planStatus).toBe("ready");
+    expect(payload.rawBlueprintCount).toBe(20);
+    expect(payload.minimumImages).toBe(10);
   });
 
   it("productionPlan contient cutawayCoverage (cutawayComplianceScore calculable)", async () => {

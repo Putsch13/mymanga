@@ -211,3 +211,31 @@ export function isLocationCanonical(input: LocationCanonInput): boolean {
 export function locationRequiresVisualContinuity(input: LocationCanonInput): boolean {
   return resolveLocationVisualCanon(input).requiresVisualContinuity;
 }
+
+/**
+ * AUDIT COMMIT 8 — résumé compact du canon de lieu exploitable directement
+ * dans un prompt. Renvoie un objet structuré (et non une chaîne) pour que les
+ * consumers puissent composer leur propre format court sans ré-extraire la
+ * même logique à chaque endroit.
+ */
+export interface CompactLocationCanonSummary {
+  architecture: string[];
+  props: string[];
+  palette: string[];
+  lighting: string[];
+  views: string[];
+}
+
+export function summarizeLocationCanonForPrompt(
+  canon: ResolvedLocationVisualCanon,
+  opts: { maxEach?: number } = {},
+): CompactLocationCanonSummary {
+  const maxEach = Math.max(1, opts.maxEach ?? 3);
+  return {
+    architecture: canon.permanentArchitecture.slice(0, maxEach),
+    props: canon.canonicalProps.slice(0, maxEach),
+    palette: canon.canonicalPalette.slice(0, Math.min(maxEach, 3)),
+    lighting: canon.canonicalLighting.slice(0, Math.min(maxEach, 2)),
+    views: canon.canonicalViews.slice(0, Math.min(maxEach, 2)),
+  };
+}

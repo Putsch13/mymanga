@@ -128,6 +128,9 @@ export function ChapterCastCanonStep({
       if (!res.ok) throw new Error("resolve failed");
       const data = await res.json() as {
         topMatch?: { label: string; visualCues: string[]; interactionHooks: string[] };
+        // AUDIT COMMIT 6 — on consomme en priorité `visualPromptFragment` ;
+        // `promptFragment` reste en back-compat court-terme.
+        visualPromptFragment?: string;
         promptFragment?: string;
         narrativeHook?: string;
         strategy?: string;
@@ -137,7 +140,10 @@ export function ChapterCastCanonStep({
           ...prev,
           {
             label: data.topMatch!.label,
-            promptFragment: data.promptFragment ?? data.topMatch!.visualCues.slice(0, 2).join(", "),
+            promptFragment:
+              data.visualPromptFragment
+              ?? data.promptFragment
+              ?? data.topMatch!.visualCues.slice(0, 2).join(", "),
             narrativeHook: data.narrativeHook ?? data.topMatch!.interactionHooks[0] ?? "",
             strategy: data.strategy ?? "catalog_match",
           },

@@ -20,20 +20,37 @@ import { planRerollForPacket, type RerollReason } from "@manga-ai-studio/ai";
 
 export interface RetryPacketBase {
   packet: CanonicalImagePromptPacket | null;
-  /** Prompt de départ pour le retry : packet canonique si dispo, sinon legacy. */
+  /** Prompt de départ pour le retry : packet canonique uniquement. */
   basePrompt: string;
   baseNegativePrompt: string;
-  source: "canonical" | "legacy";
+  source: "canonical" | "missing_canonical_packet";
   /** Version du packet (pour promptDebug). */
   packetVersion: string | null;
 }
 
 export interface ResolveRetryPacketBaseInput {
   metadataCanonicalPacket: unknown;
-  sceneImagePrompt: string | null;
-  sceneImageNegativePrompt: string | null;
+  /**
+   * AUDIT COMMIT 3 — ces champs ne sont plus utilisés comme source de retry,
+   * mais on les garde dans l'input pour ne pas casser les consumers existants
+   * et pour permettre un éventuel log de debug. Ils ne peuvent JAMAIS servir
+   * de fallback pour le retry canonique.
+   */
+  sceneImagePrompt?: string | null;
+  sceneImageNegativePrompt?: string | null;
 }
 
+/**
+ * AUDIT COMMIT 3 — Retry packet resolver strictement canonique.
+ *
+ * Avant : si `metadata.canonicalPacket` était absent/invalide, on reparait
+ * silencieusement depuis `sceneImage.prompt` (legacy). Résultat : les retries
+ * reproduisaient les erreurs du premier rendu en recyclant des prompts pollués.
+ *
+ * Maintenant : si le packet canonique est absent ou invalide, on renvoie un
+ * état `missing_canonical_packet` exploitable par la route retry pour refuser
+ * la régénération avec un message explicite. Aucun fallback legacy.
+ */
 export function resolveRetryPacketBase(
   input: ResolveRetryPacketBaseInput,
 ): RetryPacketBase {
@@ -48,16 +65,16 @@ export function resolveRetryPacketBase(
       baseNegativePrompt:
         typeof packet.negativePromptEnglish === "string" && packet.negativePromptEnglish.trim().length > 0
           ? packet.negativePromptEnglish
-          : input.sceneImageNegativePrompt ?? "",
+          : "",
       source: "canonical",
       packetVersion: packet.packetVersion ?? null,
     };
   }
   return {
     packet: null,
-    basePrompt: input.sceneImagePrompt ?? "",
-    baseNegativePrompt: input.sceneImageNegativePrompt ?? "",
-    source: "legacy",
+    basePrompt: "",
+    baseNegativePrompt: "",
+    source: "missing_canonical_packet",
     packetVersion: null,
   };
 }
@@ -209,33 +226,74 @@ export interface BuildPacketAwareRetryPromptResult {
   intent: ImageIntentType;
 }
 
+/**
+ * AUDIT COMMIT 11 — normalizePromptParts
+ *
+ * Avant : on faisait `positiveParts.join(", ")` sans dédup ni garde de
+ * longueur. Ça laissait passer des doublons ("manga style, manga style"),
+ * des entrées vides, des doubles espaces et des prompts qui dépassaient
+ * largement la fenêtre utile du modèle.
+ *
+ * Cette fonction normalise un tableau de fragments de prompt :
+ *   - trim de chaque entrée
+ *   - compression des espaces internes
+ *   - suppression des entrées vides
+ *   - dédup exacte (case-insensitive, après normalisation)
+ *   - plafond `maxLength` dur
+ */
+export function normalizePromptParts(
+  parts: ReadonlyArray<string | null | undefined>,
+  options: { maxLength?: number } = {},
+): string {
+  const maxLength = typeof options.maxLength === "number" && options.maxLength > 0
+    ? options.maxLength
+    : 1800;
+
+  const seen = new Set<string>();
+  const cleaned: string[] = [];
+
+  for (const raw of parts) {
+    if (typeof raw !== "string") continue;
+    const compressed = raw.replace(/\s+/g, " ").trim();
+    if (compressed.length === 0) continue;
+    const key = compressed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    cleaned.push(compressed);
+  }
+
+  const joined = cleaned.join(", ");
+  if (joined.length <= maxLength) return joined;
+
+  const hard = joined.slice(0, maxLength);
+  const lastComma = hard.lastIndexOf(",");
+  if (lastComma > maxLength * 0.6) return hard.slice(0, lastComma).trim();
+  return hard.trim();
+}
+
 export function buildPacketAwareRetryPrompt(
   input: BuildPacketAwareRetryPromptInput,
 ): BuildPacketAwareRetryPromptResult {
   const reason = mapRetryModeToRerollReason(input.retryMode);
   const plan = planRerollForPacket(input.packet, reason, input.attemptIndex);
 
-  const positiveParts = [
+  const positivePrompt = normalizePromptParts([
     input.packet.finalEnglishStructuredPrompt,
     ...plan.extraPromptHints,
     input.positiveAugment,
     input.userPromptAdditions ?? "",
-  ]
-    .map((s) => (s ?? "").trim())
-    .filter((s) => s.length > 0);
+  ]);
 
-  const negativeParts = [
+  const negativePrompt = normalizePromptParts([
     input.packet.negativePromptEnglish ?? "",
     ...plan.extraNegativeTokens,
     input.negativeAugment,
     input.userPromptExclusions ?? "",
-  ]
-    .map((s) => (s ?? "").trim())
-    .filter((s) => s.length > 0);
+  ]);
 
   return {
-    positivePrompt: positiveParts.join(", "),
-    negativePrompt: negativeParts.join(", "),
+    positivePrompt,
+    negativePrompt,
     referencePolicyOverride: plan.forcedReferencePolicy ?? null,
     extraNegativeTokens: plan.extraNegativeTokens,
     extraPromptHints: plan.extraPromptHints,

@@ -11,8 +11,7 @@ import {
   type ProductionOutline,
   type ProductionPlan,
 } from "@manga-ai-studio/core";
-import { buildPremiumChapterContractAsync, expandBlueprintsToMinimum } from "@manga-ai-studio/ai";
-import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
+import { buildPremiumChapterContractAsync } from "@manga-ai-studio/ai";
 
 // ─── Constante canonique des champs premium ───────────────────────────────────
 
@@ -640,8 +639,7 @@ export class IncompletePlanError extends Error {
   constructor(panelBlueprintCount: number, minimumImages: number) {
     super(
       `Plan de production incomplet : ${panelBlueprintCount} blueprints pour un minimum de ${minimumImages}. ` +
-        `Régénère le plan dans le studio avant de lancer la pipeline ` +
-        `(flag legacy : MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY=true pour restaurer l'expansion automatique).`,
+        `Régénère le plan dans le studio avant de lancer la pipeline.`,
     );
     this.name = "IncompletePlanError";
     this.panelBlueprintCount = panelBlueprintCount;
@@ -693,44 +691,22 @@ export function buildGenerationJobInputFromSnapshot(opts: GenerationJobInputOpti
     throw new InvalidBlueprintsError(invalidBlueprints);
   }
 
-  // P0.6 — un plan incomplet (panelBlueprints < minimumImages) BLOQUE la
-  // génération par défaut. Avant : `expandBlueprintsToMinimum` étirait
-  // silencieusement à 75 cases en dupliquant des panels, ce qui contredit
-  // la promesse "aucune image sans vrai contrat visuel structuré".
-  //
-  // P0.7 — Le flag `MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY=true` est
-  // **support-only** : il n'existe que pour débloquer temporairement des
-  // chapitres hérités dont le plan est stale. Il ne doit jamais être activé
-  // par défaut en production car :
-  //   - il masque un vrai défaut de contrat (plan premium incohérent)
-  //   - il duplique artificiellement des panels
-  //   - il crée une promesse visuelle fausse (N cases ≠ N beats distincts)
-  //   - il rend le QA final moins fiable
-  // Chaque activation laisse un `warn` très visible dans les logs pour
-  // faciliter le tracing côté observabilité / admin.
+  // AUDIT COMMIT 2 — plan incomplet = erreur dure. Plus aucune réparation
+  // silencieuse via `expandBlueprintsToMinimum` dans le chemin standard. Si
+  // le découpage narratif n'atteint pas `minimumImages`, on refuse la
+  // génération et on exige une régénération du plan dans le studio.
   const minimumImages = typeof pp?.minimumImages === "number" && pp.minimumImages > 0
     ? pp.minimumImages
     : 75;
-  let effectiveBlueprints = panelBlueprints;
-  if (panelBlueprints.length > 0 && panelBlueprints.length < minimumImages) {
-    const allowExpansion = process.env.MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY === "true";
-    if (!allowExpansion) {
-      console.error(
-        `[buildGenerationJobInput] INCOMPLETE_PLAN panelBlueprints=${panelBlueprints.length} < minimumImages=${minimumImages} — blocage (flag legacy désactivé)`,
-      );
-      throw new IncompletePlanError(panelBlueprints.length, minimumImages);
-    }
-    const beforeCount = panelBlueprints.length;
-    effectiveBlueprints = expandBlueprintsToMinimum(
-      panelBlueprints as PanelBlueprintPremium[],
-      minimumImages,
-    ) as unknown[];
-    console.warn(
-      `[buildGenerationJobInput] ⚠️ LEGACY_EXPANSION_ACTIVE chapterId=${opts.chapterId ?? "?"} ` +
-      `panelBlueprints_expanded ${beforeCount} → ${effectiveBlueprints.length} (min=${minimumImages}) — ` +
-      `flag MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY=true. Ce flag est support-only et masque un plan incomplet.`,
+  if (panelBlueprints.length < minimumImages) {
+    // AUDIT COMMIT 10 — log structuré pour corréler avec estimate/route
+    console.error(
+      `[contract] incomplete_plan panelBlueprints=${panelBlueprints.length} minimumImages=${minimumImages} ` +
+      `chapterId=${opts.chapterId ?? "?"}`,
     );
+    throw new IncompletePlanError(panelBlueprints.length, minimumImages);
   }
+  const effectiveBlueprints = panelBlueprints;
 
   const input: Record<string, unknown> = {
     source: opts.source,

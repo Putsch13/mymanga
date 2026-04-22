@@ -23,6 +23,7 @@ import type {
   MediaAsset,
 } from "@manga-ai-studio/db";
 import { isStableImageUrl } from "@/lib/images/assert-stable-image-url";
+import { resolveActiveCharacterLoraBinding } from "@/lib/canon/character-canon-helpers";
 
 export type CharacterImportanceTier =
   | "MAIN_HERO"
@@ -231,13 +232,19 @@ export function resolveCharacterVisualCanon(input: CharacterCanonInput): Resolve
 
   const canonicalRefs = collectCanonicalRefs(input, activeLock);
 
+  // AUDIT COMMIT 7 — même helper que studio : une seule vérité LoRA.
   const loraBindings: ResolvedCharacterVisualCanon["loraBindings"] = [];
-  if (activeLock?.triggerWord) {
-    loraBindings.push({
-      triggerWord: activeLock.triggerWord,
-      url: (activeLock.loraAsset as unknown as { publicUrl?: string | null })?.publicUrl ?? null,
-      scale: 0.85,
-    });
+  const resolvedLora = resolveActiveCharacterLoraBinding({
+    activeLock: activeLock
+      ? {
+          triggerWord: activeLock.triggerWord ?? null,
+          loraAsset:
+            (activeLock.loraAsset as unknown as { publicUrl?: string | null } | null) ?? null,
+        }
+      : null,
+  });
+  if (resolvedLora) {
+    loraBindings.push(resolvedLora);
   }
 
   return {

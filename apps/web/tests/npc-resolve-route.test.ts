@@ -164,6 +164,50 @@ describe("POST /api/projects/[id]/npc-resolve (P2.1 route-level)", () => {
     expect(json.topMatch).toBeDefined();
   });
 
+  it("AUDIT COMMIT 6 — expose visualPromptFragment + interactionHooks + narrativeHook séparément (branche species)", async () => {
+    detectSpeciesInDescriptionMock.mockReturnValueOnce("dragon");
+    resolveSpeciesArchetypeMock.mockResolvedValueOnce({
+      traits: {
+        morphology: "grand reptile ailé",
+        skinTexture: "écailles rouges métalliques",
+        distinctiveMarkers: ["crête dorsale dentelée", "yeux or fondu"],
+        promptFragment: "red scaled dragon",
+      },
+      isNew: false,
+    });
+    const { POST } = await import("../app/api/projects/[id]/npc-resolve/route");
+    const res = await POST(
+      makeRequest({ rawDescription: "Un dragon adulte", universe: "fantasy" }) as never,
+      { params: Promise.resolve({ id: "p1" }) },
+    );
+    const json = await res.json();
+    // Le champ visuel est explicite
+    expect(json.visualPromptFragment).toBe("red scaled dragon");
+    // Back-compat pendant la migration : `promptFragment` = `visualPromptFragment`
+    expect(json.promptFragment).toBe(json.visualPromptFragment);
+    // Les hooks narratifs sont séparés et listés
+    expect(Array.isArray(json.interactionHooks)).toBe(true);
+    expect(json.interactionHooks.length).toBeGreaterThan(0);
+    expect(typeof json.narrativeHook).toBe("string");
+    expect(json.narrativeHook).not.toBe(json.visualPromptFragment);
+  });
+
+  it("AUDIT COMMIT 6 — catalog_match expose visualPromptFragment + interactionHooks distincts", async () => {
+    const { POST } = await import("../app/api/projects/[id]/npc-resolve/route");
+    const res = await POST(
+      makeRequest({
+        rawDescription: "un vieux mage aux longs cheveux blancs qui maîtrise le feu",
+        universe: "fantasy",
+        tone: "épique",
+      }) as never,
+      { params: Promise.resolve({ id: "p1" }) },
+    );
+    const json = await res.json();
+    expect(typeof json.visualPromptFragment).toBe("string");
+    expect(json.promptFragment).toBe(json.visualPromptFragment);
+    expect(Array.isArray(json.interactionHooks)).toBe(true);
+  });
+
   it("species resolver qui throw → fallback silencieux vers catalog (pas de 500)", async () => {
     detectSpeciesInDescriptionMock.mockReturnValueOnce("loup");
     resolveSpeciesArchetypeMock.mockRejectedValueOnce(new Error("db_down"));

@@ -6,6 +6,7 @@ import {
   mapRetryModeToRerollReason,
   retryBodySchema,
   buildPacketAwareRetryPrompt,
+  normalizePromptParts,
 } from "@/lib/retry/retry-packet-resolver";
 import type { CanonicalImagePromptPacket } from "@manga-ai-studio/core";
 
@@ -127,24 +128,27 @@ describe("resolveRetryPacketBase", () => {
     expect(out.packetVersion).toBe("1.0.0");
   });
 
-  it("fallback legacy si pas de packet", () => {
+  it("AUDIT COMMIT 3 — missing_canonical_packet si packet absent (pas de fallback legacy)", () => {
     const out = resolveRetryPacketBase({
       metadataCanonicalPacket: null,
       sceneImagePrompt: "legacy prompt",
       sceneImageNegativePrompt: "legacy neg",
     });
-    expect(out.source).toBe("legacy");
-    expect(out.basePrompt).toBe("legacy prompt");
+    expect(out.source).toBe("missing_canonical_packet");
+    expect(out.basePrompt).toBe("");
+    expect(out.baseNegativePrompt).toBe("");
     expect(out.packet).toBeNull();
+    expect(out.packetVersion).toBeNull();
   });
 
-  it("fallback legacy si packet shape invalide", () => {
+  it("AUDIT COMMIT 3 — missing_canonical_packet si packet shape invalide", () => {
     const out = resolveRetryPacketBase({
       metadataCanonicalPacket: { foo: "bar" },
       sceneImagePrompt: "legacy prompt",
       sceneImageNegativePrompt: "legacy neg",
     });
-    expect(out.source).toBe("legacy");
+    expect(out.source).toBe("missing_canonical_packet");
+    expect(out.basePrompt).toBe("");
   });
 });
 
@@ -219,6 +223,39 @@ describe("resolveEffectiveRetryOverrides", () => {
   });
 });
 
+describe("AUDIT COMMIT 11 — normalizePromptParts", () => {
+  it("trim, compresse les espaces, filtre les vides", () => {
+    const out = normalizePromptParts([
+      "  hello   world  ",
+      "",
+      "   ",
+      null,
+      undefined,
+      "foo",
+    ]);
+    expect(out).toBe("hello world, foo");
+  });
+
+  it("dédup exact (case-insensitive)", () => {
+    const out = normalizePromptParts(["manga style", "MANGA STYLE", "manga   style", "foo"]);
+    expect(out.split(", ")).toHaveLength(2);
+    expect(out).toContain("manga style");
+    expect(out).toContain("foo");
+  });
+
+  it("plafonne la longueur en coupant à la dernière virgule utile", () => {
+    const parts = Array.from({ length: 200 }, (_, i) => `tag-${i}-descriptor`);
+    const out = normalizePromptParts(parts, { maxLength: 120 });
+    expect(out.length).toBeLessThanOrEqual(120);
+    expect(out.endsWith(",")).toBe(false);
+    expect(out.trim().length).toBe(out.length);
+  });
+
+  it("retourne \"\" pour un tableau sans entrée utile", () => {
+    expect(normalizePromptParts(["", null, undefined, "   "])).toBe("");
+  });
+});
+
 describe("mapRetryModeToRerollReason", () => {
   it("mappe chaque retryMode vers un RerollReason", () => {
     expect(mapRetryModeToRerollReason("character")).toBe("drift_character");
@@ -270,6 +307,24 @@ describe("buildPacketAwareRetryPrompt", () => {
     expect(out.negativePrompt).toContain("no blur");
     expect(out.allowed).toBe(true);
     expect(out.intent).toBe("hero_focus");
+  });
+
+  it("AUDIT COMMIT 11 — dedupe + clean des parts via normalizePromptParts", () => {
+    const packet = makePacket({ negativePromptEnglish: "photorealistic" });
+    const out = buildPacketAwareRetryPrompt({
+      packet,
+      retryMode: "character",
+      attemptIndex: 0,
+      positiveAugment: "   consistent  linework   ",
+      negativeAugment: "photorealistic",
+      userPromptAdditions: "extra   detail",
+      userPromptExclusions: "photorealistic",
+    });
+    const negativeOccurrences = (out.negativePrompt.match(/\bphotorealistic\b/g) ?? []).length;
+    expect(negativeOccurrences).toBe(1);
+    expect(out.positivePrompt).toContain("extra detail");
+    expect(out.positivePrompt).toContain("consistent linework");
+    expect(out.positivePrompt).not.toMatch(/\s{2,}/);
   });
 
   it("bloque la reroll quand MAX_RETRIES atteint", () => {

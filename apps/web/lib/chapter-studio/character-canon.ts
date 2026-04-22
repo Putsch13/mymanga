@@ -9,6 +9,12 @@ import {
   type CharacterCanon,
 } from "@manga-ai-studio/core";
 import { asRecord, asStringArray, safeString } from "./utils";
+import {
+  collectCharacterReferenceAssets,
+  encodeLegacyLoraBindingString,
+  mergeCharacterFingerprint,
+  resolveActiveCharacterLoraBinding,
+} from "@/lib/canon/character-canon-helpers";
 
 export function buildCharacterCanonFromCharacter(character: {
   id: string;
@@ -36,24 +42,16 @@ export function buildCharacterCanonFromCharacter(character: {
   const characterFingerprint = asRecord(character.characterFingerprint);
   const bodyState = asRecord(character.bodyState);
 
-  // P1.2 : on agrège les visualRefs stockés sur le Character ET sur son
-  // active CharacterVisualLock, priorité au lock (canonical source of truth).
+  // AUDIT COMMIT 7 — on délègue la collecte des refs et du binding LoRA
+  // à un helper partagé (`lib/canon/character-canon-helpers.ts`) pour que
+  // studio et runtime parlent la même langue.
   const activeLock = (character.visualLocks ?? []).find((l) => l?.isActive === true) ?? null;
-  const lockRefUrls = Array.isArray(activeLock?.canonicalRefUrls)
-    ? (activeLock?.canonicalRefUrls as unknown[]).filter((u): u is string => typeof u === "string")
-    : [];
-  const referenceAssets = [
-    ...lockRefUrls,
-    ...((character.visualRefs ?? [])
-      .map((ref) => ref.mediaAsset?.publicUrl ?? ref.imageUrl ?? null)
-      .filter((value): value is string => Boolean(value))),
-  ];
-  const seenRefs = new Set<string>();
-  const dedupedReferenceAssets = referenceAssets.filter((u) => {
-    if (seenRefs.has(u)) return false;
-    seenRefs.add(u);
-    return true;
+  const dedupedReferenceAssets = collectCharacterReferenceAssets({
+    lockCanonicalRefUrls: activeLock?.canonicalRefUrls ?? null,
+    visualRefs: character.visualRefs ?? null,
   });
+  const activeLoraBinding = resolveActiveCharacterLoraBinding({ activeLock });
+  const legacyLoraBindingString = encodeLegacyLoraBindingString(activeLoraBinding);
 
   const importanceTier =
     /hero|protagon/i.test(character.roleType ?? "")
@@ -117,12 +115,12 @@ export function buildCharacterCanonFromCharacter(character: {
     ].filter((value): value is string => Boolean(value)),
     optionalVariation: asStringArray(wardrobeProfile.altOutfits),
     referenceAssets: dedupedReferenceAssets,
-    loraBindings: activeLock?.triggerWord
-      ? [`${activeLock.triggerWord}|${activeLock.loraAsset?.publicUrl ?? ""}`]
-      : [],
-    fingerprint: Object.keys(characterFingerprint).length > 0
-      ? { ...stableVisualDNA, ...characterFingerprint, bodyState }
-      : stableVisualDNA,
+    loraBindings: legacyLoraBindingString ? [legacyLoraBindingString] : [],
+    fingerprint: mergeCharacterFingerprint({
+      stableDNA: stableVisualDNA,
+      characterFingerprint,
+      bodyState,
+    }),
     hasCanonPack: Boolean(character.canonPack),
     canonPackCompleteness:
       typeof character.canonPack?.completenessScore === "number"

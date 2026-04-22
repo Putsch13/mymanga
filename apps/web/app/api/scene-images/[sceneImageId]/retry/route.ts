@@ -24,7 +24,7 @@ import { createProjectCharacterResolver } from "@/lib/retry/resolve-project-char
 import { buildLocationMarkersLine } from "@/lib/retry/build-location-markers";
 import { extractCriticalPropsFromPanelContractMeta } from "@/lib/retry/extract-critical-props";
 import { resolvePanelLoras } from "@/lib/retry/resolve-panel-loras";
-import { buildRetryPrompts, resolveRerollKind } from "@/lib/retry/build-retry-prompts";
+import { buildRetryPrompts, resolveRerollKind, sanitizeUserPromptInput } from "@/lib/retry/build-retry-prompts";
 import {
   persistRetryBlocked,
   persistRetryPersistFailed,
@@ -145,13 +145,61 @@ export async function POST(req: Request, ctx: Ctx) {
     );
   }
   const retryBodyParsed: RetryBodyParsed = parsedBody.data;
+
+  // AUDIT COMMIT 5 — sanitisation des user overrides. Le parsing Zod plafonne
+  // déjà la longueur, mais on ajoute le nettoyage lexical (sauts de ligne,
+  // ponctuations répétées, double espaces) pour éviter les injections
+  // décoratives qui polluent le prompt final.
+  const sanitizedUserPromptAdditions =
+    retryBodyParsed.userPromptAdditions === undefined
+      ? undefined
+      : retryBodyParsed.userPromptAdditions === null
+        ? null
+        : sanitizeUserPromptInput(retryBodyParsed.userPromptAdditions, 400) || null;
+  const sanitizedUserPromptExclusions =
+    retryBodyParsed.userPromptExclusions === undefined
+      ? undefined
+      : retryBodyParsed.userPromptExclusions === null
+        ? null
+        : sanitizeUserPromptInput(retryBodyParsed.userPromptExclusions, 200) || null;
+
+  // AUDIT COMMIT 5 — guard strict : aucun retry possible sans canonicalPacket
+  // exploitable. Avant, on retombait implicitement sur `sceneImage.prompt`
+  // legacy, ce qui reproduisait la pollution du premier rendu.
+  const rawCanonicalPacket = (metadata as Record<string, unknown>).canonicalPacket;
+  const hasUsableCanonicalPacket =
+    rawCanonicalPacket != null
+    && typeof rawCanonicalPacket === "object"
+    && "finalEnglishStructuredPrompt" in rawCanonicalPacket
+    && typeof (rawCanonicalPacket as { finalEnglishStructuredPrompt?: unknown }).finalEnglishStructuredPrompt === "string"
+    && ((rawCanonicalPacket as { finalEnglishStructuredPrompt: string }).finalEnglishStructuredPrompt).trim().length > 0;
+  if (!hasUsableCanonicalPacket) {
+    console.error(
+      `[retry] missing_canonical_packet sceneImageId=${sceneImageId} ` +
+      `chapterId=${img.scene.chapter.id} — retry refusé pour éviter un fallback legacy sale.`,
+    );
+    return NextResponse.json(
+      {
+        error: "Ce panel n'a pas de canonicalPacket exploitable pour un retry fiable.",
+        code: "MISSING_CANONICAL_PACKET",
+      },
+      { status: 422 },
+    );
+  }
+
   // Back-compat avec l'ancien RetryBody : on construit un objet au shape legacy
   // pour les consumers qui dépendent encore des chaînes/undefined.
   const retryBody: RetryBody = {
     mode: retryBodyParsed.mode as RetryMode | undefined,
     targetCharacterId: retryBodyParsed.targetCharacterId,
-    userPromptAdditions: retryBodyParsed.userPromptAdditions ?? undefined,
-    userPromptExclusions: retryBodyParsed.userPromptExclusions ?? undefined,
+    userPromptAdditions:
+      sanitizedUserPromptAdditions === null
+        ? undefined
+        : sanitizedUserPromptAdditions ?? undefined,
+    userPromptExclusions:
+      sanitizedUserPromptExclusions === null
+        ? undefined
+        : sanitizedUserPromptExclusions ?? undefined,
     forceOverrides: (retryBodyParsed.forceOverrides ?? undefined) as RetryBody["forceOverrides"],
   };
   const urlParams = new URL(req.url).searchParams;
@@ -465,17 +513,17 @@ export async function POST(req: Request, ctx: Ctx) {
         }
       : null,
     body: {
-      // Un champ absent du body = undefined = preserve.
-      // Si userPositive vient d'être saisi, on l'applique ; sinon preserve.
+      // AUDIT COMMIT 5 — on utilise les valeurs sanitisées. Un champ absent
+      // du body = undefined = preserve ; null = clear ; string = set.
       userPromptAdditions:
-        retryBodyParsed.userPromptAdditions !== undefined
-          ? retryBodyParsed.userPromptAdditions
+        sanitizedUserPromptAdditions !== undefined
+          ? sanitizedUserPromptAdditions
           : userPositive
             ? userPositive
             : undefined,
       userPromptExclusions:
-        retryBodyParsed.userPromptExclusions !== undefined
-          ? retryBodyParsed.userPromptExclusions
+        sanitizedUserPromptExclusions !== undefined
+          ? sanitizedUserPromptExclusions
           : userNegative
             ? userNegative
             : undefined,
@@ -558,12 +606,45 @@ export async function POST(req: Request, ctx: Ctx) {
         })
       : null;
 
+    // AUDIT COMMIT 5 — si le plan de reroll packet-aware refuse l'exécution
+    // (ex. MAX_RETRIES atteint), on bloque sans jamais envoyer au provider.
+    if (packetAwarePrompt && packetAwarePrompt.allowed === false) {
+      console.warn(
+        `[retry] packet_reroll_blocked sceneImageId=${sceneImageId} reason=${packetAwarePrompt.reason} ` +
+        `attempt=${retryAttemptIndex}`,
+      );
+      await persistRetryBlocked({
+        prisma,
+        panelId: img.id,
+        baseMetadata: metadata,
+        reason: packetAwarePrompt.reason,
+        generationLog: null,
+        retryReferenceDecision,
+        retryReferenceTrace: retryReferenceResolution.trace,
+        availableReferenceUrls: referenceImageUrls.length,
+        availableLoras: panelLoras.length,
+      });
+      return validationError(packetAwarePrompt.reason);
+    }
+
+    // AUDIT COMMIT 5 — plus de fallback legacy : le packet canonique est
+    // désormais obligatoire (guard tout en haut de la route). Le prompt final
+    // vient toujours de `packetAwarePrompt`.
     const effectivePositivePrompt = packetAwarePrompt
       ? packetAwarePrompt.positivePrompt
       : [retryPacketBase.basePrompt, positiveAugment].filter(Boolean).join(", ");
     const effectiveNegativePrompt = packetAwarePrompt
       ? packetAwarePrompt.negativePrompt
       : [retryPacketBase.baseNegativePrompt || undefined, negativeAugment].filter(Boolean).join(", ");
+
+    // AUDIT COMMIT 10 — log structuré unique pour observabilité retry.
+    console.log(
+      `[retry] source=${retryPacketBase.source} mode=${retryMode ?? "default"} ` +
+      `packetVersion=${retryPacketBase.packetVersion ?? "none"} ` +
+      `userAdditions=${userPositive.length} userExclusions=${userNegative.length} ` +
+      `locationMarkers=${locationMarkersLine.length} ` +
+      `referencePolicy=${effectiveReferencePolicy}`,
+    );
 
     const heroPresentRetry = castOrderedNames.some((n) => {
       const c = resolveCharacterFromName(n)?.character;
@@ -804,15 +885,20 @@ export async function POST(req: Request, ctx: Ctx) {
         : null,
       generationLog: out.log,
       // P0.4 — prompt debug réel (source of truth pour la review UI)
+      // AUDIT COMMIT 5 — on enrichit avec les infos d'audit pour rendre chaque
+      // retry complètement traçable : source canonique, mode, politique de
+      // références et longueurs des overrides / marqueurs injectés.
       promptDebug: {
         finalPrompt: effectivePositivePrompt,
         finalNegativePrompt: effectiveNegativePrompt,
         promptSource: retryPacketBase.source,
+        retryPromptSource: retryPacketBase.source,
         usedPacket: retryPacketBase.source === "canonical",
         packetVersion: retryPacketBase.packetVersion,
         provider: out.result.provider,
         model: out.result.model,
         referencePolicy: effectiveReferencePolicy,
+        appliedReferencePolicy: effectiveReferencePolicy,
         width: premiumSize.width,
         height: premiumSize.height,
         refsCount: referenceImageUrls.length,
@@ -823,6 +909,9 @@ export async function POST(req: Request, ctx: Ctx) {
         retryMode,
         retryAttemptIndex: retryAttemptIndex + 1,
         warnings: retryLanguageWarnings,
+        usedLocationMarkersLength: locationMarkersLine.length,
+        usedUserPositiveLength: userPositive.length,
+        usedUserNegativeLength: userNegative.length,
       },
       // P0.3 — user override tri-état (null clear autorisé)
       nextUserOverride: nextUserOverride as Record<string, unknown> | null,

@@ -19,6 +19,7 @@
 import type { PrismaClient } from "@manga-ai-studio/db";
 import {
   resolveLocationVisualCanon,
+  summarizeLocationCanonForPrompt,
   type LocationCanonInput,
   type ResolvedLocationVisualCanon,
 } from "@/lib/canon/resolve-location-visual-canon";
@@ -59,9 +60,45 @@ export function formatLocationCanonMarkersLine(canon: ResolvedLocationVisualCano
   return bits.join("; ");
 }
 
+/**
+ * AUDIT COMMIT 8 — variante compacte destinée au prompt. Budget indicatif
+ * ~180 chars : label + architecture + props + palette + lighting + views,
+ * chacun plafonné à 2-3 entrées. On s'arrête dès que la ligne dépasse 180
+ * chars pour éviter l'injection d'une mini fiche encyclopédique.
+ */
+export function formatCompactLocationCanonMarkersLine(
+  canon: ResolvedLocationVisualCanon,
+  opts: { maxLength?: number } = {},
+): string {
+  const maxLength = Math.max(40, opts.maxLength ?? 180);
+  const summary = summarizeLocationCanonForPrompt(canon, { maxEach: 3 });
+  const bits: string[] = [];
+  if (canon.label) bits.push(canon.label);
+  if (summary.architecture.length > 0) bits.push(summary.architecture.join(", "));
+  if (summary.props.length > 0) bits.push(summary.props.join(", "));
+  if (summary.palette.length > 0) bits.push(summary.palette.join(", "));
+  if (summary.lighting.length > 0) bits.push(summary.lighting.join(", "));
+  if (summary.views.length > 0) bits.push(summary.views.join(", "));
+  const out: string[] = [];
+  let length = 0;
+  for (const bit of bits) {
+    const sep = out.length === 0 ? 0 : 2; // ", "
+    if (length + sep + bit.length > maxLength) break;
+    out.push(bit);
+    length += sep + bit.length;
+  }
+  return out.join(", ");
+}
+
 export async function buildLocationMarkersLine(params: {
   prisma: PrismaClient;
   locationId: string | null | undefined;
+  /**
+   * AUDIT COMMIT 8 — `format: "compact"` (défaut pour le retry) produit la
+   * version sobre ciblée prompt (~180 chars). `format: "full"` conserve la
+   * version bavarde utilisée en debug / UI.
+   */
+  format?: "compact" | "full";
 }): Promise<string> {
   if (!params.locationId) return "";
   try {
@@ -97,7 +134,9 @@ export async function buildLocationMarkersLine(params: {
       metadata: location.metadata,
     };
     const canon = resolveLocationVisualCanon(canonInput);
-    return formatLocationCanonMarkersLine(canon);
+    return params.format === "full"
+      ? formatLocationCanonMarkersLine(canon)
+      : formatCompactLocationCanonMarkersLine(canon);
   } catch (locErr) {
     console.warn(
       `[retry:location] failed to resolve canon for locationId=${params.locationId}: ${

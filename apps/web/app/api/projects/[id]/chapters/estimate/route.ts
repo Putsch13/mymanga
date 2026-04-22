@@ -9,7 +9,6 @@ import {
   computePremiumReadinessScore,
   enrichNarrativeFactsWithLLM,
   mergeNarrativeFacts,
-  expandBlueprintsToMinimum,
   buildChapterShotPlan,
 } from "@manga-ai-studio/ai";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
@@ -205,31 +204,28 @@ export async function POST(req: Request, ctx: Ctx) {
   }));
 
   const rawBlueprints = enrichedBeats.flatMap((b) => b._blueprints);
-  // P2.1bis — bug visible côté studio : "Régénérer le plan" appelait cette
-  // route et sortait avec 30-55 blueprints alors que `Chapter.minimumImages`
-  // vaut 75 (défaut Prisma). Résultat : le contrat était immédiatement
-  // marqué `incomplete_blueprints` et le studio bloquait le launch. On
-  // aligne ici l'expansion avec `buildPremiumChapterContract` en utilisant
-  // le vrai minimum du chapitre (ou 75 en fallback).
+  // AUDIT COMMIT 1 — on ne gonfle plus artificiellement le plan pour atteindre
+  // `minimumImages`. Si le découpage narratif n'atteint pas le seuil, on renvoie
+  // explicitement `planStatus=incomplete` pour exposer la vraie dette au studio
+  // au lieu d'inventer des panels via `expandBlueprintsToMinimum`.
   const chapterMinimumImages =
     typeof targetChapter?.minimumImages === "number" && targetChapter.minimumImages > 0
       ? targetChapter.minimumImages
       : 75;
-  const allBlueprints = expandBlueprintsToMinimum(rawBlueprints, chapterMinimumImages);
-  if (allBlueprints.length > rawBlueprints.length) {
-    console.log(
-      `[estimate] expanded panelBlueprints ${rawBlueprints.length} → ${allBlueprints.length} ` +
-      `(min=${chapterMinimumImages}) chapterId=${targetChapter?.id ?? "new"}`,
-    );
-  }
-  if (allBlueprints.length < chapterMinimumImages) {
+  const allBlueprints = rawBlueprints;
+  const isIncompletePlan = allBlueprints.length < chapterMinimumImages;
+  if (isIncompletePlan) {
     console.warn(
-      `[estimate] incomplete_plan_after_build raw=${rawBlueprints.length} ` +
-      `expanded=${allBlueprints.length} minimum=${chapterMinimumImages} chapterId=${targetChapter?.id ?? "new"} ` +
-      `— l'expansion n'a pas pu atteindre le minimum (rawBlueprints probablement vides). ` +
-      `Le studio bloquera le launch via contractStatus=incomplete_blueprints.`,
+      `[estimate] incomplete_plan raw=${rawBlueprints.length} minimum=${chapterMinimumImages} ` +
+      `chapterId=${targetChapter?.id ?? "new"}`,
     );
   }
+  // AUDIT COMMIT 10 — log structuré blueprint_quality
+  console.log(
+    `[estimate] blueprint_quality chapterId=${targetChapter?.id ?? "new"} ` +
+    `raw=${rawBlueprints.length} minimum=${chapterMinimumImages} ` +
+    `status=${isIncompletePlan ? "incomplete" : "ready"}`,
+  );
   const focusBudget = computeChapterFocusBudget(allBlueprints);
   const premiumReadinessScore = computePremiumReadinessScore(allBlueprints);
 
@@ -319,7 +315,7 @@ export async function POST(req: Request, ctx: Ctx) {
     `chapterNumber=${targetChapterNumber} estimateMode=${estimateMode} ` +
     `beatsCount=${productionOutline.beats.length} ` +
     `productionPlanPages=${Array.isArray((productionPlan as Record<string, unknown>).pages) ? ((productionPlan as Record<string, unknown>).pages as unknown[]).length : 0} ` +
-    `rawBlueprints=${rawBlueprints.length} expandedBlueprints=${allBlueprints.length} minimumImages=${chapterMinimumImages} ` +
+    `rawBlueprints=${rawBlueprints.length} blueprints=${allBlueprints.length} minimumImages=${chapterMinimumImages} planStatus=${isIncompletePlan ? "incomplete" : "ready"} ` +
     `progressionOk=${progressionCheck.ok} progressionScore=${progressionCheck.progressionScore.toFixed(2)}`,
   );
 
@@ -369,6 +365,9 @@ export async function POST(req: Request, ctx: Ctx) {
     },
     productionOutline,
     productionPlan,
+    planStatus: isIncompletePlan ? "incomplete" : "ready",
+    rawBlueprintCount: rawBlueprints.length,
+    minimumImages: chapterMinimumImages,
     planPresentation: {
       editorialLabel: "Résumé du chapitre (5 grands temps)",
       productionLabel: "Découpage détaillé pour la génération",
