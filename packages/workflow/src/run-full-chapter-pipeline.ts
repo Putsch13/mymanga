@@ -9,7 +9,14 @@ import { loadCharactersForPipeline } from "./pipeline-db-loader";
 import { runMemoryPass } from "./passes/memory-pass";
 import { runImageGenerationPass } from "./passes/image-generation-pass";
 import { runNarrativePass } from "./passes/narrative-pass";
+import { runStoryPass } from "./passes/story-pass";
+import { runStoryboardPass } from "./passes/storyboard-pass";
+import { runPageQaPass } from "./passes/page-qa-pass";
+import { runRenderPass } from "./passes/render-pass";
+import { loadChapterVisualMemory } from "./passes/load-chapter-visual-memory";
+import { createDefaultChapterStyleBible } from "@manga-ai-studio/ai/contracts";
 import { assertPremiumContractFromChapter } from "./passes/assert-premium-contract-guard";
+import { isPipelineV3StoryboardEnabled } from "./pipeline-feature-flags";
 import {
   buildChapterImagePlanFromNarrative,
   deriveContentRatingFromProject,
@@ -114,7 +121,107 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
 
   console.log(`[pipeline:T12] pipelineVersion=${pipelineVersion} project=${projectId} job=${jobId}`);
 
+  const pipelineV3Enabled = isPipelineV3StoryboardEnabled();
+  console.log(`[pipeline:v3] PIPELINE_V3_STORYBOARD=${pipelineV3Enabled}`);
+
   try {
+    // ── Pipeline v3 (shadow mode) : on persiste StoryArc + StoryboardPlan
+    // AVANT toute génération image. Flag-gated pour permettre un rollback
+    // immédiat. Quand le flag est ON, la sortie reste fournie par la
+    // pipeline legacy pour ne rien casser en prod pendant le Sprint 1.
+    // Les Sprints suivants remplaceront progressivement la narrative-pass
+    // et l'image-generation-pass par les passes v3 strictes.
+    if (pipelineV3Enabled) {
+      try {
+        const storyPassResult = await runStoryPass({
+          chapterId,
+          chapterNumber,
+          title: chapter.title,
+          userIntent: chapter.userIntent,
+          summary: chapter.summary,
+          mainCharacters: rawCharacters.map((c) => ({
+            id: c.id,
+            name: c.name,
+            roleType: (c as { roleType?: string | null }).roleType ?? null,
+          })),
+          locations: [],
+        });
+        if (storyPassResult.warnings.length > 0) {
+          console.warn(
+            `[pipeline:v3:story] warnings=${storyPassResult.warnings.join(" | ")}`,
+          );
+        }
+        const storyboardPassResult = await runStoryboardPass({
+          storyArc: storyPassResult.storyArc,
+          heroCharacterIds: focusCharacterIds,
+        });
+        if (storyboardPassResult.blockers.length > 0) {
+          console.error(
+            `[pipeline:v3:storyboard] blockers=${storyboardPassResult.blockers.join(" | ")}`,
+          );
+        }
+        if (storyboardPassResult.warnings.length > 0) {
+          console.warn(
+            `[pipeline:v3:storyboard] warnings=${storyboardPassResult.warnings.join(" | ")}`,
+          );
+        }
+        const pageQa = await runPageQaPass(storyboardPassResult.storyboardPlan);
+        console.log(
+          `[pipeline:v3:page-qa] ok=${pageQa.okCount} fail=${pageQa.failCount}`,
+        );
+
+        // Render-pass v3 en shadow : hydrate la visual memory depuis la DB,
+        // construit les specs + prompts + route FAL pour chaque panel, persiste
+        // le summary pour audit. Aucune image n'est générée ici tant qu'on
+        // n'a pas branché un adapter FAL v3 (la pipeline legacy continue).
+        try {
+          const visualMemoryResult = await loadChapterVisualMemory({
+            chapterId,
+            projectId,
+            mainCharacterIds: focusCharacterIds,
+          });
+          if (visualMemoryResult.warnings.length > 0) {
+            console.warn(
+              `[pipeline:v3:visual-memory] warnings=${visualMemoryResult.warnings.slice(0, 5).join(" | ")}`,
+            );
+          }
+          console.log(
+            `[pipeline:v3:visual-memory] chars=${visualMemoryResult.stats.charactersLoaded} missing_face=${visualMemoryResult.stats.charactersMissingFaceRef} env=${visualMemoryResult.stats.environmentsLoaded} style=${visualMemoryResult.stats.styleRefsLoaded}`,
+          );
+          const renderPassResult = await runRenderPass({
+            chapterId,
+            storyboardPlan: storyboardPassResult.storyboardPlan,
+            styleBible: createDefaultChapterStyleBible(),
+            visualMemory: visualMemoryResult.memory,
+            characters: rawCharacters.map((c) => ({
+              id: c.id,
+              name: c.name,
+              roleType: (c as { roleType?: string | null }).roleType ?? null,
+            })),
+            mainCharacterIds: focusCharacterIds,
+          });
+          console.log(
+            `[pipeline:v3:render] total=${renderPassResult.summary.totalPanels} specs=${renderPassResult.specs.length} failed=${renderPassResult.summary.failedCount} panel_qa_ok=${renderPassResult.panelQa.okCount}/${renderPassResult.panelQa.okCount + renderPassResult.panelQa.failCount}`,
+          );
+          if (renderPassResult.summary.warnings.length > 0) {
+            console.warn(
+              `[pipeline:v3:render] warnings=${renderPassResult.summary.warnings.slice(0, 5).join(" | ")}`,
+            );
+          }
+        } catch (renderErr) {
+          const renderMsg = renderErr instanceof Error ? renderErr.message : String(renderErr);
+          console.error(
+            `[pipeline:v3:render] shadow_render_failed chapterId=${chapterId} error=${renderMsg}`,
+          );
+        }
+      } catch (v3Err) {
+        const v3Msg = v3Err instanceof Error ? v3Err.message : String(v3Err);
+        console.error(
+          `[pipeline:v3] shadow_mode_failed chapterId=${chapterId} error=${v3Msg}`,
+        );
+      }
+    }
+
     // LoRA auto non bloquant: on queue l'entraînement, sans retarder le chapitre courant.
     const autoLoraQueued = await queueAutoLoraTrainingIfEligible({
       projectId,

@@ -548,9 +548,15 @@ function buildCompositionDirective(blueprint: { subjectFocus: string; heroCenter
  * Intègre le style du projet, les descriptions canoniques des personnages,
  * la caméra, le mood et les contraintes de contenu.
  *
- * @deprecated LEGACY fallback. Prefer the canonical pipeline :
- *   `buildCanonicalPromptRecipe` -> `flattenStructuredPromptForFal`
- *   -> `buildFalPromptPayload`. Voir `packages/ai/src/services/canonical-prompt-recipe-builder.ts`.
+ * @deprecated LEGACY. **Ne pas utiliser depuis le render-pass v3.**
+ *
+ * Pour la pipeline v3 (PIPELINE_V3_STORYBOARD), le builder autorisé est
+ * `buildMinimalPanelPrompt` (`packages/ai/src/services/minimal-panel-prompt-builder.ts`)
+ * qui travaille directement sur un `PanelRenderSpec` validé, en anglais,
+ * court, non contradictoire, sans couche de traduction.
+ *
+ * Ce composer reste pour le legacy fallback (pipeline v1/v2) uniquement.
+ * Toute nouvelle fonctionnalité doit passer par la pipeline v3.
  */
 export function composeMangaPanelPrompt(input: PanelPromptInput): ComposedPrompt {
   warnLegacyComposer("composeMangaPanelPrompt");

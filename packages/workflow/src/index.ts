@@ -2,6 +2,49 @@ export * from "./inngest-client";
 export * from "./functions";
 export * from "./events";
 export * from "./chapter-runtime-helpers";
+// Pipeline v3 — feature flags + passes (Story Architect -> Manga Editor -> Panel Renderer)
+export {
+  isPipelineV3StoryboardEnabled,
+  getPipelineFeatureFlags,
+} from "./pipeline-feature-flags";
+export { runStoryPass } from "./passes/story-pass";
+export type { RunStoryPassInput, RunStoryPassResult } from "./passes/story-pass";
+export { runStoryboardPass } from "./passes/storyboard-pass";
+export type {
+  RunStoryboardPassInput,
+  RunStoryboardPassResult,
+} from "./passes/storyboard-pass";
+export { runRenderPass } from "./passes/render-pass";
+export type { RunRenderPassInput, RunRenderPassResult } from "./passes/render-pass";
+export { runPanelQaPass } from "./passes/panel-qa-pass";
+export type {
+  PanelQaPassInput,
+  PanelQaPassOutput,
+  PanelQaResult,
+} from "./passes/panel-qa-pass";
+export { runPageQaPass } from "./passes/page-qa-pass";
+export type { PageQaPassOutput, PageQaResult } from "./passes/page-qa-pass";
+export { loadChapterVisualMemory } from "./passes/load-chapter-visual-memory";
+export type {
+  LoadChapterVisualMemoryInput,
+  LoadChapterVisualMemoryResult,
+} from "./passes/load-chapter-visual-memory";
+export {
+  saveStoryArc,
+  loadStoryArc,
+  extractStoryArcFromOutline,
+} from "./persistence/story-persistence";
+export {
+  saveStoryboardPlan,
+  loadStoryboardPlan,
+  extractStoryboardPlanFromOutline,
+  STORYBOARD_PLAN_OUTLINE_KEY,
+} from "./persistence/storyboard-persistence";
+export {
+  saveRenderPassResult,
+  loadRenderPassResult,
+} from "./persistence/render-persistence";
+export type { RenderPassResultSummary } from "./persistence/render-persistence";
 export { runChapterOutlineFromJob, runOutlineForChapterId } from "./run-outline-for-chapter";
 export { runFullChapterPipelineFromJob } from "./run-full-chapter-pipeline";
 export { assertPremiumContractFromChapter } from "./passes/assert-premium-contract-guard";

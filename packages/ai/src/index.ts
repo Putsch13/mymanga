@@ -1,4 +1,65 @@
 export * from "./types";
+// Pipeline v3 contracts — on ré-exporte explicitement pour éviter les collisions
+// avec les types legacy `StoryboardPanel` / `StoryboardPage` définis dans
+// `chapter-pipeline.ts` (gardés pour compat legacy). Les types v3 homonymes
+// sont exposés sous `@manga-ai-studio/ai/contracts` pour les consumers stricts.
+export type {
+  // continuity-state
+  ContinuityCharacterState,
+  ContinuityLocationState,
+  ContinuityState,
+  // chapter-style-bible
+  ChapterStylePalette,
+  ChapterInkingStyle,
+  ChapterStyleBible,
+  // story-arc
+  StoryBeatType,
+  StoryBeatDangerLevel,
+  StoryBeatContinuityEffects,
+  StoryBeat,
+  StoryArc,
+  // storyboard-plan (uniquement les types sans collision)
+  StoryboardLayoutTemplate,
+  StoryboardRenderMode,
+  StoryboardShotType,
+  StoryboardCameraAngle,
+  StoryboardSubjectFocus,
+  StoryboardCutawayType,
+  StoryboardPanelDialogue,
+  StoryboardPanelVisualAnchors,
+  StoryboardEditorialDiagnostics,
+  StoryboardPlan,
+  // panel-render-spec
+  PanelRenderCharacterRole,
+  PanelRenderVisibleCharacter,
+  PanelRenderContinuityLocks,
+  PanelRenderCharacterRef,
+  PanelRenderEnvironmentRef,
+  PanelRenderPanelRef,
+  PanelRenderStyleRef,
+  PanelRenderImageReferences,
+  PanelRenderConstraints,
+  PanelRenderSpec,
+  FalReferencePolicy,
+  FalRetryPolicy,
+  FalRenderRoute,
+} from "./contracts";
+// Alias pour les types v3 qui entreraient en collision avec le legacy.
+// Consommateurs v3 : préférer l'import direct depuis "@manga-ai-studio/ai/contracts".
+export type {
+  StoryboardPanel as StoryboardPanelV3,
+  StoryboardPage as StoryboardPageV3,
+} from "./contracts";
+export {
+  STORY_BEAT_TYPES,
+  STORYBOARD_LAYOUT_TEMPLATES,
+  STORYBOARD_RENDER_MODES,
+  STORYBOARD_SHOT_TYPES,
+  STORYBOARD_SUBJECT_FOCUSES,
+  STORYBOARD_CUTAWAY_TYPES,
+  createEmptyContinuityState,
+  createDefaultChapterStyleBible,
+} from "./contracts";
 export * from "./image-routing-service";
 export * from "./adapters/mock-image-provider";
 export * from "./adapters/fal-flux-adapter";
@@ -71,3 +132,12 @@ export * from "./services/packet-aware-reroll-advisor";
 export * from "./adapters/fal-prompt-payload-builder";
 export * from "./prompts/fal-prompt-flattener";
 export * from "./services/shot-planning/chapter-shot-plan";
+// Pipeline v3 — Story Architect / Manga Editor / Panel Renderer
+export * from "./agents/story-architect-agent";
+export * from "./agents/manga-editor-agent";
+export * from "./services/chapter-visual-memory";
+export * from "./services/render-spec-builder";
+export * from "./services/minimal-panel-prompt-builder";
+export * from "./services/fal-render-route-v3";
+export * from "./validators/storyboard-validator";
+export * from "./validators/render-spec-validator";

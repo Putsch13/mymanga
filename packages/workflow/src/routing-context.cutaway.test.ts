@@ -16,7 +16,7 @@ import { describe, it, expect } from "vitest";
 import { buildRoutingContextV2 } from "./routing-context";
 import type { StoryboardPanel } from "@manga-ai-studio/ai";
 
-function makePanel(overrides: Partial<StoryboardPanel> = {}): StoryboardPanel {
+function makePanel(overrides: Partial<StoryboardPanel> & { notes?: string | null } = {}): StoryboardPanel {
   return {
     panelNumber: overrides.panelNumber ?? 1,
     camera: overrides.camera ?? "medium",

@@ -44,10 +44,14 @@ export type RoutingFixture = {
 
 const emptyPanel = {
   panelNumber: 1,
-  camera: "",
+  sceneId: "eval-scene",
+  beatId: "eval-beat",
   caption: "",
   prompt: "",
+  negativePrompt: "",
+  camera: "",
   characters: [] as string[],
+  mood: "calm" as const,
 } as const;
 
 /**

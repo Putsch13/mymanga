@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./routing": "./src/image-routing-service.ts",
-    "./prompt-composer": "./src/prompt-composer-v2.ts"
+    "./prompt-composer": "./src/prompt-composer-v2.ts",
+    "./contracts": "./src/contracts/index.ts"
   },
   "scripts": {
     "test": "vitest run",

@@ -117,6 +117,14 @@ function escapeRegex(str: string): string {
  * - Supprime les doublons consécutifs
  * - Tronque en préservant les segments complets depuis la fin
  *   (plutôt qu'un `slice(0, maxLength)` qui coupe les critiques en cours de mot).
+ *
+ * @deprecated LEGACY. **Ne pas utiliser dans le render-pass v3.**
+ *
+ * La pipeline v3 construit les prompts directement en anglais via
+ * `buildMinimalPanelPrompt` à partir d'un `PanelRenderSpec`. Plus de
+ * traduction FR→EN à la volée dans le chemin critique du rendu image.
+ * Cette fonction reste disponible pour du tooling legacy (audit, export
+ * documentaire), pas pour le rendu FAL v3.
  */
 export function optimizePromptForFal(prompt: string, maxLength = 1500): string {
   const translated = translatePromptToEnglish(prompt);

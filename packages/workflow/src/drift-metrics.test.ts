@@ -32,7 +32,7 @@ function makeBalanceScore(
     observedScore: observed,
     deviation: observed !== null ? observed - target : null,
     isAcceptable: observed !== null ? Math.abs(observed - target) <= 15 : true,
-    recommendation: "acceptable",
+    recommendation: "KEEP",
     debugInfo: "",
   };
 }

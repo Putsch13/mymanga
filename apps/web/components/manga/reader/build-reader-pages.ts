@@ -29,6 +29,55 @@ import type { AnyPanelMood } from "../manga-panel";
 import { getStableImageUrl } from "@/lib/images/get-stable-image-url";
 import type { ChapterPayload, SceneImage } from "./reader-types";
 
+/**
+ * Pipeline v3 — si le chapitre a un `StoryboardPlan` persisté dans
+ * `outline.storyboardPlanV2`, on affiche les pages EXACTEMENT comme
+ * décidées par le Manga Editor (IA 2). On ne repagine plus depuis les
+ * panels. Les "cases vides" sans image deviennent des placeholders
+ * portant un statut (pending/generating/failed), jamais des cases blanches
+ * silencieuses.
+ */
+interface PersistedStoryboardPanel {
+  panelId: string;
+  pageNumber: number;
+  panelNumberInPage: number;
+  renderMode?: string | null;
+  shotType?: string | null;
+  subjectFocus?: string | null;
+  cutawayType?: string | null;
+  sourceBeatId?: string | null;
+  locationName?: string | null;
+  actionLine?: string | null;
+  emotionLine?: string | null;
+  dialogue?: Array<{ speaker: string; text: string }> | null;
+  narration?: string | null;
+  sfx?: string[] | null;
+}
+
+interface PersistedStoryboardPage {
+  pageNumber: number;
+  layoutTemplate: string;
+  dramaticRole?: string | null;
+  beatIds?: string[] | null;
+  panels: PersistedStoryboardPanel[];
+}
+
+interface PersistedStoryboardPlan {
+  chapterId: string;
+  totalTargetPanels: number;
+  pages: PersistedStoryboardPage[];
+  editorialDiagnostics?: unknown;
+}
+
+function extractPersistedStoryboardPlan(outline: unknown): PersistedStoryboardPlan | null {
+  if (!outline || typeof outline !== "object" || Array.isArray(outline)) return null;
+  const raw = (outline as Record<string, unknown>)["storyboardPlanV2"];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const plan = raw as Record<string, unknown>;
+  if (!Array.isArray(plan.pages) || plan.pages.length === 0) return null;
+  return raw as unknown as PersistedStoryboardPlan;
+}
+
 export function dedupeReaderPages(pages: UniversalMangaPage[]): UniversalMangaPage[] {
   const seen = new Set<string>();
   const deduped: UniversalMangaPage[] = [];
@@ -127,11 +176,77 @@ function flattenChapterPanels(chapter: ChapterPayload) {
 }
 
 /**
- * Construit les pages manga à partir d'un chapitre, via le nouveau
- * pagination engine (aucun panel perdu, scène > 6 panels répartie sur
- * plusieurs pages).
+ * Construit les pages manga à partir d'un chapitre :
+ *   1. Si un `StoryboardPlan` (v3) est persisté dans `outline.storyboardPlanV2`,
+ *      on l'utilise TEL QUEL : pageNumber / layoutTemplate / panelId sont la
+ *      source de vérité. Les panels sans image deviennent des placeholders.
+ *   2. Sinon, fallback legacy : pagination via `buildMangaPagesFromPanels`.
  */
 export function buildPagesFromChapter(chapter: ChapterPayload): UniversalMangaPage[] {
+  const persistedPlan = extractPersistedStoryboardPlan(chapter.outline);
+  if (persistedPlan && persistedPlan.pages.length > 0) {
+    return buildPagesFromPersistedStoryboard(chapter, persistedPlan);
+  }
+  return buildPagesFromLegacyPanels(chapter);
+}
+
+/**
+ * Construit les pages depuis un StoryboardPlan v3 persisté. N'invente
+ * JAMAIS de pageNumber ni de layout. Les panels sans image rendue sont
+ * reportés avec `status: "pending"` et `imageUrl: null` pour que le
+ * rendu UI affiche un placeholder d'état plutôt qu'une case blanche.
+ */
+function buildPagesFromPersistedStoryboard(
+  chapter: ChapterPayload,
+  plan: PersistedStoryboardPlan,
+): UniversalMangaPage[] {
+  const panelsByIdentifier = new Map<string, ReturnType<typeof sceneImageToUniversalPanel>>();
+  for (const scene of chapter.scenes) {
+    for (const img of scene.images) {
+      const meta = img.metadata as Record<string, unknown> | undefined;
+      const panelId = (meta?.panelId as string | undefined) ?? null;
+      const universal = sceneImageToUniversalPanel(img, scene.id);
+      if (panelId) panelsByIdentifier.set(panelId, universal);
+      panelsByIdentifier.set(img.id, universal);
+    }
+  }
+
+  return plan.pages
+    .slice()
+    .sort((a, b) => a.pageNumber - b.pageNumber)
+    .map((page) => {
+      const universalPanels: UniversalPanel[] = page.panels.map((planPanel) => {
+        const matched = panelsByIdentifier.get(planPanel.panelId);
+        if (matched) return matched as UniversalPanel;
+        const firstDialogue = planPanel.dialogue?.[0];
+        return {
+          id: planPanel.panelId,
+          mood: "dramatic" as AnyPanelMood,
+          imageUrl: null,
+          status: "pending",
+          provider: null,
+          model: null,
+          error: null,
+          dialogue: firstDialogue?.text,
+          dialogues: planPanel.dialogue ?? undefined,
+          speaker: firstDialogue?.speaker,
+          narration: planPanel.narration ?? undefined,
+          sfx: Array.isArray(planPanel.sfx) ? planPanel.sfx.join(" ") : undefined,
+        } as UniversalPanel;
+      });
+
+      return {
+        id: `page-${page.pageNumber}`,
+        layout: mapPaginatorLayoutToLegacy(page.layoutTemplate),
+        layoutTemplate: page.layoutTemplate as UniversalMangaPage["layoutTemplate"],
+        isSplashPage: page.layoutTemplate === "splash",
+        isDoublePage: page.layoutTemplate === "double_spread",
+        panels: universalPanels,
+      } satisfies UniversalMangaPage;
+    });
+}
+
+function buildPagesFromLegacyPanels(chapter: ChapterPayload): UniversalMangaPage[] {
   if (chapter.scenes.length === 0) {
     return [
       {

@@ -141,6 +141,7 @@ describe("buildFalNegativePrompt — BUG-02 drift guards priorisation", () => {
 describe("buildFalGenerationRequest — DIFF-4 multi-image refs", () => {
   it("reste mono-ref si une seule URL canon est fournie (pas de image_urls dans le payload)", () => {
     const req = buildFalGenerationRequest({
+      mode: "PANEL_FINAL",
       positivePrompt: "hero in action",
       negativePrompt: "",
       referenceImageUrls: ["https://example.com/characters/hero-canon.jpg"],
@@ -161,6 +162,7 @@ describe("buildFalGenerationRequest — DIFF-4 multi-image refs", () => {
       "https://example.com/characters/hero-action.jpg",
     ];
     const req = buildFalGenerationRequest({
+      mode: "PANEL_FINAL",
       positivePrompt: "hero closeup",
       negativePrompt: "",
       referenceImageUrls: refs,
@@ -176,6 +178,7 @@ describe("buildFalGenerationRequest — DIFF-4 multi-image refs", () => {
   it("cappe à 4 refs max pour éviter la dilution des poids IP-Adapter", () => {
     const refs = Array.from({ length: 8 }, (_, i) => `https://example.com/characters/ref-${i}.jpg`);
     const req = buildFalGenerationRequest({
+      mode: "PANEL_FINAL",
       positivePrompt: "scene",
       negativePrompt: "",
       referenceImageUrls: refs,
@@ -192,6 +195,7 @@ describe("buildFalGenerationRequest — DIFF-4 multi-image refs", () => {
       "https://example.com/characters/c.jpg",
     ];
     const req = buildFalGenerationRequest({
+      mode: "PANEL_FINAL",
       positivePrompt: "scene",
       negativePrompt: "",
       referenceImageUrls: refs,
@@ -206,6 +210,7 @@ describe("buildFalGenerationRequest — DIFF-4 multi-image refs", () => {
 
   it("ignore les refs si referencePolicy=NONE", () => {
     const req = buildFalGenerationRequest({
+      mode: "PANEL_FINAL",
       positivePrompt: "scene",
       negativePrompt: "",
       referenceImageUrls: ["https://example.com/characters/a.jpg", "https://example.com/characters/b.jpg"],
