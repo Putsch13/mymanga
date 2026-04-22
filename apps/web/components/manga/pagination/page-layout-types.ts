@@ -26,6 +26,12 @@ export type MangaPageLayoutId = Extract<
   | "cinematic_bar"
   | "focus_closeup"
   | "vertical_strip"
+  // Phase 4 — native 5-panel layouts
+  | "grid_1_2_2"
+  | "hero_top_2_2"
+  | "2_1_2_dialogue"
+  | "staggered_5"
+  | "vertical_hero_4"
 >;
 
 /** Nombre de slots supporté par chaque layout (aligné sur PAGE_LAYOUT_CONFIGS). */
@@ -39,4 +45,10 @@ export const LAYOUT_SLOT_COUNT: Record<MangaPageLayoutId, number> = {
   grid_2x2: 4,
   grid_2x3: 6,
   action_strip: 6,
+  // Phase 4 — 5-panel layouts
+  grid_1_2_2: 5,
+  hero_top_2_2: 5,
+  "2_1_2_dialogue": 5,
+  staggered_5: 5,
+  vertical_hero_4: 5,
 };

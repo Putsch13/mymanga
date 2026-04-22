@@ -126,6 +126,33 @@ describe("manga pagination — pickLayoutForPage", () => {
   });
 });
 
+describe("manga pagination — Phase 4 allowFivePanel", () => {
+  it("computePageSizes(5, {allowFivePanel:true}) → [5]", () => {
+    expect(computePageSizes(5, { allowFivePanel: true })).toEqual([5]);
+  });
+
+  it("computePageSizes(5) legacy toujours [3,2]", () => {
+    expect(computePageSizes(5)).toEqual([3, 2]);
+  });
+
+  it("computePageSizes(10, {allowFivePanel:true}) → [5,5]", () => {
+    expect(computePageSizes(10, { allowFivePanel: true })).toEqual([5, 5]);
+  });
+
+  it("pickLayoutForPage(5, {allowFivePanel:true}) sans major → grid_1_2_2", () => {
+    const page = Array.from({ length: 5 }, () => ({ importance: "normal" as const }));
+    expect(pickLayoutForPage(page, { allowFivePanel: true })).toBe("grid_1_2_2");
+  });
+
+  it("pickLayoutForPage(5, {allowFivePanel:true}) avec major → hero_top_2_2", () => {
+    const page = [
+      { importance: "major" as const },
+      ...Array.from({ length: 4 }, () => ({ importance: "normal" as const })),
+    ];
+    expect(pickLayoutForPage(page, { allowFivePanel: true })).toBe("hero_top_2_2");
+  });
+});
+
 describe("manga pagination — buildMangaPagesFromPanels", () => {
   it("invariant cœur : 75 panels → 75 panels rendus, aucun perdu", () => {
     const panels = Array.from({ length: 75 }, (_, i) => makePanel(i + 1, { sceneId: `scene-${Math.floor(i / 6) + 1}` }));

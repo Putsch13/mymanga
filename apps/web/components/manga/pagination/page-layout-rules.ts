@@ -15,10 +15,25 @@ export interface PanelLayoutHint {
 }
 
 /**
- * Choisit un layout pour une page de N panels (1..6).
- * N = 5 n'est JAMAIS passé ici — le paginator le découpe en 3+2 ou 2+3.
+ * Options pour `pickLayoutForPage` / `computePageSizes`.
+ *
+ * Phase 4 : `allowFivePanel` active les layouts natifs à 5 panneaux.
+ * Par défaut off pour préserver la compatibilité avec le paginator legacy
+ * (qui splittait 5 en 3+2).
  */
-export function pickLayoutForPage(panels: ReadonlyArray<PanelLayoutHint>): MangaPageLayoutId {
+export interface PaginatorOptions {
+  allowFivePanel?: boolean;
+}
+
+/**
+ * Choisit un layout pour une page de N panels.
+ * Legacy : N=5 n'est pas supporté et le paginator le découpe en 3+2.
+ * Phase 4 : si `options.allowFivePanel`, les 5 panneaux utilisent `grid_1_2_2` par défaut.
+ */
+export function pickLayoutForPage(
+  panels: ReadonlyArray<PanelLayoutHint>,
+  options: PaginatorOptions = {},
+): MangaPageLayoutId {
   const count = panels.length;
   if (count <= 0) {
     throw new Error("pickLayoutForPage: page vide (0 panel) — le paginator ne doit jamais émettre de page vide");
@@ -35,12 +50,23 @@ export function pickLayoutForPage(panels: ReadonlyArray<PanelLayoutHint>): Manga
 
   if (count === 4) return "grid_2x2";
 
+  if (count === 5) {
+    if (!options.allowFivePanel) {
+      throw new Error(
+        "pickLayoutForPage: page de 5 panels sans allowFivePanel — le paginator legacy doit la découper en 3+2.",
+      );
+    }
+    // Heuristique simple — un scorer content-aware vit dans
+    // `@manga-ai-studio/core/page-layout-intent` pour un choix plus fin.
+    return hasMajor ? "hero_top_2_2" : "grid_1_2_2";
+  }
+
   // count === 6 : action_strip si un panel dominant, sinon grid_2x3 régulier.
   if (count === 6) return hasMajor ? "action_strip" : "grid_2x3";
 
   throw new Error(
     `pickLayoutForPage: nombre de panels non supporté (count=${count}). ` +
-    `Le paginator doit émettre uniquement des pages de 1, 2, 3, 4 ou 6 panels.`,
+    `Le paginator doit émettre uniquement des pages de 1, 2, 3, 4, 5 ou 6 panels.`,
   );
 }
 
@@ -53,9 +79,13 @@ export function pickLayoutForPage(panels: ReadonlyArray<PanelLayoutHint>): Manga
  *   - on évite les pages de 5 (ex. 5 → 3+2, 11 → 6+3+2)
  *   - un `splash` récupère toujours sa propre page (traité en amont par le paginator)
  */
-export function computePageSizes(totalPanels: number): number[] {
+export function computePageSizes(
+  totalPanels: number,
+  options: PaginatorOptions = {},
+): number[] {
   if (totalPanels <= 0) return [];
 
+  const allowFive = Boolean(options.allowFivePanel);
   const sizes: number[] = [];
   let remaining = totalPanels;
 
@@ -65,7 +95,7 @@ export function computePageSizes(totalPanels: number): number[] {
     if (remaining <= 4) {
       take = remaining;
     } else if (remaining === 5) {
-      take = 3;
+      take = allowFive ? 5 : 3;
     } else if (remaining === 6) {
       take = 6;
     } else if (remaining === 7) {
@@ -75,7 +105,8 @@ export function computePageSizes(totalPanels: number): number[] {
     } else if (remaining === 9) {
       take = 6;
     } else if (remaining === 10) {
-      take = 6;
+      // 10 → 5+5 si 5 autorisé, sinon 6+4.
+      take = allowFive ? 5 : 6;
     } else if (remaining === 11) {
       take = 6;
     } else {

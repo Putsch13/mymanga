@@ -23,3 +23,4 @@ export * from "./beat-narrative-contract";
 export * from "./action-contract";
 export * from "./canonical-style-contract";
 export * from "./character-identity-contract";
+export * from "./page-layout-intent";

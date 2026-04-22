@@ -23,7 +23,13 @@ export type PageLayoutTemplate =
   | "cinematic_bar"    // 3 panels horizontaux panoramiques — paysage / révélation lieu
   | "focus_closeup"    // 1 très grand + 2 petits réaction — émotion
   | "montage_rapid"    // 8 petits panels — flash-back / time-lapse
-  | "vertical_strip";  // 3 panels verticaux — chase / chute
+  | "vertical_strip"   // 3 panels verticaux — chase / chute
+  // Phase 4 — layouts natifs 5-panel
+  | "grid_1_2_2"       // 1 grand top + 2 middle + 2 bottom — 5 panels
+  | "hero_top_2_2"     // 1 hero plein haut + 2x2 petits bas — 5 panels
+  | "2_1_2_dialogue"   // 2 top + 1 grand milieu + 2 bas — 5 panels dialogue cadré
+  | "staggered_5"      // 5 panels étagés asymétriques — rythme varié
+  | "vertical_hero_4"; // 1 grand bannière + 4 petits strip — 5 panels action/recap
 
 export interface PageLayoutConfig {
   cssGridTemplate: string;
@@ -103,5 +109,51 @@ export const PAGE_LAYOUT_CONFIGS: Record<PageLayoutTemplate, PageLayoutConfig> =
     areas: ["a", "b", "c"],
     panelWeights: [0.33, 0.34, 0.33],
     defaultAspectRatios: ["1:2", "1:2", "1:2"],
+  },
+  // ── Phase 4 — 5-panel layouts ─────────────────────────────────────────
+  // Grand top (a), deux middle (b, c), deux bottom (d, e).
+  // Bon pour : établissement → double réaction → double conséquence.
+  grid_1_2_2: {
+    cssGridTemplate: "1.4fr 1fr 1fr / 1fr 1fr",
+    cssGridAreas: `"a a" "b c" "d e"`,
+    areas: ["a", "b", "c", "d", "e"],
+    panelWeights: [0.40, 0.15, 0.15, 0.15, 0.15],
+    defaultAspectRatios: ["16:9", "1:1", "1:1", "1:1", "1:1"],
+  },
+  // Hero top plein largeur (a) + 2x2 petits (b,c / d,e).
+  // Bon pour : climax visuel + 4 réactions / détails.
+  hero_top_2_2: {
+    cssGridTemplate: "1.6fr 1fr 1fr / 1fr 1fr",
+    cssGridAreas: `"a a" "b c" "d e"`,
+    areas: ["a", "b", "c", "d", "e"],
+    panelWeights: [0.44, 0.14, 0.14, 0.14, 0.14],
+    defaultAspectRatios: ["2:1", "1:1", "1:1", "1:1", "1:1"],
+  },
+  // Deux top côte à côte (a,b), un grand central (c), deux bas (d,e).
+  // Bon pour : cadrage dialogue tendu avec une beat-reveal au milieu.
+  "2_1_2_dialogue": {
+    cssGridTemplate: "1fr 1.3fr 1fr / 1fr 1fr",
+    cssGridAreas: `"a b" "c c" "d e"`,
+    areas: ["a", "b", "c", "d", "e"],
+    panelWeights: [0.18, 0.18, 0.28, 0.18, 0.18],
+    defaultAspectRatios: ["1:1", "1:1", "2:1", "1:1", "1:1"],
+  },
+  // Étagé : grand gauche-haut, petit droite-haut, bande centrale, petit gauche-bas, grand droite-bas.
+  // Bon pour : rythme varié non régulier sans splash.
+  staggered_5: {
+    cssGridTemplate: "1fr 0.8fr 1.1fr / 1.3fr 1fr",
+    cssGridAreas: `"a b" "c c" "d e"`,
+    areas: ["a", "b", "c", "d", "e"],
+    panelWeights: [0.22, 0.14, 0.26, 0.14, 0.24],
+    defaultAspectRatios: ["4:5", "1:1", "16:9", "1:1", "4:5"],
+  },
+  // Hero bannière horizontale + 4 panels strip en bas.
+  // Bon pour : action/récap visuel ou flash-back étalé.
+  vertical_hero_4: {
+    cssGridTemplate: "1.2fr 1fr / 1fr 1fr 1fr 1fr",
+    cssGridAreas: `"a a a a" "b c d e"`,
+    areas: ["a", "b", "c", "d", "e"],
+    panelWeights: [0.44, 0.14, 0.14, 0.14, 0.14],
+    defaultAspectRatios: ["21:9", "1:1", "1:1", "1:1", "1:1"],
   },
 };
