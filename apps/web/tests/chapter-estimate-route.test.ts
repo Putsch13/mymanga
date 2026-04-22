@@ -367,12 +367,11 @@ describe("chapter estimate route", () => {
     expect(computePremiumReadinessScoreMock).toHaveBeenCalledTimes(1);
   });
 
-  it("P1 — pas d'enrichissement legacy : si rawBlueprints < minPanels (70), planStatus=incomplete", async () => {
-    // P1 — L'enrichissement legacy a été SUPPRIMÉ du chemin premium.
-    // Le storyboard natif doit maintenant produire 70-75 panels tout seul.
-    // Si le découpage natif sort 20 blueprints, on ne padd plus vers 75 :
-    // on renvoie planStatus="incomplete" pour que l'amont (studio/storyboard v3)
-    // enrichisse sémantiquement avant relance.
+  it("P1bis — count natif sous la cible : planStatus=ready_below_target, génération non bloquée", async () => {
+    // P1bis — L'enrichissement legacy reste supprimé mais le produit ne
+    // bloque plus un chapitre dont le découpage natif est sous la cible
+    // 70-75. Si le storyboard natif sort 20 panels fidèles à l'histoire,
+    // on les accepte tels quels : on génère 20 images, pas 75 inventées.
     prismaMock.chapter.findFirst.mockResolvedValue({
       id: "chapter-3",
       chapterNumber: 3,
@@ -400,14 +399,13 @@ describe("chapter estimate route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.planStatus).toBe("incomplete");
+    expect(payload.planStatus).toBe("ready_below_target");
     expect(payload.panelCountStatus).toBe("under_min");
     expect(payload.rawBlueprintCount).toBe(20);
-    // Plus d'expansion : enrichedBlueprintCount === rawBlueprintCount
+    // Count natif préservé, aucune expansion.
     expect(payload.enrichedBlueprintCount).toBe(20);
     expect(payload.enrichmentApplied).toBe(false);
     expect(payload.enrichmentAddedCount).toBe(0);
-    // Le produit cible la RANGE 70-75 (pas 75 strict)
     expect(payload.premiumPanelRange).toEqual({ min: 70, target: 72, max: 75 });
     expect(payload.productionPlan.panelBlueprints.length).toBe(20);
   });

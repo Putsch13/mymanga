@@ -401,9 +401,11 @@ describe("routes Chapter Studio", () => {
     expect(payload.readiness.blockingIssues.length).toBeGreaterThan(0);
   });
 
-  it("P0.6 — readiness route expose le blocant incomplete_blueprints avec le ratio", async () => {
+  it("P1bis — readiness ne bloque plus 52/75 : statut ok + warning informatif", async () => {
+    // P1bis — le count natif décide. 52 blueprints fidèles à l'histoire >
+    // 75 cases inventées par padding. Le readiness doit laisser passer la
+    // génération tout en exposant un warning visible dans le studio.
     const studioWithIncompletePlan = buildReadyStudio();
-    // Forcer 52/75 blueprints pour simuler le bug produit (symptôme visible user).
     studioWithIncompletePlan.data.productionPlan.panelBlueprints = Array.from({ length: 52 }, (_, i) => ({
       panelId: `panel-${i + 1}`,
       beatId: `b${(i % 10) + 1}`,
@@ -431,19 +433,24 @@ describe("routes Chapter Studio", () => {
     const response = await mod.GET(new Request("http://localhost"), ctxChapter);
     const payload = await response.json();
 
-    expect(payload.readiness.status).toBe("blocked");
-    expect(payload.readiness.contractStatus).toBe("incomplete_blueprints");
-    expect(payload.readiness.launchBlocked).toBe(true);
-    expect(payload.readiness.launchBlockedReason).toBe("incomplete_plan");
+    // Plus de statut "blocked" pour un count sous la cible : on accepte
+    // le découpage natif.
+    expect(payload.readiness.contractStatus).toBe("ok");
+    expect(payload.readiness.contractComplete).toBe(true);
+    expect(payload.readiness.launchBlocked).toBe(false);
     expect(payload.readiness.panelBlueprintCount).toBe(52);
+    // Pas de blocker production_plan_incomplete_blueprints.
     const hasIncompleteBlocker = payload.readiness.blockerItems.some(
       (item: { id: string }) => item.id === "production_plan_incomplete_blueprints",
     );
-    expect(hasIncompleteBlocker).toBe(true);
-    const incompleteMessage = payload.readiness.blockingIssues.find((msg: string) =>
-      msg.includes("52") && msg.includes("75"),
+    expect(hasIncompleteBlocker).toBe(false);
+    // Mais un warning informatif visible, avec le ratio 52/75.
+    const belowTargetWarning = payload.readiness.warningItems.find(
+      (item: { id: string }) => item.id === "production_plan_below_target_range",
     );
-    expect(incompleteMessage).toBeDefined();
+    expect(belowTargetWarning).toBeDefined();
+    expect(belowTargetWarning.message).toContain("52");
+    expect(belowTargetWarning.message).toContain("75");
   });
 
   it("refuse un launch studio si le chapitre n'est pas prêt", async () => {

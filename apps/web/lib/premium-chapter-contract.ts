@@ -693,24 +693,33 @@ export function buildGenerationJobInputFromSnapshot(opts: GenerationJobInputOpti
     throw new InvalidBlueprintsError(invalidBlueprints);
   }
 
-  // P1 — ENRICHISSEMENT LEGACY RETIRÉ DU CONTRAT PREMIUM.
-  // Le produit valide désormais une RANGE `PREMIUM_PANEL_RANGE` (70–75).
-  // Le storyboard natif doit nativement produire ce nombre — sinon le
-  // contrat premium échoue, au lieu de bourrer des panels clonés.
+  // P1bis — CONTRAT COUNT ASSOUPLI.
+  //
+  // Règle produit mise à jour : on ne padde plus artificiellement vers la
+  // range 70-75 (`expandBlueprintsToMinimum` resté mort), MAIS on ne refuse
+  // plus non plus un chapitre juste parce que son découpage natif est sous
+  // la cible. Si le storyboard natif sort 49 panels fidèles à l'histoire,
+  // on génère 49 panels — sans inventer de cases random.
+  //
+  // Seul cas bloquant ici : `rawCount === 0` (plan totalement vide).
+  // Les statuts `under_min` / `over_max` déclenchent un log d'obs mais
+  // laissent passer la génération.
   const rawCount = panelBlueprints.length;
-  const panelCountStatus = classifyPremiumPanelCount(rawCount);
-
-  if (panelCountStatus === "under_min") {
+  if (rawCount === 0) {
     console.error(
-      `[contract] native_storyboard_under_min panelBlueprints=${rawCount} range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${opts.chapterId ?? "?"}`,
+      `[contract] native_storyboard_empty panelBlueprints=0 chapterId=${opts.chapterId ?? "?"}`,
     );
-    throw new IncompletePlanError(rawCount, PREMIUM_PANEL_RANGE.min);
+    throw new IncompletePlanError(rawCount, 1);
   }
-  if (panelCountStatus === "over_max") {
-    console.error(
-      `[contract] native_storyboard_over_max panelBlueprints=${rawCount} range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${opts.chapterId ?? "?"} — l'éditeur doit compacter`,
+  const panelCountStatus = classifyPremiumPanelCount(rawCount);
+  if (panelCountStatus === "under_min") {
+    console.warn(
+      `[contract] native_storyboard_below_target panelBlueprints=${rawCount} target_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${opts.chapterId ?? "?"} — génération non bloquée (no padding)`,
     );
-    throw new IncompletePlanError(rawCount, PREMIUM_PANEL_RANGE.max);
+  } else if (panelCountStatus === "over_max") {
+    console.warn(
+      `[contract] native_storyboard_over_target panelBlueprints=${rawCount} target_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${opts.chapterId ?? "?"} — l'éditeur peut compacter ensuite`,
+    );
   }
 
   const effectiveBlueprints = panelBlueprints as unknown[];

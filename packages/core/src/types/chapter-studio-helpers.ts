@@ -306,10 +306,19 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
     panelBlueprintCount = Array.isArray(blueprints) ? blueprints.length : 0;
     const minimumImages = imageCounts.minimumImages;
 
-    // P0.1 — contrat structurel : un plan dont le nombre de blueprints est
-    // inférieur au minimum d'images est *non lançable*. Le backend lève
-    // `IncompletePlanError` au launch ; on doit matérialiser ce blocage
-    // côté studio, pas attendre un crash au lancement.
+    // P1bis — CONTRAT COUNT ASSOUPLI.
+    //
+    // Règle produit mise à jour : le storyboard natif décide. On ne padde plus
+    // artificiellement vers un minimum (fini l'ancien `expandBlueprintsToMinimum`),
+    // et on ne bloque plus un chapitre juste parce que le count est sous la
+    // cible (ex. 49/70). Si le découpage natif sort 49 panels fidèles à
+    // l'histoire, c'est OK : on génère 49.
+    //
+    // Seul cas vraiment bloquant : `panelBlueprintCount === 0` (pas de plan
+    // exploitable → pas de génération possible).
+    //
+    // Un count sous la cible devient un SIMPLE WARNING informatif (visible
+    // dans le studio) mais n'empêche pas le launch.
     if (panelBlueprintCount === 0) {
       contractStatus = "missing_blueprints";
       launchBlocked = true;
@@ -319,27 +328,25 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
         step: "production_plan",
         field: null,
         message:
-          `Le plan ne contient aucun blueprint de panel (minimum requis : ${minimumImages} images). ` +
-          `Régénère le plan avant de lancer la génération.`,
-        ctaLabel: "Régénérer le plan",
-        action: "generate_outline",
-      });
-    } else if (panelBlueprintCount < minimumImages) {
-      contractStatus = "incomplete_blueprints";
-      launchBlocked = true;
-      launchBlockedReason = "incomplete_plan";
-      addBlocker({
-        id: "production_plan_incomplete_blueprints",
-        step: "production_plan",
-        field: null,
-        message:
-          `Le plan contient ${panelBlueprintCount} blueprints pour un minimum requis de ${minimumImages} images. ` +
+          `Le plan ne contient aucun blueprint de panel. ` +
           `Régénère le plan avant de lancer la génération.`,
         ctaLabel: "Régénérer le plan",
         action: "generate_outline",
       });
     } else {
       contractStatus = "ok";
+      if (panelBlueprintCount < minimumImages) {
+        addWarning({
+          id: "production_plan_below_target_range",
+          step: "production_plan",
+          field: null,
+          message:
+            `Le plan natif contient ${panelBlueprintCount} panels (cible indicative : ${minimumImages}). ` +
+            `La génération n'est pas bloquée — on produira ${panelBlueprintCount} cases fidèles à l'histoire.`,
+          ctaLabel: "Régénérer le plan",
+          action: "generate_outline",
+        });
+      }
     }
 
     // Avertissement historique sur `targetImages` (budget) — utile si le plan
@@ -349,7 +356,7 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
         id: "production_plan_under_minimum_images",
         step: "production_plan",
         field: null,
-        message: `Le plan vise ${imageCounts.targetImages} images (minimum conseillé : ${imageCounts.minimumImages}).`,
+        message: `Le plan vise ${imageCounts.targetImages} images (cible indicative : ${imageCounts.minimumImages}).`,
         ctaLabel: "Régénérer le plan",
         action: "generate_outline",
       });

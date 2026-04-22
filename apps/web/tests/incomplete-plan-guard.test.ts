@@ -1,10 +1,12 @@
 /**
- * P1 — `buildGenerationJobInputFromSnapshot` n'enrichit plus artificiellement les
- * blueprints. Le chemin premium refuse un chapitre dont le découpage natif est
- * hors range 70–75 (voir `PREMIUM_PANEL_RANGE`) :
- *   - rawCount < 70 → `IncompletePlanError` (storyboard natif insuffisant)
- *   - 70 ≤ rawCount ≤ 75 → passthrough, aucun padding
- *   - rawCount > 75 → `IncompletePlanError` (compaction éditoriale requise)
+ * P1bis — `buildGenerationJobInputFromSnapshot` accepte désormais le count natif.
+ * On ne padd plus vers minimumImages (legacy `expandBlueprintsToMinimum`
+ * définitivement désactivé) et on ne bloque plus sous la cible 70-75.
+ *
+ * Règle produit :
+ *   - rawCount === 0 → `IncompletePlanError` (pas de plan exploitable)
+ *   - 1 ≤ rawCount (n'importe quel count) → passthrough, aucun padding.
+ *     Sous la cible, on loggue un warning mais on laisse passer la génération.
  *
  * Ce test garantit qu'on ne revient JAMAIS au vieux modèle
  * `expandBlueprintsToMinimum`.
@@ -80,22 +82,22 @@ describe("buildGenerationJobInputFromSnapshot — P1 pas d'enrichissement legacy
     expect((out.panelBlueprints as unknown[]).length).toBe(72);
   });
 
-  it("throw IncompletePlanError quand rawCount < 70 (plus de padding silencieux)", async () => {
-    const { buildGenerationJobInputFromSnapshot, IncompletePlanError } = await import(
+  it("P1bis — passthrough quand rawCount < cible 70 (pas de padding, pas de blocage)", async () => {
+    const { buildGenerationJobInputFromSnapshot } = await import(
       "@/lib/premium-chapter-contract"
     );
     const snapshot = makeSnapshot(makeValidBlueprints(49), 75);
-    expect(() =>
-      buildGenerationJobInputFromSnapshot({
-        source: "test",
-        chapterId: "c1",
-        focusCharacterIds: [],
-        snapshot,
-        approvedOutline: { approvalVersion: 1 } as unknown as Parameters<
-          typeof buildGenerationJobInputFromSnapshot
-        >[0]["approvedOutline"],
-      }),
-    ).toThrow(IncompletePlanError);
+    const out = buildGenerationJobInputFromSnapshot({
+      source: "test",
+      chapterId: "c1",
+      focusCharacterIds: [],
+      snapshot,
+      approvedOutline: { approvalVersion: 1 } as unknown as Parameters<
+        typeof buildGenerationJobInputFromSnapshot
+      >[0]["approvedOutline"],
+    });
+    // Count natif préservé : 49 panels, sans expansion vers 70-75.
+    expect((out.panelBlueprints as unknown[]).length).toBe(49);
   });
 
   it("throw IncompletePlanError quand la matière narrative est vide", async () => {

@@ -454,43 +454,75 @@ export function ChapterPlanStep({
             >
               {outlineValidated ? "✓ Outline validé" : "○ Outline à générer"}
             </span>
-            <span
-              data-testid="plan-status-contract"
-              data-tone={contractComplete ? "success" : hasProductionPlan ? "danger" : "muted"}
-              className={
-                contractComplete
+            {(() => {
+              // P1bis — 3 états possibles pour le badge "Contrat images" :
+              //   1) Plan absent / vide → danger (bloquant)
+              //   2) Plan natif sous la cible (0 < count < minimum) → info (NON bloquant)
+              //   3) Plan natif dans ou au-dessus de la cible → success
+              const isEmpty = hasProductionPlan && panelBlueprintCount === 0;
+              const isBelowTarget =
+                hasProductionPlan && panelBlueprintCount > 0 && panelBlueprintCount < minimumImages;
+              const tone = contractComplete && !isBelowTarget
+                ? "success"
+                : isEmpty
+                  ? "danger"
+                  : isBelowTarget
+                    ? "info"
+                    : "muted";
+              const className =
+                tone === "success"
                   ? "inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-200"
-                  : hasProductionPlan
-                    ? "inline-flex items-center gap-1 rounded-full border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-200"
-                    : "inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-xs font-medium text-muted-foreground"
-              }
-            >
-              {contractComplete
-                ? `✓ Contrat images complet (${panelBlueprintCount}/${minimumImages})`
-                : hasProductionPlan
-                  ? `⚠ Contrat images incomplet (${panelBlueprintCount}/${minimumImages})`
-                  : "○ Contrat images à générer"}
-            </span>
+                  : tone === "info"
+                    ? "inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-200"
+                    : tone === "danger"
+                      ? "inline-flex items-center gap-1 rounded-full border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-200"
+                      : "inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-xs font-medium text-muted-foreground";
+              const label = isEmpty
+                ? "⚠ Plan vide — régénère"
+                : isBelowTarget
+                  ? `≈ Plan natif sous la cible (${panelBlueprintCount}/${minimumImages}) — génération OK`
+                  : contractComplete
+                    ? `✓ Contrat images complet (${panelBlueprintCount}/${minimumImages})`
+                    : "○ Contrat images à générer";
+              return (
+                <span
+                  data-testid="plan-status-contract"
+                  data-tone={tone}
+                  className={className}
+                >
+                  {label}
+                </span>
+              );
+            })()}
           </div>
 
           <div className="grid gap-4 md:grid-cols-5">
             <div><p className="text-muted-foreground">Préparation</p><p>{preparationScore}/100</p></div>
             <div><p className="text-muted-foreground">Images estimées</p><p>{imageCounts.estimatedImages}</p></div>
             <div><p className="text-muted-foreground">Images cibles</p><p>{imageCounts.targetImages}</p></div>
-            <div><p className="text-muted-foreground">Minimum requis</p><p>{imageCounts.minimumImages}</p></div>
+            <div><p className="text-muted-foreground">Cible indicative</p><p>{imageCounts.minimumImages}</p></div>
             <div><p className="text-muted-foreground">Manquantes</p><p>{imageCounts.missingImages}</p></div>
           </div>
 
-          {/* P1.3 — si le contrat images est incomplet, on affiche un message
-              produit clair et on dirige le user vers "Régénérer le plan"
-              plutôt que de laisser "Valider le plan" comme action principale. */}
-          {hasProductionPlan && !contractComplete && (
+          {/* P1bis — plan vide = vrai blocant. Plan sous la cible = info douce
+              non bloquante (on génère ce que le storyboard natif a décidé). */}
+          {hasProductionPlan && panelBlueprintCount === 0 && (
             <div
               data-testid="plan-step-contract-hint"
               className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-red-200"
             >
-              Le contrat images est incomplet ({panelBlueprintCount}/{minimumImages} blueprints).
-              La génération n&apos;est pas lançable — régénère le plan avant validation.
+              Le plan ne contient aucun blueprint de panel. La génération n&apos;est pas lançable —
+              régénère le plan avant validation.
+            </div>
+          )}
+          {hasProductionPlan && panelBlueprintCount > 0 && panelBlueprintCount < minimumImages && (
+            <div
+              data-testid="plan-step-below-target-hint"
+              className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200"
+            >
+              Le découpage natif produit {panelBlueprintCount} panels (cible indicative :{" "}
+              {minimumImages}). La génération n&apos;est <strong>pas bloquée</strong> — on produira{" "}
+              {panelBlueprintCount} cases fidèles à l&apos;histoire, sans inventer de cases random.
             </div>
           )}
 

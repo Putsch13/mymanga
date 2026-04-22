@@ -225,17 +225,26 @@ export async function POST(req: Request, ctx: Ctx) {
   const enrichmentCount = 0;
   const panelCountStatus = classifyPremiumPanelCount(allBlueprints.length);
   const chapterMinimumImages = PREMIUM_PANEL_RANGE.min;
-  const isIncompletePlan = panelCountStatus === "under_min";
-  const isOverTargetPlan = panelCountStatus === "over_max";
+  // P1bis — on ne bloque plus sur under_min/over_max : le storyboard natif
+  // est accepté tel quel (cf. `premium-chapter-contract.ts` et core helpers).
+  // `planStatus` reste "ready" dès qu'il y a au moins 1 blueprint.
+  const isEmptyPlan = allBlueprints.length === 0;
+  const isBelowTargetRange = panelCountStatus === "under_min";
+  const isOverTargetRange = panelCountStatus === "over_max";
 
-  if (isIncompletePlan) {
+  if (isBelowTargetRange) {
     console.warn(
-      `[estimate] incomplete_plan raw=${rawBlueprints.length} target_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${targetChapter?.id ?? "new"}`,
+      `[estimate] below_target_range raw=${rawBlueprints.length} target_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${targetChapter?.id ?? "new"} — génération non bloquée, no padding`,
     );
   }
-  if (isOverTargetPlan) {
+  if (isOverTargetRange) {
     console.warn(
-      `[estimate] over_target_plan raw=${rawBlueprints.length} target_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${targetChapter?.id ?? "new"} — l'éditeur doit compacter le découpage.`,
+      `[estimate] over_target_range raw=${rawBlueprints.length} target_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${targetChapter?.id ?? "new"} — l'éditeur peut compacter ensuite`,
+    );
+  }
+  if (isEmptyPlan) {
+    console.error(
+      `[estimate] empty_plan chapterId=${targetChapter?.id ?? "new"} — aucun blueprint natif, génération bloquée`,
     );
   }
 
@@ -384,7 +393,16 @@ export async function POST(req: Request, ctx: Ctx) {
     },
     productionOutline,
     productionPlan,
-    planStatus: panelCountStatus === "ok" ? "ready" : panelCountStatus === "under_min" ? "incomplete" : "over_target",
+    // P1bis — `planStatus` n'est plus bloqué par under_min/over_max : seul un
+    // plan vide est "incomplete". Les statuts `below_target` / `over_target`
+    // sont purement informatifs et ne coupent pas la génération.
+    planStatus: isEmptyPlan
+      ? "incomplete"
+      : panelCountStatus === "ok"
+        ? "ready"
+        : panelCountStatus === "under_min"
+          ? "ready_below_target"
+          : "ready_over_target",
     rawBlueprintCount: rawBlueprints.length,
     enrichedBlueprintCount: allBlueprints.length,
     enrichmentApplied,

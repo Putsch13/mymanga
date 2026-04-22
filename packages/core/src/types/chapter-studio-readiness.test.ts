@@ -160,7 +160,11 @@ describe("chapter readiness — contrat de production P0.1", () => {
     expect(blocker?.step).toBe("production_plan");
   });
 
-  it("bloque quand panelBlueprints.length < minimumImages (incomplete_blueprints)", () => {
+  it("P1bis — ne bloque PLUS quand panelBlueprints.length < minimumImages : génère le count natif", () => {
+    // P1bis — le produit ne padd plus vers minimumImages et ne bloque plus
+    // si le découpage natif est sous la cible. Un plan avec 52 blueprints
+    // reste "ok" et lance la génération (on produit 52 images fidèles à
+    // l'histoire, pas 75 images inventées).
     const patch = buildBaseSnapshotPatch();
     const snapshot = updateChapterStudioSnapshot(createEmptyChapterStudioSnapshot(), {
       ...patch,
@@ -174,19 +178,18 @@ describe("chapter readiness — contrat de production P0.1", () => {
 
     const report = buildChapterReadinessReport(snapshot);
 
-    expect(report.contractStatus).toBe("incomplete_blueprints");
-    expect(report.contractComplete).toBe(false);
-    expect(report.launchBlocked).toBe(true);
-    expect(report.launchBlockedReason).toBe("incomplete_plan");
+    expect(report.contractStatus).toBe("ok");
+    expect(report.contractComplete).toBe(true);
+    expect(report.launchBlocked).toBe(false);
+    expect(report.launchBlockedReason).toBeNull();
     expect(report.panelBlueprintCount).toBe(52);
-    const blocker = report.blockerItems.find((i) => i.id === "production_plan_incomplete_blueprints");
-    expect(blocker).toBeDefined();
-    expect(blocker?.message).toContain("52");
-    expect(blocker?.message).toContain("75");
-    expect(blocker?.ctaLabel).toBe("Régénérer le plan");
-    expect(blocker?.action).toBe("generate_outline");
-    // Pas de warning bruyant en doublon quand c'est déjà un blocant
-    expect(report.warningItems.some((i) => i.id === "production_plan_under_minimum_images")).toBe(false);
+    // Pas de blocker
+    expect(report.blockerItems.some((i) => i.id === "production_plan_incomplete_blueprints")).toBe(false);
+    // Mais un warning informatif visible dans le studio
+    const warning = report.warningItems.find((i) => i.id === "production_plan_below_target_range");
+    expect(warning).toBeDefined();
+    expect(warning?.message).toContain("52");
+    expect(warning?.message).toContain("75");
   });
 
   it("passe à contractStatus=ok quand panelBlueprints.length >= minimumImages", () => {
