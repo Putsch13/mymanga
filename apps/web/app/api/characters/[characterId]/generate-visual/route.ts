@@ -38,6 +38,7 @@ import {
   resolveCharacterReferencePolicy,
   shouldRefuseCharacterVisualForMissingRefs,
 } from "@/lib/characters/generate-visual-guards";
+import { createVisualLockWithRetry } from "@/lib/characters/visual-lock-create-with-retry";
 
 type Ctx = { params: Promise<{ characterId: string }> };
 
@@ -331,14 +332,16 @@ export async function POST(_req: Request, ctx: Ctx) {
       "generate-visual:mediaAsset",
     );
 
-    const visualRef = await prisma.$transaction(async (tx) => {
-      const previousLock = character.visualLocks[0] ?? null;
-      if (previousLock) {
-        await tx.characterVisualLock.updateMany({
-          where: { characterId: character.id, isActive: true },
-          data: { isActive: false },
-        });
-      }
+    const visualRef = await createVisualLockWithRetry({
+      characterId: character.id,
+      run: async (tx, nextVersion) => {
+      // Deactivate every currently-active lock before inserting the new
+      // version. Done inside each retry attempt so a concurrent writer
+      // can't leave two active rows behind.
+      await tx.characterVisualLock.updateMany({
+        where: { characterId: character.id, isActive: true },
+        data: { isActive: false },
+      });
       const mediaAsset = await tx.mediaAsset.create({
         data: {
           projectId: character.project.id,
@@ -360,7 +363,6 @@ export async function POST(_req: Request, ctx: Ctx) {
           },
         },
       });
-      const nextVersion = (previousLock?.version ?? 0) + 1;
       const activeLora = activeLoras[0] ?? null;
       const nextLock = buildCharacterVisualLock({
         characterId: character.id,
@@ -449,6 +451,7 @@ export async function POST(_req: Request, ctx: Ctx) {
         },
       });
       return { createdRef, storedLock, nextVersion };
+      },
     });
 
     // P4.4 : audit trail — visual_lock_created + visual_ref_promoted si primary.
