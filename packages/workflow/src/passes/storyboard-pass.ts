@@ -24,6 +24,11 @@ export interface RunStoryboardPassInput {
   targetPanelCount?: number;
   heroCharacterIds?: string[];
   /**
+   * P5 — format éditorial du projet. Détermine la grammaire du
+   * storyboard (pagination manga vs flow webtoon). Par défaut `manga`.
+   */
+  projectFormat?: "manga" | "webtoon";
+  /**
    * Override du flag `PIPELINE_V3_MANGA_EDITOR_LLM`. Utile pour tests.
    * Quand `true`, l'agent LLM est tenté (fallback stub si OpenAI absent).
    * Quand `false`, le stub déterministe est utilisé directement.
@@ -46,6 +51,7 @@ export async function runStoryboardPass(
     storyArc: input.storyArc,
     targetPanelCount: input.targetPanelCount,
     heroCharacterIds: input.heroCharacterIds,
+    projectFormat: input.projectFormat ?? "manga",
   });
 
   const validation = validateStoryboardPlan(storyboardPlan, { storyArc: input.storyArc });

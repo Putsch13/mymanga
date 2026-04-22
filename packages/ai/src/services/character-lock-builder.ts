@@ -102,6 +102,57 @@ function resolveFaceCloseupRef(input: BuilderInput): string | undefined {
 }
 
 /**
+ * P7 — Erreur explicite lorsqu'un closeup premium n'a pas sa face ref
+ * dédiée. Le legacy tombait en fallback silencieux sur `canonicalRefUrls[0]`
+ * (souvent une full-body), avec drift visible sur closeups héros/npc.
+ */
+export class MissingDedicatedFaceCloseupRefError extends Error {
+  public readonly characterId: string;
+  public readonly renderMode: string;
+  public readonly panelId?: string | null;
+  constructor(characterId: string, renderMode: string, panelId?: string | null) {
+    super(
+      `missing_dedicated_face_closeup_ref character=${characterId} renderMode=${renderMode} panelId=${panelId ?? "?"} ` +
+        `— un panel closeup premium doit avoir une face ref dédiée (générée via /generate-visual/face-closeup). Fallback interdit.`,
+    );
+    this.name = "MissingDedicatedFaceCloseupRefError";
+    this.characterId = characterId;
+    this.renderMode = renderMode;
+    this.panelId = panelId ?? null;
+  }
+}
+
+const PANEL_MODES_REQUIRING_DEDICATED_FACE: ReadonlyArray<string> = [
+  "hero_closeup",
+  "reaction_closeup",
+  "npc_closeup",
+  "enemy_closeup",
+  "dialogue_over_shoulder",
+];
+
+/**
+ * P7 — Vérifie strictement qu'un panel en renderMode closeup a bien une
+ * face ref dédiée pour le personnage principal. Throw si absente. Appelé
+ * par le render-pass v3 pour bloquer au lieu de fallback silencieux.
+ */
+export function assertDedicatedFaceCloseupForPanel(args: {
+  characterId: string;
+  faceCloseupRefUrl: string | null | undefined;
+  renderMode: string;
+  panelId?: string | null;
+}): void {
+  if (!PANEL_MODES_REQUIRING_DEDICATED_FACE.includes(args.renderMode)) return;
+  const trimmed = typeof args.faceCloseupRefUrl === "string" ? args.faceCloseupRefUrl.trim() : "";
+  if (!trimmed) {
+    throw new MissingDedicatedFaceCloseupRefError(
+      args.characterId,
+      args.renderMode,
+      args.panelId,
+    );
+  }
+}
+
+/**
  * P1-5 — Résout la ref action dédiée.
  * Priorité : actionRefUrl > canonicalRefUrls[1] > canonicalRefUrls[0].
  */

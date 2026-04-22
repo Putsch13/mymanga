@@ -10,7 +10,7 @@ import type { PanelBlueprintPremium, RequiredProp } from "@manga-ai-studio/core"
 import { inferNarrativeFactsFromBeat, type NarrativeExtractionContext } from "./narrative-fact-extractor";
 import { enrichNarrativeFactsWithLLM, mergeNarrativeFacts } from "./narrative-fact-llm-enricher";
 import { inferRequiredPropsFromBeat } from "./prop-inference-engine";
-import { buildPanelBlueprintsFromBeat, computeChapterFocusBudget, computePremiumReadinessScore, expandBlueprintsToMinimum } from "./panel-blueprint-builder";
+import { buildPanelBlueprintsFromBeat, computeChapterFocusBudget, computePremiumReadinessScore } from "./panel-blueprint-builder";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -233,33 +233,17 @@ export function buildPremiumChapterContract(
   });
 
   const rawBlueprints = enrichedBeats.flatMap((b) => b._blueprints);
-  // READ-PREMIUM : garantir un minimum de panels par chapitre.
-  // P2.1 — on respecte désormais le `minimumImages` réel du chapitre (passé
-  // par le caller) au lieu d'une constante figée à 75. Cela élimine la cause
-  // racine du bug "52 blueprints / 75 minimum" observé en prod quand un
-  // chapitre était configuré avec un minimum différent. Le défaut 75 reste
-  // aligné avec `schema.prisma` (Chapter.minimumImages @default(75)).
-  const MINIMUM_PREMIUM_PANELS_DEFAULT = 75;
+  // P1 — plus d'enrichissement legacy. Le builder premium prend la liste
+  // native. Si le count est hors range (70-75), on loggue mais on laisse
+  // monter : la route d'estimate/launch est responsable de refuser le
+  // chapitre avec un code explicite (pas de padding silencieux ici).
+  const allBlueprints = rawBlueprints;
   const minimumPanels = typeof input.minimumPanels === "number" && input.minimumPanels > 0
     ? input.minimumPanels
-    : MINIMUM_PREMIUM_PANELS_DEFAULT;
-  const allBlueprints = expandBlueprintsToMinimum(rawBlueprints, minimumPanels);
-  if (allBlueprints.length > rawBlueprints.length) {
-    console.log(
-      `[premium-contract] expanded panelBlueprints ${rawBlueprints.length} → ${allBlueprints.length} (min=${minimumPanels})`,
-    );
-  }
-  // P2.1 — si malgré l'expansion on reste sous le minimum (cas rarissime :
-  // `rawBlueprints.length === 0` alors qu'on demande un minimum > 0), on le
-  // log explicitement pour tracer l'incohérence côté observabilité.
-  if (allBlueprints.length < minimumPanels) {
-    console.warn(
-      `[premium-contract] incomplete_plan_after_build raw=${rawBlueprints.length} ` +
-      `expanded=${allBlueprints.length} minimum=${minimumPanels} — le builder n'a pas pu ` +
-      `atteindre le minimum (probablement rawBlueprints vides). La route PATCH approved-outline ` +
-      `persistera le snapshot avec launchBlocked=true.`,
-    );
-  }
+    : 70;
+  console.log(
+    `[premium-contract] native_panel_count=${allBlueprints.length} targetMin=${minimumPanels} — no expansion`,
+  );
   const focusBudget = computeChapterFocusBudget(allBlueprints);
   const premiumReadinessScore = computePremiumReadinessScore(allBlueprints);
 

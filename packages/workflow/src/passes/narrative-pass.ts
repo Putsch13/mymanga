@@ -68,6 +68,7 @@ import { persistPlannedImages } from "./narrative/persist-planned-images";
 import { logPipelineInfo, logPipelineWarn, logPipelineError } from "../lib/pipeline-logger";
 import { parseEntityRegistry } from "../schemas/pipeline-contracts";
 import { applyShotPlanToContract } from "./narrative/apply-shot-plan-to-contract";
+import { isPipelineV3PremiumOnlyEnabled } from "../pipeline-feature-flags";
 import {
   partitionNpcsByPolicy,
   computeDefaultForbiddenDrift,
@@ -813,21 +814,14 @@ export async function runNarrativePass(
       }
 
       if (allDynamicBlueprints.length > 0) {
-        // BUG-01 fix : expandBlueprintsToMinimum pour garantir 70-75 panels / chapitre.
-        // Sans cet appel, un chapitre ~10 beats produisait ~30 blueprints → 30 SceneImage.
-        const { expandBlueprintsToMinimum } = await import("@manga-ai-studio/ai");
-        const panelDensity = (chapterGenreConfig as { panelDensity?: string }).panelDensity;
-        const TARGET_PANELS = panelDensity === "dense" ? 75 : 70;
-        const beforeExpand = allDynamicBlueprints.length;
-        const expanded = expandBlueprintsToMinimum(allDynamicBlueprints, TARGET_PANELS);
-        if (expanded.length > beforeExpand) {
-          console.log(
-            `[pipeline] expanded ${beforeExpand} → ${expanded.length} blueprints (target=${TARGET_PANELS}, density=${panelDensity ?? "n/a"})`,
-          );
-          blueprintSource = usedLlmEnrichment ? "dynamic_llm_expanded" : "dynamic_heuristic_expanded";
-        } else {
-          blueprintSource = usedLlmEnrichment ? "dynamic_llm" : "dynamic_heuristic";
-        }
+        // P1 — plus d'expansion legacy dans le narrative-pass. Le render
+        // premium v3 prend désormais la main sur les panels. On conserve
+        // uniquement le compte natif pour que les reducers aval ne voient
+        // aucun padding silencieux.
+        // Note : l'ancien chemin (MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY)
+        // reste accessible pour debug via le module blueprint-enrichment.
+        const expanded = allDynamicBlueprints;
+        blueprintSource = usedLlmEnrichment ? "dynamic_llm" : "dynamic_heuristic";
 
         // BUG-05 fix (affiné) : renumérotation groupée par beatId.
         // Avant : pageCounter dérivait en +Math.ceil(n/3) → pages 1,3,6,9… et
@@ -1673,6 +1667,16 @@ export async function runNarrativePass(
                     };
                   });
 
+                // P4 — INTERDICTION DE composeMangaPanelPrompt EN PREMIUM V3 ONLY.
+                // Si on arrive ici alors que le flag premium-only est ON, c'est
+                // que le court-circuit en amont n'a pas fonctionné : on fail
+                // bruyamment au lieu de produire un prompt legacy polluant.
+                if (isPipelineV3PremiumOnlyEnabled()) {
+                  throw new Error(
+                    "premium_v3_only_violation: composeMangaPanelPrompt called in premium-only mode. " +
+                    "The v3 render pipeline must be the only image generator.",
+                  );
+                }
                 const composed = composeMangaPanelPrompt({
                   stylePack: stylePack
                     ? {

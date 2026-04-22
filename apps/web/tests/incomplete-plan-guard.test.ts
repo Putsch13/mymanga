@@ -1,11 +1,13 @@
 /**
- * AUDIT v2 — `buildGenerationJobInputFromSnapshot` garantit `>= minimumImages`
- * images dans le contrat de génération :
- *   - si la matière narrative produit déjà assez de blueprints → passthrough
- *   - sinon l'enrichisseur narratif (`expandBlueprintsToMinimum`) ajoute des
- *     plans de coupe / reactions / inserts dérivés des beats existants
- *   - le guard `IncompletePlanError` ne déclenche plus que dans les cas
- *     extrêmes (0 blueprint exploitable, enrichissement impossible)
+ * P1 — `buildGenerationJobInputFromSnapshot` n'enrichit plus artificiellement les
+ * blueprints. Le chemin premium refuse un chapitre dont le découpage natif est
+ * hors range 70–75 (voir `PREMIUM_PANEL_RANGE`) :
+ *   - rawCount < 70 → `IncompletePlanError` (storyboard natif insuffisant)
+ *   - 70 ≤ rawCount ≤ 75 → passthrough, aucun padding
+ *   - rawCount > 75 → `IncompletePlanError` (compaction éditoriale requise)
+ *
+ * Ce test garantit qu'on ne revient JAMAIS au vieux modèle
+ * `expandBlueprintsToMinimum`.
  */
 import { describe, it, expect, vi } from "vitest";
 
@@ -58,12 +60,12 @@ function makeSnapshot(panelBlueprints: unknown[], minimumImages: number) {
   >[0]["snapshot"];
 }
 
-describe("buildGenerationJobInputFromSnapshot — AUDIT v2 (enrichissement narratif)", () => {
-  it("passthrough quand panelBlueprints >= minimumImages (aucun enrichissement)", async () => {
+describe("buildGenerationJobInputFromSnapshot — P1 pas d'enrichissement legacy", () => {
+  it("passthrough quand le découpage natif est dans la range 70-75", async () => {
     const { buildGenerationJobInputFromSnapshot } = await import(
       "@/lib/premium-chapter-contract"
     );
-    const snapshot = makeSnapshot(makeValidBlueprints(75), 75);
+    const snapshot = makeSnapshot(makeValidBlueprints(72), 70);
     const out = buildGenerationJobInputFromSnapshot({
       source: "test",
       chapterId: "c1",
@@ -74,28 +76,29 @@ describe("buildGenerationJobInputFromSnapshot — AUDIT v2 (enrichissement narra
       >[0]["approvedOutline"],
     });
     expect(Array.isArray(out.panelBlueprints)).toBe(true);
-    expect((out.panelBlueprints as unknown[]).length).toBe(75);
+    // Aucun padding : on garde exactement le count natif.
+    expect((out.panelBlueprints as unknown[]).length).toBe(72);
   });
 
-  it("enrichit automatiquement quand panelBlueprints < minimumImages (pas de throw)", async () => {
-    const { buildGenerationJobInputFromSnapshot } = await import(
+  it("throw IncompletePlanError quand rawCount < 70 (plus de padding silencieux)", async () => {
+    const { buildGenerationJobInputFromSnapshot, IncompletePlanError } = await import(
       "@/lib/premium-chapter-contract"
     );
     const snapshot = makeSnapshot(makeValidBlueprints(49), 75);
-    const out = buildGenerationJobInputFromSnapshot({
-      source: "test",
-      chapterId: "c1",
-      focusCharacterIds: [],
-      snapshot,
-      approvedOutline: { approvalVersion: 1 } as unknown as Parameters<
-        typeof buildGenerationJobInputFromSnapshot
-      >[0]["approvedOutline"],
-    });
-    expect(Array.isArray(out.panelBlueprints)).toBe(true);
-    expect((out.panelBlueprints as unknown[]).length).toBe(75);
+    expect(() =>
+      buildGenerationJobInputFromSnapshot({
+        source: "test",
+        chapterId: "c1",
+        focusCharacterIds: [],
+        snapshot,
+        approvedOutline: { approvalVersion: 1 } as unknown as Parameters<
+          typeof buildGenerationJobInputFromSnapshot
+        >[0]["approvedOutline"],
+      }),
+    ).toThrow(IncompletePlanError);
   });
 
-  it("throw IncompletePlanError quand la matière narrative est vide (enrichissement impossible)", async () => {
+  it("throw IncompletePlanError quand la matière narrative est vide", async () => {
     const { buildGenerationJobInputFromSnapshot, IncompletePlanError } = await import(
       "@/lib/premium-chapter-contract"
     );

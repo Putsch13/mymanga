@@ -24,6 +24,7 @@ import { assertPremiumContractFromChapter } from "./passes/assert-premium-contra
 import {
   isPipelineV3StoryboardEnabled,
   isPipelineV3RenderFalEnabled,
+  isPipelineV3PremiumOnlyEnabled,
 } from "./pipeline-feature-flags";
 import {
   buildChapterImagePlanFromNarrative,
@@ -130,7 +131,15 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
   console.log(`[pipeline:T12] pipelineVersion=${pipelineVersion} project=${projectId} job=${jobId}`);
 
   const pipelineV3Enabled = isPipelineV3StoryboardEnabled();
-  console.log(`[pipeline:v3] PIPELINE_V3_STORYBOARD=${pipelineV3Enabled}`);
+  const premiumV3OnlyEnabled = isPipelineV3PremiumOnlyEnabled();
+  console.log(
+    `[pipeline:v3] PIPELINE_V3_STORYBOARD=${pipelineV3Enabled} PIPELINE_V3_PREMIUM_ONLY=${premiumV3OnlyEnabled}`,
+  );
+
+  // P3 — en mode "premium v3 only", le render legacy (image-generation-pass)
+  // ne tournera pas. Le v3 render-pass DOIT réussir, sinon on fail dur.
+  // On track le succès v3 pour décider en aval.
+  let v3RenderSucceeded = false;
 
   try {
     // ── Pipeline v3 (shadow mode) : on persiste StoryArc + StoryboardPlan
@@ -159,9 +168,13 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             `[pipeline:v3:story] warnings=${storyPassResult.warnings.join(" | ")}`,
           );
         }
+        const projectFormatRaw = (project as { format?: string | null } | null)?.format ?? null;
+        const projectFormat =
+          projectFormatRaw === "webtoon" ? "webtoon" : "manga";
         const storyboardPassResult = await runStoryboardPass({
           storyArc: storyPassResult.storyArc,
           heroCharacterIds: focusCharacterIds,
+          projectFormat,
         });
         if (storyboardPassResult.blockers.length > 0) {
           console.error(
@@ -198,11 +211,16 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           console.error(
             `[pipeline:v3:visual-coverage] gaps=${coverageReport.gaps.length} ${gapSummary}`,
           );
-          // En shadow mode v3 on loggue fortement mais on ne throw pas
-          // encore pour ne pas bloquer la prod pendant la bascule. Le
-          // guard dur est au niveau du launch route (H1) + de l'image-
-          // generation-pass (H4). À durcir en fail dur lorsque toutes
-          // les obligations storyboard seront couvertes par l'agent LLM.
+          // P6 — en mode premium-only, une lacune de couverture visuelle
+          // (créature / menace / prop / surveillance / décor clé non
+          // couverts par un panel dédié) est un BLOCKER dur. Plus de
+          // shadow warning. Le storyboard natif DOIT couvrir les
+          // obligations du StoryArc pour partir en rendu.
+          if (premiumV3OnlyEnabled) {
+            throw new Error(
+              `premium_v3_only_visual_coverage_gaps: ${coverageReport.gaps.length} entities uncovered [${gapSummary}]`,
+            );
+          }
         }
 
         // Render-pass v3 en shadow : hydrate la visual memory depuis la DB,
@@ -250,19 +268,42 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               `[pipeline:v3:render] warnings=${renderPassResult.summary.warnings.slice(0, 5).join(" | ")}`,
             );
           }
+          // P3 — le render v3 est considéré "réussi" si tous les panels
+          // ont produit une spec ET qu'aucun n'a échoué fatalement.
+          v3RenderSucceeded =
+            renderPassResult.summary.failedCount === 0 &&
+            renderPassResult.specs.length === renderPassResult.summary.totalPanels &&
+            renderPassResult.summary.totalPanels > 0;
         } catch (renderErr) {
           const renderMsg = renderErr instanceof Error ? renderErr.message : String(renderErr);
           console.error(
             `[pipeline:v3:render] shadow_render_failed chapterId=${chapterId} error=${renderMsg}`,
           );
+          if (premiumV3OnlyEnabled) {
+            // P3 — en mode premium-only, on n'a PAS de filet legacy. Fail.
+            throw new Error(
+              `premium_v3_only_render_failed: ${renderMsg}`,
+            );
+          }
         }
       } catch (v3Err) {
         const v3Msg = v3Err instanceof Error ? v3Err.message : String(v3Err);
         console.error(
           `[pipeline:v3] shadow_mode_failed chapterId=${chapterId} error=${v3Msg}`,
         );
+        if (premiumV3OnlyEnabled) {
+          throw new Error(`premium_v3_only_failed: ${v3Msg}`);
+        }
       }
     }
+
+    // P3 — gate : en mode premium-only, on SAUTE la pipeline legacy
+    // (narrative-pass + image-generation-pass). C'est le v3 qui a fait
+    // la génération image. On fait juste un minimum de memoryPass.
+    const skipLegacyImagePipeline = premiumV3OnlyEnabled && v3RenderSucceeded;
+    console.log(
+      `[pipeline:v3] v3RenderSucceeded=${v3RenderSucceeded} skipLegacyImagePipeline=${skipLegacyImagePipeline}`,
+    );
 
     // LoRA auto non bloquant: on queue l'entraînement, sans retarder le chapitre courant.
     const autoLoraQueued = await queueAutoLoraTrainingIfEligible({
@@ -298,6 +339,22 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       }
       return parts.join("\n");
     })();
+
+    // P3 — court-circuit premium v3 only : si le v3 a bien rendu, on
+    // NE DOIT PAS relancer la narrative-pass + image-generation-pass
+    // legacy. Le job est considéré terminé. Le memory-pass legacy
+    // reste à câbler sur les outputs v3 dans un sprint ultérieur —
+    // pour l'instant on finalise le job directement.
+    if (skipLegacyImagePipeline) {
+      console.log(
+        `[pipeline:v3] premium_v3_only_finalized chapterId=${chapterId} — legacy narrative + image passes skipped.`,
+      );
+      await prisma.job.update({
+        where: { id: jobId },
+        data: { status: "completed", finishedAt: new Date() },
+      });
+      return { ok: true as const };
+    }
 
     // ── Passes narratives : contexte, bundle, cohérence, persistance, continuité ──
     const narrativeResult = await runNarrativePass(

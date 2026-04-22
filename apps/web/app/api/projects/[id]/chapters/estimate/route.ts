@@ -10,8 +10,11 @@ import {
   enrichNarrativeFactsWithLLM,
   mergeNarrativeFacts,
   buildChapterShotPlan,
-  expandBlueprintsToMinimum,
 } from "@manga-ai-studio/ai";
+import {
+  PREMIUM_PANEL_RANGE,
+  classifyPremiumPanelCount,
+} from "@manga-ai-studio/core";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { buildApprovedOutlineVersion, buildProductionPlanFromOutline } from "@manga-ai-studio/core";
 import { prisma } from "@manga-ai-studio/db";
@@ -206,53 +209,41 @@ export async function POST(req: Request, ctx: Ctx) {
 
   const rawBlueprints = enrichedBeats.flatMap((b) => b._blueprints);
 
-  // AUDIT v2 — le nombre de blueprints narratifs s'adapte à la matière (un
-  // chapitre produit naturellement entre 30 et 60 beats-panels), mais le
-  // contrat du produit garantit `minimumImages` images à rendre. On applique
-  // donc l'enrichissement narratif (plans de coupe, reactions, inserts,
-  // environment shots dérivés des beats existants via
-  // `expandBlueprintsToMinimum`). Chaque blueprint produit ensuite son propre
-  // prompt → fal, donc les images sont bien différenciées (hero, combat,
-  // plan de coupe…).
+  // P1 — L'ENRICHISSEMENT LEGACY EST SUPPRIMÉ DU CHEMIN PREMIUM.
+  // Avant : on comptait le nombre natif de blueprints (rawBlueprints) puis
+  // on appelait `expandBlueprintsToMinimum` pour boucher jusqu'à 75 avec
+  // des panels cutaway/reaction/prop clonés. Résultat : des "faux panels"
+  // qui polluaient le routing et fabriquaient des prompts contradictoires.
   //
-  // Invariants audit :
-  //   - rawBlueprintCount = matière narrative brute (visible dans l'UI)
-  //   - enrichedBlueprintCount = images à rendre (>= minimum si la matière
-  //     narrative fournit au moins 1 beat exploitable)
-  //   - planStatus = "incomplete" uniquement si aucun blueprint exploitable
-  //     après enrichissement (cas hard : outline vide)
-  //   - enrichmentApplied exposé explicitement pour que le studio puisse
-  //     l'afficher (plus de "réparation silencieuse")
-  const chapterMinimumImages =
-    typeof targetChapter?.minimumImages === "number" && targetChapter.minimumImages > 0
-      ? targetChapter.minimumImages
-      : 75;
-
-  const allBlueprints = expandBlueprintsToMinimum(rawBlueprints, chapterMinimumImages);
-  const enrichmentApplied = allBlueprints.length > rawBlueprints.length;
-  const enrichmentCount = allBlueprints.length - rawBlueprints.length;
-  const isIncompletePlan = allBlueprints.length < chapterMinimumImages;
+  // Nouveau modèle : on valide une RANGE produit 70–75 (`PREMIUM_PANEL_RANGE`).
+  //   - raw < 70 → `planStatus = "incomplete"` (studio doit enrichir en amont)
+  //   - 70 ≤ raw ≤ 75 → `planStatus = "ready"`
+  //   - raw > 75 → `planStatus = "over_target"` (compaction éditoriale requise)
+  // Le storyboard natif est désormais la seule source. Aucun padding.
+  const allBlueprints = rawBlueprints;
+  const enrichmentApplied = false as const;
+  const enrichmentCount = 0;
+  const panelCountStatus = classifyPremiumPanelCount(allBlueprints.length);
+  const chapterMinimumImages = PREMIUM_PANEL_RANGE.min;
+  const isIncompletePlan = panelCountStatus === "under_min";
+  const isOverTargetPlan = panelCountStatus === "over_max";
 
   if (isIncompletePlan) {
     console.warn(
-      `[estimate] incomplete_plan raw=${rawBlueprints.length} enriched=${allBlueprints.length} ` +
-      `minimum=${chapterMinimumImages} chapterId=${targetChapter?.id ?? "new"}`,
+      `[estimate] incomplete_plan raw=${rawBlueprints.length} target_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${targetChapter?.id ?? "new"}`,
     );
   }
-
-  if (enrichmentApplied) {
-    console.log(
-      `[estimate] enrichment_applied chapterId=${targetChapter?.id ?? "new"} ` +
-      `raw=${rawBlueprints.length} enriched=${allBlueprints.length} added=${enrichmentCount} ` +
-      `minimum=${chapterMinimumImages}`,
+  if (isOverTargetPlan) {
+    console.warn(
+      `[estimate] over_target_plan raw=${rawBlueprints.length} target_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${targetChapter?.id ?? "new"} — l'éditeur doit compacter le découpage.`,
     );
   }
 
   console.log(
     `[estimate] blueprint_quality chapterId=${targetChapter?.id ?? "new"} ` +
     `raw=${rawBlueprints.length} enriched=${allBlueprints.length} ` +
-    `minimum=${chapterMinimumImages} enrichmentApplied=${enrichmentApplied} ` +
-    `status=${isIncompletePlan ? "incomplete" : "ready"}`,
+    `target_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} ` +
+    `status=${panelCountStatus}`,
   );
   const focusBudget = computeChapterFocusBudget(allBlueprints);
   const premiumReadinessScore = computePremiumReadinessScore(allBlueprints);
@@ -343,7 +334,7 @@ export async function POST(req: Request, ctx: Ctx) {
     `chapterNumber=${targetChapterNumber} estimateMode=${estimateMode} ` +
     `beatsCount=${productionOutline.beats.length} ` +
     `productionPlanPages=${Array.isArray((productionPlan as Record<string, unknown>).pages) ? ((productionPlan as Record<string, unknown>).pages as unknown[]).length : 0} ` +
-    `rawBlueprints=${rawBlueprints.length} blueprints=${allBlueprints.length} enrichmentApplied=${enrichmentApplied} minimumImages=${chapterMinimumImages} planStatus=${isIncompletePlan ? "incomplete" : "ready"} ` +
+    `rawBlueprints=${rawBlueprints.length} blueprints=${allBlueprints.length} enrichmentApplied=${enrichmentApplied} targetRange=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} planStatus=${panelCountStatus} ` +
     `progressionOk=${progressionCheck.ok} progressionScore=${progressionCheck.progressionScore.toFixed(2)}`,
   );
 
@@ -393,12 +384,14 @@ export async function POST(req: Request, ctx: Ctx) {
     },
     productionOutline,
     productionPlan,
-    planStatus: isIncompletePlan ? "incomplete" : "ready",
+    planStatus: panelCountStatus === "ok" ? "ready" : panelCountStatus === "under_min" ? "incomplete" : "over_target",
     rawBlueprintCount: rawBlueprints.length,
     enrichedBlueprintCount: allBlueprints.length,
     enrichmentApplied,
     enrichmentAddedCount: enrichmentCount,
     minimumImages: chapterMinimumImages,
+    premiumPanelRange: PREMIUM_PANEL_RANGE,
+    panelCountStatus,
     planPresentation: {
       editorialLabel: "Résumé du chapitre (5 grands temps)",
       productionLabel: "Découpage détaillé pour la génération",

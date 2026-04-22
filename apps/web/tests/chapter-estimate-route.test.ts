@@ -367,11 +367,12 @@ describe("chapter estimate route", () => {
     expect(computePremiumReadinessScoreMock).toHaveBeenCalledTimes(1);
   });
 
-  it("AUDIT v2 — applique l'enrichissement narratif quand rawBlueprints < minimumImages", async () => {
-    // Le découpage narratif s'adapte à la matière (20 blueprints raw) mais
-    // le contrat du produit exige 75 images. La route applique donc
-    // `expandBlueprintsToMinimum` de manière explicite et expose
-    // enrichmentApplied=true + rawBlueprintCount + enrichedBlueprintCount.
+  it("P1 — pas d'enrichissement legacy : si rawBlueprints < minPanels (70), planStatus=incomplete", async () => {
+    // P1 — L'enrichissement legacy a été SUPPRIMÉ du chemin premium.
+    // Le storyboard natif doit maintenant produire 70-75 panels tout seul.
+    // Si le découpage natif sort 20 blueprints, on ne padd plus vers 75 :
+    // on renvoie planStatus="incomplete" pour que l'amont (studio/storyboard v3)
+    // enrichisse sémantiquement avant relance.
     prismaMock.chapter.findFirst.mockResolvedValue({
       id: "chapter-3",
       chapterNumber: 3,
@@ -399,16 +400,19 @@ describe("chapter estimate route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.planStatus).toBe("ready");
+    expect(payload.planStatus).toBe("incomplete");
+    expect(payload.panelCountStatus).toBe("under_min");
     expect(payload.rawBlueprintCount).toBe(20);
-    expect(payload.enrichedBlueprintCount).toBe(75);
-    expect(payload.enrichmentApplied).toBe(true);
-    expect(payload.enrichmentAddedCount).toBe(55);
-    expect(payload.minimumImages).toBe(75);
-    expect(payload.productionPlan.panelBlueprints.length).toBe(75);
+    // Plus d'expansion : enrichedBlueprintCount === rawBlueprintCount
+    expect(payload.enrichedBlueprintCount).toBe(20);
+    expect(payload.enrichmentApplied).toBe(false);
+    expect(payload.enrichmentAddedCount).toBe(0);
+    // Le produit cible la RANGE 70-75 (pas 75 strict)
+    expect(payload.premiumPanelRange).toEqual({ min: 70, target: 72, max: 75 });
+    expect(payload.productionPlan.panelBlueprints.length).toBe(20);
   });
 
-  it("AUDIT v2 — pas d'enrichissement quand rawBlueprints >= minimumImages (passthrough)", async () => {
+  it("P1 — passthrough natif : les blueprints ne sont jamais gonflés côté route", async () => {
     prismaMock.chapter.findFirst.mockResolvedValue({
       id: "chapter-4",
       chapterNumber: 4,
@@ -436,12 +440,10 @@ describe("chapter estimate route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.planStatus).toBe("ready");
     expect(payload.rawBlueprintCount).toBe(20);
     expect(payload.enrichedBlueprintCount).toBe(20);
     expect(payload.enrichmentApplied).toBe(false);
     expect(payload.enrichmentAddedCount).toBe(0);
-    expect(payload.minimumImages).toBe(10);
   });
 
   it("productionPlan contient cutawayCoverage (cutawayComplianceScore calculable)", async () => {

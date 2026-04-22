@@ -28,10 +28,22 @@ import type {
   StoryboardCutawayType,
 } from "../contracts/storyboard-plan";
 
+/**
+ * P5 — Le format éditorial du projet (manga paginé vs webtoon vertical)
+ * est une contrainte DÉCISIVE pour le storyboard, pas une simple
+ * préférence de lecture. On doit paginer différemment :
+ *   - manga : 5 panels / page, layouts mangas classiques (splash,
+ *     grid, asymétrique, cinematic bar...)
+ *   - webtoon : 3 panels / page (flow vertical à respirations
+ *     dramatiques), layouts verticaux dominants
+ */
+export type ProjectFormat = "manga" | "webtoon";
+
 export interface MangaEditorInput {
   storyArc: StoryArc;
   targetPanelCount?: number;
   heroCharacterIds?: string[];
+  projectFormat?: ProjectFormat;
 }
 
 export interface MangaEditorOutput {
@@ -58,7 +70,11 @@ export async function runMangaEditorAgent(input: MangaEditorInput): Promise<Mang
   let globalPanelIndex = 0;
   let pageNumber = 0;
   const pages: StoryboardPage[] = [];
-  const PANELS_PER_PAGE = 5;
+  // P5 — densité par "page" dépendante du format. En webtoon on
+  // raisonne en sections verticales plus courtes (3 panels) pour
+  // permettre les respirations et les full-width inserts.
+  const projectFormat: ProjectFormat = input.projectFormat ?? "manga";
+  const PANELS_PER_PAGE = projectFormat === "webtoon" ? 3 : 5;
   let currentPagePanels: StoryboardPanel[] = [];
   let currentPageBeatIds: string[] = [];
   let currentDramaticRole = "setup";
@@ -66,7 +82,7 @@ export async function runMangaEditorAgent(input: MangaEditorInput): Promise<Mang
   const flushPage = () => {
     if (currentPagePanels.length === 0) return;
     pageNumber += 1;
-    const layoutTemplate = pickLayoutForPage(currentPagePanels);
+    const layoutTemplate = pickLayoutForPage(currentPagePanels, projectFormat);
     const reindexedPanels = currentPagePanels.map((p, idx) => ({
       ...p,
       pageNumber,
@@ -264,7 +280,19 @@ function pickCutawayType(mode: StoryboardRenderMode): StoryboardCutawayType {
   }
 }
 
-function pickLayoutForPage(panels: StoryboardPanel[]): StoryboardLayoutTemplate {
+function pickLayoutForPage(
+  panels: StoryboardPanel[],
+  projectFormat: ProjectFormat = "manga",
+): StoryboardLayoutTemplate {
+  if (projectFormat === "webtoon") {
+    // P5 — grammaire webtoon : flow vertical, splash fréquent pour
+    // reveals, strip vertical pour transitions/respirations. Un "écran"
+    // webtoon n'est pas une vraie page mais un segment du scroll.
+    if (panels.length === 1) return "splash";
+    if (panels.length === 2) return "vertical_strip";
+    if (panels.length === 3) return "vertical_strip";
+    return "vertical_hero_4";
+  }
   if (panels.length === 1) return "splash";
   if (panels.length === 2) return "cinematic_bar";
   if (panels.length === 3) return "action_strip";

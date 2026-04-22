@@ -2,12 +2,13 @@ import { describe, expect, it, afterEach } from "vitest";
 import { buildPremiumChapterContract } from "./premium-chapter-contract-builder";
 
 /**
- * H2 — padding désactivé pour le chemin premium. Le builder doit
- * désormais fail quand le nombre de blueprints nativement produits
- * reste sous le minimum demandé. Les tests vérifient que :
- *   - sans le flag legacy, le builder throw
- *   - avec `MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY=true` (uniquement
- *     pour debug/tests), l'ancien comportement est toujours accessible
+ * P1 — padding désactivé pour le chemin premium (new v3 truth).
+ * Le builder ne throw plus ; il renvoie désormais les blueprints nativement
+ * produits par l'éditeur. C'est la route `/estimate` et le contrat
+ * `apps/web/lib/premium-chapter-contract.ts` qui sont responsables de
+ * refuser le chapitre si le count natif est hors range (70–75). Ici on
+ * vérifie simplement que le builder ne gonfle plus artificiellement le
+ * nombre de panels.
  */
 
 function buildApprovedOutline(beatCount: number) {
@@ -30,42 +31,32 @@ function buildApprovedOutline(beatCount: number) {
   } as unknown as Parameters<typeof buildPremiumChapterContract>[0]["approvedOutline"];
 }
 
-describe("buildPremiumChapterContract — H2 padding interdit", () => {
+describe("buildPremiumChapterContract — P1 pas de padding", () => {
   afterEach(() => {
     delete process.env.MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY;
   });
 
-  it("THROW quand raw blueprints < minimum (défaut 75) sans flag legacy", () => {
-    expect(() =>
-      buildPremiumChapterContract({
-        approvedOutline: buildApprovedOutline(10),
-        heroCharacterId: "hero_1",
-        projectGenre: "action",
-        projectTone: "dramatic",
-      }),
-    ).toThrow(/premium_raw_panels_under_target/);
-  });
-
-  it("THROW aussi quand on demande un minimum supérieur et raw < minimum", () => {
-    expect(() =>
-      buildPremiumChapterContract({
-        approvedOutline: buildApprovedOutline(10),
-        heroCharacterId: "hero_1",
-        projectGenre: "action",
-        projectTone: "dramatic",
-        minimumPanels: 100,
-      }),
-    ).toThrow(/premium_raw_panels_under_target/);
-  });
-
-  it("autorise le padding UNIQUEMENT via MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY=true", () => {
-    process.env.MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY = "true";
+  it("renvoie les blueprints nativement produits (pas d'expansion legacy)", () => {
     const result = buildPremiumChapterContract({
       approvedOutline: buildApprovedOutline(10),
       heroCharacterId: "hero_1",
       projectGenre: "action",
       projectTone: "dramatic",
     });
-    expect(result.panelBlueprints.length).toBeGreaterThanOrEqual(75);
+    // 10 beats → en général ~30-60 blueprints natifs (sans padding).
+    // Le contrat ne doit plus dépasser 75 ou être padded à 75.
+    expect(result.panelBlueprints.length).toBeGreaterThan(0);
+    expect(result.panelBlueprints.length).toBeLessThan(75);
+  });
+
+  it("ne padde pas vers minimumPanels même si fourni", () => {
+    const result = buildPremiumChapterContract({
+      approvedOutline: buildApprovedOutline(10),
+      heroCharacterId: "hero_1",
+      projectGenre: "action",
+      projectTone: "dramatic",
+      minimumPanels: 100,
+    });
+    expect(result.panelBlueprints.length).toBeLessThan(100);
   });
 });

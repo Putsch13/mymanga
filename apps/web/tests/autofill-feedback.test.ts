@@ -35,6 +35,10 @@ vi.mock("@manga-ai-studio/core", () => ({
       const rec = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
       return { intent: rec.intent ?? null, ...rec };
     },
+    safeParse: (v: unknown) => {
+      const rec = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
+      return { success: true, data: { intent: rec.intent ?? null, ...rec } };
+    },
   },
   chapterStudioSnapshotSchema: {
     parse: (v: unknown) => v,

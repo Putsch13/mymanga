@@ -78,6 +78,11 @@ function buildUserPrompt(input: MangaEditorInput): string {
 
   const targetPanels = input.targetPanelCount ?? 72;
   const heroIds = (input.heroCharacterIds ?? []).join(",") || "(none)";
+  const projectFormat = input.projectFormat ?? "manga";
+  const formatGuideline =
+    projectFormat === "webtoon"
+      ? "PROJECT FORMAT = WEBTOON. Think vertical scroll. Use 3 panels max per section, favor `splash`, `vertical_strip`, `vertical_hero_4` layouts. Use full-width inserts for reveals. Add breathing beats (silent_transition) every 4-5 panels."
+      : "PROJECT FORMAT = MANGA. Think printed page. Use 4-6 panels per page, favor `grid_2x2`, `grid_2x3`, `staggered_5`, `asymmetric_hero`, `cinematic_bar`. Use double_spread or splash only for major reveals. Respect page-turn drama.";
 
   return `StoryArc for chapter "${arc.title}" (ch#${arc.chapterNumber}):
 
@@ -86,6 +91,7 @@ Goal: ${arc.chapterGoal}
 Cliffhanger: ${arc.cliffhanger}
 Hero character IDs: ${heroIds}
 Target total panels: ${targetPanels}
+${formatGuideline}
 
 Beats (in order):
 ${beatsSummary}

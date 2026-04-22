@@ -23,8 +23,10 @@
 
 import {
   assertValidRenderSpec,
+  assertDedicatedFaceCloseupForPanel,
   buildMinimalPanelPromptStrict,
   ContradictoryPanelPromptError,
+  MissingDedicatedFaceCloseupRefError,
   buildPanelRenderSpec,
   MissingMainCharacterRefError,
   resolveFalRenderRoute,
@@ -127,6 +129,32 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
       errors.push({ panelId: panel.panelId, error: `spec_invalid: ${msg}` });
       failedCount += 1;
       continue;
+    }
+
+    // P7 — garde strict face closeup : un panel en renderMode closeup
+    // doit avoir une face ref dédiée (chargée depuis CharacterVisualRef
+    // avec metadata closeup) pour chaque personnage principal visible.
+    // Plus de fallback silencieux vers la silhouette/outfit.
+    try {
+      const visibleMain = spec.visibleCharacters.filter(
+        (c) => c.role === "hero" || c.role === "support" || c.role === "enemy",
+      );
+      for (const c of visibleMain) {
+        const entry = input.visualMemory.characters.get(c.characterId);
+        assertDedicatedFaceCloseupForPanel({
+          characterId: c.characterId,
+          faceCloseupRefUrl: entry?.faceRefUrl ?? null,
+          renderMode: spec.renderMode,
+          panelId: spec.panelId,
+        });
+      }
+    } catch (err) {
+      if (err instanceof MissingDedicatedFaceCloseupRefError) {
+        errors.push({ panelId: panel.panelId, error: `missing_face_closeup_ref: ${err.message}` });
+        failedCount += 1;
+        continue;
+      }
+      throw err;
     }
 
     specs.push(spec);

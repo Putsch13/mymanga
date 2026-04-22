@@ -199,6 +199,37 @@ export async function POST(req: Request, ctx: Ctx) {
     }
   }
 
+  // P0.2 — VALIDATION FINALE DU PATCH CÔTÉ ROUTE.
+  // Avant de renvoyer le patch au studio (qui va le PATCH en base), on
+  // s'assure que chaque champ structuré est VALIDE vis-à-vis du schéma
+  // studio. Si le LLM a produit un truc aberrant malgré la normalisation
+  // côté moteur (ex : object mais clés fausses), on refuse la réponse
+  // avec un 422 + diagnostic champ par champ. Aucun patch mal typé ne
+  // doit redescendre vers le studio PATCH.
+  const patchValidation = chapterStudioDataSchema.safeParse(result.suggestedPatch);
+  if (!patchValidation.success) {
+    const fieldIssues = patchValidation.error.issues.slice(0, 10).map((issue) => ({
+      path: issue.path.join("."),
+      code: issue.code,
+      message: issue.message,
+    }));
+    console.error(
+      `[autofill] autofill_invalid_patch chapterId=${chapterId} mode=${body.mode} ` +
+        `issues=${fieldIssues.length} first=${fieldIssues[0]?.path}:${fieldIssues[0]?.message}`,
+    );
+    return NextResponse.json(
+      {
+        error: "autofill_invalid_patch",
+        code: "AUTOFILL_INVALID_PATCH",
+        message:
+          "L'IA autofill a renvoyé un patch mal typé. Aucun champ n'a été appliqué au studio.",
+        fieldIssues,
+        mode: body.mode,
+      },
+      { status: 422 },
+    );
+  }
+
   console.log(
     `[autofill] autofill_success chapterId=${chapterId} mode=${body.mode} ` +
     `appliedFields=${appliedFields.join(",")}`,

@@ -6,12 +6,14 @@
 import {
   buildApprovedOutlineFromProductionOutline,
   buildChapterReadinessReport,
+  PREMIUM_PANEL_RANGE,
+  classifyPremiumPanelCount,
   type ApprovedChapterOutline,
   type ChapterStudioSnapshot,
   type ProductionOutline,
   type ProductionPlan,
 } from "@manga-ai-studio/core";
-import { buildPremiumChapterContractAsync, expandBlueprintsToMinimum } from "@manga-ai-studio/ai";
+import { buildPremiumChapterContractAsync } from "@manga-ai-studio/ai";
 
 // ─── Constante canonique des champs premium ───────────────────────────────────
 
@@ -691,45 +693,29 @@ export function buildGenerationJobInputFromSnapshot(opts: GenerationJobInputOpti
     throw new InvalidBlueprintsError(invalidBlueprints);
   }
 
-  // AUDIT v2 — le contrat images (minimumImages, ex: 75) garantit le nombre
-  // d'images à rendre, pas le nombre de beats narratifs. Le découpage
-  // narratif s'adapte à la matière (généralement 30-60 blueprints). On
-  // applique donc un enrichissement narratif explicite pour produire des
-  // plans de coupe / reactions / inserts / environment shots dérivés des
-  // beats existants (voir `expandBlueprintsToMinimum`). Chaque blueprint
-  // enrichi produit ensuite son propre prompt différencié vers fal.
-  //
-  // Le guard `IncompletePlanError` est conservé UNIQUEMENT comme filet en
-  // cas de matière narrative trop faible (0 beat exploitable). Dans ce cas
-  // l'enrichisseur ne peut rien construire et on exige une régénération.
-  const minimumImages = typeof pp?.minimumImages === "number" && pp.minimumImages > 0
-    ? pp.minimumImages
-    : 75;
-
+  // P1 — ENRICHISSEMENT LEGACY RETIRÉ DU CONTRAT PREMIUM.
+  // Le produit valide désormais une RANGE `PREMIUM_PANEL_RANGE` (70–75).
+  // Le storyboard natif doit nativement produire ce nombre — sinon le
+  // contrat premium échoue, au lieu de bourrer des panels clonés.
+  const minimumImages = PREMIUM_PANEL_RANGE.min;
   const rawCount = panelBlueprints.length;
-  const enrichedBlueprints = expandBlueprintsToMinimum(
-    panelBlueprints as never[],
-    minimumImages,
-  ) as unknown[];
-  const enrichmentApplied = enrichedBlueprints.length > rawCount;
+  const panelCountStatus = classifyPremiumPanelCount(rawCount);
 
-  if (enrichedBlueprints.length < minimumImages) {
+  if (panelCountStatus === "under_min") {
     console.error(
-      `[contract] incomplete_plan panelBlueprints=${rawCount} enriched=${enrichedBlueprints.length} ` +
-      `minimumImages=${minimumImages} chapterId=${opts.chapterId ?? "?"}`,
+      `[contract] native_storyboard_under_min panelBlueprints=${rawCount} range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${opts.chapterId ?? "?"}`,
     );
-    throw new IncompletePlanError(enrichedBlueprints.length, minimumImages);
+    throw new IncompletePlanError(rawCount, PREMIUM_PANEL_RANGE.min);
+  }
+  if (panelCountStatus === "over_max") {
+    console.error(
+      `[contract] native_storyboard_over_max panelBlueprints=${rawCount} range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${opts.chapterId ?? "?"} — l'éditeur doit compacter`,
+    );
+    throw new IncompletePlanError(rawCount, PREMIUM_PANEL_RANGE.max);
   }
 
-  if (enrichmentApplied) {
-    console.log(
-      `[contract] enrichment_applied chapterId=${opts.chapterId ?? "?"} ` +
-      `raw=${rawCount} enriched=${enrichedBlueprints.length} ` +
-      `added=${enrichedBlueprints.length - rawCount} minimumImages=${minimumImages}`,
-    );
-  }
-
-  const effectiveBlueprints = enrichedBlueprints;
+  const enrichmentApplied = false as const;
+  const effectiveBlueprints = panelBlueprints as unknown[];
 
   const input: Record<string, unknown> = {
     source: opts.source,

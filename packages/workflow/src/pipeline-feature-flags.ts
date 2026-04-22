@@ -46,6 +46,22 @@ export function isPipelineV3MangaEditorLlmEnabled(): boolean {
 }
 
 /**
+ * Quand `true`, le premium passe UNIQUEMENT par la pipeline v3
+ * (StoryPass → StoryboardPass → RenderPass). Les passes legacy
+ * (narrative-pass + image-generation-pass) ne s'exécutent plus pour
+ * le premium. Requiert `PIPELINE_V3_STORYBOARD=true` ET
+ * `PIPELINE_V3_RENDER_FAL=true` (sinon pas de rendu image réel).
+ *
+ * Par défaut `false` pour permettre une bascule progressive : tant que
+ * `PIPELINE_V3_PREMIUM_ONLY=false`, la v3 tourne en shadow mode et la
+ * legacy garde la main. Dès que ce flag est `true`, toute exception v3
+ * fait échouer le job (aucun fallback silencieux).
+ */
+export function isPipelineV3PremiumOnlyEnabled(): boolean {
+  return parseBoolEnv("PIPELINE_V3_PREMIUM_ONLY", false);
+}
+
+/**
  * Expose de manière structurée tous les flags connus.
  * Utile pour logs de diagnostic au démarrage du pipeline.
  */
