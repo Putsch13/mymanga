@@ -109,4 +109,33 @@ describe("buildMinimalPanelPrompt", () => {
     expect(r.positive.toLowerCase()).not.toContain("as primary subject");
     expect(r.positive).toContain("balanced framing");
   });
+
+  it("injecte hairColor + eyeColor du personnage dans le prompt", () => {
+    const r = buildMinimalPanelPrompt(
+      makeSpec({
+        visibleCharacters: [
+          {
+            characterId: "c1",
+            name: "Miya",
+            role: "hero",
+            poseIntent: null,
+            expressionIntent: null,
+            hairColor: "black",
+            eyeColor: "blue",
+            canonSignatureText: "short bob haircut",
+            forbiddenDrift: ["red eyes", "long silver hair"],
+          },
+        ],
+        constraints: {
+          mustShow: [],
+          mustNotShow: [],
+          forbiddenDrift: ["red eyes", "long silver hair"],
+          noTextInsideImage: true,
+        },
+      }),
+    );
+    expect(r.positive.toLowerCase()).toContain("black hair");
+    expect(r.positive.toLowerCase()).toContain("blue eyes");
+    expect(r.negative.toLowerCase()).toContain("red eyes");
+  });
 });

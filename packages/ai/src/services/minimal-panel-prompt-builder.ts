@@ -434,9 +434,15 @@ export function buildMinimalPanelPromptStrict(
 
 function describeCharacter(c: PanelRenderVisibleCharacter): string {
   const role = c.role === "hero" ? "protagonist" : c.role;
+  const traits = [
+    c.hairColor ? `${c.hairColor} hair` : null,
+    c.eyeColor ? `${c.eyeColor} eyes` : null,
+    c.canonSignatureText ? c.canonSignatureText : null,
+  ].filter((value): value is string => Boolean(value)).slice(0, 3);
+  const traitLine = traits.length > 0 ? `, canonical traits: ${traits.join(", ")}` : "";
   const pose = c.poseIntent ? `, pose: ${c.poseIntent}` : "";
   const expr = c.expressionIntent ? `, expression: ${c.expressionIntent}` : "";
-  return `${c.name} (${role})${pose}${expr}`;
+  return `${c.name} (${role}${traitLine})${pose}${expr}`;
 }
 
 function buildDialogueTwoShotSubject(chars: PanelRenderVisibleCharacter[]): string {

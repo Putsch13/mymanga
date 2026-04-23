@@ -58,6 +58,7 @@ export interface RenderedPanelDescriptor {
   provider?: string | null;
   model?: string | null;
   seed?: number | null;
+  error?: string | null;
 }
 
 export interface GeneratePanelImageResult {
@@ -233,13 +234,17 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
         descriptor.provider = res.provider ?? null;
         descriptor.model = res.model ?? null;
         descriptor.seed = res.seed ?? null;
+        descriptor.error = null;
       } else {
         failedCount += 1;
-        errors.push({ panelId: panel.panelId, error: res.error ?? "render_failed" });
+        const failure = res.error ?? "render_failed";
+        descriptor.error = failure;
+        errors.push({ panelId: panel.panelId, error: failure });
       }
     } catch (err) {
       failedCount += 1;
       const msg = err instanceof Error ? err.message : String(err);
+      descriptor.error = `render_threw: ${msg}`;
       errors.push({ panelId: panel.panelId, error: `render_threw: ${msg}` });
     }
   }

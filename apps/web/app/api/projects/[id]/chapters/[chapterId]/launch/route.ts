@@ -105,6 +105,18 @@ export async function POST(_req: Request, ctx: Ctx) {
     return validationError("Le chapitre n'est pas prêt pour la génération.", readiness);
   }
 
+  const focusCharacterIds = Array.isArray(snapshot.data.characterSelection?.activeCharacterIds)
+    ? snapshot.data.characterSelection.activeCharacterIds.filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      )
+    : [];
+  const lockedCharacterIds = Array.isArray(snapshot.data.characterSelection?.lockedCharacterIds)
+    ? snapshot.data.characterSelection.lockedCharacterIds.filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      )
+    : [];
+  const requiredCanonCharacterIds = Array.from(new Set([...focusCharacterIds, ...lockedCharacterIds]));
+
   const chapterOutlineRecord = asRecord(chapter.outline);
 
   // Résoudre l'approvedOutline depuis le contrat premium persisté — jamais de builder legacy
@@ -263,7 +275,7 @@ export async function POST(_req: Request, ctx: Ctx) {
   try {
     const canonReport = await assertChapterCanonReadiness({
       projectId,
-      requiredCharacterIds: null,
+      requiredCharacterIds: requiredCanonCharacterIds.length > 0 ? requiredCanonCharacterIds : null,
     });
     if (canonReport.blocking) {
       console.warn(
@@ -381,7 +393,7 @@ export async function POST(_req: Request, ctx: Ctx) {
       approvedOutline,
       selectedPlotLabel: snapshot.data.selectedPlotLabel ?? "bold",
       creativityControls: snapshot.data.creativityControls as Record<string, unknown> | null ?? null,
-      focusCharacterIds: [],
+      focusCharacterIds,
       estimateContext: estimateContext
         ? {
             targetChapterId: estimateContext.targetChapterId ?? null,
@@ -478,6 +490,7 @@ export async function POST(_req: Request, ctx: Ctx) {
         operationalStatus: stack.operationalStatus,
         degradedModes: stack.degradedModes,
         stackWarnings: stack.warnings,
+        focusCharacterIds,
       },
     },
   });

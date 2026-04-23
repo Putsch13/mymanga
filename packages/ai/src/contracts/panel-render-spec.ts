@@ -36,6 +36,10 @@ export interface PanelRenderVisibleCharacter {
   role: PanelRenderCharacterRole;
   poseIntent: string | null;
   expressionIntent: string | null;
+  hairColor?: string | null;
+  eyeColor?: string | null;
+  canonSignatureText?: string | null;
+  forbiddenDrift?: string[];
 }
 
 export interface PanelRenderContinuityLocks {

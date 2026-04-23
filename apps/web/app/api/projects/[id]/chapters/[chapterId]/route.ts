@@ -219,6 +219,10 @@ export async function GET(_req: Request, ctx: Ctx) {
         meta.promptDebug && typeof meta.promptDebug === "object"
           ? (meta.promptDebug as Record<string, unknown>)
           : {};
+      const generationDebugSnapshot =
+        meta.generationDebugSnapshot && typeof meta.generationDebugSnapshot === "object"
+          ? meta.generationDebugSnapshot
+          : null;
       // P0.4 — packet canonique persisté (source de vérité audit/review)
       const canonicalPacket =
         meta.canonicalPacket && typeof meta.canonicalPacket === "object"
@@ -288,6 +292,7 @@ export async function GET(_req: Request, ctx: Ctx) {
               ? (promptDebug.promptWarnings as string[])
               : [],
         },
+        generationDebugSnapshot,
         // P0.4 — packet canonique brut + validation + reroll plans pour la review UI
         canonicalPacket: canonicalPacket
           ? {

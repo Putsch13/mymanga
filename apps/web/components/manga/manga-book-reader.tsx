@@ -425,7 +425,7 @@ export function MangaBookReader({
                       </div>
                     </div>
                   ) : (
-                    <MangaPageGrid page={spreadLeftPage} />
+                    <MangaPageGrid page={spreadLeftPage} readingDirection={mangaRtl ? "rtl" : "ltr"} />
                   )
                   ) : (
                     <div className="flex h-full items-center justify-center bg-stone-950">
@@ -491,7 +491,7 @@ export function MangaBookReader({
                         </div>
                       </div>
                     ) : (
-                      <MangaPageGrid page={spreadRightPage} />
+                      <MangaPageGrid page={spreadRightPage} readingDirection={mangaRtl ? "rtl" : "ltr"} />
                     )
                   ) : (
                     <div className="flex h-full items-center justify-center bg-stone-950">
@@ -592,7 +592,7 @@ export function MangaBookReader({
                           />
                         </div>
                       </div>
-                    : <MangaPageGrid page={leftPage} />
+                    : <MangaPageGrid page={leftPage} readingDirection={mangaRtl ? "rtl" : "ltr"} />
                 )}
               </div>
             )}

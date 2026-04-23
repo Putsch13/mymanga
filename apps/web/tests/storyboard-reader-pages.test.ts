@@ -58,6 +58,10 @@ function makeChapterWithPersistedPlan(): ChapterPayload {
                 actionLine: "deux persos parlent",
                 emotionLine: "tension",
                 dialogue: [{ speaker: "Hero", text: "On y va." }],
+                textPlacementHint: {
+                  preferredAnchorZones: ["top-right"],
+                  overflowStrategy: "caption_strip",
+                },
               },
             ],
           },
@@ -120,6 +124,7 @@ describe("reader — pipeline v3 storyboard branch", () => {
     const p2 = pages[0]!.panels[1]!;
     expect(p2.speaker).toBe("Hero");
     expect(p2.dialogue).toBe("On y va.");
+    expect(p2.textMeta?.preferredAnchorZones).toEqual(["top-right"]);
   });
 
   it("fallback legacy si pas de storyboardPlanV2 (outline vide)", () => {

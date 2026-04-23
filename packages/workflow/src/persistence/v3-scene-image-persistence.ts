@@ -19,6 +19,10 @@
  */
 
 import { prisma, type Prisma } from "@manga-ai-studio/db";
+import {
+  buildReaderPanelSlots,
+  type GenerationDebugSnapshot,
+} from "@manga-ai-studio/core";
 import type {
   FalRenderRoute,
   PanelRenderSpec,
@@ -115,11 +119,86 @@ export async function persistV3RenderedPanels(
       const panelNumber = panel.panelNumberInPage;
       const imageUrl = record.imageUrl ?? null;
       const hasImage = !!imageUrl;
+      const pageSlots = buildReaderPanelSlots({
+        template: page.layoutTemplate,
+        readingDirection: "rtl",
+        panelIds: page.panels.map((pagePanel) => pagePanel.panelId),
+      });
+      const panelSlot = pageSlots.find((slot) => slot.panelId === panel.panelId) ?? null;
       const status = record.error
         ? "failed"
         : hasImage
           ? "completed"
           : "pending";
+
+      const generationDebugSnapshot: GenerationDebugSnapshot = {
+        version: "v2",
+        panelId: panel.panelId,
+        pageNumber: page.pageNumber,
+        panelNumberInPage: panel.panelNumberInPage,
+        readerLayout: {
+          templateId: panel.readerTemplateId ?? `${page.layoutTemplate}_rtl`,
+          readingDirection: "rtl",
+          panelSlotArea: panelSlot?.area ?? null,
+          panelSlotOrder: panelSlot?.order ?? null,
+        },
+        roster: [
+          ...panel.characters.map((characterId) => ({
+            entityId: characterId,
+            entityType: "character" as const,
+            displayName:
+              record.spec.visibleCharacters.find((character) => character.characterId === characterId)?.name
+              ?? characterId,
+            presence: "must_show" as const,
+            continuityNotes: panel.continuityNotes,
+          })),
+          ...(panel.npcs ?? []).map((npc) => ({
+            entityId: npc.continuityId ?? npc.displayName ?? "npc",
+            entityType: npc.category === "antagonist_enemy" ? ("enemy" as const) : ("npc" as const),
+            displayName: npc.displayName ?? npc.continuityId ?? null,
+            presence: "support" as const,
+            continuityNotes: panel.continuityNotes,
+          })),
+        ],
+        characterVisualDna: panel.characterVisualDna ?? [],
+        npcVisualDna: panel.npcVisualDna ?? [],
+        environmentVisualDna:
+          panel.environmentVisualDna
+          ?? {
+            locationName: record.spec.locationName,
+            anchorId: panel.visualAnchors.environmentAnchorId ?? null,
+            forbiddenDrift: record.spec.constraints.forbiddenDrift ?? [],
+          },
+        continuity: panel.continuityState ?? {
+          previousPanelId: panel.visualAnchors.previousPanelAnchorId ?? null,
+          previousEnvironmentAnchorId: panel.visualAnchors.environmentAnchorId ?? null,
+          notes: panel.continuityNotes,
+          mustPersist: panel.mustShow,
+          mustAvoid: panel.mustNotShow,
+        },
+        text: {
+          dialogues: panel.dialogue,
+          narration: panel.narration ?? null,
+          sfx: panel.sfx ?? [],
+          reservedZones: [],
+          preferredAnchorZones: panel.textPlacementHint?.preferredAnchorZones ?? [],
+          overflowStrategy: panel.textPlacementHint?.overflowStrategy ?? "caption_strip",
+        },
+        prompt: {
+          positive: record.prompt.positive,
+          negative: record.prompt.negative,
+          provider: record.provider ?? null,
+          model: record.model ?? null,
+          routeModelId: record.route.modelId,
+          referencePolicy: record.route.referencePolicy,
+          seed: record.seed ?? null,
+        },
+        result: {
+          status: status as "completed" | "failed" | "pending",
+          imageUrl,
+          error: record.error ?? null,
+        },
+      };
 
       const metadata = {
         v3: true,
@@ -134,6 +213,18 @@ export async function persistV3RenderedPanels(
         locationName: record.spec.locationName,
         actionLine: record.spec.actionLine,
         emotionLine: record.spec.emotionLine,
+        dialogue: panel.dialogue,
+        narration: panel.narration ?? null,
+        sfx: panel.sfx ?? [],
+        textMeta: panel.textPlacementHint
+          ? {
+              preferredAnchorZones: panel.textPlacementHint.preferredAnchorZones ?? [],
+              overflowStrategy: panel.textPlacementHint.overflowStrategy ?? "caption_strip",
+              overlayReadingDirection: "rtl",
+            }
+          : undefined,
+        readerLayout: generationDebugSnapshot.readerLayout,
+        generationDebugSnapshot,
       } as unknown as Prisma.InputJsonValue;
 
       const routingDecision = {

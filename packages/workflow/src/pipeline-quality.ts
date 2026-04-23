@@ -13,6 +13,7 @@ export type PipelineJobInput = {
   selectedPlotLabel?: "safe" | "bold" | "shock";
   creativityControls?: Partial<CreativityControls>;
   panelBlueprints?: unknown[];
+  productionPlanPages?: unknown[];
   productionPlan?: unknown;
   premiumReadinessScore?: number;
 };

@@ -15,6 +15,16 @@
  *   - chaque panel DOIT avoir un sourceBeatId pointant sur un StoryBeat
  */
 
+import type {
+  CharacterVisualDna,
+  EnvironmentVisualDna,
+  NpcVisualDna,
+  ReaderPageTemplateId,
+  ReaderTextPlacementHint,
+  SceneContinuitySnapshot,
+  SceneRosterEntry,
+} from "@manga-ai-studio/core";
+
 export type StoryboardLayoutTemplate =
   | "splash"
   | "double_spread"
@@ -256,6 +266,14 @@ export interface StoryboardPanel {
   mustNotShow: string[];
   continuityNotes: string[];
   visualAnchors: StoryboardPanelVisualAnchors;
+  sceneContextLabel?: string | null;
+  readerTemplateId?: ReaderPageTemplateId | null;
+  textPlacementHint?: ReaderTextPlacementHint | null;
+  sceneRoster?: SceneRosterEntry[];
+  continuityState?: SceneContinuitySnapshot | null;
+  characterVisualDna?: CharacterVisualDna[];
+  npcVisualDna?: NpcVisualDna[];
+  environmentVisualDna?: EnvironmentVisualDna | null;
   /**
    * COMMIT P5 — PNJ / ennemis attachés au panel, catégorisés.
    * Optionnel (backward compat), mais le storyboard-validator

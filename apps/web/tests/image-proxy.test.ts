@@ -74,4 +74,21 @@ describe("P2.3 — proxy image allowlist", () => {
     expect(m.verifySignature(url, sig)).toBe(true);
     expect(m.verifySignature(url + "?", sig)).toBe(false);
   });
+
+  it("renvoie un cache-control public quand l'upstream est une image", async () => {
+    vi.resetModules();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("x", {
+      status: 200,
+      headers: { "content-type": "image/jpeg" },
+    })));
+    const { GET } = await import("../app/api/images/proxy/route");
+
+    const res = await GET(
+      new Request(
+        "http://localhost/api/images/proxy?url=" +
+          encodeURIComponent("https://v3b.fal.media/files/x.jpg"),
+      ),
+    );
+    expect(res.headers.get("Cache-Control")).toContain("public");
+  });
 });

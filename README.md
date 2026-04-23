@@ -1395,6 +1395,35 @@ Decoupage du monolithe `manga-panel.tsx` (~590 lignes) en composants atomiques e
 
 ## Sprint 3 — Fiabilite prompt FAL + shot plan narratif (avril 2026)
 
+## TODO V2 — images + persistance + texte in-panel + reader manga (avril 2026)
+
+Cette passe pose la base partagee entre pipeline, persistance, reader et export pour eviter que chaque surface reinvente son propre format de page, de texte ou de debug.
+
+### Contrats partages
+- `packages/core/src/types/reader-page-format.ts` — nouveau contrat commun `ReadingDirection`, `ReaderPageTemplateId`, `ReaderPanelSlot`, `ReaderTextPlacementHint` + helpers `mirrorCssGridAreas()`, `getReaderLayoutDescriptor()`, `buildReaderPanelSlots()`.
+- `packages/core/src/types/generation-debug-snapshot.ts` — snapshot v2 persistant pour chaque case : roster scene, ADN visuel perso/PNJ/decor, continuite, payload texte, layout reader, prompt effectivement envoye et resultat du rendu.
+
+### Pipeline et persistance v3
+- `PanelBlueprintPremium` et `StoryboardPanel` transportent maintenant en option : `dialogueLines`, `narrationText`, `sfxCues`, `textPlacementHint`, `sceneRoster`, `continuityState`, `characterVisualDna`, `npcVisualDna`, `environmentVisualDna`, `readerTemplateId`.
+- `storyboard-from-premium-plan.ts` remonte ces champs jusqu'au `StoryboardPlan`.
+- `v3-scene-image-persistence.ts` persiste desormais dans `SceneImage.metadata` :
+  - `dialogue`, `narration`, `sfx`
+  - `textMeta` (anchors preferes + strategie overflow)
+  - `readerLayout` (template effectif + slot + readingDirection)
+  - `generationDebugSnapshot` complet pour l'audit/review.
+
+### Reader et compositing texte
+- `build-reader-pages.ts` publie maintenant un ordre de lecture explicite (`readingDirection: "rtl"`) et des `panelSlots` stables, aussi bien pour le storyboard v3 persiste que pour le fallback legacy.
+- `manga-page-grid.tsx` n'assume plus un ordre LTR fixe : la grille peut etre miroitee proprement via les helpers partages.
+- `panel-text-compositor.ts` ajoute une couche de composition plus haute que `bubble-compositor.ts` : support des `preferredAnchorZones` et des dialogues overflowes en `caption_strip` quand une case est trop chargee.
+- `panel-composed-view.tsx` et `manga-panel.tsx` consomment maintenant `textMeta` pour rendre le texte in-panel sans demander a FAL de dessiner les bulles.
+
+### Tests ajoutes
+- `packages/core/src/types/reader-page-format.test.ts`
+- `apps/web/tests/panel-text-compositor.test.ts`
+- extension de `apps/web/tests/build-reader-pages.test.ts`
+- extension de `apps/web/tests/storyboard-reader-pages.test.ts`
+
 Objectif : gagner en fiabilite et en dynamique visuelle sur les 70-75 cases d'un chapitre.
 
 ### Probleme adresse

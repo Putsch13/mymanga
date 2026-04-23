@@ -1,4 +1,5 @@
 import { prisma } from "@manga-ai-studio/db";
+import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
 import { setJobProgress } from "./pipeline-job";
 import { normalizeCreativeControls, type PipelineJobInput } from "./pipeline-quality";
 import {
@@ -115,6 +116,10 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
 
   const pipelineV3Enabled = isPipelineV3StoryboardEnabled();
   const premiumV3OnlyEnabled = isPipelineV3PremiumOnlyEnabled();
+  const chapterLocationName =
+    typeof (chapter as unknown as { location?: string | null }).location === "string"
+      ? (chapter as unknown as { location: string }).location
+      : null;
   console.log(
     `[pipeline:v3] PIPELINE_V3_STORYBOARD=${pipelineV3Enabled} PIPELINE_V3_PREMIUM_ONLY=${premiumV3OnlyEnabled}`,
   );
@@ -133,10 +138,23 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         id: c.id,
         name: c.name,
         roleType: (c as { roleType?: string | null }).roleType ?? null,
+        hairColor: (c as { hairColor?: string | null }).hairColor ?? null,
+        eyeColor: (c as { eyeColor?: string | null }).eyeColor ?? null,
+        canonSignatureText: (c as { canonSignatureText?: string | null }).canonSignatureText ?? null,
+        forbiddenVisualDrift: Array.isArray((c as { forbiddenVisualDrift?: string[] | null }).forbiddenVisualDrift)
+          ? (c as { forbiddenVisualDrift?: string[] }).forbiddenVisualDrift
+          : [],
       })),
       focusCharacterIds,
       pipelineV3Enabled,
       premiumV3OnlyEnabled,
+      productionPlanPages: Array.isArray(jobInput.productionPlanPages)
+        ? jobInput.productionPlanPages as Array<{ pageNumber: number; panelCount: number; beatIds?: string[] | null }>
+        : undefined,
+      panelBlueprints: Array.isArray(jobInput.panelBlueprints)
+        ? jobInput.panelBlueprints as PanelBlueprintPremium[]
+        : undefined,
+      chapterLocationName,
     });
 
     // P3 — gate : en mode premium-only, on SAUTE la pipeline legacy

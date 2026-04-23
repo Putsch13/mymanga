@@ -2,12 +2,13 @@ import {
   extractRequiredVisualCoverage,
   validateVisualCoverage,
 } from "@manga-ai-studio/ai";
-import { PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
+import { PREMIUM_PANEL_RANGE, type PanelBlueprintPremium } from "@manga-ai-studio/core";
 import { createDefaultPanelImageGenerator } from "./passes/default-panel-image-generator";
 import { loadChapterVisualMemory } from "./passes/load-chapter-visual-memory";
 import { runPageQaPass } from "./passes/page-qa-pass";
 import { runRenderPass } from "./passes/render-pass";
 import { runStoryPass } from "./passes/story-pass";
+import { buildStoryboardPlanFromPremiumBlueprints } from "./passes/storyboard-from-premium-plan";
 import { runStoryboardPass } from "./passes/storyboard-pass";
 import { buildStyleBibleFromUserProject } from "./chapter-style-bible-resolver";
 import { isPipelineV3RenderFalEnabled } from "./pipeline-feature-flags";
@@ -16,6 +17,10 @@ export interface PremiumV3PipelineCharacter {
   id: string;
   name: string;
   roleType?: string | null;
+  hairColor?: string | null;
+  eyeColor?: string | null;
+  canonSignatureText?: string | null;
+  forbiddenVisualDrift?: string[] | null;
 }
 
 export interface RunPremiumV3PipelineInput {
@@ -31,6 +36,9 @@ export interface RunPremiumV3PipelineInput {
   focusCharacterIds: string[];
   pipelineV3Enabled: boolean;
   premiumV3OnlyEnabled: boolean;
+  productionPlanPages?: Array<{ pageNumber: number; panelCount: number; beatIds?: string[] | null }>;
+  panelBlueprints?: PanelBlueprintPremium[];
+  chapterLocationName?: string | null;
 }
 
 export interface RunPremiumV3PipelineResult {
@@ -93,12 +101,25 @@ export async function runPremiumV3Pipeline(
       );
     }
 
-    const storyboardPassResult = await runStoryboardPass({
-      storyArc: storyPassResult.storyArc,
-      heroCharacterIds: input.focusCharacterIds,
-      projectFormat: resolveProjectFormat(input.project, input.projectId),
-      targetPanelCount: PREMIUM_PANEL_RANGE.target,
-    });
+    const storyboardPassResult =
+      Array.isArray(input.panelBlueprints) && input.panelBlueprints.length > 0
+        ? {
+            storyboardPlan: buildStoryboardPlanFromPremiumBlueprints({
+              chapterId: input.chapterId,
+              projectFormat: resolveProjectFormat(input.project, input.projectId),
+              panelBlueprints: input.panelBlueprints,
+              pages: input.productionPlanPages,
+              chapterLocationName: input.chapterLocationName ?? null,
+            }),
+            warnings: ["storyboard_plan.source=premium_production_plan"],
+            blockers: [],
+          }
+        : await runStoryboardPass({
+            storyArc: storyPassResult.storyArc,
+            heroCharacterIds: input.focusCharacterIds,
+            projectFormat: resolveProjectFormat(input.project, input.projectId),
+            targetPanelCount: PREMIUM_PANEL_RANGE.target,
+          });
     if (storyboardPassResult.blockers.length > 0) {
       console.error(
         `[pipeline:v3:storyboard] blockers=${storyboardPassResult.blockers.join(" | ")}`,
@@ -174,6 +195,10 @@ export async function runPremiumV3Pipeline(
           id: c.id,
           name: c.name,
           roleType: c.roleType ?? null,
+          hairColor: c.hairColor ?? null,
+          eyeColor: c.eyeColor ?? null,
+          canonSignatureText: c.canonSignatureText ?? null,
+          forbiddenVisualDrift: c.forbiddenVisualDrift ?? [],
         })),
         mainCharacterIds: input.focusCharacterIds,
         generatePanelImage: renderFalEnabled

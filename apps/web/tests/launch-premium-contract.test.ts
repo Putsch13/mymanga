@@ -6,6 +6,7 @@ import {
 
 const prismaMock = {
   chapter: { findFirst: vi.fn(), update: vi.fn() },
+  character: { findMany: vi.fn() },
   job: { create: vi.fn() },
 };
 
@@ -52,6 +53,7 @@ vi.mock("@/lib/age-gate", () => ({
 
 vi.mock("@manga-ai-studio/ai", () => ({
   computeShotVarietyBudget: () => ({ varietyScore: 0.8, missingShots: [] }),
+  computeContractualFocusAdequacy: () => ({ blocking: false, score: 0.9, violations: [] }),
   // AUDIT v2 — l'enrichisseur narratif est maintenant appelé de manière
   // explicite par buildGenerationJobInputFromSnapshot pour garantir
   // `panelBlueprints.length >= minimumImages`. En test, on duplique le
@@ -138,6 +140,7 @@ beforeEach(() => {
   sendChapterGenerateRequestedMock.mockResolvedValue({ ok: true });
   runFullChapterPipelineFromJobMock.mockResolvedValue({ ok: true });
   prismaMock.chapter.update.mockResolvedValue({ id: "chapter-1" });
+  prismaMock.character.findMany.mockResolvedValue([]);
 });
 
 describe("/launch — contrat premium", () => {
@@ -176,6 +179,7 @@ describe("/launch — contrat premium", () => {
     const jobInput = createCall?.data?.input as Record<string, unknown> | undefined;
     expect(jobInput).toBeDefined();
     expect(jobInput?.source).toBe("chapter_studio_launch");
+    expect(jobInput?.focusCharacterIds).toEqual(["hero-1", "support-1"]);
     // premiumReadinessScore transmis
     expect(typeof jobInput?.premiumReadinessScore).toBe("number");
     expect(jobInput?.productionOutline).toBeDefined();

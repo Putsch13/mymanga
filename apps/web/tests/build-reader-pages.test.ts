@@ -119,6 +119,13 @@ describe("buildPagesFromChapter (Sprint 1 — nouveau paginator)", () => {
     expect(pages[0]!.layoutTemplate).toBeDefined();
     expect(pages[0]!.layout).toMatch(/^[A-F]$/);
   });
+
+  it("publie un ordre de lecture RTL explicite et des panelSlots stables", () => {
+    const chapter = makeChapter([makeScene("s1", 4)]);
+    const pages = buildPagesFromChapter(chapter);
+    expect(pages[0]!.readingDirection).toBe("rtl");
+    expect(pages[0]!.panelSlots?.map((slot) => slot.area)).toEqual(["b", "a", "d", "c"]);
+  });
 });
 
 describe("buildWebtoonFlowFromChapter", () => {

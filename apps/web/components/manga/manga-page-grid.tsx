@@ -3,6 +3,7 @@
 import type React from "react";
 import type { AnyPanelMood } from "./manga-panel";
 import { getStableImageUrl } from "@/lib/images/get-stable-image-url";
+import type { GenerationDebugSnapshot, ReaderTextPlacementHint } from "@manga-ai-studio/core";
 
 type DemoPanel = {
   id: string;
@@ -21,7 +22,12 @@ export type DemoMangaPage = {
   panels: DemoPanel[];
 };
 import { MangaPanel } from "./manga-panel";
-import { PAGE_LAYOUT_CONFIGS, type PageLayoutTemplate } from "@manga-ai-studio/core";
+import {
+  PAGE_LAYOUT_CONFIGS,
+  getReaderLayoutDescriptor,
+  type PageLayoutTemplate,
+  type ReadingDirection,
+} from "@manga-ai-studio/core";
 // P1-4 : source of truth unique (packages/core) — plus de copie locale.
 
 /**
@@ -137,6 +143,10 @@ export interface UniversalPanel {
     targetAspectRatio?: string;
     layoutTemplate?: string;
   };
+  textMeta?: ReaderTextPlacementHint & {
+    overlayReadingDirection?: ReadingDirection;
+  };
+  generationDebugSnapshot?: GenerationDebugSnapshot;
 }
 
 // LAY-2 : types étendus pour les nouveaux templates de layout
@@ -150,6 +160,8 @@ export interface UniversalMangaPage {
   layout: "A" | "B" | "C" | "D" | "E" | "F";
   /** LAY-2 : template étendu (prioritaire sur layout si présent) */
   layoutTemplate?: ExtendedLayoutTemplate;
+  readingDirection?: ReadingDirection;
+  panelSlots?: Array<{ panelId?: string; area: string; order: number }>;
   isSplashPage?: boolean;
   isDoublePage?: boolean;
   title?: string | null;
@@ -195,6 +207,8 @@ export interface PipelinePanel {
     blockedReason?: string;
     renderMeta?: UniversalPanel["renderMeta"];
     layoutMeta?: UniversalPanel["layoutMeta"];
+    textMeta?: UniversalPanel["textMeta"];
+    generationDebugSnapshot?: GenerationDebugSnapshot;
   };
 }
 
@@ -286,6 +300,8 @@ export function pipelineScenesToPages(
           textScale: img.metadata?.textScale,
           renderMeta: img.metadata?.renderMeta,
           layoutMeta: img.metadata?.layoutMeta,
+          textMeta: img.metadata?.textMeta,
+          generationDebugSnapshot: img.metadata?.generationDebugSnapshot,
         };
       });
 
@@ -337,6 +353,7 @@ export function flattenPagesToPanels(
 
 type Props = {
   page: UniversalMangaPage | DemoMangaPage;
+  readingDirection?: ReadingDirection;
 };
 
 type FitResult = { fit: "cover" | "contain"; position: string };
@@ -384,14 +401,33 @@ function isDemoPage(page: UniversalMangaPage | DemoMangaPage): page is DemoManga
   );
 }
 
-export function MangaPageGrid({ page }: Props) {
+export function MangaPageGrid({ page, readingDirection }: Props) {
   const universal: UniversalMangaPage = isDemoPage(page)
     ? demoPageToUniversal(page)
     : (page as UniversalMangaPage);
 
   // LAY-2 : résolution du layout — priorité aux nouveaux templates
   const extTemplate = universal.layoutTemplate;
-  const dynamicConfig = extTemplate && PAGE_LAYOUT_CONFIGS[extTemplate as keyof typeof PAGE_LAYOUT_CONFIGS];
+  const resolvedReadingDirection = readingDirection ?? universal.readingDirection ?? "ltr";
+  const baseTemplate =
+    extTemplate && !String(extTemplate).endsWith("_rtl")
+      ? (extTemplate as PageLayoutTemplate)
+      : undefined;
+  const dynamicDescriptor = baseTemplate
+    ? getReaderLayoutDescriptor(baseTemplate, resolvedReadingDirection)
+    : null;
+  const dynamicConfig = dynamicDescriptor
+    ?? (extTemplate && PAGE_LAYOUT_CONFIGS[extTemplate as keyof typeof PAGE_LAYOUT_CONFIGS]
+      ? {
+          templateId: extTemplate,
+          readingDirection: resolvedReadingDirection,
+          cssGridAreas: PAGE_LAYOUT_CONFIGS[extTemplate as keyof typeof PAGE_LAYOUT_CONFIGS]!.cssGridAreas,
+          cssGridTemplate: PAGE_LAYOUT_CONFIGS[extTemplate as keyof typeof PAGE_LAYOUT_CONFIGS]!.cssGridTemplate,
+          areas: PAGE_LAYOUT_CONFIGS[extTemplate as keyof typeof PAGE_LAYOUT_CONFIGS]!.areas,
+          panelWeights: PAGE_LAYOUT_CONFIGS[extTemplate as keyof typeof PAGE_LAYOUT_CONFIGS]!.panelWeights,
+          defaultAspectRatios: PAGE_LAYOUT_CONFIGS[extTemplate as keyof typeof PAGE_LAYOUT_CONFIGS]!.defaultAspectRatios,
+        }
+      : null);
   const layoutStyle: React.CSSProperties = dynamicConfig
     ? {
         display: "grid",
@@ -400,8 +436,16 @@ export function MangaPageGrid({ page }: Props) {
         gap: "3px",
       }
     : (LAYOUT_STYLES[universal.layout] ?? LAYOUT_STYLES.A);
+  const orderedAreas = dynamicConfig?.areas ?? AREA_NAMES;
+  const slotByPanelId = new Map(
+    (universal.panelSlots ?? []).map((slot) => [slot.panelId ?? `panel-${slot.order}`, slot.area]),
+  );
   const renderedPanels = universal.panels.map((panel, i) => {
-    const area = AREA_NAMES[i] ?? "a";
+    const area =
+      (panel.id ? slotByPanelId.get(panel.id) : undefined)
+      ?? universal.panelSlots?.[i]?.area
+      ?? orderedAreas[i]
+      ?? "a";
     const { fit, position } = pickPanelImageFit(panel);
     return (
       <MangaPanel
@@ -422,6 +466,7 @@ export function MangaPageGrid({ page }: Props) {
         textScale={panel.textScale}
         renderMeta={panel.renderMeta}
         layoutMeta={panel.layoutMeta}
+        textMeta={panel.textMeta}
         imageFit={fit}
         objectPosition={position}
         panelIndex={i}

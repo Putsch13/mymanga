@@ -1,3 +1,15 @@
+import type {
+  CharacterVisualDna,
+  EnvironmentVisualDna,
+  NpcVisualDna,
+  SceneRosterEntry,
+} from "./generation-debug-snapshot";
+import type {
+  ReaderPageTemplateId,
+  ReaderTextPlacementHint,
+} from "./reader-page-format";
+import type { SceneContinuitySnapshot } from "./generation-debug-snapshot";
+
 // ─── Narrative Facts ──────────────────────────────────────────────────────────
 
 export type NarrativeFactType =
@@ -200,6 +212,17 @@ export interface PanelBlueprintPremium {
    */
   contractualCritical?: boolean;
   notes?: string[];
+  sceneContextLabel?: string | null;
+  dialogueLines?: Array<{ speaker: string; text: string }>;
+  narrationText?: string | null;
+  sfxCues?: string[];
+  readerTemplateId?: ReaderPageTemplateId | null;
+  textPlacementHint?: ReaderTextPlacementHint | null;
+  sceneRoster?: SceneRosterEntry[];
+  continuityState?: SceneContinuitySnapshot | null;
+  characterVisualDna?: CharacterVisualDna[];
+  npcVisualDna?: NpcVisualDna[];
+  environmentVisualDna?: EnvironmentVisualDna | null;
 }
 
 // ─── Focus Budget ─────────────────────────────────────────────────────────────

@@ -16,6 +16,8 @@ export * from "./shot-plan";
 export * from "./enum-normalizer";
 export * from "./character-role";
 export * from "./page-layout-configs";
+export * from "./reader-page-format";
+export * from "./generation-debug-snapshot";
 export * from "./image-intent-taxonomy";
 export * from "./canonical-image-prompt-packet";
 export * from "./pipeline-truth-report";

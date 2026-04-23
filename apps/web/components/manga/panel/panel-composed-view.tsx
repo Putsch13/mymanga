@@ -23,14 +23,16 @@
 
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
+import type { TextAnchorZone, TextOverflowStrategy } from "@manga-ai-studio/core";
 
-import { composePanelTextLayer, type DialogueInput } from "./bubble-compositor";
+import type { DialogueInput } from "./bubble-compositor";
 import type { ForbiddenZone, ReservedZone } from "./bubble-layout-model";
 import { PanelBubbleOverlay } from "./panel-bubble-overlay";
 import { PanelCaptionOverlay } from "./panel-caption-overlay";
 import { PanelEditControls } from "./panel-edit-controls";
 import { PanelImage } from "./panel-image";
 import { PanelSfxOverlay } from "./panel-sfx-overlay";
+import { composePanelTextPresentation } from "./panel-text-compositor";
 
 export interface PanelComposedViewProps {
   panelId: string;
@@ -51,6 +53,8 @@ export interface PanelComposedViewProps {
   objectPosition?: string;
   reservedTextZones?: ReadonlyArray<ReservedZone>;
   forbiddenZones?: ReadonlyArray<ForbiddenZone>;
+  preferredAnchorZones?: ReadonlyArray<TextAnchorZone>;
+  overflowStrategy?: TextOverflowStrategy;
   targetAspectRatio?: string;
 
   renderMode?: "reader" | "webtoon" | "debug" | "print";
@@ -81,6 +85,8 @@ export function PanelComposedView(props: PanelComposedViewProps) {
     objectPosition,
     reservedTextZones,
     forbiddenZones,
+    preferredAnchorZones,
+    overflowStrategy,
     targetAspectRatio,
     renderMode = "reader",
     editable = false,
@@ -92,19 +98,32 @@ export function PanelComposedView(props: PanelComposedViewProps) {
   const [bubblesHidden, setBubblesHidden] = useState(false);
   const isWebtoon = renderMode === "webtoon";
 
-  const textLayer = useMemo(
+  const textComposition = useMemo(
     () =>
-      composePanelTextLayer({
+      composePanelTextPresentation({
         panelId,
         dialogues,
         narration: narration ?? null,
         sfx: sfx ?? null,
         reservedTextZones,
         forbiddenZones,
+        preferredAnchorZones,
+        overflowStrategy,
         isWebtoon,
       }),
-    [panelId, dialogues, narration, sfx, reservedTextZones, forbiddenZones, isWebtoon],
+    [
+      panelId,
+      dialogues,
+      narration,
+      sfx,
+      reservedTextZones,
+      forbiddenZones,
+      preferredAnchorZones,
+      overflowStrategy,
+      isWebtoon,
+    ],
   );
+  const textLayer = textComposition.layer;
 
   const hasImage = Boolean(imageUrl);
   const hasAnyText =
@@ -183,6 +202,17 @@ export function PanelComposedView(props: PanelComposedViewProps) {
           isWebtoon={isWebtoon}
         />
       )}
+
+      {hasImage &&
+        textComposition.overflowStrategy === "caption_strip" &&
+        textComposition.overflowDialogues.length > 0 && (
+          <FallbackTextStrip
+            dialogues={textComposition.overflowDialogues}
+            narration={null}
+            sfx={null}
+            isWebtoon={isWebtoon}
+          />
+        )}
     </div>
   );
 }

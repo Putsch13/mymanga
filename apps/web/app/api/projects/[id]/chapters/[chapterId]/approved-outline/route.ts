@@ -39,12 +39,19 @@ export async function PATCH(req: Request, ctx: Ctx) {
     where: { projectId },
     select: { id: true, roleType: true },
   });
-  const heroCharacterId =
-    projectCharacters.find((c) => /hero|protagon|main/i.test(c.roleType ?? ""))?.id ?? null;
-
   const body = await req.json();
   const approvedOutline = approvedOutlineSchema.parse(body.approvedOutline);
   const existingOutline = asRecord(chapter.outline);
+  const studio = asRecord(existingOutline.studio);
+  const studioData = asRecord(studio.data);
+  const characterSelection = asRecord(studioData.characterSelection);
+  const snapshotHeroCharacterId =
+    typeof characterSelection.heroCharacterId === "string" && characterSelection.heroCharacterId.length > 0
+      ? characterSelection.heroCharacterId
+      : null;
+  const fallbackHeroCharacterId =
+    projectCharacters.find((c) => /hero|protagon|main/i.test(c.roleType ?? ""))?.id ?? null;
+  const heroCharacterId = snapshotHeroCharacterId ?? fallbackHeroCharacterId;
 
   // Si productionOutline + productionPlan sont fournis (depuis generate/page.tsx), les persister tels quels
   // Sinon, reconstruire le contrat premium complet depuis l'approvedOutline

@@ -82,6 +82,7 @@ vi.mock("@manga-ai-studio/ai", () => ({
     return result;
   },
   computeShotVarietyBudget: () => ({ varietyScore: 0.8, missingShots: [] }),
+  computeContractualFocusAdequacy: () => ({ blocking: false, score: 0.9, violations: [] }),
 }));
 
 const patchChapterStudioSnapshotMock = vi.fn();
@@ -809,6 +810,76 @@ describe("routes Chapter Studio", () => {
     if (productionOutline) {
       expect(productionOutline.source).not.toBe("legacy_adapted");
     }
+  });
+
+  it("approved-outline PATCH utilise heroCharacterId depuis chapter.outline.studio.data.characterSelection", async () => {
+    getOwnedChapterMock.mockResolvedValue({
+      id: "chapter-1",
+      chapterNumber: 3,
+      title: "Chapitre 3",
+      summary: "Résumé",
+      cliffhanger: null,
+      userIntent: "Intent",
+      outline: {
+        studio: {
+          data: {
+            characterSelection: {
+              heroCharacterId: "hero-2",
+              activeCharacterIds: ["hero-2", "support-1"],
+            },
+          },
+        },
+      },
+      generatedImages: 0,
+      acceptedImages: 0,
+      rejectedImages: 0,
+      missingImages: 75,
+      minimumImages: 75,
+      criticalPanelsCount: 0,
+      criticalPanelsBlocked: 0,
+      criticalPanelsMissingQa: 0,
+      reviewBlockedReason: null,
+    });
+    prismaMock.project.findFirst.mockResolvedValue({ primaryGenre: "mystery", tone: "tense" });
+    prismaMock.character.findMany.mockResolvedValue([
+      { id: "hero-1", roleType: "hero" },
+      { id: "hero-2", roleType: "support" },
+    ]);
+    prismaMock.chapter.update.mockResolvedValue({ id: "chapter-1" });
+
+    const mod = await import("../app/api/projects/[id]/chapters/[chapterId]/approved-outline/route");
+    const response = await mod.PATCH(
+      new Request("http://localhost", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          approvedOutline: {
+            summary: "Résumé suffisant",
+            cliffhanger: "Fin ok",
+            approvalVersion: "v1",
+            approvedAt: new Date().toISOString(),
+            source: "user_approved",
+            beats: [
+              {
+                id: "beat-1",
+                summary: "Beat valide pour le schéma",
+                pageRole: "action",
+                turn: "changement",
+                characters: ["hero-2"],
+                location: "dojo",
+                emotionalDelta: 1,
+              },
+            ],
+          },
+        }),
+      }),
+      ctxChapter,
+    );
+
+    expect(response.status).toBe(200);
+    expect(buildPremiumChapterContractAsyncMock).toHaveBeenCalledWith(
+      expect.objectContaining({ heroCharacterId: "hero-2" }),
+    );
   });
 
   it("studio PATCH ne détruit pas le contrat premium existant", async () => {

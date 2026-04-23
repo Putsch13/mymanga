@@ -66,6 +66,7 @@ function computeEditorialDiagnostics(pages: StoryboardPage[]): StoryboardPlan["e
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- conservé pour audit/rollback du hard switch premium
 function densifyStoryboardPlanToPremiumRange(input: {
   storyArc: StoryArc;
   storyboardPlan: StoryboardPlan;
@@ -517,26 +518,16 @@ export async function runStoryboardPass(
     projectFormat: input.projectFormat,
   });
 
-  const targetPanels = input.targetPanelCount ?? PREMIUM_PANEL_RANGE.target;
   const initialTotalPanels = (storyboardPlan.pages ?? []).reduce(
     (acc, page) => acc + (Array.isArray(page.panels) ? page.panels.length : 0),
     0,
   );
-  let planForValidation = storyboardPlan;
+  const planForValidation = storyboardPlan;
   const densifyWarnings: string[] = [];
   if (premiumOnly && classifyPremiumPanelCount(initialTotalPanels) !== "ok") {
-    const densified = densifyStoryboardPlanToPremiumRange({
-      storyArc: input.storyArc,
-      storyboardPlan,
-      projectFormat: input.projectFormat,
-      desiredPanels: targetPanels,
-    });
-    planForValidation = densified.plan;
-    if (densified.added > 0 || densified.removed > 0) {
-      densifyWarnings.push(
-        `storyboard_plan.densified_to_premium_range from=${initialTotalPanels} to=${planForValidation.pages.flatMap((p) => p.panels).length} added=${densified.added} removed=${densified.removed}`,
-      );
-    }
+    densifyWarnings.push(
+      `storyboard_plan.native_count_out_of_range=${initialTotalPanels} required=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max}`,
+    );
   }
 
   // P8 — range premium STRICTE au niveau storyboard v3.

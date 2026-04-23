@@ -25,6 +25,10 @@ export interface CharacterInfo {
   id: string;
   name: string;
   roleType?: string | null;
+  hairColor?: string | null;
+  eyeColor?: string | null;
+  canonSignatureText?: string | null;
+  forbiddenVisualDrift?: string[] | null;
 }
 
 export interface BuildPanelRenderSpecInput {
@@ -58,6 +62,12 @@ export function buildPanelRenderSpec(
       role,
       poseIntent: null,
       expressionIntent: null,
+      hairColor: match.hairColor ?? null,
+      eyeColor: match.eyeColor ?? null,
+      canonSignatureText: match.canonSignatureText ?? null,
+      forbiddenDrift: Array.isArray(match.forbiddenVisualDrift)
+        ? match.forbiddenVisualDrift.filter((x): x is string => typeof x === "string")
+        : [],
     });
   }
 
@@ -107,7 +117,10 @@ export function buildPanelRenderSpec(
     constraints: {
       mustShow: panel.mustShow,
       mustNotShow: panel.mustNotShow,
-      forbiddenDrift: styleBible.forbiddenStyleKeywords,
+      forbiddenDrift: Array.from(new Set([
+        ...styleBible.forbiddenStyleKeywords,
+        ...visibleCharacters.flatMap((c) => c.forbiddenDrift ?? []),
+      ])),
       noTextInsideImage: styleBible.noTextInsideImage,
     },
   };

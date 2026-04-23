@@ -6,6 +6,13 @@
  * Les noms et shapes sont strictement identiques au fichier d'origine.
  */
 
+import type {
+  GenerationDebugSnapshot,
+  ReaderPageTemplateId,
+  ReaderTextPlacementHint,
+  ReadingDirection,
+} from "@manga-ai-studio/core";
+
 export type SceneImage = {
   id: string;
   imageUrl: string | null;
@@ -36,6 +43,16 @@ export type SceneImage = {
       targetAspectRatio?: string;
       layoutTemplate?: string;
     };
+    textMeta?: ReaderTextPlacementHint & {
+      overlayReadingDirection?: ReadingDirection;
+    };
+    readerLayout?: {
+      templateId?: ReaderPageTemplateId | string;
+      readingDirection?: ReadingDirection;
+      panelSlotArea?: string | null;
+      panelSlotOrder?: number | null;
+    };
+    generationDebugSnapshot?: GenerationDebugSnapshot;
   };
 };
 
@@ -156,6 +173,7 @@ export type ReaderResponse = {
         retryAttemptIndex?: number | null;
         promptWarnings: string[];
       } | null;
+      generationDebugSnapshot?: GenerationDebugSnapshot | null;
       canonicalPacket?: {
         packetVersion: string | null;
         imageIntentType: string | null;

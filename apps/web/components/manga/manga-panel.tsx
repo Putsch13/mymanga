@@ -18,6 +18,7 @@
  */
 
 import type { CSSProperties } from "react";
+import type { ReadingDirection, TextAnchorZone, TextOverflowStrategy } from "@manga-ai-studio/core";
 
 import type { ReservedZone } from "./panel/bubble-layout-model";
 import { PanelComposedView } from "./panel/panel-composed-view";
@@ -102,6 +103,11 @@ type Props = {
     targetAspectRatio?: string;
     layoutTemplate?: string;
   };
+  textMeta?: {
+    preferredAnchorZones?: TextAnchorZone[];
+    overflowStrategy?: TextOverflowStrategy;
+    overlayReadingDirection?: ReadingDirection;
+  };
   renderMode?: "reader" | "webtoon" | "debug" | "print";
   className?: string;
   style?: CSSProperties;
@@ -132,6 +138,7 @@ export function MangaPanel(props: Props) {
     objectPosition = "top",
     renderMeta,
     layoutMeta,
+    textMeta,
     renderMode = "reader",
     className,
     style,
@@ -171,6 +178,8 @@ export function MangaPanel(props: Props) {
       cropMode={cropMode}
       objectPosition={focalPosition}
       reservedTextZones={renderMeta?.reservedTextZones}
+      preferredAnchorZones={textMeta?.preferredAnchorZones}
+      overflowStrategy={textMeta?.overflowStrategy}
       targetAspectRatio={layoutMeta?.targetAspectRatio}
       renderMode={renderMode}
       editable={editable}
