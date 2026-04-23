@@ -15,9 +15,9 @@ import {
   validateStoryboardPlan,
   type StoryArc,
   type StoryboardPlan,
-  type StoryboardPage,
-  type StoryboardPanel,
+  type StoryboardLayoutTemplate,
 } from "@manga-ai-studio/ai";
+import type { StoryboardPage, StoryboardPanel } from "@manga-ai-studio/ai/contracts";
 import { PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
 import { saveStoryboardPlan } from "../persistence/storyboard-persistence";
 import {
@@ -28,7 +28,7 @@ import {
 function pickLayoutTemplateForPage(args: {
   projectFormat: "manga" | "webtoon";
   panelCount: number;
-}): StoryboardPage["layoutTemplate"] {
+}): StoryboardLayoutTemplate {
   const n = args.panelCount;
   if (args.projectFormat === "webtoon") {
     if (n <= 1) return "splash";

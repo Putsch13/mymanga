@@ -291,6 +291,8 @@ export function MangaBookReader({
           onKeyDown={(e) => e.key === "Enter" && (mangaRtl ? goPrev() : goNext())}
           aria-label="Double page manga"
         >
+          {/* Intentionnel : image composite servie par notre route, on garde <img> (pas d'optimisation Next/Image ici). */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={compositeUrl}
             alt={`Double page manga ${pageIndex + 1}`}
@@ -556,6 +558,8 @@ export function MangaBookReader({
                   // 3. MangaPageGrid (CSS grid fallback)
                   leftPage.id && leftPage.panels.some((p) => p.imageUrl && p.status === "completed")
                     ? <div className="relative h-full w-full">
+                        {/* Intentionnel : image composite servie par notre route, on garde <img> (pas d'optimisation Next/Image ici). */}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={`/api/projects/${projectId}/chapters/${chapterId}/composite-page?sceneId=${leftPage.id}`}
                           alt={`Page manga ${pageIndex + 1}`}
