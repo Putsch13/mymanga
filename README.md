@@ -1,5 +1,880 @@
 # Manga AI Studio
 
+Monorepo full-stack pour creer un manga ou un webtoon avec un studio editorial, un pipeline premium v3 pilote par IA, une couche de compatibilite legacy encore active sur certaines surfaces, et une stack image centree sur FAL.
+
+## Ce que fait le produit
+
+Le produit permet a un auteur de :
+
+1. creer un projet manga ou webtoon ;
+2. definir un ton, un style visuel, des personnages et des lieux ;
+3. preparer un chapitre dans un studio en 4 etapes ;
+4. obtenir un plan premium de 70 a 75 panels ;
+5. lancer une generation complete ;
+6. relire, reroll, valider puis lire le chapitre final.
+
+Le coeur du systeme est simple a formuler :
+
+- l'utilisateur ne demande pas "une image", il demande "un chapitre lisible, coherent, style-respecting" ;
+- le cerveau IA transforme cette demande en contrats successifs de plus en plus concrets ;
+- l'image n'est que la derniere etape.
+
+## Parcours utilisateur
+
+### 1. Creer le projet
+
+L'utilisateur renseigne :
+
+- le pitch ;
+- le genre principal et les sous-genres ;
+- le ton ;
+- le format `manga` ou `webtoon` ;
+- le style visuel ;
+- les contraintes de contenu ;
+- un style pack optionnel ou derive.
+
+Le projet est persiste dans la base puis enrichi par des surfaces comme :
+
+- `/api/projects`
+- `/api/projects/[id]`
+- `/api/projects/[id]/style-pack`
+- `/api/projects/[id]/pipeline-version`
+
+### 2. Definir le canon
+
+L'utilisateur construit le socle de coherence :
+
+- personnages ;
+- refs visuelles ;
+- canon packs ;
+- lieux ;
+- bible d'univers ;
+- relations ;
+- PNJ recurrents.
+
+APIs principales :
+
+- `/api/projects/[id]/characters`
+- `/api/characters/[characterId]`
+- `/api/characters/[characterId]/generate-visual`
+- `/api/characters/[characterId]/train-lora`
+- `/api/projects/[id]/recurring-npcs`
+- `/api/projects/[id]/npc-resolve`
+- `/api/projects/[id]/relationships`
+- `/api/projects/[id]/canon-health`
+
+### 3. Preparer le chapitre dans le studio
+
+Le studio chapitre est pense comme une machine a contrat.
+
+Etapes :
+
+1. `Brief` : intention auteur, resume, cliffhanger cible.
+2. `Casting & Canon` : selection des personnages, lieux, refs.
+3. `Plan` : outline approuve, production outline, production plan.
+4. `Generation & Review` : lancement, suivi job, QA, rerolls, validation.
+
+API centrale :
+
+- `GET/PATCH /api/projects/[id]/chapters/[chapterId]/studio`
+
+Cette route hydrate un snapshot riche qui fusionne :
+
+- le chapitre ;
+- le projet ;
+- le canon projet ;
+- les canons personnages ;
+- les canons lieux ;
+- le readiness report ;
+- les stats de generation en cours.
+
+### 4. Estimer avant de lancer
+
+Avant la generation, l'utilisateur ou le studio demande un estimate premium :
+
+- `POST /api/projects/[id]/chapters/estimate`
+
+Cette route :
+
+- produit ou relit l'outline approuve ;
+- construit un `productionOutline` ;
+- construit des `panelBlueprints` premium ;
+- densifie de maniere deterministe pour rester dans la range `70-75` ;
+- calcule des budgets de focus, des scores de readiness et des blockers editoriaux.
+
+### 5. Lancer la generation
+
+Le lancement premium se fait par :
+
+- `POST /api/projects/[id]/chapters/[chapterId]/launch`
+
+La route :
+
+- verifie l'auth ;
+- applique les gardes age-gate ;
+- relit le snapshot studio ;
+- refuse si le contrat premium est incomplet ;
+- bloque les plans monotones ou heros-centres ;
+- cree un job ;
+- enfile ensuite la pipeline.
+
+Une ancienne route existe encore pour un flow plus legacy :
+
+- `POST /api/projects/[id]/pipeline`
+
+### 6. Suivre le job, lire et corriger
+
+APIs de lecture et de pilotage :
+
+- `GET /api/jobs/[jobId]`
+- `GET /api/projects/[id]/chapters/[chapterId]`
+- `POST /api/scene-images/[sceneImageId]/retry`
+- `POST /api/scene-images/[sceneImageId]/validate`
+- `GET /api/scene-images/[sceneImageId]/debug`
+- `GET /api/projects/[id]/chapters/[chapterId]/qa-report`
+
+Le reader et les surfaces de review consomment :
+
+- les `SceneImage` ;
+- les metadonnees de prompts ;
+- les traces FAL ;
+- le `canonicalPacket` quand il existe ;
+- les scores QA et les raisons de rejet.
+
+## Comment le cerveau fonctionne
+
+## Vue d'ensemble
+
+Le cerveau est aujourd'hui compose de deux mondes :
+
+1. un chemin premium v3 strict ;
+2. une couche legacy encore necessaire sur certaines surfaces historiques.
+
+Le coeur du refactor recent est :
+
+- `packages/workflow/src/run-full-chapter-pipeline.ts` : orchestrateur mince ;
+- `packages/workflow/src/run-premium-v3-pipeline.ts` : cerveau premium v3 strict ;
+- `packages/workflow/src/run-legacy-compatible-chapter-pipeline.ts` : pont de compatibilite legacy ;
+- `packages/workflow/src/chapter-style-bible-resolver.ts` : source de verite style v3.
+
+## Pipeline premium v3
+
+Le premium v3 suit la chaine :
+
+1. IA1 `Story Architect`
+2. IA2 `Manga Editor / Storyboard Director`
+3. IA3 `Panel Renderer`
+
+Contrats principaux :
+
+- `StoryArc`
+- `StoryboardPlan`
+- `PanelRenderSpec`
+- `ChapterStyleBible`
+- `ChapterVisualMemory`
+- `FalRenderRoute`
+
+### IA1 - Story Architect
+
+Implementation :
+
+- `packages/workflow/src/passes/story-pass.ts`
+- `packages/ai/src/agents/story-architect-agent-llm.ts`
+
+Role :
+
+- transformer l'intention auteur en arc de chapitre concret ;
+- sortir `6-10` beats ordonnes ;
+- expliciter `storyEvent`, `emotion`, `dangerLevel`, `continuityEffects`, `chapterGoal`, `cliffhanger`.
+
+Rappels importants :
+
+- en premium-only, le stub est interdit ;
+- `OPENAI_API_KEY` devient obligatoire ;
+- le systeme refuse les combats inventes ;
+- le systeme refuse les personnages ou lieux hors fiche projet ;
+- le cliffhanger doit etre racine dans les beats, pas ajoute artificiellement.
+
+Modele par defaut :
+
+- `STORY_ARCHITECT_MODEL` sinon `gpt-4o-mini`
+
+### IA2 - Manga Editor / Storyboard Director
+
+Implementation :
+
+- `packages/workflow/src/passes/storyboard-pass.ts`
+- `packages/ai/src/agents/manga-editor-agent-llm.ts`
+
+Role :
+
+- transformer le `StoryArc` en `StoryboardPlan` ;
+- definir les pages, panels, layouts, `renderMode`, `shotType`, `subjectFocus`, `cutawayType`, `cameraAngle`, `dialogue`, `mustShow`, `mustNotShow`.
+
+Rappels importants :
+
+- l'IA2 ne doit jamais ecrire de prompts image ;
+- elle ne doit jamais reinventer le lore ou la dramaturgie ;
+- elle cible `70-75` panels ;
+- elle impose de la variete ;
+- chaque panel doit etre lie a un `sourceBeatId` valide.
+
+Le `storyboard-pass` ajoute des garde-fous supplementaires :
+
+- densification deterministe si le plan natif est hors range ;
+- anti hero overload ;
+- anti closeup overload ;
+- anti repetition de signatures visuelles ;
+- validation stricte du storyboard.
+
+### IA3 - Panel Renderer
+
+Implementation :
+
+- `packages/workflow/src/passes/render-pass.ts`
+- `packages/ai/src/services/render-spec-builder.ts`
+- `packages/ai/src/services/minimal-panel-prompt-builder.ts`
+- `packages/ai/src/services/fal-render-route-v3.ts`
+- `packages/workflow/src/passes/default-panel-image-generator.ts`
+
+Role :
+
+- prendre le storyboard comme source de verite ;
+- construire un `PanelRenderSpec` pour chaque panel ;
+- valider refs + visibilite + contraintes ;
+- construire un prompt minimal, court et non contradictoire ;
+- resoudre une route FAL deterministe ;
+- rendre les images ;
+- persister le resultat et la QA.
+
+Sequence stricte :
+
+1. `buildPanelRenderSpec`
+2. `assertValidRenderSpec`
+3. `buildMinimalPanelPromptStrict`
+4. `resolveFalRenderRoute`
+5. `generatePanelImage`
+6. panel QA + page QA + persistence
+
+## Ce qui reste legacy
+
+Le chemin legacy n'est pas mort, il est encapsule.
+
+Il passe aujourd'hui par :
+
+- `packages/workflow/src/run-legacy-compatible-chapter-pipeline.ts`
+- `packages/workflow/src/passes/narrative-pass.ts`
+- `packages/workflow/src/passes/image-generation-pass.ts`
+- `packages/workflow/src/passes/memory-pass.ts`
+
+Ce chemin :
+
+- produit un `chapterImagePlan` ;
+- construit des `CanonicalImagePromptPacket` quand possible ;
+- sait encore retomber sur certains prompts legacy sur des chapitres historiques ;
+- alimente les rerolls, la review et certains readers existants.
+
+En clair :
+
+- le premium v3 strict existe ;
+- la convergence complete n'est pas terminee partout ;
+- le repo est dans un etat de cohabitation controlee, pas encore dans un hard switch total.
+
+## Architecture technique
+
+## Packages principaux
+
+- `apps/web` : UI, routes API Next.js, studio, reader, review
+- `packages/workflow` : orchestration pipeline, passes, persistence, bridges
+- `packages/ai` : agents, contrats IA, prompt builders, routage FAL, validators
+- `packages/core` : types centraux, enums, contrats canoniques, range premium
+- `packages/billing` : estimation des tokens et regles de pricing
+- `packages/db` : Prisma, schema, migrations
+- `packages/memory` : contexte et snapshots memoire
+- `packages/continuity` : diffs et coherence narrative
+- `packages/world` : resolution PNJ, univers, compatibilites
+
+## Persistance
+
+Stack de persistance :
+
+- Prisma pour les entites produit ;
+- Supabase pour le stockage image ;
+- `SceneImage.metadata` pour l'audit prompt/runtime ;
+- `FalTrace` pour les traces provider ;
+- snapshots studio dans `chapter.outline`.
+
+Surfaces de persistence importantes :
+
+- `StoryArc` sauvegarde via `story-pass`
+- `StoryboardPlan` sauvegarde via `storyboard-pass`
+- `renderResultV2` sauvegarde via `render-pass`
+- `SceneImage` et `metadata.canonicalPacket` sauvegardes dans le chemin legacy/canonique
+
+## Feature flags et execution
+
+Flags critiques :
+
+- `PIPELINE_V3_STORYBOARD=true`
+- `PIPELINE_V3_PREMIUM_ONLY=true`
+- `PIPELINE_V3_RENDER_FAL=true`
+- `PIPELINE_V3_STORY_ARCHITECT_LLM=true`
+- `PIPELINE_V3_MANGA_EDITOR_LLM=true`
+- `MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY=true` uniquement pour debug/tests/support legacy
+
+Secrets critiques :
+
+- `OPENAI_API_KEY`
+- `FAL_KEY`
+- credentials Prisma / DB
+- credentials Supabase
+
+## Contrats de donnees a connaitre
+
+### `StoryArc`
+
+Contrat narratif de haut niveau :
+
+- beats ;
+- objectifs ;
+- cliffhanger ;
+- personnages presents ;
+- effets de continuite ;
+- dangers.
+
+### `StoryboardPlan`
+
+Contrat editorial visuel :
+
+- pages ;
+- layouts ;
+- panels ;
+- `renderMode` ;
+- `shotType` ;
+- `subjectFocus` ;
+- `cutawayType` ;
+- `dialogue` ;
+- `mustShow` / `mustNotShow`.
+
+### `PanelRenderSpec`
+
+Contrat de rendu strict :
+
+- personnages visibles ;
+- refs images ;
+- `dialogueIntent` ;
+- style bible ;
+- continuity locks ;
+- contraintes negatives ;
+- anchors.
+
+### `ChapterStyleBible`
+
+Contrat de style v3 derive du projet + style pack :
+
+- `artStyle`
+- `palette`
+- `inking`
+- `screentoneIntensity`
+- `lineWeightHint`
+- `backgroundDensity`
+- `forbiddenStyleKeywords`
+
+### `CanonicalImagePromptPacket`
+
+Contrat canonique de generation d'image du chemin de convergence :
+
+- contexte chapitre/scene/beat ;
+- personnages ;
+- props ;
+- groupes ;
+- dialogue ;
+- style manga ;
+- prompt structure FR + EN ;
+- negative prompt ;
+- provider payload ;
+- reroll plans ;
+- validation.
+
+## Par quelles APIs ca passe
+
+## Routes coeur produit
+
+### Projet et canon
+
+- `POST /api/projects`
+- `GET/PATCH /api/projects/[id]`
+- `POST /api/projects/[id]/style-pack`
+- `GET/POST /api/projects/[id]/characters`
+- `POST /api/characters/[characterId]/generate-visual`
+- `POST /api/characters/[characterId]/train-lora`
+- `POST /api/projects/[id]/npc-resolve`
+
+### Studio chapitre
+
+- `GET/PATCH /api/projects/[id]/chapters/[chapterId]/studio`
+- `POST /api/projects/[id]/chapters`
+- `GET/PATCH /api/projects/[id]/chapters/[chapterId]`
+- `POST /api/projects/[id]/chapters/estimate`
+- `POST /api/projects/[id]/chapters/[chapterId]/launch`
+- `POST /api/projects/[id]/pipeline`
+
+### Execution et suivi
+
+- `GET /api/jobs/[jobId]`
+- `POST /api/jobs/[jobId]/run-now`
+- `POST /api/jobs/[jobId]/cancel`
+
+### Review, QA, lecture
+
+- `GET /api/projects/[id]/chapters/[chapterId]`
+- `GET /api/projects/[id]/chapters/[chapterId]/qa-report`
+- `POST /api/scene-images/[sceneImageId]/retry`
+- `POST /api/scene-images/[sceneImageId]/validate`
+- `GET /api/scene-images/[sceneImageId]/debug`
+- `GET /api/images/proxy`
+
+## Flux API recommande pour un chapitre premium
+
+1. creer le projet ;
+2. creer personnages + style pack ;
+3. hydrater le studio via `GET /studio` ;
+4. patcher le studio via `PATCH /studio` ;
+5. appeler `POST /chapters/estimate` ;
+6. verifier le readiness ;
+7. appeler `POST /chapters/[chapterId]/launch` ;
+8. suivre `GET /jobs/[jobId]` ;
+9. lire le chapitre via `GET /chapters/[chapterId]` ;
+10. reroll si besoin via `POST /scene-images/[sceneImageId]/retry`.
+
+## Comment les IA sont promptes
+
+## IA1 - Story Architect
+
+Le prompt systeme impose notamment :
+
+1. ne jamais inventer de personnages, creatures, lieux ou props hors fiche projet ;
+2. ne jamais inventer de combat, feu, explosion ou letalite absente de l'intention ;
+3. donner a chaque beat un `storyEvent` concret ;
+4. garder des `continuityEffects` honnetes ;
+5. produire une `emotionalTurn` courte ;
+6. calibrer `dangerLevel` sur l'action reelle ;
+7. ancrer le cliffhanger dans la fin du chapitre.
+
+Le prompt user injecte :
+
+- numero de chapitre ;
+- titre ;
+- summary ;
+- user intent ;
+- personnages autorises ;
+- lieux connus ;
+- schema JSON cible.
+
+Le resultat est force en `json_object`, puis sanitize.
+
+## IA2 - Manga Editor / Storyboard Director
+
+Le prompt systeme impose notamment :
+
+1. ne jamais ecrire de prompt image ;
+2. ne jamais inventer de lore ;
+3. ne jamais inventer un combat absent des beats ;
+4. lier chaque panel a un beat valide ;
+5. viser `70-75` panels ;
+6. imposer une variete de plans ;
+7. reserver au moins `10%` a de la respiration ;
+8. utiliser des render modes adequats pour dialogue et reveal ;
+9. faire correspondre layout et nombre de panels.
+
+Le prompt user injecte :
+
+- summary ;
+- goal ;
+- cliffhanger ;
+- hero IDs ;
+- target panels ;
+- guideline `manga` vs `webtoon` ;
+- liste complete des beats ;
+- enums fermes autorises ;
+- schema JSON strict attendu.
+
+## IA3 - Prompting image premium v3
+
+Le prompting image premium v3 suit une regle cle :
+
+- l'IA3 ne recoit pas un "roman", elle recoit un contrat.
+
+Le `minimal-panel-prompt-builder` construit un prompt anglais court a partir de blocs :
+
+- `SUBJECT`
+- `ENVIRONMENT`
+- `SHOT`
+- `ACTION`
+- `STYLE`
+- `NEGATIVE`
+
+Proprietes importantes :
+
+- cible de longueur `700-1200` caracteres ;
+- anglais direct ;
+- interdictions par `renderMode` ;
+- integration du `dialogueIntent` comme sous-texte visuel ;
+- reinjection explicite des `mustShow` du panel dans le bloc `ACTION` ;
+- reinjection explicite des `continuityLocks.environmentLocks` dans le bloc `ENVIRONMENT` ;
+- interdiction du texte dans l'image ;
+- refus des contradictions type closeup hero dans un establishing.
+
+Le `render-spec-builder` injecte :
+
+- les personnages visibles ;
+- les refs character/environment/panel/style ;
+- la `dialogueIntent` ;
+- les locks de continuite ;
+- les contraintes `mustShow` et `mustNotShow`.
+
+Le `render-spec-validator` et les assertions du render pass bloquent :
+
+- closeups sans face refs dediees ;
+- render modes invalides ;
+- panels dialogue sans assez de personnages ;
+- hero/support sans politique de references cohérente ;
+- prompts contradictoires.
+
+## Prompting canonique legacy->convergence
+
+Le chemin canonique issu du legacy passe par :
+
+- `packages/workflow/src/canonical-packet-bridge.ts`
+- `packages/ai/src/services/canonical-prompt-recipe-builder.ts`
+
+Il produit :
+
+- des sections structurees ;
+- un prompt FR structure ;
+- un prompt EN structure ;
+- un negative prompt EN ;
+- un `providerPayload` reconciliable avec le runtime.
+
+Regle dure :
+
+- chaque prompt canonique contient toujours la notion de `manga visual language`.
+
+## Routage image vers FAL
+
+Le premium v3 ne route plus avec des heuristiques textuelles.
+
+Il route depuis `renderMode` uniquement via `packages/ai/src/services/fal-render-route-v3.ts`.
+
+Exemples :
+
+- `establishing_environment` -> environnement, `LIGHT`, paysage
+- `dialogue_two_shot` -> dialogue, `STRONG`, carre
+- `hero_closeup` -> personnage, `STRONG`, portrait
+- `insert_object` -> insert, `LIGHT`, carre
+- `combat_exchange` -> combat, `STRONG`, paysage
+
+Model IDs symboliques utilises par le routeur :
+
+- `fal-panel-character-v3`
+- `fal-panel-environment-v3`
+- `fal-panel-insert-v3`
+- `fal-panel-group-v3`
+- `fal-panel-combat-v3`
+- `fal-panel-dialogue-v3`
+- `fal-panel-creature-v3`
+- `fal-panel-threat-v3`
+
+Le branchement runtime reel vers FAL se fait ensuite via :
+
+- `packages/workflow/src/passes/default-panel-image-generator.ts`
+
+Ce generateur appelle l'adapter FAL en :
+
+- `mode: PANEL_FINAL`
+- avec refs flatten ;
+- avec refs `character/environment/panel/style` aplaties puis envoyees reellement au provider ;
+- dimensions derivees du `sizePreset` ;
+- `skipPromptTranslation: true` pour ne pas polluer le prompt minimal.
+
+## Densification premium 70-75
+
+Le systeme premium n'accepte pas un chapitre "a peu pres dense".
+
+Contrat :
+
+- `min = 70`
+- `target = 72`
+- `max = 75`
+
+Ce contrat est centralise dans :
+
+- `packages/core/src/premium-panel-range.ts`
+
+La densification premium existe actuellement sur plusieurs surfaces fonctionnelles :
+
+- `POST /api/projects/[id]/chapters/estimate`
+- `packages/ai/src/services/premium-chapter-contract-builder.ts`
+- `packages/workflow/src/passes/storyboard-pass.ts`
+
+Principe :
+
+- pas de random padding ;
+- seulement des panels de grammaire derives des beats ;
+- round-robin sur les beats ;
+- on ajoute des panels `environment`, `reaction`, `prop`, `npc`, `aftermath`, `duo`.
+
+## QA, observabilite et rerolls
+
+QA importante :
+
+- panel QA dans `render-pass`
+- page QA dans `render-pass`
+- quality report dans le chemin legacy
+- traces provider FAL dans `FalTrace`
+- `promptDebug`, `canonicalPacket`, `packetRerollPlans` dans `SceneImage.metadata`
+
+Le retry est maintenant volontairement plus strict :
+
+- pas de retry fiable sans `canonicalPacket` exploitable ;
+- on refuse de retomber sur un prompt legacy sale ;
+- le body retry est valide en Zod ;
+- les overrides utilisateur sont sanitizes ;
+- la politique de references est recalculée proprement.
+
+## Estimation des couts actuels
+
+## Ce que le repo sait calculer aujourd'hui
+
+Le repo embarque une logique de pricing interne dans `packages/billing/src/pricing.ts`.
+
+Valeurs par defaut :
+
+- `chapter:text = 80 tokens`
+- `PANEL_DRAFT / fal = 20 tokens`
+- `PANEL_FINAL / fal = 40 tokens`
+- `COVER_ART / fal = 55 tokens`
+- multiplicateur provider `fal = 1`
+
+## Cout interne estime d'un chapitre premium v3 avec FAL
+
+Hypothese premium v3 stricte actuelle :
+
+- `70-75` panels ;
+- rendu via `default-panel-image-generator` ;
+- donc generation image en `PANEL_FINAL`.
+
+Formule :
+
+- texte : `80`
+- images : `70-75 * 40`
+
+Estimation :
+
+- chapitre sans cover, sans reroll :
+  - minimum `70 * 40 + 80 = 2880 tokens`
+  - maximum `75 * 40 + 80 = 3080 tokens`
+
+- avec une cover FAL :
+  - minimum `2935 tokens`
+  - maximum `3135 tokens`
+
+## Cout des retries et coexistence actuelle
+
+Le repo n'est pas encore uniformement en `PANEL_FINAL`.
+
+Aujourd'hui :
+
+- le premium v3 strict passe par `PANEL_FINAL`
+- le legacy et plusieurs flows de retry utilisent encore souvent `PANEL_DRAFT`
+
+Ordres de grandeur :
+
+- `1` reroll draft ajoute environ `20 tokens`
+- `10` rerolls ajoutent environ `200 tokens`
+- `20` rerolls ajoutent environ `400 tokens`
+
+## Equivalence approximative cote packs utilisateur
+
+Packs visibles dans `packages/billing/src/stripe-checkout.ts` :
+
+- `500 tokens = 9.99 USD`
+- `1500 tokens = 24.99 USD`
+- `5000 tokens = 69.99 USD`
+- `15000 tokens = 199.99 USD`
+
+Conversion approximative d'un chapitre premium v3 a `2880-3080 tokens` :
+
+- au prix du pack `studio` : environ `40-43 USD` de valeur token
+- au prix du pack `pro_saga` : environ `38-41 USD` de valeur token
+- au prix du petit pack, beaucoup plus cher par token : environ `57-62 USD`
+
+Important :
+
+- ce sont des couts produits internes et non une facture FAL reelle ;
+- le repo ne contient pas une table fiable du cout fournisseur externe exact par modele FAL reel ;
+- le vrai cout ops depend aussi des retries, de la QA, de la persistence, des refs, et des failures.
+
+## Ordre de grandeur fournisseur reel
+
+Hypotheses publiques utilisees pour une estimation ops simple :
+
+- OpenAI `gpt-4o-mini` pour IA1 + IA2 ;
+- FAL `flux/dev` a environ `0.025 USD` / image ~`1MP` ;
+- FAL `flux/schnell` a environ `0.003 USD` / image ~`1MP` ;
+- FAL `flux-lora` et `flux-realism` a environ `0.035 USD` / image ~`1MP`.
+
+Ordres de grandeur raisonnables pour un chapitre premium v3 :
+
+- OpenAI seul : souvent `~0.01-0.03 USD` par chapitre ;
+- FAL seul, sans gros rerolls : souvent `~1.7-2.3 USD` par chapitre ;
+- cout total ops raisonnable : souvent `~1.8-2.4 USD` par chapitre ;
+- avec rerolls frequents / panels LoRA / realism : plutot `~2.5-3.2 USD`.
+
+Important :
+
+- ce chiffrage est un ordre de grandeur et non une facturation contractuelle ;
+- le mix reel depend de la proportion `flux/dev` vs `flux/schnell` vs `flux-lora` / `flux-realism` ;
+- le vrai cout final doit etre instrumente job par job si on veut piloter proprement la marge.
+
+## Points de vigilance
+
+## 1. Coexistence premium v3 / legacy
+
+Le repo est plus lisible qu'avant, mais pas encore totalement converge.
+
+Vigilance :
+
+- le premium v3 strict existe ;
+- le legacy image path existe encore ;
+- le packet canonique n'est pas encore universel ;
+- certaines surfaces historiques restent dependantes du legacy.
+
+Travail suivant probable :
+
+- finir le hard switch ;
+- supprimer les branches `source=legacy` quand toute la chaine packet sera universelle.
+
+## 2. Densification encore distribuee
+
+La range premium est centralisee, mais la logique de densification n'est pas encore completement mutualisee.
+
+Travail suivant probable :
+
+- extraire un vrai module partage de densification premium pour `estimate`, `contract-builder` et `storyboard-pass`.
+
+## 3. Le style est mieux centralise en v3, pas encore partout
+
+`chapter-style-bible-resolver` est la source de verite v3, mais le repo garde encore des chemins de style et de prompt historiques.
+
+Travail suivant probable :
+
+- aligner toute la generation image sur les memes contrats style ;
+- verifier qu'aucun fallback ne re-noircit ou ne neutralise le style user.
+
+## 4. Le cout chapitre est eleve
+
+A `2880-3080 tokens` hors retries, un chapitre premium v3 est cher.
+
+Travail suivant probable :
+
+- instrumenter le cout reel par chapitre ;
+- separer cout texte / rendu / retry / QA ;
+- poser un budget de rerolls maximum ;
+- comparer `PANEL_FINAL` v3 avec des strategies hybrides controlees.
+
+## 5. Les closeups restent fragiles sans refs dediees
+
+Le render pass bloque volontairement les face closeups sans face refs dediees.
+
+C'est sain, mais ca cree une exigence produit claire :
+
+- sans bon canon pack personnage, le pipeline cassera plus tot.
+
+Travail suivant probable :
+
+- rendre le taux de couverture de refs plus visible en studio ;
+- mieux outiller la generation des face refs avant launch.
+
+## 6. Retry fiable = canonical packet obligatoire
+
+Le retry propre est maintenant conditionne a un `canonicalPacket` exploitable.
+
+Travail suivant probable :
+
+- backfill des chapitres anciens ;
+- migration complete des surfaces retry/review sur le packet.
+
+## 7. Observabilite encore insuffisante pour la decision produit
+
+On a des logs, des traces et des metadata, mais pas encore un cockpit synthese parfait.
+
+Travail suivant probable :
+
+- dashboard par chapitre :
+  - cout estime ;
+  - cout reel ;
+  - retries ;
+  - blockers ;
+  - ratio de panels renderes du premier coup ;
+  - raisons de fail les plus frequentes ;
+  - part premium v3 vs legacy.
+
+## Fichiers de reference
+
+### Orchestration
+
+- `packages/workflow/src/run-full-chapter-pipeline.ts`
+- `packages/workflow/src/run-premium-v3-pipeline.ts`
+- `packages/workflow/src/run-legacy-compatible-chapter-pipeline.ts`
+
+### Passes premium
+
+- `packages/workflow/src/passes/story-pass.ts`
+- `packages/workflow/src/passes/storyboard-pass.ts`
+- `packages/workflow/src/passes/render-pass.ts`
+
+### Prompting et routage
+
+- `packages/ai/src/services/render-spec-builder.ts`
+- `packages/ai/src/services/minimal-panel-prompt-builder.ts`
+- `packages/ai/src/services/fal-render-route-v3.ts`
+- `packages/workflow/src/passes/default-panel-image-generator.ts`
+
+### Convergence canonique
+
+- `packages/workflow/src/canonical-packet-bridge.ts`
+- `packages/ai/src/services/canonical-prompt-recipe-builder.ts`
+- `docs/architecture/canonical-packet-migration.md`
+
+### APIs critiques
+
+- `apps/web/app/api/projects/[id]/chapters/estimate/route.ts`
+- `apps/web/app/api/projects/[id]/chapters/[chapterId]/launch/route.ts`
+- `apps/web/app/api/projects/[id]/chapters/[chapterId]/studio/route.ts`
+- `apps/web/app/api/projects/[id]/chapters/[chapterId]/route.ts`
+- `apps/web/app/api/scene-images/[sceneImageId]/retry/route.ts`
+- `apps/web/app/api/jobs/[jobId]/route.ts`
+
+## Resume executif
+
+Le produit sait deja faire une vraie pipeline premium structuree :
+
+- l'utilisateur passe par un studio editorial ;
+- l'intention devient `StoryArc`, puis `StoryboardPlan`, puis `PanelRenderSpec`, puis image ;
+- le rendu premium v3 est plus strict, plus lisible et moins heuristique qu'avant ;
+- le systeme a encore une dette de convergence legacy ;
+- le cout actuel d'un chapitre premium FAL est deja suffisamment eleve pour justifier un vrai chantier de cost control, observabilite et budget de rerolls.
+
+Si on veut savoir quoi travailler ensuite, les priorites les plus rentables sont :
+
+1. finir la convergence premium v3 / canonical packet ;
+2. mutualiser totalement la densification premium ;
+3. mesurer le cout reel chapitre par chapitre ;
+4. reduire les rerolls et les echec render ;
+5. outiller la couverture refs/canon avant launch.
+# Manga AI Studio
+
 Monorepo full-stack pour generer des chapitres manga/webtoon coherents avec memoire narrative, canon visuel, PNJ adaptatifs et generation multi-provider.
 
 ## Parcours principal

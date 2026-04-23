@@ -109,6 +109,10 @@ export function buildPromptSubjectBlock(spec: PanelRenderSpec): string {
 export function buildPromptEnvironmentBlock(spec: PanelRenderSpec): string {
   const loc = spec.locationName?.trim() || "neutral setting";
   const density = spec.styleBible.backgroundDensity;
+  const environmentLocks = spec.continuityLocks.environmentLocks
+    .map(normalizePromptClause)
+    .filter(Boolean)
+    .slice(0, 2);
   const densityHint =
     density === "minimal"
       ? "clean minimal background"
@@ -116,7 +120,10 @@ export function buildPromptEnvironmentBlock(spec: PanelRenderSpec): string {
         ? "richly detailed background"
         : "medium-density background";
   if (spec.renderMode === "insert_object") {
-    return `ENVIRONMENT: blurred / simplified ${loc}, focus entirely on object.`;
+    const lockLine = environmentLocks.length > 0
+      ? ` Continuity cues: ${environmentLocks.join("; ")}.`
+      : "";
+    return `ENVIRONMENT: blurred / simplified ${loc}, focus entirely on object.${lockLine}`;
   }
   if (
     spec.renderMode === "reaction_closeup" ||
@@ -124,15 +131,27 @@ export function buildPromptEnvironmentBlock(spec: PanelRenderSpec): string {
     spec.renderMode === "npc_closeup" ||
     spec.renderMode === "enemy_closeup"
   ) {
-    return `ENVIRONMENT: ${loc}, shallow depth, ${densityHint} kept soft behind subject.`;
+    const lockLine = environmentLocks.length > 0
+      ? ` Continuity cues remain readable: ${environmentLocks.join("; ")}.`
+      : "";
+    return `ENVIRONMENT: ${loc}, shallow depth, ${densityHint} kept soft behind subject.${lockLine}`;
   }
   if (spec.renderMode === "threat_silhouette") {
-    return `ENVIRONMENT: ${loc}, backlit atmosphere, strong contre-jour, subject reduced to shape.`;
+    const lockLine = environmentLocks.length > 0
+      ? ` Continuity cues: ${environmentLocks.join("; ")}.`
+      : "";
+    return `ENVIRONMENT: ${loc}, backlit atmosphere, strong contre-jour, subject reduced to shape.${lockLine}`;
   }
   if (spec.renderMode === "aftermath_dialogue") {
-    return `ENVIRONMENT: ${loc}, subdued lighting post-event, debris or altered state visible in background.`;
+    const lockLine = environmentLocks.length > 0
+      ? ` Continuity cues: ${environmentLocks.join("; ")}.`
+      : "";
+    return `ENVIRONMENT: ${loc}, subdued lighting post-event, debris or altered state visible in background.${lockLine}`;
   }
-  return `ENVIRONMENT: ${loc}, ${densityHint}, consistent with chapter continuity.`;
+  const lockLine = environmentLocks.length > 0
+    ? ` Continuity cues: ${environmentLocks.join("; ")}.`
+    : "";
+  return `ENVIRONMENT: ${loc}, ${densityHint}, consistent with chapter continuity.${lockLine}`;
 }
 
 export function buildPromptShotBlock(spec: PanelRenderSpec): string {
@@ -145,7 +164,14 @@ export function buildPromptActionBlock(spec: PanelRenderSpec): string {
   const action = normalizePromptClause(spec.actionLine) || "static beat";
   const emotion = normalizePromptClause(spec.emotionLine);
   const dialogueIntent = normalizePromptClause(spec.dialogueIntent);
+  const mustShow = spec.constraints.mustShow
+    .map(normalizePromptClause)
+    .filter(Boolean)
+    .slice(0, 3);
   const parts = [`ACTION: ${action}.`];
+  if (mustShow.length > 0) {
+    parts.push(`Mandatory visible elements: ${mustShow.join("; ")}.`);
+  }
   if (dialogueIntent) {
     parts.push(
       `Dialogue subtext: ${dialogueIntent}. Convey it through gaze, posture, spacing, and mouth movement only; no speech bubbles or text in image.`,

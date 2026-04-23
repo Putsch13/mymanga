@@ -1,6 +1,7 @@
 import { runImageGenerationPass } from "./passes/image-generation-pass";
 import { runMemoryPass } from "./passes/memory-pass";
 import { runNarrativePass } from "./passes/narrative-pass";
+import type { PipelineJobInput } from "./pipeline-quality";
 import {
   buildChapterImagePlanFromNarrative,
   deriveContentRatingFromProject,
@@ -27,7 +28,7 @@ export interface RunLegacyCompatibleChapterPipelineInput {
   enrichedIntent: string;
   selectedPlotLabel: "safe" | "bold" | "shock" | undefined;
   focusCharacterIds: string[];
-  jobInput: unknown;
+  jobInput: PipelineJobInput;
 }
 
 export async function runLegacyCompatibleChapterPipeline(
