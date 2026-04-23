@@ -66,6 +66,10 @@ export function buildPanelRenderSpec(
     panelId: panel.panelId,
     pageNumber: panel.pageNumber,
     panelNumberInPage: panel.panelNumberInPage,
+    // COMMIT C — propager panelPurpose depuis le storyboard. Source de
+    // vérité éditoriale pour la QA / audit. Le validator refuse un spec
+    // sans panelPurpose ou avec des sentinelles du type "unknown"/"none".
+    panelPurpose: panel.panelPurpose,
     renderMode: panel.renderMode,
     shotType: panel.shotType,
     cameraAngle: panel.cameraAngle,

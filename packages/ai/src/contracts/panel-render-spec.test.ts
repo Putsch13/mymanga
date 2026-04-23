@@ -11,6 +11,7 @@ describe("PanelRenderSpec contract", () => {
       panelId: "p-1",
       pageNumber: 1,
       panelNumberInPage: 1,
+      panelPurpose: "reaction_closeup",
       renderMode: "reaction_closeup",
       shotType: "closeup",
       cameraAngle: "eye_level",

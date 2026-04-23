@@ -10,7 +10,7 @@ function makePanel(overrides: Partial<StoryboardPanel> = {}): StoryboardPanel {
     panelNumberInPage: 1,
     globalPanelIndex: 0,
     sourceBeatId: "b1",
-    panelPurpose: "",
+    panelPurpose: "dialogue_anchor",
     renderMode: "dialogue_two_shot",
     shotType: "medium",
     cameraAngle: "eye_level",

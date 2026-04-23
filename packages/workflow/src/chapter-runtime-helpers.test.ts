@@ -119,6 +119,43 @@ describe("workflow chapter runtime helpers", () => {
     expect(state.structuredRuntimeFields?.criticalPanelsBlocked).toBe(0);
   });
 
+  it("P10 — QA absente : qaDataAvailable=false + premiumReleaseAccepted=false (plus de métrique silencieuse 0.00=true)", () => {
+    // P10 — Si aucun panel n'a de `consistencyScore`, l'ancienne logique
+    // renvoyait `averageReleaseScore=0` et `accepted=false` sans distinction
+    // entre "QA non exécutée" et "QA ratée". Désormais, `qaDataAvailable=false`
+    // est explicite et `premiumReleaseAccepted` est forcément false — même
+    // si par hasard `acceptedImages >= minimumAcceptedImages` via un chemin
+    // détourné.
+    const report = computeChapterQualityReport(
+      Array.from({ length: 72 }, () => ({
+        consistencyScore: null,
+        metadata: {},
+      })),
+      { minimumAcceptedImages: 70, releaseThreshold: 0.72 },
+    );
+
+    expect(report.qaDataAvailable).toBe(false);
+    expect(report.panelsWithQa).toBe(0);
+    expect(report.averageReleaseScore).toBe(0);
+    expect(report.premiumReleaseAccepted).toBe(false);
+  });
+
+  it("P10 — QA présente : qaDataAvailable=true + panelsWithQa reflète le vrai compte", () => {
+    const report = computeChapterQualityReport(
+      [
+        { consistencyScore: 0.9, metadata: {} },
+        { consistencyScore: 0.85, metadata: {} },
+        { consistencyScore: null, metadata: {} },
+      ],
+      { minimumAcceptedImages: 2, releaseThreshold: 0.72 },
+    );
+
+    expect(report.qaDataAvailable).toBe(true);
+    expect(report.panelsWithQa).toBe(2);
+    expect(report.averageReleaseScore).toBeCloseTo(0.875, 3);
+    expect(report.totalPanels).toBe(3);
+  });
+
   it("assemble un debug summary uniforme avec source runtime", () => {
     const report = computeChapterQualityReport([], { minimumAcceptedImages: 55, releaseThreshold: 0.72 });
     const summary = buildGenerationRunSummary({

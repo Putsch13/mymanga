@@ -160,76 +160,75 @@ describe("chapter readiness — contrat de production P0.1", () => {
     expect(blocker?.step).toBe("production_plan");
   });
 
-  it("P1bis — ne bloque PLUS quand panelBlueprints.length < minimumImages : génère le count natif", () => {
-    // P1bis — le produit ne padd plus vers minimumImages et ne bloque plus
-    // si le découpage natif est sous la cible. Un plan avec 52 blueprints
-    // reste "ok" et lance la génération (on produit 52 images fidèles à
-    // l'histoire, pas 75 images inventées).
+  it("P8 — BLOQUE quand panelBlueprints.length < PREMIUM_PANEL_RANGE.min (70)", () => {
+    // P8 — la mission de refonte premium impose une range native stricte 70-75.
+    // Un plan de 52 panels est un BUG éditorial : génération bloquée, blocker
+    // visible dans le studio pour forcer une régénération du plan.
     const patch = buildBaseSnapshotPatch();
     const snapshot = updateChapterStudioSnapshot(createEmptyChapterStudioSnapshot(), {
       ...patch,
       productionPlan: buildPlan({
         estimatedImages: 52,
         targetImages: 52,
-        minimumImages: 75,
+        minimumImages: 70,
         panelBlueprints: Array.from({ length: 52 }, (_, i) => buildBlueprint(i + 1)) as never,
       }),
     });
 
     const report = buildChapterReadinessReport(snapshot);
 
-    expect(report.contractStatus).toBe("ok");
-    expect(report.contractComplete).toBe(true);
-    expect(report.launchBlocked).toBe(false);
-    expect(report.launchBlockedReason).toBeNull();
+    expect(report.contractStatus).toBe("incomplete_blueprints");
+    expect(report.contractComplete).toBe(false);
+    expect(report.launchBlocked).toBe(true);
+    expect(report.launchBlockedReason).toBe("incomplete_plan");
     expect(report.panelBlueprintCount).toBe(52);
-    // Pas de blocker
-    expect(report.blockerItems.some((i) => i.id === "production_plan_incomplete_blueprints")).toBe(false);
-    // Mais un warning informatif visible dans le studio
-    const warning = report.warningItems.find((i) => i.id === "production_plan_below_target_range");
-    expect(warning).toBeDefined();
-    expect(warning?.message).toContain("52");
-    expect(warning?.message).toContain("75");
+    const blocker = report.blockerItems.find((i) => i.id === "production_plan_under_native_range");
+    expect(blocker).toBeDefined();
+    expect(blocker?.message).toContain("52");
+    expect(blocker?.message).toContain("70");
   });
 
-  it("passe à contractStatus=ok quand panelBlueprints.length >= minimumImages", () => {
-    const patch = buildBaseSnapshotPatch();
-    const snapshot = updateChapterStudioSnapshot(createEmptyChapterStudioSnapshot(), {
-      ...patch,
-      productionPlan: buildPlan({
-        estimatedImages: 80,
-        targetImages: 80,
-        minimumImages: 75,
-        panelBlueprints: Array.from({ length: 80 }, (_, i) => buildBlueprint(i + 1)) as never,
-      }),
-    });
-
-    const report = buildChapterReadinessReport(snapshot);
-
-    expect(report.contractStatus).toBe("ok");
-    expect(report.contractComplete).toBe(true);
-    expect(report.launchBlocked).toBe(false);
-    expect(report.launchBlockedReason).toBeNull();
-    expect(report.panelBlueprintCount).toBe(80);
-    expect(report.blockerItems.some((i) => i.step === "production_plan")).toBe(false);
-  });
-
-  it("reste OK même si targetImages dépasse minimumImages (pas de warning faux positif)", () => {
+  it("P8 — BLOQUE quand panelBlueprints.length > PREMIUM_PANEL_RANGE.max (75)", () => {
     const patch = buildBaseSnapshotPatch();
     const snapshot = updateChapterStudioSnapshot(createEmptyChapterStudioSnapshot(), {
       ...patch,
       productionPlan: buildPlan({
         estimatedImages: 90,
         targetImages: 90,
-        minimumImages: 75,
+        minimumImages: 70,
         panelBlueprints: Array.from({ length: 90 }, (_, i) => buildBlueprint(i + 1)) as never,
       }),
     });
 
     const report = buildChapterReadinessReport(snapshot);
 
+    expect(report.contractStatus).toBe("incomplete_blueprints");
+    expect(report.launchBlocked).toBe(true);
+    expect(report.launchBlockedReason).toBe("incomplete_plan");
+    expect(report.panelBlueprintCount).toBe(90);
+    const blocker = report.blockerItems.find((i) => i.id === "production_plan_over_native_range");
+    expect(blocker).toBeDefined();
+  });
+
+  it("passe à contractStatus=ok quand le count natif est dans la range 70-75", () => {
+    const patch = buildBaseSnapshotPatch();
+    const snapshot = updateChapterStudioSnapshot(createEmptyChapterStudioSnapshot(), {
+      ...patch,
+      productionPlan: buildPlan({
+        estimatedImages: 72,
+        targetImages: 72,
+        minimumImages: 70,
+        panelBlueprints: Array.from({ length: 72 }, (_, i) => buildBlueprint(i + 1)) as never,
+      }),
+    });
+
+    const report = buildChapterReadinessReport(snapshot);
+
     expect(report.contractStatus).toBe("ok");
+    expect(report.contractComplete).toBe(true);
     expect(report.launchBlocked).toBe(false);
-    expect(report.warningItems.some((i) => i.id === "production_plan_under_minimum_images")).toBe(false);
+    expect(report.launchBlockedReason).toBeNull();
+    expect(report.panelBlueprintCount).toBe(72);
+    expect(report.blockerItems.some((i) => i.step === "production_plan")).toBe(false);
   });
 });

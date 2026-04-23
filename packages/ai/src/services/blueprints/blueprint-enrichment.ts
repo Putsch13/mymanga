@@ -1,11 +1,22 @@
 /**
- * Enrichissement d'une liste de blueprints jusqu'a un minimum cible.
+ * ╔════════════════════════════════════════════════════════════════════╗
+ * ║ LEGACY — PREMIUM-FORBIDDEN (P0.B quarantine)                       ║
+ * ╠════════════════════════════════════════════════════════════════════╣
+ * ║ L'enrichissement/padding heuristique est incompatible avec la      ║
+ * ║ règle P8 (range 70-75 stricte, ni "under_min" ni "over_max").      ║
+ * ║ Le storyboard v3 produit directement 70-75 panels natifs — sans    ║
+ * ║ cutaway artificiels dérivés automatiquement.                       ║
+ * ║                                                                    ║
+ * ║ `premium-path-legacy-isolation.test.ts` bloque tout import.        ║
+ * ╚════════════════════════════════════════════════════════════════════╝
  *
- * READ-PREMIUM : sans cette etape, un chapitre avec ~10 beats produit ~30
- * blueprints et la DB n'a que 30 SceneImage, bien en dessous des 70-75 images
- * promises au user. La fonction ajoute des panels cutaway/reaction/environment
- * derives des beats existants pour atteindre le minimum sans dupliquer
- * betement les cases.
+ * @deprecated Enrichissement d'une liste de blueprints jusqu'a un minimum cible.
+ *
+ * READ-PREMIUM (legacy pré-P8) : sans cette etape, un chapitre avec ~10 beats
+ * produit ~30 blueprints et la DB n'a que 30 SceneImage, bien en dessous des
+ * 70-75 images promises au user. La fonction ajoute des panels cutaway/reaction/
+ * environment derives des beats existants pour atteindre le minimum sans
+ * dupliquer betement les cases.
  */
 
 import type {

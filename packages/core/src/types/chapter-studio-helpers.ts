@@ -11,6 +11,7 @@
  * ré-exporte les deux.
  */
 
+import { classifyPremiumPanelCount, PREMIUM_PANEL_RANGE } from "../premium-panel-range";
 import type { ApprovedChapterOutline } from "./approved-outline";
 import {
   chapterImageCountSchema,
@@ -49,7 +50,7 @@ export function buildProductionPlanFromOutline(
     lockedCharacters?: string[];
   },
 ): ProductionPlan {
-  const minimumImages = Math.max(1, input?.minimumImages ?? 75);
+  const minimumImages = Math.max(1, input?.minimumImages ?? PREMIUM_PANEL_RANGE.target);
   const maxPanelsPerPage = Math.max(3, input?.maxPanelsPerPage ?? 6);
   const panels = outline.beats.map((beat) => Math.max(1, beat.estimatedPanels));
   const estimatedImages = sum(panels);
@@ -169,7 +170,7 @@ export function normalizeChapterImageCounts(input?: Partial<ChapterImageCount> |
   const normalized = chapterImageCountSchema.parse({
     estimatedImages: input?.estimatedImages ?? 0,
     targetImages: input?.targetImages ?? input?.estimatedImages ?? 0,
-    minimumImages: input?.minimumImages ?? 75,
+    minimumImages: input?.minimumImages ?? PREMIUM_PANEL_RANGE.target,
     generatedImages: input?.generatedImages ?? 0,
     acceptedImages: input?.acceptedImages ?? 0,
     rejectedImages: input?.rejectedImages ?? 0,
@@ -296,7 +297,7 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
     imageCounts = normalizeChapterImageCounts({
       estimatedImages: snapshot.data.productionPlan.estimatedImages ?? 0,
       targetImages: snapshot.data.productionPlan.targetImages ?? 0,
-      minimumImages: snapshot.data.productionPlan.minimumImages ?? 75,
+      minimumImages: snapshot.data.productionPlan.minimumImages ?? PREMIUM_PANEL_RANGE.target,
       acceptedImages: snapshot.data.readinessReport?.imageCounts.acceptedImages ?? 0,
       generatedImages: snapshot.data.readinessReport?.imageCounts.generatedImages ?? 0,
       rejectedImages: snapshot.data.readinessReport?.imageCounts.rejectedImages ?? 0,
@@ -304,21 +305,21 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
 
     const blueprints = snapshot.data.productionPlan.panelBlueprints;
     panelBlueprintCount = Array.isArray(blueprints) ? blueprints.length : 0;
-    const minimumImages = imageCounts.minimumImages;
 
-    // P1bis — CONTRAT COUNT ASSOUPLI.
+    // P8 — CONTRAT COUNT STRICT (mission de refonte premium).
     //
-    // Règle produit mise à jour : le storyboard natif décide. On ne padde plus
-    // artificiellement vers un minimum (fini l'ancien `expandBlueprintsToMinimum`),
-    // et on ne bloque plus un chapitre juste parce que le count est sous la
-    // cible (ex. 49/70). Si le découpage natif sort 49 panels fidèles à
-    // l'histoire, c'est OK : on génère 49.
+    // Règle produit : le premium doit viser 70–75 panels NATIFS.
+    // Si le storyboard natif produit 56 panels → fail immédiat (plus de
+    // "recovery" qui masque un storyboard trop court, plus de padding
+    // artificiel, plus de warning informatif qui laisse passer un plan
+    // sous-dimensionné).
     //
-    // Seul cas vraiment bloquant : `panelBlueprintCount === 0` (pas de plan
-    // exploitable → pas de génération possible).
-    //
-    // Un count sous la cible devient un SIMPLE WARNING informatif (visible
-    // dans le studio) mais n'empêche pas le launch.
+    // Règle :
+    //   - panelBlueprintCount === 0              → missing_blueprints (bloquant)
+    //   - count < PREMIUM_PANEL_RANGE.min (70)   → incomplete_blueprints (bloquant)
+    //   - count > PREMIUM_PANEL_RANGE.max (75)   → incomplete_blueprints (bloquant)
+    //   - sinon                                   → ok
+    const status = classifyPremiumPanelCount(panelBlueprintCount);
     if (panelBlueprintCount === 0) {
       contractStatus = "missing_blueprints";
       launchBlocked = true;
@@ -333,33 +334,37 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
         ctaLabel: "Régénérer le plan",
         action: "generate_outline",
       });
-    } else {
-      contractStatus = "ok";
-      if (panelBlueprintCount < minimumImages) {
-        addWarning({
-          id: "production_plan_below_target_range",
-          step: "production_plan",
-          field: null,
-          message:
-            `Le plan natif contient ${panelBlueprintCount} panels (cible indicative : ${minimumImages}). ` +
-            `La génération n'est pas bloquée — on produira ${panelBlueprintCount} cases fidèles à l'histoire.`,
-          ctaLabel: "Régénérer le plan",
-          action: "generate_outline",
-        });
-      }
-    }
-
-    // Avertissement historique sur `targetImages` (budget) — utile si le plan
-    // est cohérent en blueprints mais que targetImages reste sous le minimum.
-    if (imageCounts.targetImages < imageCounts.minimumImages && contractStatus === "ok") {
-      addWarning({
-        id: "production_plan_under_minimum_images",
+    } else if (status === "under_min") {
+      contractStatus = "incomplete_blueprints";
+      launchBlocked = true;
+      launchBlockedReason = "incomplete_plan";
+      addBlocker({
+        id: "production_plan_under_native_range",
         step: "production_plan",
         field: null,
-        message: `Le plan vise ${imageCounts.targetImages} images (cible indicative : ${imageCounts.minimumImages}).`,
+        message:
+          `Le plan natif contient ${panelBlueprintCount} panels (range premium requise : ${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max}). ` +
+          `La génération est bloquée : un storyboard trop court produit un chapitre incomplet. ` +
+          `Régénère un plan plus dense avant de lancer.`,
         ctaLabel: "Régénérer le plan",
         action: "generate_outline",
       });
+    } else if (status === "over_max") {
+      contractStatus = "incomplete_blueprints";
+      launchBlocked = true;
+      launchBlockedReason = "incomplete_plan";
+      addBlocker({
+        id: "production_plan_over_native_range",
+        step: "production_plan",
+        field: null,
+        message:
+          `Le plan natif contient ${panelBlueprintCount} panels (range premium requise : ${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max}). ` +
+          `La génération est bloquée : compactage éditorial requis.`,
+        ctaLabel: "Régénérer le plan",
+        action: "generate_outline",
+      });
+    } else {
+      contractStatus = "ok";
     }
   } else {
     imageCounts = normalizeChapterImageCounts(null);

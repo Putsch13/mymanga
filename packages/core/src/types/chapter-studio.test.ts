@@ -10,7 +10,7 @@ import {
 } from "./chapter-studio-helpers";
 
 describe("chapter studio domain", () => {
-  it("enrichit automatiquement un plan sous 75 images", () => {
+  it("enrichit automatiquement un plan sous la cible premium (72)", () => {
     const plan = buildProductionPlanFromOutline({
       source: "generated",
       chapterGoal: "Monter la tension avant l'affrontement.",
@@ -34,7 +34,8 @@ describe("chapter studio domain", () => {
     });
 
     expect(plan.estimatedImages).toBe(30);
-    expect(plan.targetImages).toBeGreaterThanOrEqual(75);
+    // PREMIUM_PANEL_RANGE.target = 72 (la range premium est 70-75).
+    expect(plan.targetImages).toBeGreaterThanOrEqual(72);
     expect(plan.enrichmentAdjustments.length).toBeGreaterThan(0);
   });
 

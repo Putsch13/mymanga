@@ -8,6 +8,8 @@ function makeSpec(overrides: Partial<PanelRenderSpec> = {}): PanelRenderSpec {
     panelId: "p1",
     pageNumber: 1,
     panelNumberInPage: 1,
+    // COMMIT C — panelPurpose est maintenant requis sur le spec.
+    panelPurpose: "reaction_closeup",
     renderMode: "reaction_closeup",
     shotType: "closeup",
     cameraAngle: "eye_level",
@@ -85,4 +87,52 @@ describe("validateRenderSpec", () => {
   it("accepte un spec minimal valide", () => {
     expect(validateRenderSpec(makeSpec()).ok).toBe(true);
   });
+
+  // COMMIT G — tests bloquants (mission de refonte P11 §4).
+  // Ces tests refusent les sentinelles legacy qui ont causé les logs
+  // `panel=unknown subjectFocus=none → CHARACTER_IN_SCENE` en prod.
+
+  it.each(["unknown", "none", "undefined", "null", "n/a", "tbd", "todo", ""])(
+    "COMMIT G — refuse panelPurpose=%s (sentinelle legacy interdite)",
+    (sentinel) => {
+      const r = validateRenderSpec(makeSpec({ panelPurpose: sentinel as never }));
+      expect(r.ok).toBe(false);
+      expect(r.issues.some((i) => i.includes("panelPurpose_missing_or_sentinel"))).toBe(
+        true,
+      );
+    },
+  );
+
+  it.each(["unknown", "none", "undefined", "null", "n/a", "tbd", "todo"])(
+    "COMMIT G — refuse subjectFocus=%s (sentinelle legacy interdite)",
+    (sentinel) => {
+      const r = validateRenderSpec(makeSpec({ subjectFocus: sentinel as never }));
+      expect(r.ok).toBe(false);
+      expect(r.issues.some((i) => i.includes("subjectFocus_missing_or_sentinel"))).toBe(
+        true,
+      );
+    },
+  );
+
+  it.each(["unknown", "none"])(
+    "COMMIT G — refuse renderMode=%s (plus de fallback CHARACTER_IN_SCENE)",
+    (sentinel) => {
+      const r = validateRenderSpec(makeSpec({ renderMode: sentinel as never }));
+      expect(r.ok).toBe(false);
+      expect(r.issues.some((i) => i.includes("renderMode_missing_or_sentinel"))).toBe(
+        true,
+      );
+    },
+  );
+
+  it.each(["unknown", "none"])(
+    "COMMIT G — refuse shotType=%s (storyboard doit décider)",
+    (sentinel) => {
+      const r = validateRenderSpec(makeSpec({ shotType: sentinel as never }));
+      expect(r.ok).toBe(false);
+      expect(r.issues.some((i) => i.includes("shotType_missing_or_sentinel"))).toBe(
+        true,
+      );
+    },
+  );
 });

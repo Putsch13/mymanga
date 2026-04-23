@@ -168,9 +168,20 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             `[pipeline:v3:story] warnings=${storyPassResult.warnings.join(" | ")}`,
           );
         }
+        // COMMIT P9 — projectFormat OBLIGATOIRE dans le storyboard-pass.
+        // On résout depuis project.format (string libre en DB) vers l'enum
+        // strict `manga | webtoon`. Si la valeur en DB est null ou
+        // inconnue, on loggue explicitement le fallback au lieu d'avaler
+        // silencieusement (l'utilisateur a pu choisir webtoon et on se
+        // retrouve à générer un storyboard manga par défaut).
         const projectFormatRaw = (project as { format?: string | null } | null)?.format ?? null;
-        const projectFormat =
+        const projectFormat: "manga" | "webtoon" =
           projectFormatRaw === "webtoon" ? "webtoon" : "manga";
+        if (projectFormatRaw !== "manga" && projectFormatRaw !== "webtoon") {
+          console.warn(
+            `[pipeline:v3:storyboard] project_format_fallback raw=${projectFormatRaw ?? "null"} → manga (projectId=${projectId})`,
+          );
+        }
         const storyboardPassResult = await runStoryboardPass({
           storyArc: storyPassResult.storyArc,
           heroCharacterIds: focusCharacterIds,
@@ -259,6 +270,10 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             generatePanelImage: renderFalEnabled
               ? createDefaultPanelImageGenerator()
               : undefined,
+            // COMMIT B — on persiste dès qu'on rend réellement des
+            // images (renderFalEnabled). Le reader consommera ces
+            // SceneImage sans passer par le legacy.
+            persistToDb: renderFalEnabled,
           });
           console.log(
             `[pipeline:v3:render] total=${renderPassResult.summary.totalPanels} specs=${renderPassResult.specs.length} failed=${renderPassResult.summary.failedCount} panel_qa_ok=${renderPassResult.panelQa.okCount}/${renderPassResult.panelQa.okCount + renderPassResult.panelQa.failCount}`,
@@ -268,12 +283,32 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
               `[pipeline:v3:render] warnings=${renderPassResult.summary.warnings.slice(0, 5).join(" | ")}`,
             );
           }
-          // P3 — le render v3 est considéré "réussi" si tous les panels
-          // ont produit une spec ET qu'aucun n'a échoué fatalement.
+          // COMMIT A — critère de succès v3 durci.
+          //
+          // Un "silent success" (specs complètes mais `renderedCount=0` parce
+          // que `generatePanelImage` n'était pas passé) ne doit PLUS valider
+          // `v3RenderSucceeded`. Sinon le `skipLegacyImagePipeline` plus bas
+          // finalise le chapitre avec 0 image réellement persistée.
+          //
+          // Critères durs :
+          //   - aucune spec échouée
+          //   - au moins 1 panel (sinon le storyboard est vide)
+          //   - toutes les specs produites
+          //   - ET le render a réellement rendu des images (pas de panels
+          //     skippés parce que FAL était désactivé)
+          const renderedCount = renderPassResult.summary.renderedCount;
+          const skippedCount = renderPassResult.summary.skippedCount;
           v3RenderSucceeded =
             renderPassResult.summary.failedCount === 0 &&
             renderPassResult.specs.length === renderPassResult.summary.totalPanels &&
-            renderPassResult.summary.totalPanels > 0;
+            renderPassResult.summary.totalPanels > 0 &&
+            renderedCount > 0 &&
+            skippedCount === 0;
+          if (!v3RenderSucceeded) {
+            console.warn(
+              `[pipeline:v3:render] v3_succeeded=false rendered=${renderedCount} skipped=${skippedCount} failed=${renderPassResult.summary.failedCount} specs=${renderPassResult.specs.length}/${renderPassResult.summary.totalPanels} — legacy image-gen will still run (unless PREMIUM_ONLY=true which would then fail-hard)`,
+            );
+          }
         } catch (renderErr) {
           const renderMsg = renderErr instanceof Error ? renderErr.message : String(renderErr);
           console.error(

@@ -48,6 +48,7 @@ vi.mock("@manga-ai-studio/core", async () => {
     approvedOutlineSchema: z.z.object({}).passthrough(),
     chapterStudioDataSchema: z.z.object({}).passthrough(),
     buildApprovedOutlineFromProductionOutline: () => null,
+    PREMIUM_PANEL_RANGE: { min: 70, target: 72, max: 75 },
   };
 });
 

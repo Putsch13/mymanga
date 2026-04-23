@@ -10,6 +10,7 @@ import {
   type ProductionOutline,
   type ProjectCanon,
 } from "./types";
+import { PREMIUM_PANEL_RANGE } from "./premium-panel-range";
 
 export type PanelCriticalityLevel = "NON_CRITICAL" | "CRITICAL";
 
@@ -207,7 +208,7 @@ export function aggregateChapterImageCounts(input?: ChapterImageCountInput | nul
   const normalized = chapterImageCountSchema.parse({
     estimatedImages: input?.estimatedImages ?? 0,
     targetImages: input?.targetImages ?? input?.estimatedImages ?? 0,
-    minimumImages: input?.minimumImages ?? 75,
+    minimumImages: input?.minimumImages ?? PREMIUM_PANEL_RANGE.target,
     generatedImages: input?.generatedImages ?? 0,
     acceptedImages: input?.acceptedImages ?? 0,
     rejectedImages: input?.rejectedImages ?? 0,

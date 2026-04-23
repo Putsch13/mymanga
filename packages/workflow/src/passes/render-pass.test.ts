@@ -24,7 +24,7 @@ function makePanel(overrides: Partial<StoryboardPanel> = {}): StoryboardPanel {
     panelNumberInPage: 1,
     globalPanelIndex: 0,
     sourceBeatId: "b1",
-    panelPurpose: "setup",
+    panelPurpose: "hero_focus",
     renderMode: "hero_closeup",
     shotType: "closeup",
     cameraAngle: "eye_level",

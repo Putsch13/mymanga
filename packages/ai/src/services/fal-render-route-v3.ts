@@ -168,16 +168,54 @@ const RENDER_MODE_ROUTE_TABLE: Record<StoryboardRenderMode, RouteBase> = {
 };
 
 /**
+ * COMMIT C — erreur dédiée pour un renderMode inconnu.
+ * Évite un crash implicite `cannot read property .modelId of undefined`
+ * et remplace par un log premium explicite.
+ */
+export class UnknownRenderModeError extends Error {
+  renderMode: string;
+  constructor(renderMode: string) {
+    super(
+      `fal_render_route.unknown_render_mode=${renderMode} (premium v3 refuse un storyboard dont le panel n'est pas typé)`,
+    );
+    this.name = "UnknownRenderModeError";
+    this.renderMode = renderMode;
+  }
+}
+
+/**
+ * COMMIT C — erreur dédiée pour un héros visible sans refs.
+ * Aujourd'hui la route pouvait encore passer en `NONE` si le spec oubliait
+ * de marquer `hasHeroOrSupport`. On refuse explicitement : un panel avec
+ * un hero/support visible DOIT router avec `referencePolicy !== "NONE"`.
+ */
+export class HeroWithoutReferencesError extends Error {
+  constructor(public readonly panelId: string, public readonly renderMode: string) {
+    super(
+      `fal_render_route.hero_without_references panelId=${panelId} renderMode=${renderMode} — le héros doit toujours avoir au moins LIGHT, jamais NONE`,
+    );
+    this.name = "HeroWithoutReferencesError";
+  }
+}
+
+/**
  * Résout la route FAL d'un panel à partir de son PanelRenderSpec.
  *
- * Garanties :
+ * Garanties (COMMIT C — durci) :
  *   - aucun regex, aucune heuristique basée sur le texte
+ *   - throw `UnknownRenderModeError` si `renderMode` est inconnu / hors table
+ *     (plus de fallback `CHARACTER_IN_SCENE` silencieux)
+ *   - throw `HeroWithoutReferencesError` si hero/support visible et que la
+ *     politique finale resterait `NONE`
  *   - si un héros/support est présent, `referencePolicy` est toujours au
  *     moins LIGHT (jamais NONE)
  *   - la route est déterministe : même spec → même route
  */
 export function resolveFalRenderRoute(spec: PanelRenderSpec): FalRenderRoute {
   const base = RENDER_MODE_ROUTE_TABLE[spec.renderMode];
+  if (!base) {
+    throw new UnknownRenderModeError(String(spec.renderMode ?? "null"));
+  }
   const hasHeroOrSupport = spec.visibleCharacters.some(
     (c) => c.role === "hero" || c.role === "support",
   );
@@ -186,6 +224,9 @@ export function resolveFalRenderRoute(spec: PanelRenderSpec): FalRenderRoute {
       ? "LIGHT"
       : base.referencePolicy
     : base.referencePolicy;
+  if (hasHeroOrSupport && policy === "NONE") {
+    throw new HeroWithoutReferencesError(spec.panelId, spec.renderMode);
+  }
   return {
     modelId: base.modelId,
     panelCategory: base.panelCategory,

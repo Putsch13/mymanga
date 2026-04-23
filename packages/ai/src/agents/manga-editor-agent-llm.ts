@@ -30,11 +30,14 @@ import type {
   StoryboardCameraAngle,
 } from "../contracts/storyboard-plan";
 import {
+  PANEL_PURPOSES,
   STORYBOARD_LAYOUT_TEMPLATES,
   STORYBOARD_RENDER_MODES,
   STORYBOARD_SHOT_TYPES,
   STORYBOARD_SUBJECT_FOCUSES,
   STORYBOARD_CUTAWAY_TYPES,
+  isPanelPurpose,
+  type PanelPurpose,
 } from "../contracts/storyboard-plan";
 import { validateStoryboardPlan } from "../validators/storyboard-validator";
 import {
@@ -148,6 +151,58 @@ Return a JSON object with this shape (strict):
 }`;
 }
 
+/**
+ * COMMIT P3.B — map les renderMode vers un panelPurpose par défaut
+ * cohérent (pour les cas où le LLM n'a pas produit un purpose valide).
+ */
+function defaultPurposeForRenderMode(mode: StoryboardRenderMode): PanelPurpose {
+  switch (mode) {
+    case "hero_closeup":
+      return "hero_focus";
+    case "npc_closeup":
+      return "npc_focus";
+    case "enemy_closeup":
+    case "enemy_reveal":
+      return "enemy_focus";
+    case "reaction_closeup":
+      return "reaction_closeup";
+    case "dialogue_two_shot":
+      return "dialogue_anchor";
+    case "dialogue_over_shoulder":
+      return "dialogue_over_shoulder";
+    case "insert_object":
+      return "prop_insert";
+    case "surveillance_reveal":
+      return "surveillance_insert";
+    case "group_tension":
+      return "group_tension";
+    case "establishing_environment":
+      return "location_establishing";
+    case "silent_transition":
+      return "transition";
+    case "threat_silhouette":
+      return "threat_silhouette";
+    case "creature_reveal":
+      return "creature_reveal";
+    case "aftermath_dialogue":
+      return "combat_aftermath";
+    case "combat_exchange":
+      return "combat_impact";
+    case "combat_aftermath":
+      return "combat_aftermath";
+    default:
+      return "dialogue_anchor";
+  }
+}
+
+function sanitizePanelPurpose(
+  raw: unknown,
+  renderMode: StoryboardRenderMode,
+): PanelPurpose {
+  if (isPanelPurpose(raw)) return raw;
+  return defaultPurposeForRenderMode(renderMode);
+}
+
 function sanitizeEnum<T extends string>(
   value: unknown,
   allowed: readonly T[],
@@ -234,7 +289,11 @@ function sanitizePanel(
     panelNumberInPage,
     globalPanelIndex: globalIndex,
     sourceBeatId,
-    panelPurpose: typeof raw.panelPurpose === "string" ? raw.panelPurpose : "",
+    // COMMIT P3.B — panelPurpose doit appartenir à l'enum fermé.
+    // Si le LLM sort un libellé inconnu, on retombe sur un purpose
+    // neutre dérivé du renderMode plutôt que "" (qui serait fail du
+    // render-spec-validator).
+    panelPurpose: sanitizePanelPurpose(raw.panelPurpose, renderMode),
     renderMode,
     shotType,
     cameraAngle,

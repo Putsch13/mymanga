@@ -26,10 +26,12 @@ import {
   assertDedicatedFaceCloseupForPanel,
   buildMinimalPanelPromptStrict,
   ContradictoryPanelPromptError,
+  HeroWithoutReferencesError,
   MissingDedicatedFaceCloseupRefError,
   buildPanelRenderSpec,
   MissingMainCharacterRefError,
   resolveFalRenderRoute,
+  UnknownRenderModeError,
   type ChapterStyleBible,
   type ChapterVisualMemory,
   type FalRenderRoute,
@@ -41,6 +43,10 @@ import {
   saveRenderPassResult,
   type RenderPassResultSummary,
 } from "../persistence/render-persistence";
+import {
+  persistV3RenderedPanels,
+  type V3RenderedPanelRecord,
+} from "../persistence/v3-scene-image-persistence";
 import { runPanelQaPass, type PanelQaPassOutput } from "./panel-qa-pass";
 import { runPageQaPass, type PageQaPassOutput } from "./page-qa-pass";
 
@@ -78,6 +84,13 @@ export interface RunRenderPassInput {
     negative: string;
     route: FalRenderRoute;
   }) => Promise<GeneratePanelImageResult>;
+  /**
+   * COMMIT B — quand `true` (défaut), persiste les panels rendus comme
+   * `SceneImage` en DB (via `persistV3RenderedPanels`). Permet au reader
+   * de consommer la sortie v3 sans que le legacy `image-generation-pass`
+   * tourne. À laisser à `false` uniquement en tests unitaires.
+   */
+  persistToDb?: boolean;
 }
 
 export interface RunRenderPassResult {
@@ -172,7 +185,32 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
       }
       throw err;
     }
-    const route = resolveFalRenderRoute(spec);
+
+    // COMMIT C — le routeur v3 peut refuser un spec qui traînerait malgré
+    // le validator (renderMode inconnu / hero visible sans refs). On fail
+    // ce panel proprement au lieu de casser tout le render-pass.
+    let route: FalRenderRoute;
+    try {
+      route = resolveFalRenderRoute(spec);
+    } catch (err) {
+      if (err instanceof UnknownRenderModeError) {
+        errors.push({
+          panelId: panel.panelId,
+          error: `route_unknown_render_mode:${err.renderMode}`,
+        });
+        failedCount += 1;
+        continue;
+      }
+      if (err instanceof HeroWithoutReferencesError) {
+        errors.push({
+          panelId: panel.panelId,
+          error: `route_hero_without_references:${err.renderMode}`,
+        });
+        failedCount += 1;
+        continue;
+      }
+      throw err;
+    }
 
     const descriptor: RenderedPanelDescriptor = { spec, prompt, route };
     rendered.push(descriptor);
@@ -236,5 +274,40 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
     errors,
   };
   await saveRenderPassResult(input.chapterId, summary);
+
+  // COMMIT B — persistance SceneImage en DB.
+  //
+  // Quand `persistToDb` est `true` (défaut à l'appel depuis le pipeline
+  // mais `false` par défaut ici pour ne pas casser les tests unitaires
+  // qui ne mockent pas Prisma), on écrit les panels rendus comme
+  // `SceneImage` consommables par le reader. Ça ferme le shadow mode :
+  // le premium peut désormais livrer un chapitre complet sans que
+  // `image-generation-pass` legacy tourne.
+  if (input.persistToDb && rendered.length > 0) {
+    try {
+      const persistResult = await persistV3RenderedPanels({
+        chapterId: input.chapterId,
+        storyboardPlan: input.storyboardPlan,
+        rendered: rendered as V3RenderedPanelRecord[],
+      });
+      console.log(
+        `[render-pass:persist] chapterId=${input.chapterId} scenesCreated=${persistResult.scenesCreated} scenesReused=${persistResult.scenesReused} imagesUpserted=${persistResult.imagesUpserted} imagesSkipped=${persistResult.imagesSkipped}`,
+      );
+      if (persistResult.warnings.length > 0) {
+        console.warn(
+          `[render-pass:persist] warnings=${persistResult.warnings.slice(0, 5).join(" | ")}`,
+        );
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[render-pass:persist] persist_failed chapterId=${input.chapterId} error=${msg}`,
+      );
+      // On ne throw pas : la persistance est orthogonale au succès du
+      // render, mais on marque un warning pour l'audit.
+      summary.warnings.push(`persist_scene_image_failed: ${msg}`);
+    }
+  }
+
   return { summary, specs, rendered, panelQa, pageQa };
 }

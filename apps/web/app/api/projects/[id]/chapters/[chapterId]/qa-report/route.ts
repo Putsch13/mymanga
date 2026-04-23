@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { aggregateChapterImageCounts, classifyPanelCriticality } from "@manga-ai-studio/core";
+import { aggregateChapterImageCounts, classifyPanelCriticality, PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
 import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
@@ -55,7 +55,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     criticalPanelsMissingQa: chapter.criticalPanelsMissingQa,
     reviewBlockedReason: chapter.reviewBlockedReason,
   });
-  const minimumImages = studio.data.productionPlan?.minimumImages ?? studio.data.readinessReport?.imageCounts.minimumImages ?? 75;
+  const minimumImages = studio.data.productionPlan?.minimumImages ?? studio.data.readinessReport?.imageCounts.minimumImages ?? PREMIUM_PANEL_RANGE.target;
 
   const panelResults = chapter.scenes.flatMap((scene) =>
     scene.images.map((image) => {

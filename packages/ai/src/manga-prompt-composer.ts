@@ -1,22 +1,29 @@
 /**
- * @deprecated LEGACY fallback prompt composer (Sprint C).
+ * ╔════════════════════════════════════════════════════════════════════╗
+ * ║ LEGACY — PREMIUM-FORBIDDEN (P0.B quarantine)                       ║
+ * ╠════════════════════════════════════════════════════════════════════╣
+ * ║ Ce module ne DOIT PLUS être importé depuis le chemin premium.      ║
+ * ║ Le test `premium-path-legacy-isolation.test.ts` échoue             ║
+ * ║ automatiquement si un fichier premium (story-pass, storyboard-pass, ║
+ * ║ render-pass, minimal-panel-prompt-builder, fal-render-route-v3,    ║
+ * ║ agents, validators, contracts) importe ce fichier ou appelle       ║
+ * ║ `composeMangaPanelPrompt` / `composeChapterCoverPrompt`.           ║
+ * ║                                                                    ║
+ * ║ Les invocations restantes sont exclusivement dans les passes       ║
+ * ║ legacy (`narrative-pass`, `image-generation-pass`) qui ne tournent ║
+ * ║ plus pour le premium (PIPELINE_V3_PREMIUM_ONLY=true — Commit B).   ║
+ * ║                                                                    ║
+ * ║ Prochain sprint : supprimer physiquement une fois le trafic       ║
+ * ║ legacy tombé à 0 (télémétrie `legacy_prompt_composer_invoked=…`).  ║
+ * ╚════════════════════════════════════════════════════════════════════╝
  *
- * Ce fichier est conserve uniquement comme fallback pour les cas ou le
- * `CanonicalImagePromptPacket` (voir `packages/ai/src/services/canonical-prompt-recipe-builder.ts`)
- * n'est pas disponible. Le chemin de production doit passer par :
+ * @deprecated LEGACY prompt composer. Voir header ci-dessus.
  *
- *   canonical-prompt-recipe-builder.ts
- *     → fal-prompt-flattener.ts
- *     → fal-prompt-payload-builder.ts
- *     → provider FAL
+ * Le chemin premium v3 passe par :
+ *   storyboard-pass (IA2) → render-spec-builder → minimal-panel-prompt-builder
+ *     → fal-render-route-v3 → FAL
  *
- * Chaque invocation runtime des exports publics de ce fichier
- * (`composeMangaPanelPrompt`, `composeChapterCoverPrompt`) est loguee une fois
- * par process pour mesurer la part de trafic legacy restant. Objectif : tomber
- * a 0% d'invocations en production pour pouvoir supprimer ce module.
- *
- * Ne pas ajouter de nouvelle logique ici. Toute nouveaute va dans le chemin
- * canonical.
+ * Ne pas ajouter de nouvelle logique ici.
  */
 
 import type { PanelMood } from "./chapter-pipeline";

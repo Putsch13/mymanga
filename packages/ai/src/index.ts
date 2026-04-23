@@ -57,9 +57,21 @@ export {
   STORYBOARD_SHOT_TYPES,
   STORYBOARD_SUBJECT_FOCUSES,
   STORYBOARD_CUTAWAY_TYPES,
+  // COMMIT P3.B
+  PANEL_PURPOSES,
+  isPanelPurpose,
+  // COMMIT P5
+  NPC_CATEGORIES,
+  isNpcCategory,
   createEmptyContinuityState,
   createDefaultChapterStyleBible,
 } from "./contracts";
+// COMMIT P3.B + P5 — types enum exposés pour les consumers (tests,
+// storyboard-pass, render-spec-validator).
+export type { PanelPurpose, NpcCategory, StoryboardPanelNpc } from "./contracts";
+// COMMIT H — agent IA1 LLM (le stub est déjà exporté via export *
+// plus bas dans ce fichier, cf. ./agents/story-architect-agent).
+export { runStoryArchitectAgentLlm } from "./agents/story-architect-agent-llm";
 export * from "./image-routing-service";
 export * from "./adapters/mock-image-provider";
 export * from "./adapters/fal-flux-adapter";

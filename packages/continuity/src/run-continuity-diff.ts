@@ -295,7 +295,7 @@ export function detectTimelineViolations(
     if ((a.sceneNumber ?? 0) !== (b.sceneNumber ?? 0)) {
       return (a.sceneNumber ?? 0) - (b.sceneNumber ?? 0);
     }
-    return a.eventId.localeCompare(b.eventId);
+    return (a.eventId ?? "").localeCompare(b.eventId ?? "");
   });
 
   const deadActors = new Set<string>();

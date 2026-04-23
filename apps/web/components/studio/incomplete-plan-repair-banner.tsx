@@ -2,6 +2,7 @@
 
 import { AlertTriangle, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
 
 /**
  * P1.4 — Bannière de réparation guidée pour les chapitres dont le contrat
@@ -38,7 +39,7 @@ export function IncompletePlanRepairBanner({
   }
 
   const count = panelBlueprintCount ?? 0;
-  const minimum = minimumImages ?? 75;
+  const minimum = minimumImages ?? PREMIUM_PANEL_RANGE.target;
   const isEmpty = contractStatus === "missing_blueprints" || count === 0;
 
   const message = isEmpty

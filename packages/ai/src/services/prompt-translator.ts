@@ -1,5 +1,16 @@
 /**
- * Prompt Translator — FR→EN automatique pour les prompts image
+ * ╔════════════════════════════════════════════════════════════════════╗
+ * ║ LEGACY — PREMIUM-FORBIDDEN (P0.B quarantine)                       ║
+ * ╠════════════════════════════════════════════════════════════════════╣
+ * ║ Le chemin premium v3 construit ses prompts DIRECTEMENT en anglais  ║
+ * ║ via `minimal-panel-prompt-builder.ts`. Plus jamais besoin de       ║
+ * ║ traduire FR→EN à la sortie d'un prompt français généré par le      ║
+ * ║ composer legacy.                                                   ║
+ * ║                                                                    ║
+ * ║ `premium-path-legacy-isolation.test.ts` bloque tout import.        ║
+ * ╚════════════════════════════════════════════════════════════════════╝
+ *
+ * @deprecated Prompt Translator — FR→EN automatique pour les prompts image legacy.
  *
  * Les modèles FLUX comprennent mieux l'anglais. Ce service traduit les éléments
  * français du prompt en anglais avant l'envoi à FAL, tout en préservant

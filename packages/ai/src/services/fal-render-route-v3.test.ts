@@ -17,6 +17,9 @@ function makeSpec(
     panelId: "p",
     pageNumber: 1,
     panelNumberInPage: 1,
+    // COMMIT P3.B — panelPurpose doit être dans l'enum. Les tests de
+    // route FAL n'exploitent pas le purpose, on utilise une valeur neutre.
+    panelPurpose: "dialogue_anchor",
     renderMode,
     shotType: "medium",
     cameraAngle: "eye_level",

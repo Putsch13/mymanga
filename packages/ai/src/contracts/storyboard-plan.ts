@@ -113,6 +113,54 @@ export type StoryboardCutawayType =
   | "aftermath"
   | "surveillance";
 
+/**
+ * COMMIT P3.B — PanelPurpose enum strict (22 valeurs).
+ *
+ * `panelPurpose` exprime l'INTENTION ÉDITORIALE d'une case. C'est ce
+ * qui distingue :
+ *   - un `reaction_closeup` qui renforce un beat dialogue,
+ *   - d'un `prop_insert` qui révèle un indice,
+ *   - d'un `combat_impact` qui matérialise le choc d'un combat.
+ *
+ * Avant : `panelPurpose: string` — le LLM storyboard pouvait produire
+ * n'importe quel libellé, et le renderer acceptait. Résultat : des
+ * `panel=unknown` qui retombaient sur le fallback legacy
+ * `CHARACTER_IN_SCENE` en prod.
+ *
+ * Maintenant : enum fermé. Le render-spec-validator refuse toute valeur
+ * hors liste.
+ */
+export const PANEL_PURPOSES = [
+  "dialogue_anchor",
+  "reaction_closeup",
+  "hero_focus",
+  "npc_focus",
+  "enemy_focus",
+  "group_tension",
+  "dialogue_over_shoulder",
+  "confrontation_standoff",
+  "threat_silhouette",
+  "creature_reveal",
+  "environment_cutaway",
+  "prop_insert",
+  "surveillance_insert",
+  "combat_anticipation",
+  "combat_release",
+  "combat_impact",
+  "combat_counter",
+  "combat_aftermath",
+  "location_establishing",
+  "transition",
+  "page_turn_cliffhanger",
+  "emotional_breathing_space",
+] as const;
+
+export type PanelPurpose = (typeof PANEL_PURPOSES)[number];
+
+export function isPanelPurpose(value: unknown): value is PanelPurpose {
+  return typeof value === "string" && (PANEL_PURPOSES as readonly string[]).includes(value);
+}
+
 export interface StoryboardPanelDialogue {
   speaker: string;
   text: string;
@@ -124,13 +172,73 @@ export interface StoryboardPanelVisualAnchors {
   previousPanelAnchorId?: string | null;
 }
 
+/**
+ * COMMIT P5 — catégorisation stricte des PNJ / ennemis / figurants.
+ *
+ * Le legacy traitait tout comme `passerby:ambient-depth` et se plaignait
+ * que "les PNJ ne sont pas fiables". La vérité : il n'y avait pas de
+ * contrat qui distinguait un figurant anonyme d'un antagoniste récurrent
+ * avec une mémoire visuelle dédiée.
+ *
+ * Maintenant :
+ *   - `ambient_extra`     : figurant de foule, pas de mémoire visuelle
+ *     (passerby, civil, badaud)
+ *   - `recurring_npc`     : PNJ secondaire qui revient, mémoire visuelle
+ *     légère (silhouette + accessoire marker suffisent)
+ *   - `important_npc`     : PNJ narratif avec rôle, continuity ID stable,
+ *     droit aux panels dédiés (`npc_focus`, `npc_closeup`)
+ *   - `antagonist_enemy`  : ennemi/antagoniste nommé, continuity ID +
+ *     face ref dédiée, droit à silhouette/reveal/standoff/impact
+ */
+export const NPC_CATEGORIES = [
+  "ambient_extra",
+  "recurring_npc",
+  "important_npc",
+  "antagonist_enemy",
+] as const;
+
+export type NpcCategory = (typeof NPC_CATEGORIES)[number];
+
+export function isNpcCategory(value: unknown): value is NpcCategory {
+  return typeof value === "string" && (NPC_CATEGORIES as readonly string[]).includes(value);
+}
+
+/**
+ * COMMIT P5 — représentation d'un PNJ attaché à un panel.
+ *
+ * Les PNJ `important_npc` et `antagonist_enemy` DOIVENT avoir un
+ * `continuityId` stable à travers le chapitre. Les `ambient_extra`
+ * peuvent être anonymes.
+ */
+export interface StoryboardPanelNpc {
+  /**
+   * ID de continuité du PNJ (ex: `npc:shopkeeper-elio` pour un
+   * important_npc). OBLIGATOIRE pour important_npc et antagonist_enemy,
+   * optionnel pour ambient_extra / recurring_npc.
+   */
+  continuityId?: string;
+  category: NpcCategory;
+  displayName?: string;
+  /**
+   * Fonction narrative pour les important_npc / antagonist_enemy
+   * (ex: "client du bar qui livre l'indice", "mercenaire qui
+   * impose le combat"). Utilisé par le storyboard validator pour
+   * refuser les important_npc sans fonction explicite.
+   */
+  narrativeFunction?: string;
+}
+
 export interface StoryboardPanel {
   panelId: string;
   pageNumber: number;
   panelNumberInPage: number;
   globalPanelIndex: number;
   sourceBeatId: string;
-  panelPurpose: string;
+  /**
+   * COMMIT P3.B — intention éditoriale stricte. Refusée par le
+   * render-spec-validator si hors de PANEL_PURPOSES.
+   */
+  panelPurpose: PanelPurpose;
   renderMode: StoryboardRenderMode;
   shotType: StoryboardShotType;
   cameraAngle: StoryboardCameraAngle;
@@ -148,6 +256,13 @@ export interface StoryboardPanel {
   mustNotShow: string[];
   continuityNotes: string[];
   visualAnchors: StoryboardPanelVisualAnchors;
+  /**
+   * COMMIT P5 — PNJ / ennemis attachés au panel, catégorisés.
+   * Optionnel (backward compat), mais le storyboard-validator
+   * en mode strict refuse qu'un `important_npc` apparaisse sans
+   * `continuityId` et sans `narrativeFunction`.
+   */
+  npcs?: StoryboardPanelNpc[];
 }
 
 export interface StoryboardPage {

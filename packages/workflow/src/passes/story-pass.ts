@@ -4,17 +4,32 @@
  * Entrée : projet, chapitres précédents, bible, personnages, user intent.
  * Sortie : StoryArc (persisté dans `chapter.outline.storyArcV2`).
  *
- * Sprint 1 : délègue à `runStoryArchitectAgent` (stub déterministe). Pas de
- * LLM branché ici. Le but est juste de figer le contrat et la
- * persistance pour ne plus bloquer le reste de la pipeline.
+ * COMMIT H — appelle désormais `runStoryArchitectAgentLlm` (vrai LLM) en
+ * premium, avec fallback automatique sur le stub si OPENAI_API_KEY absente.
+ * L'override `useLlmArchitect=false` force le stub (tests).
  */
 
 import {
   runStoryArchitectAgent,
+  runStoryArchitectAgentLlm,
   type StoryArc,
   type StoryArchitectInput,
 } from "@manga-ai-studio/ai";
 import { saveStoryArc } from "../persistence/story-persistence";
+import {
+  isPipelineV3PremiumOnlyEnabled,
+  isPipelineV3StoryArchitectLlmEnabled,
+} from "../pipeline-feature-flags";
+
+export class PremiumStoryArchitectStubForbiddenError extends Error {
+  constructor() {
+    super(
+      "premium_story_architect_stub_forbidden: PIPELINE_V3_PREMIUM_ONLY=true impose PIPELINE_V3_STORY_ARCHITECT_LLM=true. " +
+        "Le stub déterministe produit 9 beats identiques pour tous les chapitres. Interdit en premium.",
+    );
+    this.name = "PremiumStoryArchitectStubForbiddenError";
+  }
+}
 
 export interface RunStoryPassInput {
   chapterId: string;
@@ -25,6 +40,10 @@ export interface RunStoryPassInput {
   mainCharacters?: StoryArchitectInput["mainCharacters"];
   locations?: StoryArchitectInput["locations"];
   targetBeatCount?: number;
+  /**
+   * COMMIT H — override du flag PIPELINE_V3_STORY_ARCHITECT_LLM.
+   */
+  useLlmArchitect?: boolean;
 }
 
 export interface RunStoryPassResult {
@@ -33,7 +52,16 @@ export interface RunStoryPassResult {
 }
 
 export async function runStoryPass(input: RunStoryPassInput): Promise<RunStoryPassResult> {
-  const { storyArc, warnings } = await runStoryArchitectAgent({
+  const useLlm = input.useLlmArchitect ?? isPipelineV3StoryArchitectLlmEnabled();
+  const premiumOnly = isPipelineV3PremiumOnlyEnabled();
+
+  // COMMIT H + P2.B — symétrique du storyboard-pass : pas de stub en premium.
+  if (premiumOnly && !useLlm) {
+    throw new PremiumStoryArchitectStubForbiddenError();
+  }
+
+  const architect = useLlm ? runStoryArchitectAgentLlm : runStoryArchitectAgent;
+  const { storyArc, warnings } = await architect({
     chapterId: input.chapterId,
     chapterNumber: input.chapterNumber,
     title: input.title,

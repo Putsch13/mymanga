@@ -7,11 +7,16 @@ import { prisma } from "@manga-ai-studio/db";
 import { Badge } from "@/components/ui/badge";
 import { getStableImageUrl } from "@/lib/images/get-stable-image-url";
 import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
+import { PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
 
 export const dynamic = "force-dynamic";
 
-// READ-PREMIUM : cible minimale d'images par chapitre — doit matcher minimumImages DB (schema.prisma défaut 75)
-const TARGET_IMAGES_PER_CHAPTER = 75;
+// COMMIT E — suppression du hardcode `TARGET_IMAGES_PER_CHAPTER = 75`.
+// Source unique : `PREMIUM_PANEL_RANGE` (min=70, target=72, max=75).
+// Le reader affiche la cible produit (target) comme référence, et utilise
+// le min comme plancher de "chapitre prêt".
+const PREMIUM_PANEL_TARGET = PREMIUM_PANEL_RANGE.target;
+const PREMIUM_PANEL_MIN = PREMIUM_PANEL_RANGE.min;
 
 type Props = {
   params: Promise<{ id: string; chapterId: string }>;
@@ -81,7 +86,10 @@ async function renderReadPage(params: Props["params"], searchParamsP: Props["sea
   // P0.4 : helper centralisé remplace `img.persistedUrl ?? img.imageUrl` partout.
   const completedImages = allImages.filter((i) => i.status === "completed" && getStableImageUrl(i) !== null).length;
   const totalImages = allImages.length;
-  const targetImages = Math.max(TARGET_IMAGES_PER_CHAPTER, totalImages);
+  // COMMIT E — on utilise la cible produit (target=72) comme dénominateur
+  // d'affichage quand le storyboard natif est plus court, sinon le total
+  // réel. Fini le hardcode 75.
+  const targetImages = Math.max(PREMIUM_PANEL_TARGET, totalImages);
   const coverImage = allImages.find((i) => getStableImageUrl(i) !== null && i.status === "completed");
   // P0.5 : signer/proxifier la cover pour que les buckets privés fonctionnent.
   const rawCoverUrl = getStableImageUrl(coverImage);
@@ -110,16 +118,19 @@ async function renderReadPage(params: Props["params"], searchParamsP: Props["sea
           chapterId={chapterId}
           autoFullscreen
           exitHref={`/projects/${projectId}/chapters/${chapterId}/read`}
-          targetImages={TARGET_IMAGES_PER_CHAPTER}
+          targetImages={PREMIUM_PANEL_TARGET}
         />
       </div>
     );
   }
 
   // READ-PREMIUM : hero de lancement
+  // COMMIT E — on utilise PREMIUM_PANEL_MIN comme plancher "prêt" (le
+  // chapitre est lisible dès que le storyboard natif est couvert), et
+  // PREMIUM_PANEL_TARGET comme cible d'affichage.
   const readyRatio = targetImages > 0 ? completedImages / targetImages : 0;
-  const readyEnough = completedImages >= Math.min(TARGET_IMAGES_PER_CHAPTER, totalImages) && totalImages > 0;
-  const isUnderTarget = totalImages < TARGET_IMAGES_PER_CHAPTER;
+  const readyEnough = completedImages >= Math.min(PREMIUM_PANEL_MIN, totalImages) && totalImages > 0;
+  const isUnderTarget = totalImages < PREMIUM_PANEL_MIN;
 
   return (
     <div className="-mx-4 -my-4 sm:-mx-6 relative min-h-screen overflow-hidden bg-black text-white">
@@ -179,7 +190,7 @@ async function renderReadPage(params: Props["params"], searchParamsP: Props["sea
               }
             >
               <ImageIcon className="h-3 w-3" />
-              {completedImages}/{TARGET_IMAGES_PER_CHAPTER} cases
+              {completedImages}/{PREMIUM_PANEL_TARGET} cases
             </Badge>
             {totalImages > 0 && totalImages !== completedImages ? (
               <Badge variant="outline" className="gap-1.5 border-white/10 bg-white/5 text-white/50">
@@ -232,7 +243,7 @@ async function renderReadPage(params: Props["params"], searchParamsP: Props["sea
               </Link>
             )}
             <p className="text-xs text-white/40">
-              {readerModeHint(completedImages, TARGET_IMAGES_PER_CHAPTER)}
+              {readerModeHint(completedImages, PREMIUM_PANEL_TARGET)}
             </p>
           </div>
 

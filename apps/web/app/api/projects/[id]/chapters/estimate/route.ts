@@ -215,31 +215,34 @@ export async function POST(req: Request, ctx: Ctx) {
   // des panels cutaway/reaction/prop clonés. Résultat : des "faux panels"
   // qui polluaient le routing et fabriquaient des prompts contradictoires.
   //
-  // Nouveau modèle : on valide une RANGE produit 70–75 (`PREMIUM_PANEL_RANGE`).
-  //   - raw < 70 → `planStatus = "incomplete"` (studio doit enrichir en amont)
-  //   - 70 ≤ raw ≤ 75 → `planStatus = "ready"`
-  //   - raw > 75 → `planStatus = "over_target"` (compaction éditoriale requise)
-  // Le storyboard natif est désormais la seule source. Aucun padding.
+  // P8 — CONTRAT COUNT STRICT (mission de refonte premium).
+  //
+  // La range produit est 70-75 NATIF. Un storyboard qui sort 56 panels est
+  // un BUG éditorial. L'estimate doit marquer le plan comme "incomplete"
+  // pour que le studio refuse de le lancer : plus de passage silencieux
+  // via `ready_below_target`.
+  //
+  //   - raw === 0                → planStatus = "incomplete" (plan vide)
+  //   - raw < 70                 → planStatus = "incomplete" (sous la range)
+  //   - 70 ≤ raw ≤ 75            → planStatus = "ready"
+  //   - raw > 75                 → planStatus = "incomplete" (sur la range)
   const allBlueprints = rawBlueprints;
   const enrichmentApplied = false as const;
   const enrichmentCount = 0;
   const panelCountStatus = classifyPremiumPanelCount(allBlueprints.length);
   const chapterMinimumImages = PREMIUM_PANEL_RANGE.min;
-  // P1bis — on ne bloque plus sur under_min/over_max : le storyboard natif
-  // est accepté tel quel (cf. `premium-chapter-contract.ts` et core helpers).
-  // `planStatus` reste "ready" dès qu'il y a au moins 1 blueprint.
   const isEmptyPlan = allBlueprints.length === 0;
   const isBelowTargetRange = panelCountStatus === "under_min";
   const isOverTargetRange = panelCountStatus === "over_max";
 
   if (isBelowTargetRange) {
-    console.warn(
-      `[estimate] below_target_range raw=${rawBlueprints.length} target_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${targetChapter?.id ?? "new"} — génération non bloquée, no padding`,
+    console.error(
+      `[estimate] below_target_range raw=${rawBlueprints.length} required_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${targetChapter?.id ?? "new"} — BLOQUÉ (storyboard natif sous la range premium)`,
     );
   }
   if (isOverTargetRange) {
-    console.warn(
-      `[estimate] over_target_range raw=${rawBlueprints.length} target_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${targetChapter?.id ?? "new"} — l'éditeur peut compacter ensuite`,
+    console.error(
+      `[estimate] over_target_range raw=${rawBlueprints.length} required_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${targetChapter?.id ?? "new"} — BLOQUÉ (compactage éditorial requis)`,
     );
   }
   if (isEmptyPlan) {
@@ -393,16 +396,9 @@ export async function POST(req: Request, ctx: Ctx) {
     },
     productionOutline,
     productionPlan,
-    // P1bis — `planStatus` n'est plus bloqué par under_min/over_max : seul un
-    // plan vide est "incomplete". Les statuts `below_target` / `over_target`
-    // sont purement informatifs et ne coupent pas la génération.
-    planStatus: isEmptyPlan
-      ? "incomplete"
-      : panelCountStatus === "ok"
-        ? "ready"
-        : panelCountStatus === "under_min"
-          ? "ready_below_target"
-          : "ready_over_target",
+    // P8 — planStatus STRICT : tout ce qui n'est pas dans la range premium
+    // 70-75 (PREMIUM_PANEL_RANGE) est marqué `incomplete` et bloque le launch.
+    planStatus: panelCountStatus === "ok" ? "ready" : "incomplete",
     rawBlueprintCount: rawBlueprints.length,
     enrichedBlueprintCount: allBlueprints.length,
     enrichmentApplied,

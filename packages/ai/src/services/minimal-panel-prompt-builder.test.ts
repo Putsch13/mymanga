@@ -8,6 +8,7 @@ function makeSpec(overrides: Partial<PanelRenderSpec> = {}): PanelRenderSpec {
     panelId: "p",
     pageNumber: 1,
     panelNumberInPage: 1,
+    panelPurpose: "reaction_closeup",
     renderMode: "reaction_closeup",
     shotType: "closeup",
     cameraAngle: "eye_level",

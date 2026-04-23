@@ -8,6 +8,7 @@ function makeSpec(): PanelRenderSpec {
     panelId: "p1",
     pageNumber: 1,
     panelNumberInPage: 1,
+    panelPurpose: "hero_focus",
     renderMode: "hero_closeup",
     shotType: "closeup",
     cameraAngle: "eye_level",

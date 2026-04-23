@@ -47,6 +47,7 @@ import { READER_QUICK_TAGS, READER_SUGGESTIONS } from "./reader/reader-constants
 import { computeReaderDegradedWarning } from "./reader/compute-degraded-warning";
 import { useReaderTts } from "./reader/use-reader-tts";
 import { useReaderNavigation } from "./reader/use-reader-navigation";
+import { PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
 
 type Props = {
   projectId: string;
@@ -55,11 +56,23 @@ type Props = {
   autoFullscreen?: boolean;
   /** READ-PREMIUM : URL de sortie (bouton "Fermer" en fullscreen) */
   exitHref?: string;
-  /** READ-PREMIUM : cible d'images pour badge compteur (75 par défaut) */
+  /**
+   * READ-PREMIUM : cible d'images pour badge compteur.
+   *
+   * COMMIT E — défaut tiré de `PREMIUM_PANEL_RANGE.target` (72), plus de
+   * `75` hardcodé. Un caller peut forcer une autre valeur pour un usage
+   * spécifique, mais la valeur par défaut reste la cible produit unique.
+   */
   targetImages?: number;
 };
 
-export function MangaBookReader({ projectId, chapterId, autoFullscreen = false, exitHref, targetImages = 75 }: Props) {
+export function MangaBookReader({
+  projectId,
+  chapterId,
+  autoFullscreen = false,
+  exitHref,
+  targetImages = PREMIUM_PANEL_RANGE.target,
+}: Props) {
   const [chapter, setChapter] = useState<ChapterPayload | null>(null);
   const [memorySummary, setMemorySummary] = useState<string | null>(null);
   const [imageStats, setImageStats] = useState<ReaderResponse["imageStats"]>(null);
@@ -615,7 +628,9 @@ export function MangaBookReader({ projectId, chapterId, autoFullscreen = false, 
     />
   );
 
-  // READ-PREMIUM : badge /75 rouge si incomplet
+  // READ-PREMIUM : badge compteur (rouge si sous la cible)
+  // COMMIT E — cible maintenant paramétrée via prop targetImages (défaut =
+  // PREMIUM_PANEL_RANGE.target). Fini le "/75" hardcodé.
   const completedCount = imageStats?.completed ?? webtoonPanels.filter((p) => p.imageUrl).length;
   const isUnderTarget = completedCount < targetImages;
 

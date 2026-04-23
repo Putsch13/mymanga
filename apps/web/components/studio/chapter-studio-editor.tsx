@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AutofillMeta, ChapterReadinessIssue, ChapterStudioData, ChapterStudioSnapshot, ChapterStudioStep } from "@manga-ai-studio/core";
-import { buildChapterReadinessReport } from "@manga-ai-studio/core";
+import { buildChapterReadinessReport, PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
 import { Button } from "@/components/ui/button";
 import type { OutlineProgressionIssue } from "@/lib/outline-progression-guard";
 import { ChapterBriefStep } from "./chapter-brief-step";
@@ -383,7 +383,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
   const warningItems = readiness?.warningItems ?? [];
   const generatedImages = generationContext?.imageStats.total ?? readiness?.imageCounts.generatedImages ?? 0;
   const acceptedImages = readiness?.imageCounts.acceptedImages ?? 0;
-  const minimumImages = readiness?.imageCounts.minimumImages ?? 75;
+  const minimumImages = readiness?.imageCounts.minimumImages ?? PREMIUM_PANEL_RANGE.target;
   const stackReady = generationContext?.stack.canGenerateChapters ?? true;
   const canAccessReview = generatedImages > 0 || ["QA_REVIEW", "NEEDS_FIXES", "COMPLETED", "PUBLISHED", "GENERATION_PARTIAL"].includes(snapshot.status);
   const launchDisabledMessage =

@@ -1,5 +1,15 @@
 /**
- * Facade Panel Blueprints Premium.
+ * ╔════════════════════════════════════════════════════════════════════╗
+ * ║ LEGACY — PREMIUM-FORBIDDEN (P0.B quarantine)                       ║
+ * ╠════════════════════════════════════════════════════════════════════╣
+ * ║ Le chemin premium v3 délègue le découpage panel à l'IA2 (Manga     ║
+ * ║ Editor LLM), cf. `storyboard-pass.ts` + `manga-editor-agent-llm`.  ║
+ * ║ Plus de "blueprint builder" heuristique : le storyboard décide.    ║
+ * ║                                                                    ║
+ * ║ `premium-path-legacy-isolation.test.ts` bloque tout import.        ║
+ * ╚════════════════════════════════════════════════════════════════════╝
+ *
+ * @deprecated Facade Panel Blueprints Premium — legacy.
  *
  * Ce fichier etait un monolithe de ~1200 lignes mixant data (templates),
  * construction (blueprints depuis beats), enrichissement (expansion jusqu'a

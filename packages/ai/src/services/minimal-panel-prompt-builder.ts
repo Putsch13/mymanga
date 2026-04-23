@@ -321,6 +321,51 @@ export function detectContradictoryTokens(
 }
 
 /**
+ * COMMIT P7.C — interdiction du hard lock textuel sans refs.
+ *
+ * Le legacy injectait `Subject lock: [Miya], hard_lock` dans les prompts
+ * pour "forcer" la cohérence du héros — mais sans refs visuelles, ça
+ * n'est qu'une incantation textuelle. Résultat : le modèle ignore et
+ * dérive. Pire : ça donne une fausse impression que le lock est
+ * garanti.
+ *
+ * Maintenant : si `Subject lock` / `hard_lock` / `hard lock` apparaît
+ * dans le positif ET que le spec n'a pas de `characterRefs` réelles,
+ * on throw. Pas d'invocation magique sans refs.
+ */
+export class HardLockWithoutReferencesError extends Error {
+  readonly panelId: string;
+  readonly renderMode: PanelRenderSpec["renderMode"];
+  constructor(panelId: string, renderMode: PanelRenderSpec["renderMode"]) {
+    super(
+      `hard_lock_without_references panel=${panelId} renderMode=${renderMode} — ` +
+        `le prompt contient 'Subject lock' / 'hard_lock' mais aucune characterRef n'est attachée. ` +
+        `Interdit (P7.C). Le lock doit être visuel (refs), pas textuel.`,
+    );
+    this.name = "HardLockWithoutReferencesError";
+    this.panelId = panelId;
+    this.renderMode = renderMode;
+  }
+}
+
+const HARD_LOCK_TOKENS = [
+  "subject lock",
+  "hard_lock",
+  "hard lock",
+  "character lock: hard",
+];
+
+export function detectHardLockInvocationWithoutRefs(
+  spec: PanelRenderSpec,
+  positive: string,
+): boolean {
+  const hasRefs = (spec.imageReferences?.characterRefs?.length ?? 0) > 0;
+  if (hasRefs) return false;
+  const hay = positive.toLowerCase();
+  return HARD_LOCK_TOKENS.some((t) => hay.includes(t));
+}
+
+/**
  * Build + assertion stricte. Utiliser sur le chemin premium v3 pour
  * refuser les specs qui produisent un prompt contradictoire (ex: un
  * insert_object avec "hero portrait" dans le subject/action blocks).
@@ -332,6 +377,10 @@ export function buildMinimalPanelPromptStrict(
   const violations = detectContradictoryTokens(spec, built.positive);
   if (violations.length > 0) {
     throw new ContradictoryPanelPromptError(spec.renderMode, violations);
+  }
+  // COMMIT P7.C — plus d'incantation textuelle de hard_lock sans refs.
+  if (detectHardLockInvocationWithoutRefs(spec, built.positive)) {
+    throw new HardLockWithoutReferencesError(spec.panelId, spec.renderMode);
   }
   return built;
 }

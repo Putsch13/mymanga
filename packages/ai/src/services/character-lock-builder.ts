@@ -85,18 +85,32 @@ export function buildCharacterVisualLock(input: BuilderInput): CharacterVisualLo
 }
 
 /**
- * P1-5 — Résout la ref portrait dédiée.
- * Priorité : paramètre explicite `faceCloseupRefUrl` > canonicalRefUrls[0] (avec warn).
+ * COMMIT P7.B — résolution stricte de la face ref dédiée.
+ *
+ * Avant : si `faceCloseupRefUrl` manquait, on retombait silencieusement
+ * sur `canonicalRefUrls[0]` avec un simple `warn`. Résultat : des
+ * closeups premium rendus avec une full-body comme ref → drift de
+ * visage quasi systématique ("Miya floue", "Miya déformée en gros plan").
+ *
+ * Maintenant : plus de fallback. Si la face ref dédiée manque, on
+ * retourne `undefined`. Le consommateur (render-pass +
+ * `assertDedicatedFaceCloseupForPanel`) fera fail-hard sur un closeup.
+ * Les panels non-closeup ne sont pas impactés — `actionRef` couvre le
+ * reste des cadrages.
  */
 function resolveFaceCloseupRef(input: BuilderInput): string | undefined {
   const explicit = safeString(input.faceCloseupRefUrl);
   if (explicit) return explicit;
-  const fallback = (input.canonicalRefUrls ?? [])[0];
-  if (fallback) {
+  // COMMIT P7.B — fallback canonicalRefUrls[0] SUPPRIMÉ.
+  // On loggue l'absence (pour la télémétrie "personnages sans
+  // face closeup dédiée") mais on ne bricole plus.
+  if ((input.canonicalRefUrls ?? []).length > 0) {
     console.warn(
-      `[character-lock:P1-5] character=${input.characterId} no_dedicated_face_closeup_ref — fallback canonicalRefUrls[0] (peut être full-body, risque de drift sur closeups)`,
+      `[character-lock:P7.B] character=${input.characterId} no_dedicated_face_closeup_ref — ` +
+        `fallback canonicalRefUrls[0] SUPPRIMÉ. Les closeups de ce character seront BLOQUÉS ` +
+        `par assertDedicatedFaceCloseupForPanel tant qu'une face ref dédiée ne sera pas générée ` +
+        `(route /characters/[id]/generate-visual/face-closeup).`,
     );
-    return fallback;
   }
   return undefined;
 }

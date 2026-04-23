@@ -1,3 +1,19 @@
+/**
+ * ╔════════════════════════════════════════════════════════════════════╗
+ * ║ LEGACY — PREMIUM-FORBIDDEN (P0.B quarantine)                       ║
+ * ╠════════════════════════════════════════════════════════════════════╣
+ * ║ Ce routeur FAL historique est basé sur des heuristiques regex sur  ║
+ * ║ le prompt + flags `panel=unknown`. Remplacé par                    ║
+ * ║ `services/fal-render-route-v3.ts` qui prend ses décisions          ║
+ * ║ STRICTEMENT à partir de `PanelRenderSpec.renderMode` (enum fermé). ║
+ * ║                                                                    ║
+ * ║ Le premium (PIPELINE_V3_PREMIUM_ONLY=true, Commit B) ne passe      ║
+ * ║ plus par ce fichier. `premium-path-legacy-isolation.test.ts`       ║
+ * ║ bloque tout import depuis le chemin premium.                       ║
+ * ╚════════════════════════════════════════════════════════════════════╝
+ * @deprecated LEGACY scene strategy router — voir header.
+ */
+
 import type { FalPanelCategory, ReferencePolicy, RoutingContext } from "./types";
 import { FAL_STRATEGY_BASELINES, type FalBenchmarkSceneId } from "./fal-benchmark";
 

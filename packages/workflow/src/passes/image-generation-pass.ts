@@ -1945,9 +1945,16 @@ export async function runImageGenerationPass(
       },
     });
     const chapterQualityReport = computeChapterQualityReport(chapterQualityRows);
-    console.log(
-      `[pipeline] quality average=${chapterQualityReport.averageReleaseScore.toFixed(2)} accepted=${chapterQualityReport.premiumReleaseAccepted} weakPanels=${chapterQualityReport.weakPanels.length}`
-    );
+    // P10 — log honnête : distinguer "QA absente" de "QA ratée".
+    if (!chapterQualityReport.qaDataAvailable) {
+      console.warn(
+        `[pipeline:quality] qa_data_missing total=${chapterQualityReport.totalPanels} panelsWithQa=0 — accepted=false signifie "pas de QA" et non "mauvaise qualité"`,
+      );
+    } else {
+      console.log(
+        `[pipeline:quality] average=${chapterQualityReport.averageReleaseScore.toFixed(2)} threshold=${chapterQualityReport.releaseThreshold.toFixed(2)} accepted=${chapterQualityReport.premiumReleaseAccepted} panelsWithQa=${chapterQualityReport.panelsWithQa}/${chapterQualityReport.totalPanels} weakPanels=${chapterQualityReport.weakPanels.length}`,
+      );
+    }
     const persistedRuntime = buildPersistedChapterRuntimeState({
       studioSnapshot,
       chapterId,

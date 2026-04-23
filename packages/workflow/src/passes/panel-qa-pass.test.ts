@@ -10,6 +10,7 @@ function makeSpec(overrides: Partial<PanelRenderSpec> = {}): PanelRenderSpec {
     panelId: "p1",
     pageNumber: 1,
     panelNumberInPage: 1,
+    panelPurpose: "dialogue_anchor",
     renderMode: "dialogue_two_shot",
     shotType: "medium",
     cameraAngle: "eye_level",

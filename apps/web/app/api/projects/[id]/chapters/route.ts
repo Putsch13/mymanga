@@ -4,6 +4,7 @@ import {
   approvedOutlineSchema,
   buildApprovedOutlineFromProductionOutline,
   chapterStudioDataSchema,
+  PREMIUM_PANEL_RANGE,
   type ApprovedChapterOutline,
 } from "@manga-ai-studio/core";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
@@ -159,11 +160,11 @@ export async function POST(req: Request, ctx: Ctx) {
       ...(initialStudio
         ? buildChapterStructuredRuntimeCreateFields({
             snapshot: initialStudio,
-            minimumImages: initialStudio.data.readinessReport?.imageCounts.minimumImages ?? initialStudio.data.productionPlan?.minimumImages ?? 75,
+            minimumImages: initialStudio.data.readinessReport?.imageCounts.minimumImages ?? initialStudio.data.productionPlan?.minimumImages ?? PREMIUM_PANEL_RANGE.target,
             generatedImages: 0,
             acceptedImages: 0,
             rejectedImages: 0,
-            missingImages: initialStudio.data.readinessReport?.imageCounts.minimumImages ?? initialStudio.data.productionPlan?.minimumImages ?? 75,
+            missingImages: initialStudio.data.readinessReport?.imageCounts.minimumImages ?? initialStudio.data.productionPlan?.minimumImages ?? PREMIUM_PANEL_RANGE.target,
             criticalPanelsCount: 0,
             criticalPanelsBlocked: 0,
             criticalPanelsMissingQa: 0,

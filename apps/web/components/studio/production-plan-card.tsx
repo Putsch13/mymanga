@@ -1,4 +1,5 @@
 import type { ProductionPlan } from "@manga-ai-studio/core";
+import { PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 function PremiumScoreBadge({ score }: { score: number }) {
@@ -47,7 +48,7 @@ export function ProductionPlanCard({ plan, productionOutlineSource }: {
   // Règle : rouge si `panelBlueprints` absent/vide OU `panelBlueprints.length < minimumImages`,
   // vert si `panelBlueprints.length >= minimumImages`. La couleur "verte si > 0" de
   // l'ancienne version était trompeuse — le backend refuse le launch dans ce cas.
-  const minimumImages = plan?.minimumImages ?? 75;
+  const minimumImages = plan?.minimumImages ?? PREMIUM_PANEL_RANGE.target;
   const blueprintCount = Array.isArray(plan?.panelBlueprints) ? plan.panelBlueprints.length : 0;
   const hasProductionPlan = Boolean(plan);
   const contractComplete = hasProductionPlan && blueprintCount >= minimumImages;
@@ -113,7 +114,7 @@ export function ProductionPlanCard({ plan, productionOutlineSource }: {
           </div>
           <div>
             <p className="text-muted-foreground">Minimum</p>
-            <p>{plan?.minimumImages ?? 75}</p>
+            <p>{plan?.minimumImages ?? PREMIUM_PANEL_RANGE.target}</p>
           </div>
         </div>
 

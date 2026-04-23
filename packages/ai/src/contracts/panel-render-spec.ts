@@ -20,6 +20,7 @@
 
 import type { ChapterStyleBible } from "./chapter-style-bible";
 import type {
+  PanelPurpose,
   StoryboardCameraAngle,
   StoryboardCutawayType,
   StoryboardRenderMode,
@@ -85,6 +86,20 @@ export interface PanelRenderSpec {
   panelId: string;
   pageNumber: number;
   panelNumberInPage: number;
+  /**
+   * COMMIT C — propagé depuis StoryboardPanel.panelPurpose.
+   * Source de vérité éditoriale pour la case (ex: `dialogue_anchor`,
+   * `threat_silhouette`, `insert_prop`, `combat_impact`…). Le render-pass
+   * s'en sert uniquement pour la traçabilité / QA ; il ne pilote PAS la
+   * génération (c'est `renderMode` qui pilote).
+   *
+   * Obligatoire pour un rendu premium : si manquant, le validator fail.
+   *
+   * COMMIT P3.B — désormais typé strictement via l'enum PanelPurpose
+   * (22 valeurs). Le render-spec-validator refuse toute valeur libre
+   * hors enum (fin du `panelPurpose: string` accueillant le legacy).
+   */
+  panelPurpose: PanelPurpose;
   renderMode: StoryboardRenderMode;
   shotType: StoryboardShotType;
   cameraAngle: StoryboardCameraAngle;

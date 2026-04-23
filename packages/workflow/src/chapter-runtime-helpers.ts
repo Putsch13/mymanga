@@ -2,6 +2,7 @@ import {
   aggregateChapterImageCounts,
   buildStructuredChapterRuntimeFields,
   type ChapterStudioSnapshot,
+  PREMIUM_PANEL_RANGE,
   resolveChapterRuntimeStatus,
 } from "@manga-ai-studio/core";
 
@@ -71,12 +72,25 @@ export function computeChapterQualityReport(
     return Number.isFinite(parsed) ? parsed : fallback;
   };
   const releaseThreshold = input?.releaseThreshold ?? parseNumEnv(process.env.PREMIUM_RELEASE_SCORE_THRESHOLD, 0.72);
-  const minimumAcceptedImages = input?.minimumAcceptedImages ?? parseNumEnv(process.env.CHAPTER_MIN_ACCEPTED_IMAGES, 75);
+  const minimumAcceptedImages = input?.minimumAcceptedImages ?? parseNumEnv(process.env.CHAPTER_MIN_ACCEPTED_IMAGES, PREMIUM_PANEL_RANGE.target);
   const completed = rows.filter((row) => typeof row.consistencyScore === "number");
-  const averageReleaseScore =
-    completed.length > 0
-      ? completed.reduce((acc, row) => acc + Number(row.consistencyScore ?? 0), 0) / completed.length
-      : 0;
+  // P10 — QUALITY GATE HONNÊTE.
+  //
+  // Avant : si aucun panel n'avait de score (QA non exécutée), on renvoyait
+  // silencieusement `averageReleaseScore = 0` → logs du genre
+  // `quality average=0.00 accepted=false weakPanels=0` qui semblent dire
+  // "qualité mauvaise" alors qu'en vrai "QA pas calculée du tout".
+  //
+  // Nouveau modèle :
+  //   - `panelsWithQa` : combien de panels ont réellement un score
+  //   - `qaDataAvailable` : au moins un panel a un score
+  //   - `averageReleaseScore` : NaN-safe, mais si QA absente → renvoyé à 0
+  //     ET la méthode `premiumReleaseAccepted` ne peut PAS être true.
+  const panelsWithQa = completed.length;
+  const qaDataAvailable = panelsWithQa > 0;
+  const averageReleaseScore = qaDataAvailable
+    ? completed.reduce((acc, row) => acc + Number(row.consistencyScore ?? 0), 0) / panelsWithQa
+    : 0;
   // Calculer le total des panels faibles AVANT le slice d'échantillonnage.
   // Sinon passingPanels = rows.length - 8 max, ce qui surestime massivement la qualité.
   const weakPanelsFull = rows
@@ -135,6 +149,8 @@ export function computeChapterQualityReport(
     releaseThreshold,
     minimumAcceptedImages,
     totalPanels: rows.length,
+    panelsWithQa,
+    qaDataAvailable,
     acceptedImages: imageCounts.acceptedImages,
     rejectedImages: imageCounts.rejectedImages,
     missingImages: imageCounts.missingImages,
@@ -147,7 +163,8 @@ export function computeChapterQualityReport(
     criticalPanelsMissingQA: criticalPanels.filter((panel) => !panel.qaWasExecuted).length,
     minimumImageRequirementMet: imageCounts.acceptedImages >= imageCounts.minimumImages,
     premiumReleaseAccepted:
-      imageCounts.acceptedImages >= imageCounts.minimumImages
+      qaDataAvailable
+      && imageCounts.acceptedImages >= imageCounts.minimumImages
       && averageReleaseScore >= releaseThreshold
       && weakPanelsCount === 0
       && criticalPanels.every((panel) => !panel.blocked),

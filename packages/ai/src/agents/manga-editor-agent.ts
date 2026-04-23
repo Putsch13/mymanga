@@ -18,6 +18,7 @@
 
 import type { StoryArc, StoryBeat } from "../contracts/story-arc";
 import type {
+  PanelPurpose,
   StoryboardLayoutTemplate,
   StoryboardPage,
   StoryboardPanel,
@@ -27,6 +28,7 @@ import type {
   StoryboardSubjectFocus,
   StoryboardCutawayType,
 } from "../contracts/storyboard-plan";
+import { isPanelPurpose } from "../contracts/storyboard-plan";
 
 /**
  * P5 — Le format éditorial du projet (manga paginé vs webtoon vertical)
@@ -144,7 +146,10 @@ function buildPanelForBeat(args: {
     panelNumberInPage: 0,
     globalPanelIndex: globalIndex,
     sourceBeatId: beat.beatId,
-    panelPurpose: beat.purpose,
+    // COMMIT P3.B — le purpose doit appartenir à l'enum fermé. Le stub
+    // déterministe dérive du renderMode (le beat.purpose est du texte libre
+    // utilisé par l'IA1, pas un contrat technique).
+    panelPurpose: derivePanelPurpose(beat.purpose, renderMode),
     renderMode,
     shotType,
     cameraAngle: "eye_level",
@@ -167,6 +172,49 @@ function buildPanelForBeat(args: {
       previousPanelAnchorId: null,
     },
   };
+}
+
+function derivePanelPurpose(
+  hint: string | undefined,
+  renderMode: StoryboardRenderMode,
+): PanelPurpose {
+  if (hint && isPanelPurpose(hint)) return hint;
+  switch (renderMode) {
+    case "hero_closeup":
+      return "hero_focus";
+    case "npc_closeup":
+      return "npc_focus";
+    case "enemy_closeup":
+    case "enemy_reveal":
+      return "enemy_focus";
+    case "reaction_closeup":
+      return "reaction_closeup";
+    case "dialogue_two_shot":
+      return "dialogue_anchor";
+    case "dialogue_over_shoulder":
+      return "dialogue_over_shoulder";
+    case "insert_object":
+      return "prop_insert";
+    case "surveillance_reveal":
+      return "surveillance_insert";
+    case "group_tension":
+      return "group_tension";
+    case "establishing_environment":
+      return "location_establishing";
+    case "silent_transition":
+      return "transition";
+    case "threat_silhouette":
+      return "threat_silhouette";
+    case "creature_reveal":
+      return "creature_reveal";
+    case "aftermath_dialogue":
+    case "combat_aftermath":
+      return "combat_aftermath";
+    case "combat_exchange":
+      return "combat_impact";
+    default:
+      return "dialogue_anchor";
+  }
 }
 
 function pickRenderMode(beat: StoryBeat, indexInBeat: number): StoryboardRenderMode {

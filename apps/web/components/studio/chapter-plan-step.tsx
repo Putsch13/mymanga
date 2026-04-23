@@ -455,34 +455,30 @@ export function ChapterPlanStep({
               {outlineValidated ? "✓ Outline validé" : "○ Outline à générer"}
             </span>
             {(() => {
-              // P1bis — 3 états possibles pour le badge "Contrat images" :
-              //   1) Plan absent / vide → danger (bloquant)
-              //   2) Plan natif sous la cible (0 < count < minimum) → info (NON bloquant)
-              //   3) Plan natif dans ou au-dessus de la cible → success
+              // P8 — 3 états possibles pour le badge "Contrat images" :
+              //   1) Plan vide                                → danger (bloquant)
+              //   2) Plan hors range premium (<70 ou >75)     → danger (bloquant)
+              //   3) Plan natif dans la range 70-75           → success
               const isEmpty = hasProductionPlan && panelBlueprintCount === 0;
-              const isBelowTarget =
-                hasProductionPlan && panelBlueprintCount > 0 && panelBlueprintCount < minimumImages;
-              const tone = contractComplete && !isBelowTarget
+              const isOutOfRange =
+                hasProductionPlan && panelBlueprintCount > 0 && !contractComplete;
+              const tone = contractComplete
                 ? "success"
-                : isEmpty
+                : isEmpty || isOutOfRange
                   ? "danger"
-                  : isBelowTarget
-                    ? "info"
-                    : "muted";
+                  : "muted";
               const className =
                 tone === "success"
                   ? "inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-200"
-                  : tone === "info"
-                    ? "inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-200"
-                    : tone === "danger"
-                      ? "inline-flex items-center gap-1 rounded-full border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-200"
-                      : "inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-xs font-medium text-muted-foreground";
+                  : tone === "danger"
+                    ? "inline-flex items-center gap-1 rounded-full border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-200"
+                    : "inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-xs font-medium text-muted-foreground";
               const label = isEmpty
                 ? "⚠ Plan vide — régénère"
-                : isBelowTarget
-                  ? `≈ Plan natif sous la cible (${panelBlueprintCount}/${minimumImages}) — génération OK`
+                : isOutOfRange
+                  ? `⚠ Plan hors range 70-75 (${panelBlueprintCount}) — régénère`
                   : contractComplete
-                    ? `✓ Contrat images complet (${panelBlueprintCount}/${minimumImages})`
+                    ? `✓ Contrat images complet (${panelBlueprintCount})`
                     : "○ Contrat images à générer";
               return (
                 <span
@@ -504,8 +500,10 @@ export function ChapterPlanStep({
             <div><p className="text-muted-foreground">Manquantes</p><p>{imageCounts.missingImages}</p></div>
           </div>
 
-          {/* P1bis — plan vide = vrai blocant. Plan sous la cible = info douce
-              non bloquante (on génère ce que le storyboard natif a décidé). */}
+          {/* P8 — blocants stricts : plan vide OU plan hors range 70-75.
+              Plus de message "génération OK sous la cible" : un storyboard
+              sous-dimensionné ou surdimensionné est un BUG éditorial qui doit
+              être corrigé avant de lancer la pipeline. */}
           {hasProductionPlan && panelBlueprintCount === 0 && (
             <div
               data-testid="plan-step-contract-hint"
@@ -515,14 +513,14 @@ export function ChapterPlanStep({
               régénère le plan avant validation.
             </div>
           )}
-          {hasProductionPlan && panelBlueprintCount > 0 && panelBlueprintCount < minimumImages && (
+          {hasProductionPlan && panelBlueprintCount > 0 && !contractComplete && (
             <div
-              data-testid="plan-step-below-target-hint"
-              className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200"
+              data-testid="plan-step-out-of-range-hint"
+              className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-red-200"
             >
-              Le découpage natif produit {panelBlueprintCount} panels (cible indicative :{" "}
-              {minimumImages}). La génération n&apos;est <strong>pas bloquée</strong> — on produira{" "}
-              {panelBlueprintCount} cases fidèles à l&apos;histoire, sans inventer de cases random.
+              Le découpage natif produit <strong>{panelBlueprintCount} panels</strong>, hors de la
+              range premium <strong>70–75</strong>. La génération est <strong>bloquée</strong> :
+              régénère un plan à densité correcte avant de lancer la pipeline.
             </div>
           )}
 

@@ -18,31 +18,52 @@ function parseBoolEnv(name: string, fallback = false): boolean {
 
 /**
  * Active la nouvelle pipeline v3 (story / storyboard / render).
- * Quand désactivée, on garde la pipeline legacy sans régression.
+ *
+ * COMMIT A — défaut bascule à `true`. La v3 est maintenant le chemin
+ * produit par défaut. Un opérateur peut encore mettre `PIPELINE_V3_STORYBOARD=false`
+ * en env pour rebasculer sur la legacy en cas d'incident prod, mais
+ * ce n'est plus le défaut.
  */
 export function isPipelineV3StoryboardEnabled(): boolean {
-  return parseBoolEnv("PIPELINE_V3_STORYBOARD", false);
+  return parseBoolEnv("PIPELINE_V3_STORYBOARD", true);
 }
 
 /**
  * Active l'appel FAL réel depuis le render-pass v3.
- * Quand désactivé, le render-pass ne fait que persister specs + prompts
- * (shadow mode) — c'est la pipeline legacy qui fait le vrai rendu image.
- * À activer UNIQUEMENT après validation QA des prompts/routes en shadow.
- * Requiert PIPELINE_V3_STORYBOARD=true également.
+ *
+ * COMMIT B — défaut bascule à `true`. Le render-pass v3 persiste
+ * désormais `SceneImage` via `v3-scene-image-persistence` et peut
+ * donc fournir le flux d'images premium tout seul. Un opérateur
+ * peut couper l'appel FAL réel (`PIPELINE_V3_RENDER_FAL=false`)
+ * pour rester en shadow — mais dans ce cas le premium ne rendra
+ * plus rien depuis v3 et c'est le legacy qui reprend.
  */
 export function isPipelineV3RenderFalEnabled(): boolean {
-  return parseBoolEnv("PIPELINE_V3_RENDER_FAL", false);
+  return parseBoolEnv("PIPELINE_V3_RENDER_FAL", true);
 }
 
 /**
  * Active l'appel LLM réel du manga-editor-agent (IA2).
- * Par défaut, l'agent utilise un stub déterministe qui produit un
- * StoryboardPlan structurellement valide mais non créatif. Activer le
- * flag branche un appel OpenAI avec JSON strict (requiert OPENAI_API_KEY).
+ *
+ * COMMIT A — défaut bascule à `true`. Le stub déterministe n'est plus
+ * la source premium : le storyboard passe par OpenAI quand `OPENAI_API_KEY`
+ * est présent. Si la clé manque, l'agent LLM retombe sur le stub et loggue
+ * un warning `manga_editor.llm.degraded=OPENAI_API_KEY_missing`.
  */
 export function isPipelineV3MangaEditorLlmEnabled(): boolean {
-  return parseBoolEnv("PIPELINE_V3_MANGA_EDITOR_LLM", false);
+  return parseBoolEnv("PIPELINE_V3_MANGA_EDITOR_LLM", true);
+}
+
+/**
+ * Active l'appel LLM réel du story-architect-agent (IA1).
+ *
+ * COMMIT H — défaut `true`. Le stub générait 9 beats identiques pour
+ * tous les chapitres ; on passe par un vrai agent LLM qui lit
+ * l'intention + la continuité. Fallback stub si `OPENAI_API_KEY`
+ * manquante (avec warning `story_architect.llm.degraded=…`).
+ */
+export function isPipelineV3StoryArchitectLlmEnabled(): boolean {
+  return parseBoolEnv("PIPELINE_V3_STORY_ARCHITECT_LLM", true);
 }
 
 /**
@@ -52,13 +73,15 @@ export function isPipelineV3MangaEditorLlmEnabled(): boolean {
  * le premium. Requiert `PIPELINE_V3_STORYBOARD=true` ET
  * `PIPELINE_V3_RENDER_FAL=true` (sinon pas de rendu image réel).
  *
- * Par défaut `false` pour permettre une bascule progressive : tant que
- * `PIPELINE_V3_PREMIUM_ONLY=false`, la v3 tourne en shadow mode et la
- * legacy garde la main. Dès que ce flag est `true`, toute exception v3
- * fait échouer le job (aucun fallback silencieux).
+ * COMMIT B — défaut bascule à `true`. Le render-pass v3 persiste
+ * désormais `SceneImage` directement, ce qui ferme le dernier frein
+ * au premium-only. Toute exception v3 fait échouer le job (aucun
+ * fallback silencieux). Un opérateur peut encore désactiver
+ * `PIPELINE_V3_PREMIUM_ONLY=false` pour conserver le filet legacy
+ * pendant un incident, mais ce n'est plus le chemin par défaut.
  */
 export function isPipelineV3PremiumOnlyEnabled(): boolean {
-  return parseBoolEnv("PIPELINE_V3_PREMIUM_ONLY", false);
+  return parseBoolEnv("PIPELINE_V3_PREMIUM_ONLY", true);
 }
 
 /**
@@ -70,5 +93,7 @@ export function getPipelineFeatureFlags() {
     pipelineV3Storyboard: isPipelineV3StoryboardEnabled(),
     pipelineV3RenderFal: isPipelineV3RenderFalEnabled(),
     pipelineV3MangaEditorLlm: isPipelineV3MangaEditorLlmEnabled(),
+    pipelineV3StoryArchitectLlm: isPipelineV3StoryArchitectLlmEnabled(),
+    pipelineV3PremiumOnly: isPipelineV3PremiumOnlyEnabled(),
   } as const;
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { buildChapterReadinessReport } from "@manga-ai-studio/core";
+import { buildChapterReadinessReport, PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
 import { computeShotVarietyBudget, computeContractualFocusAdequacy } from "@manga-ai-studio/ai";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { isUnlimitedAdminEmail } from "@/lib/auth/get-app-user";
@@ -351,7 +351,7 @@ export async function POST(_req: Request, ctx: Ctx) {
     generatedImages: chapter.generatedImages ?? 0,
     acceptedImages: chapter.acceptedImages ?? 0,
     rejectedImages: chapter.rejectedImages ?? 0,
-    missingImages: chapter.missingImages ?? (nextSnapshot.data.readinessReport?.imageCounts.minimumImages ?? 75),
+    missingImages: chapter.missingImages ?? (nextSnapshot.data.readinessReport?.imageCounts.minimumImages ?? PREMIUM_PANEL_RANGE.target),
     criticalPanelsCount: chapter.criticalPanelsCount ?? 0,
     criticalPanelsBlocked: chapter.criticalPanelsBlocked ?? 0,
     criticalPanelsMissingQa: chapter.criticalPanelsMissingQa ?? 0,

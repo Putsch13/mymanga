@@ -401,10 +401,10 @@ describe("routes Chapter Studio", () => {
     expect(payload.readiness.blockingIssues.length).toBeGreaterThan(0);
   });
 
-  it("P1bis — readiness ne bloque plus 52/75 : statut ok + warning informatif", async () => {
-    // P1bis — le count natif décide. 52 blueprints fidèles à l'histoire >
-    // 75 cases inventées par padding. Le readiness doit laisser passer la
-    // génération tout en exposant un warning visible dans le studio.
+  it("P8 — readiness BLOQUE un plan de 52 blueprints (sous la range 70-75)", async () => {
+    // P8 — le premium vise 70-75 panels natifs. Un storyboard qui sort 52
+    // panels est un BUG éditorial : le readiness doit bloquer explicitement
+    // pour empêcher le lancement d'un chapitre incomplet.
     const studioWithIncompletePlan = buildReadyStudio();
     studioWithIncompletePlan.data.productionPlan.panelBlueprints = Array.from({ length: 52 }, (_, i) => ({
       panelId: `panel-${i + 1}`,
@@ -433,24 +433,17 @@ describe("routes Chapter Studio", () => {
     const response = await mod.GET(new Request("http://localhost"), ctxChapter);
     const payload = await response.json();
 
-    // Plus de statut "blocked" pour un count sous la cible : on accepte
-    // le découpage natif.
-    expect(payload.readiness.contractStatus).toBe("ok");
-    expect(payload.readiness.contractComplete).toBe(true);
-    expect(payload.readiness.launchBlocked).toBe(false);
+    // P8 : strict — count hors range = blocking.
+    expect(payload.readiness.contractStatus).toBe("incomplete_blueprints");
+    expect(payload.readiness.contractComplete).toBe(false);
+    expect(payload.readiness.launchBlocked).toBe(true);
+    expect(payload.readiness.launchBlockedReason).toBe("incomplete_plan");
     expect(payload.readiness.panelBlueprintCount).toBe(52);
-    // Pas de blocker production_plan_incomplete_blueprints.
-    const hasIncompleteBlocker = payload.readiness.blockerItems.some(
-      (item: { id: string }) => item.id === "production_plan_incomplete_blueprints",
+    const underRangeBlocker = payload.readiness.blockerItems.find(
+      (item: { id: string }) => item.id === "production_plan_under_native_range",
     );
-    expect(hasIncompleteBlocker).toBe(false);
-    // Mais un warning informatif visible, avec le ratio 52/75.
-    const belowTargetWarning = payload.readiness.warningItems.find(
-      (item: { id: string }) => item.id === "production_plan_below_target_range",
-    );
-    expect(belowTargetWarning).toBeDefined();
-    expect(belowTargetWarning.message).toContain("52");
-    expect(belowTargetWarning.message).toContain("75");
+    expect(underRangeBlocker).toBeDefined();
+    expect(underRangeBlocker.message).toContain("52");
   });
 
   it("refuse un launch studio si le chapitre n'est pas prêt", async () => {
@@ -744,10 +737,11 @@ describe("routes Chapter Studio", () => {
     expect(payload.ok).toBe(true);
     expect(payload.premiumMeta).toBeDefined();
     expect(typeof payload.premiumMeta.premiumReadinessScore).toBe("number");
-    // P0.5 — le contrat rebuilt a 0 blueprint pour 75 minimum → launchBlocked doit être signalé.
+    // P0.5 — le contrat rebuilt a 0 blueprint → launchBlocked doit être signalé.
     expect(payload.premiumMeta.launchBlocked).toBe(true);
     expect(payload.premiumMeta.launchBlockedReason).toBe("missing_blueprints");
-    expect(payload.premiumMeta.minimumImages).toBe(75);
+    // PREMIUM_PANEL_RANGE.target = 72 (mission de refonte — plus de hardcode 75).
+    expect(payload.premiumMeta.minimumImages).toBe(72);
   });
 
   it("approved-outline PATCH reconstruit un contrat premium complet sans legacy_adapted", async () => {

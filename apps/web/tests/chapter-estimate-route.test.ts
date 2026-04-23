@@ -367,11 +367,11 @@ describe("chapter estimate route", () => {
     expect(computePremiumReadinessScoreMock).toHaveBeenCalledTimes(1);
   });
 
-  it("P1bis — count natif sous la cible : planStatus=ready_below_target, génération non bloquée", async () => {
-    // P1bis — L'enrichissement legacy reste supprimé mais le produit ne
-    // bloque plus un chapitre dont le découpage natif est sous la cible
-    // 70-75. Si le storyboard natif sort 20 panels fidèles à l'histoire,
-    // on les accepte tels quels : on génère 20 images, pas 75 inventées.
+  it("P8 — count natif sous la range 70-75 : planStatus=incomplete (bloquant)", async () => {
+    // P8 — La mission de refonte premium impose un plan natif dans la range
+    // 70-75. Un storyboard qui sort 20 panels est un BUG éditorial et doit
+    // être refusé au niveau du studio — plus de "ready_below_target" qui
+    // laissait passer des chapitres incomplets.
     prismaMock.chapter.findFirst.mockResolvedValue({
       id: "chapter-3",
       chapterNumber: 3,
@@ -399,15 +399,14 @@ describe("chapter estimate route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.planStatus).toBe("ready_below_target");
+    // P8 : strict — plan hors range = incomplete.
+    expect(payload.planStatus).toBe("incomplete");
     expect(payload.panelCountStatus).toBe("under_min");
     expect(payload.rawBlueprintCount).toBe(20);
-    // Count natif préservé, aucune expansion.
     expect(payload.enrichedBlueprintCount).toBe(20);
     expect(payload.enrichmentApplied).toBe(false);
     expect(payload.enrichmentAddedCount).toBe(0);
     expect(payload.premiumPanelRange).toEqual({ min: 70, target: 72, max: 75 });
-    expect(payload.productionPlan.panelBlueprints.length).toBe(20);
   });
 
   it("P1 — passthrough natif : les blueprints ne sont jamais gonflés côté route", async () => {
