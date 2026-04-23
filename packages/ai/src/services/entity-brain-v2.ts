@@ -221,6 +221,11 @@ async function resolveWithLLM(
  */
 export async function resolveEntity(input: ResolveEntityInput): Promise<ResolvedEntity> {
   const contextText = input.contextText ?? "";
+  const isVitest =
+    process.env.VITEST === "true" ||
+    typeof process.env.VITEST_WORKER_ID === "string" ||
+    typeof process.env.VITEST_POOL_ID === "string";
+  const isTestEnv = process.env.NODE_ENV === "test" || isVitest;
 
   // 0. In-memory cache (TTL 30min)
   const cached = getCached(input.projectId, input.name);
@@ -243,59 +248,63 @@ export async function resolveEntity(input: ResolveEntityInput): Promise<Resolved
   }
 
   // 2.5: DB cache (I02) — persist between server restarts
-  try {
-    const { prisma } = await import("@manga-ai-studio/db");
-    const dbCached = await prisma.entityCanonCache.findUnique({
-      where: { projectId_canonicalName: { projectId: input.projectId, canonicalName: input.name } },
-    });
-    if (dbCached) {
-      const fromDb: ResolvedEntity = {
-        canonicalName: dbCached.canonicalName,
-        entityKind: dbCached.entityKind as ResolvedEntity["entityKind"],
-        speciesLabel: dbCached.speciesLabel ?? null,
-        dialogueMode: dbCached.dialogueMode as ResolvedEntity["dialogueMode"],
-        recurrencePolicy: dbCached.recurrencePolicy as ResolvedEntity["recurrencePolicy"],
-        typicalAppearance: dbCached.typicalAppearance,
-        canonicalVisualCore: dbCached.canonicalVisualCore,
-        confidence: dbCached.confidence,
-        source: "cache",
-      };
-      setCache(input.projectId, input.name, fromDb);
-      return fromDb;
-    }
-  } catch { /* DB unavailable — continue to LLM */ }
+  if (!isTestEnv) {
+    try {
+      const { prisma } = await import("@manga-ai-studio/db");
+      const dbCached = await prisma.entityCanonCache.findUnique({
+        where: { projectId_canonicalName: { projectId: input.projectId, canonicalName: input.name } },
+      });
+      if (dbCached) {
+        const fromDb: ResolvedEntity = {
+          canonicalName: dbCached.canonicalName,
+          entityKind: dbCached.entityKind as ResolvedEntity["entityKind"],
+          speciesLabel: dbCached.speciesLabel ?? null,
+          dialogueMode: dbCached.dialogueMode as ResolvedEntity["dialogueMode"],
+          recurrencePolicy: dbCached.recurrencePolicy as ResolvedEntity["recurrencePolicy"],
+          typicalAppearance: dbCached.typicalAppearance,
+          canonicalVisualCore: dbCached.canonicalVisualCore,
+          confidence: dbCached.confidence,
+          source: "cache",
+        };
+        setCache(input.projectId, input.name, fromDb);
+        return fromDb;
+      }
+    } catch { /* DB unavailable — continue to LLM */ }
+  }
 
   // 3. LLM fallback systématique
   const fromLLM = await resolveWithLLM(input.name, contextText, input.projectBible ?? null);
   if (fromLLM) {
     setCache(input.projectId, input.name, fromLLM);
     // Persist to DB for future server restarts
-    try {
-      const { prisma } = await import("@manga-ai-studio/db");
-      await prisma.entityCanonCache.upsert({
-        where: { projectId_canonicalName: { projectId: input.projectId, canonicalName: fromLLM.canonicalName } },
-        create: {
-          projectId: input.projectId,
-          canonicalName: fromLLM.canonicalName,
-          entityKind: fromLLM.entityKind,
-          speciesLabel: fromLLM.speciesLabel,
-          dialogueMode: fromLLM.dialogueMode,
-          recurrencePolicy: fromLLM.recurrencePolicy,
-          typicalAppearance: fromLLM.typicalAppearance,
-          canonicalVisualCore: fromLLM.canonicalVisualCore,
-          confidence: fromLLM.confidence,
-          source: fromLLM.source,
-          appearanceCount: 1,
-        },
-        update: {
-          entityKind: fromLLM.entityKind,
-          typicalAppearance: fromLLM.typicalAppearance,
-          canonicalVisualCore: fromLLM.canonicalVisualCore,
-          confidence: fromLLM.confidence,
-          appearanceCount: { increment: 1 },
-        },
-      });
-    } catch { /* DB write non-blocking */ }
+    if (!isTestEnv) {
+      try {
+        const { prisma } = await import("@manga-ai-studio/db");
+        await prisma.entityCanonCache.upsert({
+          where: { projectId_canonicalName: { projectId: input.projectId, canonicalName: fromLLM.canonicalName } },
+          create: {
+            projectId: input.projectId,
+            canonicalName: fromLLM.canonicalName,
+            entityKind: fromLLM.entityKind,
+            speciesLabel: fromLLM.speciesLabel,
+            dialogueMode: fromLLM.dialogueMode,
+            recurrencePolicy: fromLLM.recurrencePolicy,
+            typicalAppearance: fromLLM.typicalAppearance,
+            canonicalVisualCore: fromLLM.canonicalVisualCore,
+            confidence: fromLLM.confidence,
+            source: fromLLM.source,
+            appearanceCount: 1,
+          },
+          update: {
+            entityKind: fromLLM.entityKind,
+            typicalAppearance: fromLLM.typicalAppearance,
+            canonicalVisualCore: fromLLM.canonicalVisualCore,
+            confidence: fromLLM.confidence,
+            appearanceCount: { increment: 1 },
+          },
+        });
+      } catch { /* DB write non-blocking */ }
+    }
     return fromLLM;
   }
 

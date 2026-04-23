@@ -1,14 +1,11 @@
 import { describe, expect, it, afterEach } from "vitest";
 import { buildPremiumChapterContract } from "./premium-chapter-contract-builder";
+import { PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
 
 /**
- * P1 — padding désactivé pour le chemin premium (new v3 truth).
- * Le builder ne throw plus ; il renvoie désormais les blueprints nativement
- * produits par l'éditeur. C'est la route `/estimate` et le contrat
- * `apps/web/lib/premium-chapter-contract.ts` qui sont responsables de
- * refuser le chapitre si le count natif est hors range (70–75). Ici on
- * vérifie simplement que le builder ne gonfle plus artificiellement le
- * nombre de panels.
+ * FIX — densification déterministe pour respecter la range premium (70–75).
+ * On n'autorise pas un contrat premium qui sort à 52 panels : la densité
+ * doit être corrigée au moment de construire le plan (sans random).
  */
 
 function buildApprovedOutline(beatCount: number) {
@@ -36,20 +33,18 @@ describe("buildPremiumChapterContract — P1 pas de padding", () => {
     delete process.env.MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY;
   });
 
-  it("renvoie les blueprints nativement produits (pas d'expansion legacy)", () => {
+  it("produit un nombre de blueprints dans la range premium 70–75", () => {
     const result = buildPremiumChapterContract({
       approvedOutline: buildApprovedOutline(10),
       heroCharacterId: "hero_1",
       projectGenre: "action",
       projectTone: "dramatic",
     });
-    // 10 beats → en général ~30-60 blueprints natifs (sans padding).
-    // Le contrat ne doit plus dépasser 75 ou être padded à 75.
-    expect(result.panelBlueprints.length).toBeGreaterThan(0);
-    expect(result.panelBlueprints.length).toBeLessThan(75);
+    expect(result.panelBlueprints.length).toBeGreaterThanOrEqual(PREMIUM_PANEL_RANGE.min);
+    expect(result.panelBlueprints.length).toBeLessThanOrEqual(PREMIUM_PANEL_RANGE.max);
   });
 
-  it("ne padde pas vers minimumPanels même si fourni", () => {
+  it("respecte toujours la range premium, même si minimumPanels est hors range", () => {
     const result = buildPremiumChapterContract({
       approvedOutline: buildApprovedOutline(10),
       heroCharacterId: "hero_1",
@@ -57,6 +52,7 @@ describe("buildPremiumChapterContract — P1 pas de padding", () => {
       projectTone: "dramatic",
       minimumPanels: 100,
     });
-    expect(result.panelBlueprints.length).toBeLessThan(100);
+    expect(result.panelBlueprints.length).toBeGreaterThanOrEqual(PREMIUM_PANEL_RANGE.min);
+    expect(result.panelBlueprints.length).toBeLessThanOrEqual(PREMIUM_PANEL_RANGE.max);
   });
 });

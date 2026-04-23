@@ -16,6 +16,7 @@ import {
   type StoryArc,
   type StoryboardPlan,
 } from "@manga-ai-studio/ai";
+import { PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
 import { saveStoryboardPlan } from "../persistence/storyboard-persistence";
 import {
   isPipelineV3MangaEditorLlmEnabled,
@@ -88,15 +89,28 @@ export async function runStoryboardPass(
     projectFormat: input.projectFormat,
   });
 
+  // P8 — range premium STRICTE au niveau storyboard v3.
+  // Un StoryboardPlan à 52 panels n'est pas un “warning UI”, c'est un plan incomplet.
+  const totalPanels = (storyboardPlan.pages ?? []).reduce(
+    (acc, page) => acc + (Array.isArray(page.panels) ? page.panels.length : 0),
+    0,
+  );
+  const countBlockers: string[] = [];
+  if (totalPanels < PREMIUM_PANEL_RANGE.min || totalPanels > PREMIUM_PANEL_RANGE.max) {
+    countBlockers.push(
+      `storyboard_plan.panel_count_out_of_range=${totalPanels} required=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max}`,
+    );
+  }
+
   const strict = input.strict ?? premiumOnly;
   const validation = validateStoryboardPlan(storyboardPlan, {
     storyArc: input.storyArc,
     strict,
   });
-  const blockers = validation.ok ? [] : validation.issues;
+  const blockers = [...(validation.ok ? [] : validation.issues), ...countBlockers];
   const allWarnings = [...warnings, ...validation.warnings];
 
-  if (validation.ok) {
+  if (validation.ok && countBlockers.length === 0) {
     await saveStoryboardPlan(input.storyArc.chapterId, storyboardPlan);
   }
 

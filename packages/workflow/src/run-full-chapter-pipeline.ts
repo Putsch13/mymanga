@@ -136,18 +136,30 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     `[pipeline:v3] PIPELINE_V3_STORYBOARD=${pipelineV3Enabled} PIPELINE_V3_PREMIUM_ONLY=${premiumV3OnlyEnabled}`,
   );
 
+  // P0/P3 — invariant premium-only : aucun fallback legacy possible.
+  // Si premium-only est ON, la v3 DOIT être ON et le rendu FAL réel DOIT être ON.
+  // Sinon on échoue immédiatement (plutôt que “continuer en legacy”).
+  if (premiumV3OnlyEnabled && !pipelineV3Enabled) {
+    throw new Error(
+      "premium_v3_only_misconfigured: PIPELINE_V3_PREMIUM_ONLY=true mais PIPELINE_V3_STORYBOARD=false. " +
+        "Le premium-only interdit toute exécution legacy : active la v3 ou désactive PREMIUM_ONLY.",
+    );
+  }
+  if (premiumV3OnlyEnabled && !isPipelineV3RenderFalEnabled()) {
+    throw new Error(
+      "premium_v3_only_misconfigured: PIPELINE_V3_PREMIUM_ONLY=true impose PIPELINE_V3_RENDER_FAL=true. " +
+        "Le render-pass v3 doit générer et persister les images ; aucun fallback legacy n'est autorisé.",
+    );
+  }
+
   // P3 — en mode "premium v3 only", le render legacy (image-generation-pass)
   // ne tournera pas. Le v3 render-pass DOIT réussir, sinon on fail dur.
   // On track le succès v3 pour décider en aval.
   let v3RenderSucceeded = false;
 
   try {
-    // ── Pipeline v3 (shadow mode) : on persiste StoryArc + StoryboardPlan
-    // AVANT toute génération image. Flag-gated pour permettre un rollback
-    // immédiat. Quand le flag est ON, la sortie reste fournie par la
-    // pipeline legacy pour ne rien casser en prod pendant le Sprint 1.
-    // Les Sprints suivants remplaceront progressivement la narrative-pass
-    // et l'image-generation-pass par les passes v3 strictes.
+    // ── Pipeline v3 : StoryArc → StoryboardPlan → RenderPass (FAL) ──
+    // En premium-only, ce chemin est EXCLUSIF : aucun legacy ne doit tourner.
     if (pipelineV3Enabled) {
       try {
         const storyPassResult = await runStoryPass({
@@ -191,6 +203,12 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           console.error(
             `[pipeline:v3:storyboard] blockers=${storyboardPassResult.blockers.join(" | ")}`,
           );
+          // P8/P3 — en premium-only, un storyboard non conforme est un FAIL dur.
+          if (premiumV3OnlyEnabled) {
+            throw new Error(
+              `premium_v3_only_storyboard_blockers: ${storyboardPassResult.blockers.join(" | ")}`,
+            );
+          }
         }
         if (storyboardPassResult.warnings.length > 0) {
           console.warn(
@@ -308,6 +326,11 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
             console.warn(
               `[pipeline:v3:render] v3_succeeded=false rendered=${renderedCount} skipped=${skippedCount} failed=${renderPassResult.summary.failedCount} specs=${renderPassResult.specs.length}/${renderPassResult.summary.totalPanels} — legacy image-gen will still run (unless PREMIUM_ONLY=true which would then fail-hard)`,
             );
+            if (premiumV3OnlyEnabled) {
+              throw new Error(
+                `premium_v3_only_render_incomplete: rendered=${renderedCount} skipped=${skippedCount} failed=${renderPassResult.summary.failedCount} specs=${renderPassResult.specs.length}/${renderPassResult.summary.totalPanels}`,
+              );
+            }
           }
         } catch (renderErr) {
           const renderMsg = renderErr instanceof Error ? renderErr.message : String(renderErr);
@@ -339,6 +362,14 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     console.log(
       `[pipeline:v3] v3RenderSucceeded=${v3RenderSucceeded} skipLegacyImagePipeline=${skipLegacyImagePipeline}`,
     );
+
+    // P3 — aucune retombée legacy en premium-only, même si v3 a échoué partiellement.
+    if (premiumV3OnlyEnabled && !skipLegacyImagePipeline) {
+      throw new Error(
+        "premium_v3_only_violation: legacy pipeline would run because v3 did not fully succeed. " +
+          "This is forbidden — fail hard and fix the v3 root cause.",
+      );
+    }
 
     // LoRA auto non bloquant: on queue l'entraînement, sans retarder le chapitre courant.
     const autoLoraQueued = await queueAutoLoraTrainingIfEligible({

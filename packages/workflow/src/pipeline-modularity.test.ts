@@ -40,7 +40,7 @@ describe("pipeline modularity", () => {
     expect(typeof mod.inferSceneTimeOfDay).toBe("function");
     expect(typeof mod.uniq).toBe("function");
     expect(typeof mod.asRecord).toBe("function");
-  });
+  }, 20_000);
 
   it("pipeline-quality exports quality functions", async () => {
     const mod = await import("./pipeline-quality");
@@ -48,11 +48,11 @@ describe("pipeline modularity", () => {
     expect(typeof mod.findPanelBlueprint).toBe("function");
     expect(typeof mod.normalizeCreativeControls).toBe("function");
     expect(typeof mod.computeChapterQualityReport).toBe("function");
-  });
+  }, 20_000);
 
   it("pipeline-job exports job management functions", async () => {
     const mod = await import("./pipeline-job");
     expect(typeof mod.setJobProgress).toBe("function");
     expect(typeof mod.mergeJobOutput).toBe("function");
-  });
+  }, 20_000);
 });

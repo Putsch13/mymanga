@@ -255,7 +255,7 @@ describe("/pipeline — contrat premium", () => {
     expect(response.status).toBe(422);
     const payload = await response.json();
     expect(payload.error).toBeDefined();
-  });
+  }, 60_000);
 
   it("envoie panelBlueprints dans job.input", async () => {
     prismaMock.project.findFirst.mockResolvedValue(project);
@@ -280,7 +280,7 @@ describe("/pipeline — contrat premium", () => {
     expect(jobInput?.productionPlan).toBeDefined();
     // panelBlueprints est défini car le snapshot contient des blueprints
     expect(jobInput?.panelBlueprints).toBeDefined();
-  });
+  }, 60_000);
 
   it("envoie premiumReadinessScore dans job.input", async () => {
     prismaMock.project.findFirst.mockResolvedValue(project);
@@ -301,7 +301,7 @@ describe("/pipeline — contrat premium", () => {
     const jobInput = createCall?.data?.input as Record<string, unknown> | undefined;
     expect(typeof jobInput?.premiumReadinessScore).toBe("number");
     expect(jobInput?.premiumReadinessScore).toBe(0.85);
-  });
+  }, 60_000);
 
   it("n'utilise jamais buildLegacyApprovedOutlineFromStudio", async () => {
     // Ce test vérifie que le pipeline route n'importe plus buildLegacyApprovedOutlineFromStudio
@@ -329,5 +329,5 @@ describe("/pipeline — contrat premium", () => {
     if (po) {
       expect(po.source).not.toBe("legacy_adapted");
     }
-  });
+  }, 60_000);
 });

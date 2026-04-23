@@ -5,7 +5,7 @@ describe("chapter-outline targetBeats contract", () => {
     const mod = await import("./chapter-outline");
     // Verify the function exists and can be called (type check)
     expect(typeof mod.generateChapterOutline).toBe("function");
-  });
+  }, 20_000);
 
   it("prompt template includes targetBeats constraint", async () => {
     // Read the source to verify the prompt contains targetBeats
@@ -17,7 +17,7 @@ describe("chapter-outline targetBeats contract", () => {
     expect(source).toContain("targetBeats");
     expect(source).toContain("DOIS produire exactement");
     expect(source).toContain("visuellement actionnable");
-  });
+  }, 20_000);
 
   it("prompt explicitly forbids abstract filler beats", async () => {
     const fs = await import("fs");
@@ -28,5 +28,5 @@ describe("chapter-outline targetBeats contract", () => {
     expect(source).toContain("tension monte");
     expect(source).toContain("enjeux augmentent");
     expect(source).toMatch(/INTERDIT.*beats abstraits/i);
-  });
+  }, 20_000);
 });

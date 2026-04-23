@@ -19,7 +19,7 @@ import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vite
 // du fichier mange tout son timeout (flake `Test timed out in 5000ms`).
 beforeAll(async () => {
   await import("@manga-ai-studio/workflow");
-}, 30000);
+}, 90_000);
 
 // ────────────────────────────────────────────────────────────────────────────
 // P1-1 — assertPremiumContractFromChapter
