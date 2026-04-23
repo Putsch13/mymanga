@@ -35,6 +35,12 @@ export interface BuildPanelRenderSpecInput {
   mainCharacterIds: string[];
 }
 
+const DIALOGUE_FORWARD_RENDER_MODES = new Set<StoryboardPanel["renderMode"]>([
+  "dialogue_two_shot",
+  "dialogue_over_shoulder",
+  "aftermath_dialogue",
+]);
+
 export function buildPanelRenderSpec(
   input: BuildPanelRenderSpecInput,
 ): PanelRenderSpec {
@@ -81,7 +87,9 @@ export function buildPanelRenderSpec(
     dialogueIntent:
       panel.dialogue.length > 0
         ? panel.dialogue.map((d) => `${d.speaker}: ${d.text}`).join(" | ")
-        : null,
+        : DIALOGUE_FORWARD_RENDER_MODES.has(panel.renderMode) || panel.panelPurpose === "dialogue_anchor"
+          ? panel.actionLine.trim() || null
+          : null,
     visibleCharacters,
     styleBible,
     continuityLocks: {

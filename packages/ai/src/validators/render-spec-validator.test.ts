@@ -88,6 +88,26 @@ describe("validateRenderSpec", () => {
     expect(validateRenderSpec(makeSpec()).ok).toBe(true);
   });
 
+  it("refuse un reaction_closeup sans personnage visible", () => {
+    const r = validateRenderSpec(makeSpec({ visibleCharacters: [] }));
+    expect(r.ok).toBe(false);
+    expect(r.issues.some((i) => i.includes("missing_visible_characters_for_renderMode=reaction_closeup"))).toBe(true);
+  });
+
+  it("refuse un dialogue_two_shot avec moins de deux personnages visibles", () => {
+    const r = validateRenderSpec(
+      makeSpec({
+        renderMode: "dialogue_two_shot",
+        panelPurpose: "dialogue_anchor",
+        shotType: "medium",
+        subjectFocus: "group",
+        visibleCharacters: [{ characterId: "c1", name: "Miya", role: "hero", poseIntent: null, expressionIntent: null }],
+      }),
+    );
+    expect(r.ok).toBe(false);
+    expect(r.issues.some((i) => i.includes("insufficient_visible_characters_for_renderMode=dialogue_two_shot"))).toBe(true);
+  });
+
   // COMMIT G — tests bloquants (mission de refonte P11 §4).
   // Ces tests refusent les sentinelles legacy qui ont causé les logs
   // `panel=unknown subjectFocus=none → CHARACTER_IN_SCENE` en prod.

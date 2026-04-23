@@ -1,0 +1,231 @@
+import {
+  extractRequiredVisualCoverage,
+  validateVisualCoverage,
+} from "@manga-ai-studio/ai";
+import { PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
+import { createDefaultPanelImageGenerator } from "./passes/default-panel-image-generator";
+import { loadChapterVisualMemory } from "./passes/load-chapter-visual-memory";
+import { runPageQaPass } from "./passes/page-qa-pass";
+import { runRenderPass } from "./passes/render-pass";
+import { runStoryPass } from "./passes/story-pass";
+import { runStoryboardPass } from "./passes/storyboard-pass";
+import { buildStyleBibleFromUserProject } from "./chapter-style-bible-resolver";
+import { isPipelineV3RenderFalEnabled } from "./pipeline-feature-flags";
+
+export interface PremiumV3PipelineCharacter {
+  id: string;
+  name: string;
+  roleType?: string | null;
+}
+
+export interface RunPremiumV3PipelineInput {
+  chapterId: string;
+  projectId: string;
+  chapterNumber: number;
+  chapterTitle: string | null;
+  chapterSummary: string | null;
+  chapterUserIntent: string | null;
+  project: Record<string, unknown> | null;
+  stylePacks: Array<Record<string, unknown>>;
+  rawCharacters: PremiumV3PipelineCharacter[];
+  focusCharacterIds: string[];
+  pipelineV3Enabled: boolean;
+  premiumV3OnlyEnabled: boolean;
+}
+
+export interface RunPremiumV3PipelineResult {
+  v3RenderSucceeded: boolean;
+}
+
+function assertPremiumOnlyV3Config(input: Pick<RunPremiumV3PipelineInput, "pipelineV3Enabled" | "premiumV3OnlyEnabled">) {
+  if (input.premiumV3OnlyEnabled && !input.pipelineV3Enabled) {
+    throw new Error(
+      "premium_v3_only_misconfigured: PIPELINE_V3_PREMIUM_ONLY=true mais PIPELINE_V3_STORYBOARD=false. " +
+        "Le premium-only interdit toute exécution legacy : active la v3 ou désactive PREMIUM_ONLY.",
+    );
+  }
+  if (input.premiumV3OnlyEnabled && !isPipelineV3RenderFalEnabled()) {
+    throw new Error(
+      "premium_v3_only_misconfigured: PIPELINE_V3_PREMIUM_ONLY=true impose PIPELINE_V3_RENDER_FAL=true. " +
+        "Le render-pass v3 doit générer et persister les images ; aucun fallback legacy n'est autorisé.",
+    );
+  }
+}
+
+function resolveProjectFormat(project: Record<string, unknown> | null, projectId: string): "manga" | "webtoon" {
+  const projectFormatRaw = typeof project?.format === "string" ? project.format : null;
+  const projectFormat: "manga" | "webtoon" = projectFormatRaw === "webtoon" ? "webtoon" : "manga";
+  if (projectFormatRaw !== "manga" && projectFormatRaw !== "webtoon") {
+    console.warn(
+      `[pipeline:v3:storyboard] project_format_fallback raw=${projectFormatRaw ?? "null"} → manga (projectId=${projectId})`,
+    );
+  }
+  return projectFormat;
+}
+
+export async function runPremiumV3Pipeline(
+  input: RunPremiumV3PipelineInput,
+): Promise<RunPremiumV3PipelineResult> {
+  assertPremiumOnlyV3Config(input);
+
+  let v3RenderSucceeded = false;
+  if (!input.pipelineV3Enabled) {
+    return { v3RenderSucceeded };
+  }
+
+  try {
+    const storyPassResult = await runStoryPass({
+      chapterId: input.chapterId,
+      chapterNumber: input.chapterNumber,
+      title: input.chapterTitle,
+      userIntent: input.chapterUserIntent,
+      summary: input.chapterSummary,
+      mainCharacters: input.rawCharacters.map((c) => ({
+        id: c.id,
+        name: c.name,
+        roleType: c.roleType ?? null,
+      })),
+      locations: [],
+    });
+    if (storyPassResult.warnings.length > 0) {
+      console.warn(
+        `[pipeline:v3:story] warnings=${storyPassResult.warnings.join(" | ")}`,
+      );
+    }
+
+    const storyboardPassResult = await runStoryboardPass({
+      storyArc: storyPassResult.storyArc,
+      heroCharacterIds: input.focusCharacterIds,
+      projectFormat: resolveProjectFormat(input.project, input.projectId),
+      targetPanelCount: PREMIUM_PANEL_RANGE.target,
+    });
+    if (storyboardPassResult.blockers.length > 0) {
+      console.error(
+        `[pipeline:v3:storyboard] blockers=${storyboardPassResult.blockers.join(" | ")}`,
+      );
+      if (input.premiumV3OnlyEnabled) {
+        throw new Error(
+          `premium_v3_only_storyboard_blockers: ${storyboardPassResult.blockers.join(" | ")}`,
+        );
+      }
+    }
+    if (storyboardPassResult.warnings.length > 0) {
+      console.warn(
+        `[pipeline:v3:storyboard] warnings=${storyboardPassResult.warnings.join(" | ")}`,
+      );
+    }
+
+    const pageQa = await runPageQaPass(storyboardPassResult.storyboardPlan);
+    console.log(
+      `[pipeline:v3:page-qa] ok=${pageQa.okCount} fail=${pageQa.failCount}`,
+    );
+
+    const requiredCoverage = extractRequiredVisualCoverage(storyPassResult.storyArc);
+    const coverageReport = validateVisualCoverage(
+      requiredCoverage,
+      storyboardPassResult.storyboardPlan,
+    );
+    console.log(
+      `[pipeline:v3:visual-coverage] required=${requiredCoverage.length} fulfilled=${coverageReport.fulfilled.length} gaps=${coverageReport.gaps.length}`,
+    );
+    if (!coverageReport.ok) {
+      const gapSummary = coverageReport.gaps
+        .slice(0, 8)
+        .map((g) => `${g.coverage.entityType}:${g.coverage.entity}@${g.coverage.sourceBeatId}`)
+        .join(" | ");
+      console.error(
+        `[pipeline:v3:visual-coverage] gaps=${coverageReport.gaps.length} ${gapSummary}`,
+      );
+      if (input.premiumV3OnlyEnabled) {
+        throw new Error(
+          `premium_v3_only_visual_coverage_gaps: ${coverageReport.gaps.length} entities uncovered [${gapSummary}]`,
+        );
+      }
+    }
+
+    try {
+      const visualMemoryResult = await loadChapterVisualMemory({
+        chapterId: input.chapterId,
+        projectId: input.projectId,
+        mainCharacterIds: input.focusCharacterIds,
+      });
+      if (visualMemoryResult.warnings.length > 0) {
+        console.warn(
+          `[pipeline:v3:visual-memory] warnings=${visualMemoryResult.warnings.slice(0, 5).join(" | ")}`,
+        );
+      }
+      console.log(
+        `[pipeline:v3:visual-memory] chars=${visualMemoryResult.stats.charactersLoaded} missing_face=${visualMemoryResult.stats.charactersMissingFaceRef} env=${visualMemoryResult.stats.environmentsLoaded} style=${visualMemoryResult.stats.styleRefsLoaded}`,
+      );
+
+      const renderFalEnabled = isPipelineV3RenderFalEnabled();
+      console.log(
+        `[pipeline:v3:render] fal_real_enabled=${renderFalEnabled} (flag PIPELINE_V3_RENDER_FAL)`,
+      );
+      const renderPassResult = await runRenderPass({
+        chapterId: input.chapterId,
+        storyboardPlan: storyboardPassResult.storyboardPlan,
+        styleBible: buildStyleBibleFromUserProject({
+          project: input.project,
+          stylePacks: input.stylePacks,
+        }),
+        visualMemory: visualMemoryResult.memory,
+        characters: input.rawCharacters.map((c) => ({
+          id: c.id,
+          name: c.name,
+          roleType: c.roleType ?? null,
+        })),
+        mainCharacterIds: input.focusCharacterIds,
+        generatePanelImage: renderFalEnabled
+          ? createDefaultPanelImageGenerator()
+          : undefined,
+        persistToDb: renderFalEnabled,
+      });
+      console.log(
+        `[pipeline:v3:render] total=${renderPassResult.summary.totalPanels} specs=${renderPassResult.specs.length} failed=${renderPassResult.summary.failedCount} panel_qa_ok=${renderPassResult.panelQa.okCount}/${renderPassResult.panelQa.okCount + renderPassResult.panelQa.failCount}`,
+      );
+      if (renderPassResult.summary.warnings.length > 0) {
+        console.warn(
+          `[pipeline:v3:render] warnings=${renderPassResult.summary.warnings.slice(0, 5).join(" | ")}`,
+        );
+      }
+
+      const renderedCount = renderPassResult.summary.renderedCount;
+      const skippedCount = renderPassResult.summary.skippedCount;
+      v3RenderSucceeded =
+        renderPassResult.summary.failedCount === 0 &&
+        renderPassResult.specs.length === renderPassResult.summary.totalPanels &&
+        renderPassResult.summary.totalPanels > 0 &&
+        renderedCount > 0 &&
+        skippedCount === 0;
+      if (!v3RenderSucceeded) {
+        console.warn(
+          `[pipeline:v3:render] v3_succeeded=false rendered=${renderedCount} skipped=${skippedCount} failed=${renderPassResult.summary.failedCount} specs=${renderPassResult.specs.length}/${renderPassResult.summary.totalPanels} — legacy image-gen will still run (unless PREMIUM_ONLY=true which would then fail-hard)`,
+        );
+        if (input.premiumV3OnlyEnabled) {
+          throw new Error(
+            `premium_v3_only_render_incomplete: rendered=${renderedCount} skipped=${skippedCount} failed=${renderPassResult.summary.failedCount} specs=${renderPassResult.specs.length}/${renderPassResult.summary.totalPanels}`,
+          );
+        }
+      }
+    } catch (renderErr) {
+      const renderMsg = renderErr instanceof Error ? renderErr.message : String(renderErr);
+      console.error(
+        `[pipeline:v3:render] shadow_render_failed chapterId=${input.chapterId} error=${renderMsg}`,
+      );
+      if (input.premiumV3OnlyEnabled) {
+        throw new Error(`premium_v3_only_render_failed: ${renderMsg}`);
+      }
+    }
+  } catch (v3Err) {
+    const v3Msg = v3Err instanceof Error ? v3Err.message : String(v3Err);
+    console.error(
+      `[pipeline:v3] shadow_mode_failed chapterId=${input.chapterId} error=${v3Msg}`,
+    );
+    if (input.premiumV3OnlyEnabled) {
+      throw new Error(`premium_v3_only_failed: ${v3Msg}`);
+    }
+  }
+
+  return { v3RenderSucceeded };
+}

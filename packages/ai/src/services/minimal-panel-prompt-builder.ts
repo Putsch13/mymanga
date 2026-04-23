@@ -77,6 +77,18 @@ export function buildPromptSubjectBlock(spec: PanelRenderSpec): string {
     return `SUBJECT: antagonist revealed in menacing framing, identifiable posture and gear, hero absent or reduced to reaction foreground.`;
   }
   const chars = spec.visibleCharacters;
+  if (spec.renderMode === "dialogue_two_shot") {
+    return buildDialogueTwoShotSubject(chars);
+  }
+  if (spec.renderMode === "dialogue_over_shoulder") {
+    return buildDialogueOverShoulderSubject(chars);
+  }
+  if (spec.renderMode === "group_tension") {
+    return buildGroupTensionSubject(chars);
+  }
+  if (spec.renderMode === "aftermath_dialogue") {
+    return buildAftermathDialogueSubject(chars);
+  }
   if (chars.length === 0) {
     return `SUBJECT: environment only, no identifiable character.`;
   }
@@ -130,10 +142,19 @@ export function buildPromptShotBlock(spec: PanelRenderSpec): string {
 }
 
 export function buildPromptActionBlock(spec: PanelRenderSpec): string {
-  const action = spec.actionLine?.trim() || "static beat";
-  const emotion = spec.emotionLine?.trim();
-  const emotionPart = emotion ? `Emotion: ${emotion}.` : "";
-  return `ACTION: ${action}. ${emotionPart}`.trim();
+  const action = normalizePromptClause(spec.actionLine) || "static beat";
+  const emotion = normalizePromptClause(spec.emotionLine);
+  const dialogueIntent = normalizePromptClause(spec.dialogueIntent);
+  const parts = [`ACTION: ${action}.`];
+  if (dialogueIntent) {
+    parts.push(
+      `Dialogue subtext: ${dialogueIntent}. Convey it through gaze, posture, spacing, and mouth movement only; no speech bubbles or text in image.`,
+    );
+  }
+  if (emotion) {
+    parts.push(`Emotion: ${emotion}.`);
+  }
+  return parts.join(" ");
 }
 
 export function buildPromptStyleBlock(spec: PanelRenderSpec): string {
@@ -390,6 +411,52 @@ function describeCharacter(c: PanelRenderVisibleCharacter): string {
   const pose = c.poseIntent ? `, pose: ${c.poseIntent}` : "";
   const expr = c.expressionIntent ? `, expression: ${c.expressionIntent}` : "";
   return `${c.name} (${role})${pose}${expr}`;
+}
+
+function buildDialogueTwoShotSubject(chars: PanelRenderVisibleCharacter[]): string {
+  const names = listCharacterNames(chars, 2);
+  if (names.length >= 2) {
+    return `SUBJECT: two-character dialogue staging with ${names[0]} and ${names[1]}, balanced framing, neither character dominates the frame.`;
+  }
+  if (names.length === 1) {
+    return `SUBJECT: dialogue beat centered on ${names[0]} with the speaking partner implied off-camera, no dominant solo hero portrait.`;
+  }
+  return `SUBJECT: dialogue staging between two implied characters, balanced framing, no dominant solo portrait.`;
+}
+
+function buildDialogueOverShoulderSubject(chars: PanelRenderVisibleCharacter[]): string {
+  const names = listCharacterNames(chars, 2);
+  if (names.length >= 2) {
+    return `SUBJECT: over-the-shoulder conversation between ${names[0]} and ${names[1]}, readable speaker-listener geometry, no dominant solo portrait.`;
+  }
+  if (names.length === 1) {
+    return `SUBJECT: over-the-shoulder dialogue framing on ${names[0]}, off-camera counterpart implied by the composition, no dominant solo portrait.`;
+  }
+  return `SUBJECT: over-the-shoulder dialogue geometry, implied speaker and listener, no dominant solo portrait.`;
+}
+
+function buildGroupTensionSubject(chars: PanelRenderVisibleCharacter[]): string {
+  const names = listCharacterNames(chars, 3);
+  if (names.length > 0) {
+    return `SUBJECT: tense ensemble staging with ${names.join(", ")}, body language and spacing carry the stakes, no single portrait dominates the frame.`;
+  }
+  return `SUBJECT: tense ensemble staging, body language and spacing carry the stakes, no single portrait dominates the frame.`;
+}
+
+function buildAftermathDialogueSubject(chars: PanelRenderVisibleCharacter[]): string {
+  const names = listCharacterNames(chars, 2);
+  if (names.length > 0) {
+    return `SUBJECT: post-event dialogue beat featuring ${names.join(" and ")}, grounded recovery moment with context still visible, no triumphant hero poster pose.`;
+  }
+  return `SUBJECT: post-event dialogue beat, grounded recovery moment with context still visible, no triumphant hero poster pose.`;
+}
+
+function listCharacterNames(chars: PanelRenderVisibleCharacter[], max: number): string[] {
+  return chars.slice(0, max).map((c) => c.name);
+}
+
+function normalizePromptClause(value: string | null | undefined): string {
+  return (value ?? "").replace(/\s+/g, " ").replace(/[.]+$/g, "").trim();
 }
 
 function humanizeShot(s: PanelRenderSpec["shotType"]): string {

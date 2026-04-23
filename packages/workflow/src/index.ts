@@ -54,6 +54,7 @@ export {
 export type { RenderPassResultSummary } from "./persistence/render-persistence";
 export { runChapterOutlineFromJob, runOutlineForChapterId } from "./run-outline-for-chapter";
 export { runFullChapterPipelineFromJob } from "./run-full-chapter-pipeline";
+export { buildStyleBibleFromUserProject } from "./chapter-style-bible-resolver";
 export { assertPremiumContractFromChapter } from "./passes/assert-premium-contract-guard";
 export type { PremiumContractGuardResult } from "./passes/assert-premium-contract-guard";
 export * from "./stable-image-refs";

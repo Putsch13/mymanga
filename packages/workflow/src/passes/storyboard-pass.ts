@@ -18,7 +18,7 @@ import {
   type StoryboardLayoutTemplate,
 } from "@manga-ai-studio/ai";
 import type { StoryboardPage, StoryboardPanel } from "@manga-ai-studio/ai/contracts";
-import { PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
+import { classifyPremiumPanelCount, PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
 import { saveStoryboardPlan } from "../persistence/storyboard-persistence";
 import {
   isPipelineV3MangaEditorLlmEnabled,
@@ -270,8 +270,15 @@ function densifyStoryboardPlanToPremiumRange(input: {
     ];
   };
 
+  const DIALOGUE_RENDER_MODES = new Set<StoryboardPanel["renderMode"]>([
+    "dialogue_two_shot",
+    "dialogue_over_shoulder",
+    "aftermath_dialogue",
+  ]);
+
   const makeGrammarPanel = (base: StoryboardPanel, k: number, currentPanels: StoryboardPanel[]): StoryboardPanel => {
-    const beatType = beatsById.get(base.sourceBeatId)?.type ?? "setup";
+    const beat = beatsById.get(base.sourceBeatId);
+    const beatType = beat?.type ?? "setup";
     const pool = makeVariantPool(beatType);
     const counts = computeCounts(currentPanels);
     const heroRatio = counts.hero / counts.total;
@@ -296,11 +303,20 @@ function densifyStoryboardPlanToPremiumRange(input: {
     priority.push(...pool.filter((v) => v.subjectFocus !== "hero"));
 
     const { sig: lastSig, run: lastRun } = trailingSignatureRun(currentPanels);
+    const baseCharacters =
+      Array.isArray(base.characters) && base.characters.length > 0
+        ? base.characters.slice(0, 2)
+        : Array.isArray(beat?.charactersPresent)
+          ? beat.charactersPresent.slice(0, 2)
+          : [];
+    const hasDialogueSource = Array.isArray(base.dialogue) && base.dialogue.length > 0;
 
     let chosen: Variant | null = null;
     for (let i = 0; i < priority.length; i += 1) {
       const cand = priority[(k + i) % priority.length]!;
       if (avoidCloseup && CLOSEUP_SHOT_TYPES.has(cand.shotType)) continue;
+      if (cand.characters === "base2" && baseCharacters.length === 0) continue;
+      if (DIALOGUE_RENDER_MODES.has(cand.renderMode) && !hasDialogueSource) continue;
       const cameraAngle = pickCameraAngle(cand.renderMode, k + i);
       const sig = signatureOf({
         renderMode: cand.renderMode,
@@ -313,16 +329,21 @@ function densifyStoryboardPlanToPremiumRange(input: {
       break;
     }
     if (!chosen) {
-      const fallback = pool[0]!;
+      const fallback =
+        pool.find(
+          (v) =>
+            (v.characters === "none" || baseCharacters.length > 0) &&
+            (!DIALOGUE_RENDER_MODES.has(v.renderMode) || hasDialogueSource),
+        ) ??
+        pool.find((v) => v.characters === "none") ??
+        pool[0]!;
       chosen = { ...fallback, cameraAngle: pickCameraAngle(fallback.renderMode, k) };
     }
 
     const characters: string[] =
       chosen.characters === "none"
         ? []
-        : Array.isArray(base.characters)
-          ? base.characters.slice(0, 2)
-          : [];
+        : baseCharacters;
 
     return {
       ...base,
@@ -333,9 +354,14 @@ function densifyStoryboardPlanToPremiumRange(input: {
       shotType: chosen.shotType,
       cameraAngle: chosen.cameraAngle,
       characters,
+      locationId: base.locationId ?? beat?.locationId ?? null,
+      locationName:
+        !base.locationName || base.locationName.trim().toLowerCase() === "unknown"
+          ? beat?.locationName ?? base.locationName
+          : base.locationName,
       actionLine: chosen.actionLine,
-      emotionLine: chosen.emotionLine === "keep" ? base.emotionLine : "",
-      dialogue: [],
+      emotionLine: chosen.emotionLine === "keep" ? base.emotionLine || beat?.emotionalTurn || "" : "",
+      dialogue: DIALOGUE_RENDER_MODES.has(chosen.renderMode) ? base.dialogue.slice(0, 2) : [],
       narration: null,
       sfx: [],
       mustShow: [],
@@ -498,7 +524,7 @@ export async function runStoryboardPass(
   );
   let planForValidation = storyboardPlan;
   const densifyWarnings: string[] = [];
-  if (premiumOnly && (initialTotalPanels < PREMIUM_PANEL_RANGE.min || initialTotalPanels > PREMIUM_PANEL_RANGE.max)) {
+  if (premiumOnly && classifyPremiumPanelCount(initialTotalPanels) !== "ok") {
     const densified = densifyStoryboardPlanToPremiumRange({
       storyArc: input.storyArc,
       storyboardPlan,
@@ -520,7 +546,7 @@ export async function runStoryboardPass(
     0,
   );
   const countBlockers: string[] = [];
-  if (totalPanels < PREMIUM_PANEL_RANGE.min || totalPanels > PREMIUM_PANEL_RANGE.max) {
+  if (classifyPremiumPanelCount(totalPanels) !== "ok") {
     countBlockers.push(
       `storyboard_plan.panel_count_out_of_range=${totalPanels} required=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max}`,
     );

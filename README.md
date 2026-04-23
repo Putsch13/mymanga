@@ -101,7 +101,10 @@ Contrat produit : un chapitre premium doit sortir **entre 70 et 75 panels** (cib
 La v3 n'utilise pas un style par defaut "neutre" : la `ChapterStyleBible` est derivee de `project` + `stylePack` au lancement pipeline (render family, line weight, shading, background density, contraintes negatives).
 
 Point d'integration :
-- `packages/workflow/src/run-full-chapter-pipeline.ts` construit le `styleBible` v3 et le passe au `render-pass`.
+- `packages/workflow/src/chapter-style-bible-resolver.ts` est la source de verite pour `ChapterStyleBible`.
+- `packages/workflow/src/run-premium-v3-pipeline.ts` execute le chemin strict IA1 → IA2 → IA3.
+- `packages/workflow/src/run-legacy-compatible-chapter-pipeline.ts` encapsule le pont de compatibilite legacy restant.
+- `packages/workflow/src/run-full-chapter-pipeline.ts` n'orchestre plus que le setup, le gate premium-only, puis le choix `v3 strict` ou `legacy compat`.
 
 ### Flags & pre-requis (premium-only = fail-hard)
 La v3 est pilotee par flags. En **premium-only**, toute incoherence est un **FAIL dur**.

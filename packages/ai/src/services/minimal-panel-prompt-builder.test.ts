@@ -74,4 +74,39 @@ describe("buildMinimalPanelPrompt", () => {
       expect(neg).toContain(tok);
     }
   });
+
+  it("injecte le sous-texte de dialogue sans demander du texte dans l'image", () => {
+    const r = buildMinimalPanelPrompt(
+      makeSpec({
+        renderMode: "dialogue_two_shot",
+        panelPurpose: "dialogue_anchor",
+        shotType: "medium",
+        subjectFocus: "group",
+        dialogueIntent: "Miya accuses Nelo of hiding the truth",
+        visibleCharacters: [
+          { characterId: "c1", name: "Miya", role: "hero", poseIntent: null, expressionIntent: null },
+          { characterId: "c2", name: "Nelo", role: "support", poseIntent: null, expressionIntent: null },
+        ],
+      }),
+    );
+    expect(r.positive).toContain("Dialogue subtext: Miya accuses Nelo of hiding the truth.");
+    expect(r.positive).toContain("no speech bubbles or text in image");
+  });
+
+  it("un dialogue_two_shot ne présente plus un primary subject unique", () => {
+    const r = buildMinimalPanelPrompt(
+      makeSpec({
+        renderMode: "dialogue_two_shot",
+        panelPurpose: "dialogue_anchor",
+        shotType: "medium",
+        subjectFocus: "group",
+        visibleCharacters: [
+          { characterId: "c1", name: "Miya", role: "hero", poseIntent: null, expressionIntent: null },
+          { characterId: "c2", name: "Nelo", role: "support", poseIntent: null, expressionIntent: null },
+        ],
+      }),
+    );
+    expect(r.positive.toLowerCase()).not.toContain("as primary subject");
+    expect(r.positive).toContain("balanced framing");
+  });
 });

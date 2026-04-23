@@ -4,7 +4,7 @@
  * Interdit de reconstruire un productionOutline minimaliste "pour dépanner" ailleurs.
  */
 
-import { buildProductionPlanFromOutline, PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
+import { buildProductionPlanFromOutline, classifyPremiumPanelCount, PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
 import type { ApprovedChapterOutline, ProductionBeat } from "@manga-ai-studio/core";
 import type { PanelBlueprintPremium, RequiredProp } from "@manga-ai-studio/core";
 import { inferNarrativeFactsFromBeat, type NarrativeExtractionContext } from "./narrative-fact-extractor";
@@ -435,8 +435,9 @@ export function buildPremiumChapterContract(
   const minimumPanels = typeof input.minimumPanels === "number" && input.minimumPanels > 0
     ? input.minimumPanels
     : minPanels;
+  const panelCountStatus = classifyPremiumPanelCount(allBlueprints.length);
   console.log(
-    `[premium-contract] native_panel_count=${allBlueprints.length} required_range=${minPanels}-${maxPanels} minimumPanels=${minimumPanels}`,
+    `[premium-contract] native_panel_count=${allBlueprints.length} status=${panelCountStatus} required_range=${minPanels}-${maxPanels} minimumPanels=${minimumPanels}`,
   );
   const focusBudget = computeChapterFocusBudget(allBlueprints);
   const premiumReadinessScore = computePremiumReadinessScore(allBlueprints);

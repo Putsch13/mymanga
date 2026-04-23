@@ -39,6 +39,20 @@ const FORBIDDEN_FIELD_SENTINELS = new Set<string>([
   "",
 ]);
 
+const CHARACTER_REQUIRED_RENDER_MODES = new Set<PanelRenderSpec["renderMode"]>([
+  "reaction_closeup",
+  "hero_closeup",
+  "npc_closeup",
+  "enemy_closeup",
+  "dialogue_over_shoulder",
+  "aftermath_dialogue",
+]);
+
+const MULTI_CHARACTER_REQUIRED_RENDER_MODES = new Set<PanelRenderSpec["renderMode"]>([
+  "dialogue_two_shot",
+  "group_tension",
+]);
+
 function isSentinel(value: string | null | undefined): boolean {
   if (!value) return true;
   return FORBIDDEN_FIELD_SENTINELS.has(value.trim().toLowerCase());
@@ -107,6 +121,13 @@ export function validateRenderSpec(spec: PanelRenderSpec): RenderSpecValidationR
     (spec.shotType === "closeup" || spec.shotType === "extreme_closeup")
   ) {
     issues.push(`${prefix}.contradiction.establishing_environment+closeup`);
+  }
+
+  if (CHARACTER_REQUIRED_RENDER_MODES.has(spec.renderMode) && spec.visibleCharacters.length === 0) {
+    issues.push(`${prefix}.missing_visible_characters_for_renderMode=${spec.renderMode}`);
+  }
+  if (MULTI_CHARACTER_REQUIRED_RENDER_MODES.has(spec.renderMode) && spec.visibleCharacters.length < 2) {
+    issues.push(`${prefix}.insufficient_visible_characters_for_renderMode=${spec.renderMode}`);
   }
 
   const hasHeroOrSupport = spec.visibleCharacters.some(
