@@ -72,6 +72,56 @@ Monorepo full-stack pour generer des chapitres manga/webtoon coherents avec memo
 - Mode brief (genere le pitch) et mode all_missing (complete tout)
 - Detection et message adapte pour les erreurs reseau/parsing
 
+## Pipeline premium v3 (IA1 → IA2 → IA3) — strict, sans legacy (avril 2026)
+
+Objectif : une pipeline premium **sans compromis**, qui echoue explicitement si un module est manquant ou si les contrats sont non conformes. Aucun fallback legacy ne doit masquer un probleme.
+
+### Architecture (3 etapes)
+- **IA1 — Story Architect** : produit un `StoryArc` (beats, continuites, objectifs, contraintes).
+- **IA2 — Manga Editor / Storyboard Director** : produit un `StoryboardPlan` (pages/panels/layouts/renderMode/shotType/subjectFocus/cutawayType).
+- **IA3 — Panel Renderer** : produit des `PanelRenderSpec` + prompts minimalistes + routage FAL strict + (optionnel) rendu et persistance `SceneImage`.
+
+Artefacts/contrats :
+- `StoryArc` (`packages/ai/src/contracts/story-arc.ts`)
+- `StoryboardPlan` (`packages/ai/src/contracts/storyboard-plan.ts`)
+- `PanelRenderSpec` (`packages/ai/src/contracts/panel-render-spec.ts`)
+- `ChapterStyleBible` (`packages/ai/src/contracts/chapter-style-bible.ts`)
+
+### Range premium (70–75) et densification deterministe
+Contrat produit : un chapitre premium doit sortir **entre 70 et 75 panels** (cible 72).
+
+- **Estimate route** (`apps/web/app/api/projects/[id]/chapters/estimate/route.ts`) : densifie deterministiquement les blueprints vers 70–75 pour eviter les plans "sous-min" qui bloquent le studio.
+- **Storyboard pass v3** (`packages/workflow/src/passes/storyboard-pass.ts`) :
+  - si l'IA2 sort un storyboard hors range (ex. 13–16 panels), on **densifie deterministiquement** vers la cible (72) en injectant des panels de grammaire (environment / threat / prop / group / transitions).
+  - la densification contre-balance automatiquement les budgets editoriaux (anti "portraits en boucle") :
+    - `hero_focus_ratio` et `closeup_ratio` plafonnes (max 0.5)
+    - anti-repetition `(renderMode|shotType|cameraAngle|subjectFocus)` (run >= 3 interdit)
+
+### Style manga "determine par l'utilisateur"
+La v3 n'utilise pas un style par defaut "neutre" : la `ChapterStyleBible` est derivee de `project` + `stylePack` au lancement pipeline (render family, line weight, shading, background density, contraintes negatives).
+
+Point d'integration :
+- `packages/workflow/src/run-full-chapter-pipeline.ts` construit le `styleBible` v3 et le passe au `render-pass`.
+
+### Flags & pre-requis (premium-only = fail-hard)
+La v3 est pilotee par flags. En **premium-only**, toute incoherence est un **FAIL dur**.
+
+- `PIPELINE_V3_PREMIUM_ONLY=true` : interdit toute execution legacy sur le chemin premium.
+- `PIPELINE_V3_STORY_ARCHITECT_LLM=true` : IA1 doit etre un vrai LLM (pas de stub).
+- `PIPELINE_V3_MANGA_EDITOR_LLM=true` : IA2 doit etre un vrai LLM (pas de stub).
+- `PIPELINE_V3_STORYBOARD=true` : active le storyboard-pass v3.
+- `PIPELINE_V3_RENDER_FAL=true` : active le rendu v3 via FAL et la persistance des `SceneImage`.
+- **`OPENAI_API_KEY` obligatoire** en premium-only : sans cle, IA1/IA2 echouent immediatement (pas de fallback silencieux).
+
+### Depannage (logs premium v3)
+Symptomes frequents et actions :
+- `storyboard_plan.panel_count_out_of_range=13 required=70-75`
+  - cause : IA2 a sorti un mini-storyboard ; fix : v3 densifie automatiquement (si tu vois encore cette erreur en prod, le deploiement n'a pas la derniere version).
+- `storyboard_plan.hero_focus_ratio_too_high` / `closeup_ratio_too_high` / `repetitive_signature_run`
+  - cause : storyboard trop centre hero/closeups ; fix : densification v3 injecte des panels non-hero + wide/medium + variation d'angles.
+- `premium_storyboard_llm_unavailable` / `premium_story_architect_llm_unavailable`
+  - cause : `OPENAI_API_KEY` absente en premium-only ; action : renseigner la variable d'environnement.
+
 ## Refonte etape 2 — Compilateur visuel de chapitre (avril 2026)
 
 La generation des 70–75 images d'un chapitre passe par un **compilateur visuel canonique**, pas par des prompts texte libres.

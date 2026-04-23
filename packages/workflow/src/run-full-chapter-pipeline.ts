@@ -19,6 +19,7 @@ import { createDefaultChapterStyleBible } from "@manga-ai-studio/ai/contracts";
 import {
   extractRequiredVisualCoverage,
   validateVisualCoverage,
+  type ChapterStyleBible,
 } from "@manga-ai-studio/ai";
 import { assertPremiumContractFromChapter } from "./passes/assert-premium-contract-guard";
 import {
@@ -26,6 +27,7 @@ import {
   isPipelineV3RenderFalEnabled,
   isPipelineV3PremiumOnlyEnabled,
 } from "./pipeline-feature-flags";
+import { PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
 import {
   buildChapterImagePlanFromNarrative,
   deriveContentRatingFromProject,
@@ -33,6 +35,90 @@ import {
 } from "./chapter-image-plan-from-narrative";
 
 export { setJobProgress } from "./pipeline-job";
+
+function buildStyleBibleFromUserProject(input: {
+  project: Record<string, unknown> | null;
+  stylePacks: Array<Record<string, unknown>>;
+}): ChapterStyleBible {
+  const base = createDefaultChapterStyleBible();
+  const sp = input.stylePacks[0] ?? null;
+  const projectTone = typeof input.project?.tone === "string" ? input.project.tone : null;
+  const projectGenre = typeof input.project?.primaryGenre === "string" ? input.project.primaryGenre : null;
+  const projectVisualStyle = typeof input.project?.visualStyle === "string" ? input.project.visualStyle : null;
+
+  const renderFamily = sp && typeof sp.renderFamily === "string" ? sp.renderFamily : null;
+  const lineWeightRaw = sp && typeof sp.lineWeight === "string" ? sp.lineWeight : null;
+  const shadingModeRaw = sp && typeof sp.shadingMode === "string" ? sp.shadingMode : null;
+  const contrastRaw = sp && typeof sp.contrastProfile === "string" ? sp.contrastProfile : null;
+  const bgDensityRaw = sp && typeof sp.backgroundDensity === "string" ? sp.backgroundDensity : null;
+  const negativeConstraints = sp && Array.isArray(sp.negativeConstraints) ? sp.negativeConstraints : [];
+
+  const lineWeightHint: ChapterStyleBible["lineWeightHint"] =
+    lineWeightRaw?.toLowerCase().includes("fine") || lineWeightRaw?.toLowerCase().includes("thin")
+      ? "fine"
+      : lineWeightRaw?.toLowerCase().includes("bold") || lineWeightRaw?.toLowerCase().includes("heavy")
+        ? "bold"
+        : lineWeightRaw?.toLowerCase().includes("medium")
+          ? "medium"
+          : base.lineWeightHint;
+
+  const inking: ChapterStyleBible["inking"] =
+    lineWeightRaw?.toLowerCase().includes("heavy")
+      ? "heavy_ink_weight"
+      : lineWeightRaw?.toLowerCase().includes("light")
+        ? "light_ink_weight"
+        : contrastRaw?.toLowerCase().includes("high")
+          ? "mixed_contrast"
+          : base.inking;
+
+  const screentoneIntensity: ChapterStyleBible["screentoneIntensity"] =
+    shadingModeRaw?.toLowerCase().includes("none")
+      ? "none"
+      : shadingModeRaw?.toLowerCase().includes("heavy")
+        ? "heavy"
+        : shadingModeRaw?.toLowerCase().includes("light")
+          ? "light"
+          : base.screentoneIntensity;
+
+  const backgroundDensity: ChapterStyleBible["backgroundDensity"] =
+    bgDensityRaw?.toLowerCase().includes("minimal") || bgDensityRaw?.toLowerCase().includes("low")
+      ? "minimal"
+      : bgDensityRaw?.toLowerCase().includes("detailed") || bgDensityRaw?.toLowerCase().includes("high")
+        ? "detailed"
+        : base.backgroundDensity;
+
+  const palette: ChapterStyleBible["palette"] =
+    (projectVisualStyle ?? "").toLowerCase().includes("color")
+      ? "full_color_manga"
+      : base.palette;
+
+  const artStyleParts = [
+    renderFamily,
+    projectVisualStyle,
+    palette === "full_color_manga" ? "full-color manga" : "black and white manga with screentones",
+  ].filter(Boolean);
+
+  return {
+    ...base,
+    artStyle: artStyleParts.length > 0 ? artStyleParts.join(", ") : base.artStyle,
+    palette,
+    inking,
+    screentoneIntensity,
+    lineWeightHint,
+    backgroundDensity,
+    toneKeywords: [
+      ...(projectTone ? [projectTone.toLowerCase()] : []),
+      ...(projectGenre ? [projectGenre.toLowerCase()] : []),
+      ...base.toneKeywords,
+    ].slice(0, 6),
+    forbiddenStyleKeywords: Array.from(
+      new Set([
+        ...base.forbiddenStyleKeywords,
+        ...(negativeConstraints.filter((x): x is string => typeof x === "string") as string[]),
+      ]),
+    ),
+  };
+}
 
 export async function runFullChapterPipelineFromJob(jobId: string) {
   // Diagnostic de configuration au démarrage du pipeline
@@ -198,6 +284,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           storyArc: storyPassResult.storyArc,
           heroCharacterIds: focusCharacterIds,
           projectFormat,
+          targetPanelCount: PREMIUM_PANEL_RANGE.target,
         });
         if (storyboardPassResult.blockers.length > 0) {
           console.error(
@@ -277,7 +364,10 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           const renderPassResult = await runRenderPass({
             chapterId,
             storyboardPlan: storyboardPassResult.storyboardPlan,
-            styleBible: createDefaultChapterStyleBible(),
+            styleBible: buildStyleBibleFromUserProject({
+              project: project as unknown as Record<string, unknown> | null,
+              stylePacks: stylePacks as unknown as Array<Record<string, unknown>>,
+            }),
             visualMemory: visualMemoryResult.memory,
             characters: rawCharacters.map((c) => ({
               id: c.id,

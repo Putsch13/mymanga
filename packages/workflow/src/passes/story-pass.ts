@@ -55,6 +55,14 @@ export async function runStoryPass(input: RunStoryPassInput): Promise<RunStoryPa
   const useLlm = input.useLlmArchitect ?? isPipelineV3StoryArchitectLlmEnabled();
   const premiumOnly = isPipelineV3PremiumOnlyEnabled();
 
+  // Premium-only : l'IA1 doit être un vrai LLM. Si la clé OpenAI manque,
+  // `runStoryArchitectAgentLlm` ferait un fallback vers le stub — interdit.
+  if (premiumOnly && useLlm && !process.env.OPENAI_API_KEY) {
+    throw new Error(
+      "premium_story_architect_llm_unavailable: PIPELINE_V3_PREMIUM_ONLY=true mais OPENAI_API_KEY est absente",
+    );
+  }
+
   // COMMIT H + P2.B — symétrique du storyboard-pass : pas de stub en premium.
   if (premiumOnly && !useLlm) {
     throw new PremiumStoryArchitectStubForbiddenError();

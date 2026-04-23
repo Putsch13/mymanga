@@ -214,15 +214,27 @@ function sanitizeEnum<T extends string>(
   return fallback;
 }
 
+function pickFallbackBeatId(globalIndex: number, orderedBeatIds: string[]): string {
+  if (orderedBeatIds.length === 0) return "";
+  return orderedBeatIds[globalIndex % orderedBeatIds.length] ?? orderedBeatIds[0]!;
+}
+
 function sanitizePanel(
   raw: Record<string, unknown>,
   globalIndex: number,
   pageNumber: number,
   panelNumberInPage: number,
   validBeatIds: Set<string>,
+  orderedBeatIds: string[],
+  onBeatFallback?: (args: { raw: unknown; resolved: string }) => void,
 ): StoryboardPanel | null {
-  const sourceBeatId = typeof raw.sourceBeatId === "string" ? raw.sourceBeatId : "";
-  if (!validBeatIds.has(sourceBeatId)) return null;
+  let sourceBeatId = typeof raw.sourceBeatId === "string" ? raw.sourceBeatId : "";
+  if (!validBeatIds.has(sourceBeatId)) {
+    const fallback = pickFallbackBeatId(globalIndex, orderedBeatIds);
+    if (!fallback) return null;
+    onBeatFallback?.({ raw: raw.sourceBeatId, resolved: fallback });
+    sourceBeatId = fallback;
+  }
 
   const renderMode = sanitizeEnum<StoryboardRenderMode>(
     raw.renderMode,
@@ -329,6 +341,8 @@ function sanitizePage(
   pageNumber: number,
   globalStart: number,
   validBeatIds: Set<string>,
+  orderedBeatIds: string[],
+  onBeatFallback?: (args: { raw: unknown; resolved: string }) => void,
 ): { page: StoryboardPage; nextGlobalIndex: number } | null {
   const layoutTemplate = sanitizeEnum<StoryboardLayoutTemplate>(
     raw.layoutTemplate,
@@ -347,6 +361,8 @@ function sanitizePage(
       pageNumber,
       i + 1,
       validBeatIds,
+      orderedBeatIds,
+      onBeatFallback,
     );
     if (!panel) continue;
     panels.push(panel);
@@ -427,15 +443,29 @@ export async function runMangaEditorAgentLlm(
     if (rawPages.length === 0) throw new Error("llm_returned_no_pages");
 
     const validBeatIds = new Set(input.storyArc.beats.map((b) => b.beatId));
+    const orderedBeatIds = input.storyArc.beats.map((b) => b.beatId);
+    let beatFallbackCount = 0;
     const pages: StoryboardPage[] = [];
     let globalIndex = 0;
     for (let i = 0; i < rawPages.length; i++) {
-      const res = sanitizePage(rawPages[i]!, i + 1, globalIndex, validBeatIds);
+      const res = sanitizePage(
+        rawPages[i]!,
+        i + 1,
+        globalIndex,
+        validBeatIds,
+        orderedBeatIds,
+        () => {
+          beatFallbackCount += 1;
+        },
+      );
       if (!res) continue;
       pages.push(res.page);
       globalIndex = res.nextGlobalIndex;
     }
     if (pages.length === 0) throw new Error("llm_no_valid_pages_after_sanitize");
+    if (beatFallbackCount > 0) {
+      warnings.push(`manga_editor.llm.sanitize.sourceBeatId_fallback_count=${beatFallbackCount}`);
+    }
 
     const storyboardPlan: StoryboardPlan = {
       chapterId: input.storyArc.chapterId,
