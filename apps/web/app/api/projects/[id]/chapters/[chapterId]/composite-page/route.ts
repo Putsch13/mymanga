@@ -9,6 +9,7 @@ import {
   parseSfxFromMetadata,
   PAGE_LAYOUT_CONFIGS,
   legacyLayoutToTemplate,
+  computePanelPixelPositions,
   type CompositePanel,
   type InPanelTextBox,
 } from "@manga-ai-studio/ai";
@@ -62,13 +63,8 @@ export async function GET(_req: Request, ctx: Ctx) {
   const layoutConfig = PAGE_LAYOUT_CONFIGS[template] ?? PAGE_LAYOUT_CONFIGS.grid_2x3;
   const areaCount = layoutConfig.areas.length;
 
-  // Calculer les positions des panels en pixels
-  const colCount = template === "splash" || template === "cinematic_bar" || template === "vertical_strip"
-    ? (template === "splash" ? 1 : 3)
-    : 2;
-  const rowCount = Math.ceil(areaCount / colCount);
-  const colW = Math.floor(PAGE_W / colCount);
-  const rowH = Math.floor(PAGE_H / rowCount);
+  // Calculer les positions des panels en pixels via la grille CSS réelle
+  const panelPositions = computePanelPixelPositions(template, PAGE_W, PAGE_H, 3);
 
   // P0-3 : signer les URLs Supabase Storage AVANT de les passer au compositor.
   // Le bucket MyManga est privé → sans signature, le fetch retourne 403 et le
@@ -77,27 +73,19 @@ export async function GET(_req: Request, ctx: Ctx) {
   const signedUrls = await signSupabaseUrlsIfNeeded(rawUrls, 3600);
 
   const panels: CompositePanel[] = scene.images.slice(0, areaCount).map((img, idx) => {
-    const col = idx % colCount;
-    const row = Math.floor(idx / colCount);
-    const weight = layoutConfig.panelWeights[idx] ?? (1 / areaCount);
-
-    // Pour les layouts avec panel héros (hero = weight > average), agrandir proportionnellement
-    const avgWeight = 1 / areaCount;
-    const sizeRatio = weight / avgWeight;
-    const w = Math.round(Math.min(colW * sizeRatio, PAGE_W));
-    const h = Math.round(Math.min(rowH, PAGE_H));
-
+    const pos = panelPositions[idx];
     const signed = signedUrls[idx] ?? img.persistedUrl ?? img.imageUrl ?? "";
+
     if (!signed) {
       console.warn(`[composite-page] P0-3: image ${img.id} scene=${sceneId} has no resolvable URL (persistedUrl=${img.persistedUrl?.slice(0, 60) ?? "null"} imageUrl=${img.imageUrl?.slice(0, 60) ?? "null"})`);
     }
 
     return {
       imageUrl: signed,
-      x: col * colW,
-      y: row * rowH,
-      width: w,
-      height: h,
+      x: pos?.x ?? 0,
+      y: pos?.y ?? 0,
+      width: pos?.width ?? PAGE_W,
+      height: pos?.height ?? PAGE_H,
     };
   });
 

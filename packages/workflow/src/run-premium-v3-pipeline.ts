@@ -4,13 +4,14 @@ import {
   validateVisualCoverage,
   type StoryArc,
 } from "@manga-ai-studio/ai";
-import { PREMIUM_PANEL_RANGE, type PanelBlueprintPremium } from "@manga-ai-studio/core";
+import { PREMIUM_PANEL_RANGE, type PanelBlueprintPremium, type ProductionOutline } from "@manga-ai-studio/core";
 import { createDefaultPanelImageGenerator } from "./passes/default-panel-image-generator";
 import { loadChapterVisualMemory } from "./passes/load-chapter-visual-memory";
 import { runPageQaPass } from "./passes/page-qa-pass";
 import { runRenderPass } from "./passes/render-pass";
 import { runStoryPass } from "./passes/story-pass";
 import { buildStoryboardPlanFromApprovedProductionPlan } from "./build-storyboard-plan-from-approved-production-plan";
+import { buildStoryArcFromProductionPlan } from "./build-story-arc-from-production-plan";
 import { buildStoryboardPlanFromPremiumBlueprints } from "./passes/storyboard-from-premium-plan";
 import { runStoryboardPass } from "./passes/storyboard-pass";
 import { buildStyleBibleFromUserProject } from "./chapter-style-bible-resolver";
@@ -30,6 +31,7 @@ import {
 } from "./passes/premium-manga-rebalance";
 import { runMangaStructureQaOnBlueprints } from "./passes/manga-structure-qa";
 import { runPreRenderPremiumQaOrThrow } from "./passes/pre-render-premium-qa";
+import { runNarrativeContractQa } from "./passes/beat-narrative-contract";
 
 export type { PremiumV3PipelineLocation } from "./load-locations-for-v3-story-pass";
 
@@ -290,24 +292,88 @@ export async function runPremiumV3Pipeline(
             throw new Error(`premium_v3_only_manga_structure_failed: ${mangaQa.summary}`);
           }
         }
+
+        if (input.approvedOutline) {
+          const typedOutlineForQa = input.approvedOutline as ProductionOutline;
+          const narrativeQa = runNarrativeContractQa({
+            blueprints: rebal.blueprints,
+            outline: typedOutlineForQa,
+            chapterUserIntent: input.chapterUserIntent,
+            chapterSummary: input.chapterSummary,
+            chapterLocationName: input.chapterLocationName,
+          });
+
+          const requiredChars = narrativeQa.contracts.flatMap((c) => c.requiredCharacters);
+          const requiredEntities = narrativeQa.contracts.flatMap((c) => c.requiredEntities);
+          const locations = narrativeQa.contracts.map((c) => c.location).filter(Boolean);
+
+          console.info(
+            `[pipeline:v3:narrative-contract] beats=${narrativeQa.contracts.length} ` +
+              `requiredCharacters=${[...new Set(requiredChars)].join(",")} ` +
+              `requiredEntities=${[...new Set(requiredEntities)].join(",")} ` +
+              `locations=${[...new Set(locations)].join(",")}`,
+          );
+
+          if (!narrativeQa.ok) {
+            console.warn(
+              `[pipeline:v3:narrative-contract] violations=${narrativeQa.violations.length} ` +
+                `first=${narrativeQa.violations[0]?.type}:${narrativeQa.violations[0]?.expected}`,
+            );
+          }
+        }
       }
     }
 
     if (approvedPlanDriven) {
       const storyboardBuildStart = Date.now();
-      storyboardPassResult = {
-        storyboardPlan: buildStoryboardPlanFromApprovedProductionPlan({
-          chapterId: input.chapterId,
-          projectId: input.projectId,
-          chapterNumber: input.chapterNumber,
-          productionPlan: (productionPlanForStoryboard ?? input.productionPlan) as Record<string, unknown>,
+
+      const productionPlanForArc = productionPlanForStoryboard ?? input.productionPlan;
+      const typedOutline = input.approvedOutline as ProductionOutline | null | undefined;
+      const storyArcFromPlan = buildStoryArcFromProductionPlan({
+        productionPlan: productionPlanForArc as { panelBlueprints?: PanelBlueprintPremium[]; [key: string]: unknown },
+        approvedOutline: typedOutline,
+        chapterId: input.chapterId,
+        chapterNumber: input.chapterNumber,
+        chapterTitle: input.chapterTitle,
+        chapterSummary: input.chapterSummary,
+        chapterUserIntent: input.chapterUserIntent,
+        chapterGoal: typedOutline?.chapterGoal,
+        cliffhanger: typedOutline?.cliffhanger,
+      });
+
+      console.info(
+        `[pipeline:v3:story-arc-from-plan] beats=${storyArcFromPlan.beats.length} chapterGoal=${storyArcFromPlan.chapterGoal?.slice(0, 50)}...`,
+      );
+
+      try {
+        storyboardPassResult = await runStoryboardPass({
+          storyArc: storyArcFromPlan,
+          heroCharacterIds: input.focusCharacterIds,
           projectFormat,
-          chapterLocationName: input.chapterLocationName,
-          productionPlanPages: input.productionPlanPages,
-        }),
-        warnings: ["storyboard_plan.source=approved_production_plan"],
-        blockers: [],
-      };
+          targetPanelCount: PREMIUM_PANEL_RANGE.target,
+          useLlmEditor: true,
+        });
+        storyboardPassResult.warnings.push("storyboard_plan.source=approved_production_plan_via_llm");
+        console.info(`[pipeline:v3:storyboard] source=llm panels=${storyboardPassResult.storyboardPlan.pages.flatMap((p) => p.panels).length}`);
+      } catch (llmError) {
+        console.warn(
+          `[pipeline:v3:storyboard] llm_failed, falling back to sync builder: ${llmError instanceof Error ? llmError.message : String(llmError)}`,
+        );
+        storyboardPassResult = {
+          storyboardPlan: buildStoryboardPlanFromApprovedProductionPlan({
+            chapterId: input.chapterId,
+            projectId: input.projectId,
+            chapterNumber: input.chapterNumber,
+            productionPlan: (productionPlanForStoryboard ?? input.productionPlan) as Record<string, unknown>,
+            projectFormat,
+            chapterLocationName: input.chapterLocationName,
+            productionPlanPages: input.productionPlanPages,
+          }),
+          warnings: ["storyboard_plan.source=approved_production_plan_sync_fallback"],
+          blockers: [],
+        };
+      }
+
       timings.storyboard_build_ms = Date.now() - storyboardBuildStart;
     } else {
       const storyStart = Date.now();
@@ -485,11 +551,16 @@ export async function runPremiumV3Pipeline(
         `[pipeline:v3:visual-memory] chars=${visualMemoryResult.stats.charactersLoaded} missing_face=${visualMemoryResult.stats.charactersMissingFaceRef} env=${visualMemoryResult.stats.environmentsLoaded} style=${visualMemoryResult.stats.styleRefsLoaded}`,
       );
 
+      const mainCharacterNames = input.rawCharacters
+        .filter((c) => input.focusCharacterIds.includes(c.id) || c.id === input.heroCharacterId)
+        .map((c) => c.name);
+
       runPreRenderPremiumQaOrThrow({
         storyboardPlan: storyboardPassResult.storyboardPlan,
         chapterSummary: input.chapterSummary,
         chapterUserIntent: input.chapterUserIntent,
         chapterLocationName: input.chapterLocationName,
+        mainCharacterNames,
       });
 
       const renderFalEnabled = isPipelineV3RenderFalEnabled();

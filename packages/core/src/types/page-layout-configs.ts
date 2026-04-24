@@ -157,3 +157,106 @@ export const PAGE_LAYOUT_CONFIGS: Record<PageLayoutTemplate, PageLayoutConfig> =
     defaultAspectRatios: ["21:9", "1:1", "1:1", "1:1", "1:1"],
   },
 };
+
+/**
+ * Parse les dimensions d'une grille CSS (format: "row1 row2 / col1 col2").
+ */
+function parseCssGridTemplate(template: string): { rows: number[]; cols: number[] } {
+  const parts = template.split("/").map((s) => s.trim());
+  const parseFr = (s: string): number => {
+    const match = s.match(/^([\d.]+)fr$/);
+    return match ? parseFloat(match[1]) : 1;
+  };
+  const rows = (parts[0] ?? "1fr").split(/\s+/).map(parseFr);
+  const cols = (parts[1] ?? parts[0] ?? "1fr").split(/\s+/).map(parseFr);
+  return { rows, cols };
+}
+
+/**
+ * Parse les zones CSS grid pour extraire la position de chaque area.
+ */
+function parseCssGridAreas(areasStr: string): Map<string, { rowStart: number; rowEnd: number; colStart: number; colEnd: number }> {
+  const rows = areasStr.match(/"[^"]+"/g)?.map((r) => r.replace(/"/g, "").trim().split(/\s+/)) ?? [];
+  const areaMap = new Map<string, { rowStart: number; rowEnd: number; colStart: number; colEnd: number }>();
+
+  for (let row = 0; row < rows.length; row++) {
+    const cells = rows[row];
+    for (let col = 0; col < cells.length; col++) {
+      const area = cells[col];
+      if (!areaMap.has(area)) {
+        areaMap.set(area, { rowStart: row, rowEnd: row + 1, colStart: col, colEnd: col + 1 });
+      } else {
+        const existing = areaMap.get(area)!;
+        existing.rowEnd = Math.max(existing.rowEnd, row + 1);
+        existing.colEnd = Math.max(existing.colEnd, col + 1);
+      }
+    }
+  }
+  return areaMap;
+}
+
+export interface PanelPixelPosition {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Convertit un layout de page en positions pixels pour chaque panel.
+ */
+export function computePanelPixelPositions(
+  template: PageLayoutTemplate,
+  pageWidth: number,
+  pageHeight: number,
+  gutter = 0,
+): PanelPixelPosition[] {
+  const config = PAGE_LAYOUT_CONFIGS[template];
+  if (!config) return [];
+
+  const { rows, cols } = parseCssGridTemplate(config.cssGridTemplate);
+  const areaMap = parseCssGridAreas(config.cssGridAreas);
+
+  const totalRowFr = rows.reduce((a, b) => a + b, 0);
+  const totalColFr = cols.reduce((a, b) => a + b, 0);
+
+  const effectiveWidth = pageWidth - gutter * (cols.length - 1);
+  const effectiveHeight = pageHeight - gutter * (rows.length - 1);
+
+  const colWidths = cols.map((fr) => (fr / totalColFr) * effectiveWidth);
+  const rowHeights = rows.map((fr) => (fr / totalRowFr) * effectiveHeight);
+
+  const colStarts: number[] = [];
+  let cumX = 0;
+  for (let i = 0; i < colWidths.length; i++) {
+    colStarts.push(cumX);
+    cumX += colWidths[i] + gutter;
+  }
+
+  const rowStarts: number[] = [];
+  let cumY = 0;
+  for (let i = 0; i < rowHeights.length; i++) {
+    rowStarts.push(cumY);
+    cumY += rowHeights[i] + gutter;
+  }
+
+  const positions: PanelPixelPosition[] = [];
+  for (const area of config.areas) {
+    const pos = areaMap.get(area);
+    if (!pos) continue;
+
+    const x = colStarts[pos.colStart] ?? 0;
+    const xEnd = (colStarts[pos.colEnd - 1] ?? 0) + (colWidths[pos.colEnd - 1] ?? 0);
+    const y = rowStarts[pos.rowStart] ?? 0;
+    const yEnd = (rowStarts[pos.rowEnd - 1] ?? 0) + (rowHeights[pos.rowEnd - 1] ?? 0);
+
+    positions.push({
+      x: Math.round(x),
+      y: Math.round(y),
+      width: Math.round(xEnd - x),
+      height: Math.round(yEnd - y),
+    });
+  }
+
+  return positions;
+}

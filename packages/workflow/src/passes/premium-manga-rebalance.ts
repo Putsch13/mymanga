@@ -185,8 +185,9 @@ export function buildActorDrivenReplacement(
 
   if (primary) {
     const sf: SubjectFocus = primary.role === "protagonist" ? "hero" : "npc";
+    const basePurpose = String(bp.purpose ?? "").trim() || `${primary.name} action beat`;
     return {
-      purpose: "character advances the scene — visible action or emotion",
+      purpose: basePurpose,
       shotType: "medium",
       cameraAngle: "eye_level",
       subjectFocus: sf,
@@ -198,8 +199,9 @@ export function buildActorDrivenReplacement(
     };
   }
 
+  const basePurpose = String(bp.purpose ?? "").trim() || "ensemble story beat";
   return {
-    purpose: "group tension — character-driven story beat",
+    purpose: basePurpose,
     shotType: "medium",
     cameraAngle: "eye_level",
     subjectFocus: "group",
@@ -208,25 +210,62 @@ export function buildActorDrivenReplacement(
   };
 }
 
+const GENERIC_PURPOSE_PATTERNS = [
+  "character advances the scene",
+  "visible action or emotion",
+  "group tension — character-driven story beat",
+];
+
 function rewritePurposeWithVisibleActor(bp: PanelBlueprintPremium): string {
+  let base = String(bp.purpose ?? "").trim();
+
+  for (const pattern of GENERIC_PURPOSE_PATTERNS) {
+    if (base.toLowerCase().includes(pattern.toLowerCase())) {
+      base = base.replace(new RegExp(pattern, "gi"), "").trim().replace(/^[\s—-]+|[\s—-]+$/g, "").trim();
+    }
+  }
+
+  if (!base || base.length < 3) {
+    base = bp.beatId ? `beat ${bp.beatId} action` : "story progression";
+  }
+
   const propNames = (bp.requiredProps ?? [])
     .filter((p) => p.mustBeVisible !== false)
     .map((p) => p.canonicalName)
     .filter(Boolean);
-  const props =
-    propNames.length > 0 ? ` Key props stay readable in-frame: ${propNames.join(", ")}.` : "";
 
-  const base = String(bp.purpose ?? "").trim();
+  const propLine = propNames.length > 0
+    ? ` Key props visible in the same frame: ${propNames.join(", ")}.`
+    : "";
+
+  const loc = (bp.requiredLocationSignals ?? []).filter(Boolean).join(", ");
 
   if (isConflictHeavyBeatPanel(bp)) {
-    return `A visible character reacts to the threat or advances the conflict.${props} Original beat cue: ${base}`;
+    return [
+      "Conflict panel:",
+      base,
+      loc ? `Location context: ${loc}.` : "",
+      "Show a concrete combat or threat action, not a static portrait.",
+      propLine,
+    ].filter(Boolean).join(" ");
   }
 
   if (isDialogueHeavyBeat(bp)) {
-    return `A visible speaker or listener expresses the dialogue subtext through gaze, posture and facial emotion.${props} Original beat cue: ${base}`;
+    return [
+      "Dialogue panel:",
+      base,
+      "Show speaker/listener geometry, facial emotion, and readable body language.",
+      propLine,
+    ].filter(Boolean).join(" ");
   }
 
-  return `A visible character advances the scene through action or emotion.${props} Original beat cue: ${base}`;
+  return [
+    "Story action panel:",
+    base,
+    loc ? `Location context: ${loc}.` : "",
+    "Show a concrete action, reaction, or decision connected to this beat.",
+    propLine,
+  ].filter(Boolean).join(" ");
 }
 
 function mergeActorDrivenPurpose(bp: PanelBlueprintPremium): void {
@@ -522,6 +561,16 @@ export function rebalancePremiumBlueprintsForManga(
   const keptSoftCriticalCount = finalCutaways.filter((bp) =>
     isSoftCriticalCutawayBlueprint(bp, orderMap.get(bp.panelId) ?? 0),
   ).length;
+
+  const genericPurposePanels = blueprints.filter((bp) => {
+    const p = bp.purpose.toLowerCase();
+    return p.includes("character advances the scene") || p.includes("visible action or emotion");
+  });
+  if (genericPurposePanels.length > 0) {
+    throw new Error(
+      `rebalance_produced_generic_purposes: ${genericPurposePanels.length} panels have generic actions (first: ${genericPurposePanels[0]?.panelId})`,
+    );
+  }
 
   return {
     blueprints,

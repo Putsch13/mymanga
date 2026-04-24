@@ -608,23 +608,165 @@ export async function buildPremiumChapterContractAsync(
     };
   }));
 
-  // Réutiliser la logique de construction du contrat depuis les beats enrichis
-  // en appelant buildPremiumChapterContract avec les données déjà calculées
-  // (on reconstruit le contrat depuis les beats enrichis)
-  const syncResult = buildPremiumChapterContract(input);
+  // P0 — IMPORTANT: Reconstruire les blueprints avec les facts LLM, pas avec les facts sync.
+  // Avant cette correction, l'async appelait buildPremiumChapterContract(input) qui recalculait
+  // tout depuis zéro avec les heuristiques, puis on remplaçait seulement les narrativeFacts
+  // dans le productionOutline. Résultat: les panelBlueprints n'utilisaient pas les LLM facts.
 
-  // Remplacer les narrativeFacts et requiredProps par les versions LLM-enrichies
-  const llmEnrichedBeats = syncResult.productionOutline.beats.map((beat, i) => ({
-    ...beat,
-    narrativeFacts: enrichedBeats[i]?.narrativeFacts ?? beat.narrativeFacts,
-    requiredProps: enrichedBeats[i]?.requiredProps ?? beat.requiredProps,
-  }));
+  const minPanels = PREMIUM_PANEL_RANGE.min;
+  const maxPanels = PREMIUM_PANEL_RANGE.max;
+
+  // Reconstruire les ProductionBeats enrichis avec les blueprints LLM
+  const enrichedBeatsWithLLMBlueprints = enrichedBeats.map((beat, index) => {
+    const originalBeat = approvedOutline.beats[index];
+    const productionBeat: ProductionBeat = {
+      beatId: beat.beatId,
+      summary: originalBeat?.summary ?? "",
+      narrativeFunction: originalBeat?.pageRole ?? "escalation",
+      whyThisBeatExists: originalBeat?.summary ?? "",
+      dramaticChange: originalBeat?.turn ?? "",
+      involvedCharacters: beat.involvedCharacters,
+      activeCanonConstraints: [],
+      environmentContext: originalBeat?.location ? [originalBeat.location] : [],
+      visualPriority: "high" as const,
+      estimatedPanels: beat.blueprints.length > 0 ? beat.blueprints.length : 4,
+      criticality: (
+        originalBeat?.pageRole === "cliffhanger" || originalBeat?.pageRole === "revelation"
+          ? "critical" : "medium"
+      ) as "critical" | "medium",
+      continuityDependencies: [],
+      infoGained: null,
+      emotionProduced: null,
+      indispensabilityScore: 72,
+      redundancyRisk: 18,
+    };
+
+    return {
+      ...productionBeat,
+      narrativeFacts: beat.narrativeFacts,
+      requiredProps: beat.requiredProps,
+      _blueprints: beat.blueprints,
+    };
+  });
+
+  // Densification avec les blueprints LLM
+  const densified = densifyBlueprintsToPremiumRange({
+    beats: enrichedBeatsWithLLMBlueprints.map((b) => ({ beatId: b.beatId, _blueprints: b._blueprints })),
+    minPanels,
+    maxPanels,
+  });
+  const allBlueprints = densified.allBlueprints;
+  const enrichedBeatsWithDensity = enrichedBeatsWithLLMBlueprints.map((b) => {
+    const nextBlueprints = densified.beats.find((x) => x.beatId === b.beatId)?._blueprints ?? b._blueprints;
+    return {
+      ...b,
+      _blueprints: nextBlueprints,
+      estimatedPanels: nextBlueprints.length > 0 ? nextBlueprints.length : b.estimatedPanels,
+    };
+  });
+
+  const minimumPanels = typeof input.minimumPanels === "number" && input.minimumPanels > 0
+    ? input.minimumPanels
+    : minPanels;
+  const panelCountStatus = classifyPremiumPanelCount(allBlueprints.length);
+  console.log(
+    `[premium-contract-async] native_panel_count=${allBlueprints.length} status=${panelCountStatus} required_range=${minPanels}-${maxPanels} minimumPanels=${minimumPanels}`,
+  );
+  const focusBudget = computeChapterFocusBudget(allBlueprints);
+  const premiumReadinessScore = computePremiumReadinessScore(allBlueprints);
+
+  const productionOutline = {
+    source: "premium_rebuilt" as const,
+    chapterGoal: approvedOutline.summary,
+    cliffhanger: approvedOutline.cliffhanger,
+    beats: enrichedBeatsWithDensity.map(({ _blueprints: _b, ...beat }) => beat),
+  };
+
+  const objectStateTimeline = buildObjectStateTimeline(
+    enrichedBeatsWithDensity.map((b) => ({
+      beatId: b.beatId,
+      narrativeFacts: b.narrativeFacts,
+      requiredProps: b.requiredProps,
+      involvedCharacters: b.involvedCharacters,
+    })),
+  );
+
+  const dialogueAnchorCoverage = {
+    anchored: allBlueprints.filter(
+      (bp) => bp.dialogueCarrier === "speaker_visible" && bp.speakerAnchorCharacterId,
+    ).length,
+    floating: allBlueprints.filter(
+      (bp) => bp.dialogueCarrier === "speaker_visible" && !bp.speakerAnchorCharacterId,
+    ).length,
+  };
+
+  const propCoverage = {
+    covered: allBlueprints.flatMap((bp) => bp.requiredProps.map((p) => p.canonicalName)),
+    missing: focusBudget.violations
+      .filter((v) => v.type === "missing_prop_insert")
+      .map((v) => v.message),
+  };
+
+  const enemyPanelCount = allBlueprints.filter(
+    (bp) => bp.subjectFocus === "enemy" || bp.mustShowEnemy,
+  ).length;
+
+  const enemyCoverage = {
+    panelCount: enemyPanelCount,
+    beatsCovered: enrichedBeatsWithLLMBlueprints
+      .filter((b) => b.narrativeFacts.some((f) => f.type === "enemy_presence"))
+      .map((b) => b.beatId),
+  };
+
+  const npcCoverage = {
+    panelCount: focusBudget.npcPanels,
+    avgNpcCount:
+      allBlueprints.length > 0
+        ? allBlueprints.reduce((sum, bp) => sum + bp.requiredNpcCount, 0) / allBlueprints.length
+        : 0,
+  };
+
+  const cutawayCoverage = {
+    count: focusBudget.cutawayCount,
+    ratio: focusBudget.cutawayRatio,
+  };
+
+  const productionPlan = {
+    ...buildProductionPlanFromOutline(productionOutline),
+    panelBlueprints: allBlueprints,
+    focusDistribution: focusBudget.focusDistribution,
+    shotDistribution: focusBudget.shotDistribution,
+    propCoverage,
+    enemyCoverage,
+    npcCoverage,
+    cutawayCoverage,
+    dialogueAnchorCoverage,
+    heroCenterRatio: focusBudget.heroCenterRatio,
+    premiumReadinessScore,
+    objectStateTimeline,
+  };
+
+  const premiumMeta: PremiumMeta = {
+    premiumReadinessScore,
+    heroCenterRatio: focusBudget.heroCenterRatio,
+    cutawayCount: focusBudget.cutawayCount,
+    cutawayRatio: focusBudget.cutawayRatio,
+    enemyFocusPanels: focusBudget.enemyFocusPanels,
+    npcPanels: focusBudget.npcPanels,
+    propCoverage,
+    enemyCoverage,
+    npcCoverage,
+    cutawayCoverage,
+    dialogueAnchorCoverage,
+    focusDistribution: focusBudget.focusDistribution,
+    shotDistribution: focusBudget.shotDistribution,
+  };
 
   return {
-    ...syncResult,
-    productionOutline: {
-      ...syncResult.productionOutline,
-      beats: llmEnrichedBeats,
-    },
+    productionOutline,
+    productionPlan,
+    panelBlueprints: allBlueprints,
+    objectStateTimeline,
+    premiumMeta,
   };
 }

@@ -60,6 +60,12 @@ describe("resolveFalRenderRoute", () => {
         visibleCharacters: [
           { characterId: "c1", name: "Hero", role: "hero", poseIntent: null, expressionIntent: null },
         ],
+        imageReferences: {
+          characterRefs: [{ characterId: "c1", urls: ["https://example.com/hero.png"] }],
+          environmentRefs: [],
+          panelRefs: [],
+          styleRefs: [],
+        },
       }),
     );
     expect(r.referencePolicy).toBe("STRONG");
@@ -85,12 +91,18 @@ describe("resolveFalRenderRoute", () => {
     expect(r.panelCategory.includes("HERO")).toBe(false);
   });
 
-  it("combat_exchange → route combat, STRONG si hero présent", () => {
+  it("combat_exchange → route combat, STRONG si hero présent et refs fournies", () => {
     const r = resolveFalRenderRoute(
       makeSpec("combat_exchange", {
         visibleCharacters: [
           { characterId: "c1", name: "Hero", role: "hero", poseIntent: null, expressionIntent: null },
         ],
+        imageReferences: {
+          characterRefs: [{ characterId: "c1", urls: ["https://example.com/hero.png"] }],
+          environmentRefs: [],
+          panelRefs: [],
+          styleRefs: [],
+        },
       }),
     );
     expect(r.modelId).toBe(FAL_RENDER_ROUTE_MODEL_IDS.combatFocused);
@@ -98,7 +110,14 @@ describe("resolveFalRenderRoute", () => {
   });
 
   it("route déterministe : même spec → même route", () => {
-    const spec = makeSpec("dialogue_two_shot");
+    const spec = makeSpec("dialogue_two_shot", {
+      imageReferences: {
+        characterRefs: [{ characterId: "c1", urls: ["https://example.com/char.png"] }],
+        environmentRefs: [],
+        panelRefs: [],
+        styleRefs: [],
+      },
+    });
     const a = resolveFalRenderRoute(spec);
     const b = resolveFalRenderRoute(spec);
     expect(a).toEqual(b);

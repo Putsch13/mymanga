@@ -10,7 +10,9 @@
 
 import {
   PAGE_LAYOUT_CONFIGS as SHARED_PAGE_LAYOUT_CONFIGS,
+  computePanelPixelPositions as sharedComputePanelPixelPositions,
   type PageLayoutTemplate as SharedPageLayoutTemplate,
+  type PanelPixelPosition,
 } from "@manga-ai-studio/core";
 
 export type PageLayoutTemplate = SharedPageLayoutTemplate;
@@ -64,6 +66,8 @@ export interface ChapterPositionHints {
 // Ré-export depuis `@manga-ai-studio/core` (source of truth partagée client/serveur).
 
 export const PAGE_LAYOUT_CONFIGS = SHARED_PAGE_LAYOUT_CONFIGS;
+export const computePanelPixelPositions = sharedComputePanelPixelPositions;
+export type { PanelPixelPosition };
 
 // ─── Résolution principale ─────────────────────────────────────────────────────
 

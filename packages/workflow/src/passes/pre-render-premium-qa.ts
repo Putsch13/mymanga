@@ -11,6 +11,8 @@ export interface PreRenderPremiumQaInput {
   chapterSummary: string | null;
   chapterUserIntent: string | null;
   chapterLocationName?: string | null;
+  /** Noms des personnages principaux (héros, focus characters) pour détecter s'ils sont marqués NPC par erreur. */
+  mainCharacterNames: string[];
 }
 
 export interface PreRenderPremiumQaResult {
@@ -123,8 +125,7 @@ export function runPreRenderPremiumQa(input: PreRenderPremiumQaInput): PreRender
     issues.push(`generic_action_lines=${genericActionCount}`);
   }
 
-  const mainCharacters = ["Miya"];
-  const npcMainCharacterPanels = panels.filter((p) => isMainCharacterMarkedAsNpc(p, mainCharacters));
+  const npcMainCharacterPanels = panels.filter((p) => isMainCharacterMarkedAsNpc(p, input.mainCharacterNames));
   const npcMainCharacterCount = npcMainCharacterPanels.length;
 
   if (npcMainCharacterCount > 0) {
