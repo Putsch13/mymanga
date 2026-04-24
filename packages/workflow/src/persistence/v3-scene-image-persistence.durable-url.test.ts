@@ -11,11 +11,12 @@ const mocks = vi.hoisted(() => ({
   prismaSceneImageFindUnique: vi.fn(),
   prismaSceneImageUpsert: vi.fn(),
   prismaSceneImageUpdate: vi.fn(),
+  prismaMediaAssetCreate: vi.fn(),
   persistImageIfNeeded: vi.fn(),
 }));
 
-vi.mock("@manga-ai-studio/db", () => ({
-  prisma: {
+vi.mock("@manga-ai-studio/db", () => {
+  const txClient = {
     chapter: {
       findUnique: mocks.prismaChapterFindUnique,
     },
@@ -28,8 +29,17 @@ vi.mock("@manga-ai-studio/db", () => ({
       upsert: mocks.prismaSceneImageUpsert,
       update: mocks.prismaSceneImageUpdate,
     },
-  },
-}));
+    mediaAsset: {
+      create: mocks.prismaMediaAssetCreate,
+    },
+  };
+  return {
+    prisma: {
+      ...txClient,
+      $transaction: vi.fn((callback: (tx: typeof txClient) => Promise<unknown>) => callback(txClient)),
+    },
+  };
+});
 
 vi.mock("../pipeline-image-persistence", () => ({
   persistImageIfNeeded: mocks.persistImageIfNeeded,
@@ -125,6 +135,7 @@ describe("v3-scene-image-persistence.durable-url (P0.3)", () => {
     mocks.prismaChapterSceneCreate.mockResolvedValue({ id: "scene-1" });
     mocks.prismaSceneImageFindUnique.mockResolvedValue(null);
     mocks.prismaSceneImageUpsert.mockResolvedValue({ id: "img-1" });
+    mocks.prismaMediaAssetCreate.mockResolvedValue({ id: "asset-1" });
   });
 
   it("copie l'image FAL vers Supabase et stocke l'URL durable", async () => {
@@ -185,11 +196,9 @@ describe("v3-scene-image-persistence.durable-url (P0.3)", () => {
       expect.stringContaining("storage_failed"),
     );
 
-    // Vérifie que l'upsert utilise null, pas l'URL FAL
-    const upsertCall = mocks.prismaSceneImageUpsert.mock.calls[0]![0] as {
-      create: { imageUrl: string | null };
-    };
-    expect(upsertCall.create.imageUrl).toBeNull();
+    // Avec P1.8, les panels en échec de storage sont skippés entièrement
+    // L'upsert ne doit PAS être appelé (pas de persistance partielle)
+    expect(mocks.prismaSceneImageUpsert).not.toHaveBeenCalled();
   });
 
   it("accepte directement une URL déjà stable (Supabase)", async () => {

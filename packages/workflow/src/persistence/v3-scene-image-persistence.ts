@@ -16,6 +16,11 @@
  *     d'une image validée par l'utilisateur
  *   - on stocke le prompt + négatif + providers + route FAL pour traçabilité
  *   - status : "completed" si imageUrl présent, "failed" sinon
+ *
+ * P1.8 — Transactions Prisma par page
+ *   Pour éviter les chapitres partiellement écrits, toutes les opérations DB
+ *   pour une page (ChapterScene + SceneImage + MediaAsset) sont dans une transaction.
+ *   Les uploads Supabase (externes) restent en dehors de la transaction.
  */
 
 import { prisma, type Prisma } from "@manga-ai-studio/db";
@@ -27,6 +32,8 @@ import type {
   FalRenderRoute,
   PanelRenderSpec,
   StoryboardPlan,
+  StoryboardPageV3 as StoryboardPage,
+  StoryboardPanelV3 as StoryboardPanel,
 } from "@manga-ai-studio/ai";
 import { persistImageIfNeeded, type PersistedImageResult } from "../pipeline-image-persistence";
 
@@ -59,11 +66,378 @@ export interface V3SceneImagePersistResult {
   warnings: string[];
 }
 
+interface PreparedPanelData {
+  panel: StoryboardPanel;
+  record: V3RenderedPanelRecord;
+  panelNumber: number;
+  durableImageUrl: string | null;
+  storageMeta: { bucket: string | null; storageKey: string | null; mimeType: string | null };
+  status: "completed" | "failed" | "pending";
+  metadata: Prisma.InputJsonValue;
+  routingDecision: Prisma.InputJsonValue;
+  externalPanelId: string;
+  panelBlueprintId: string | null;
+  skipped: boolean;
+  skipReason?: string;
+}
+
+/**
+ * Phase 1: Prépare les données pour un panel (uploads externes).
+ * Cette phase fait les appels à Supabase et calcule les metadata.
+ */
+async function preparePanelData(
+  panel: StoryboardPanel,
+  record: V3RenderedPanelRecord,
+  page: StoryboardPage,
+  projectId: string,
+  chapterId: string,
+): Promise<{
+  prepared: PreparedPanelData;
+  imagePersisted: boolean;
+  imageAlreadyStable: boolean;
+  storageFailed: boolean;
+}> {
+  const panelNumber = panel.panelNumberInPage;
+  const providerImageUrl = record.imageUrl ?? null;
+
+  let durableImageUrl: string | null = null;
+  let storageMeta: { bucket: string | null; storageKey: string | null; mimeType: string | null } = {
+    bucket: null,
+    storageKey: null,
+    mimeType: null,
+  };
+  let imagePersisted = false;
+  let imageAlreadyStable = false;
+  let storageFailed = false;
+
+  if (providerImageUrl) {
+    const persistResult: PersistedImageResult = await persistImageIfNeeded({
+      imageUrl: providerImageUrl,
+      projectId,
+      chapterId,
+      sceneImageId: panel.panelId,
+      logContext: `v3-persist:${panel.panelId}`,
+    });
+
+    if (persistResult.ok && persistResult.persisted) {
+      durableImageUrl = persistResult.url;
+      storageMeta = {
+        bucket: persistResult.bucket,
+        storageKey: persistResult.storageKey,
+        mimeType: persistResult.mimeType,
+      };
+      imagePersisted = true;
+    } else if (persistResult.ok && !persistResult.persisted) {
+      durableImageUrl = persistResult.url;
+      imageAlreadyStable = true;
+    } else {
+      storageFailed = true;
+    }
+  }
+
+  const hasImage = !!durableImageUrl;
+  const pageSlots = buildReaderPanelSlots({
+    template: page.layoutTemplate,
+    readingDirection: "rtl",
+    panelIds: page.panels.map((pagePanel) => pagePanel.panelId),
+  });
+  const panelSlot = pageSlots.find((slot) => slot.panelId === panel.panelId) ?? null;
+  const status = record.error
+    ? "failed"
+    : hasImage
+      ? "completed"
+      : "pending";
+
+  const generationDebugSnapshot: GenerationDebugSnapshot = {
+    version: "v2",
+    panelId: panel.panelId,
+    pageNumber: page.pageNumber,
+    panelNumberInPage: panel.panelNumberInPage,
+    readerLayout: {
+      templateId: panel.readerTemplateId ?? `${page.layoutTemplate}_rtl`,
+      readingDirection: "rtl",
+      panelSlotArea: panelSlot?.area ?? null,
+      panelSlotOrder: panelSlot?.order ?? null,
+    },
+    roster: [
+      ...panel.characters.map((characterId) => ({
+        entityId: characterId,
+        entityType: "character" as const,
+        displayName:
+          record.spec.visibleCharacters.find((character) => character.characterId === characterId)?.name
+          ?? characterId,
+        presence: "must_show" as const,
+        continuityNotes: panel.continuityNotes,
+      })),
+      ...(panel.npcs ?? []).map((npc) => ({
+        entityId: npc.continuityId ?? npc.displayName ?? "npc",
+        entityType: npc.category === "antagonist_enemy" ? ("enemy" as const) : ("npc" as const),
+        displayName: npc.displayName ?? npc.continuityId ?? null,
+        presence: "support" as const,
+        continuityNotes: panel.continuityNotes,
+      })),
+    ],
+    characterVisualDna: panel.characterVisualDna ?? [],
+    npcVisualDna: panel.npcVisualDna ?? [],
+    environmentVisualDna:
+      panel.environmentVisualDna
+      ?? {
+        locationName: record.spec.locationName,
+        anchorId: panel.visualAnchors.environmentAnchorId ?? null,
+        forbiddenDrift: record.spec.constraints.forbiddenDrift ?? [],
+      },
+    continuity: panel.continuityState ?? {
+      previousPanelId: panel.visualAnchors.previousPanelAnchorId ?? null,
+      previousEnvironmentAnchorId: panel.visualAnchors.environmentAnchorId ?? null,
+      notes: panel.continuityNotes,
+      mustPersist: panel.mustShow,
+      mustAvoid: panel.mustNotShow,
+    },
+    text: {
+      dialogues: panel.dialogue,
+      narration: panel.narration ?? null,
+      sfx: panel.sfx ?? [],
+      reservedZones: [],
+      preferredAnchorZones: panel.textPlacementHint?.preferredAnchorZones ?? [],
+      overflowStrategy: panel.textPlacementHint?.overflowStrategy ?? "caption_strip",
+    },
+    prompt: {
+      positive: record.prompt.positive,
+      negative: record.prompt.negative,
+      provider: record.provider ?? null,
+      model: record.model ?? null,
+      routeModelId: record.route.modelId,
+      referencePolicy: record.route.referencePolicy,
+      seed: record.seed ?? null,
+    },
+    result: {
+      status: status as "completed" | "failed" | "pending",
+      imageUrl: durableImageUrl,
+      providerImageUrl,
+      storageBucket: storageMeta.bucket,
+      storageKey: storageMeta.storageKey,
+      error: record.error ?? null,
+    },
+  };
+
+  const metadata = {
+    v3: true,
+    panelId: panel.panelId,
+    globalPanelIndex: panel.globalPanelIndex,
+    panelPurpose: record.spec.panelPurpose,
+    renderMode: record.spec.renderMode,
+    shotType: record.spec.shotType,
+    cameraAngle: record.spec.cameraAngle,
+    subjectFocus: record.spec.subjectFocus,
+    sourceBeatId: panel.sourceBeatId,
+    locationName: record.spec.locationName,
+    actionLine: record.spec.actionLine,
+    emotionLine: record.spec.emotionLine,
+    dialogue: panel.dialogue,
+    narration: panel.narration ?? null,
+    sfx: panel.sfx ?? [],
+    textMeta: panel.textPlacementHint
+      ? {
+          preferredAnchorZones: panel.textPlacementHint.preferredAnchorZones ?? [],
+          overflowStrategy: panel.textPlacementHint.overflowStrategy ?? "caption_strip",
+          overlayReadingDirection: "rtl",
+        }
+      : null,
+    readerLayout: generationDebugSnapshot.readerLayout,
+    generationDebugSnapshot,
+  } as unknown as Prisma.InputJsonValue;
+
+  const routingDecision = {
+    modelId: record.route.modelId,
+    referencePolicy: record.route.referencePolicy,
+    panelCategory: record.route.panelCategory,
+    sizePreset: record.route.sizePreset,
+    retryPolicy: record.route.retryPolicy,
+  } as unknown as Prisma.InputJsonValue;
+
+  const externalPanelId = panel.panelId;
+  const panelBlueprintId = (panel as unknown as { blueprintId?: string }).blueprintId ?? null;
+
+  return {
+    prepared: {
+      panel,
+      record,
+      panelNumber,
+      durableImageUrl,
+      storageMeta,
+      status,
+      metadata,
+      routingDecision,
+      externalPanelId,
+      panelBlueprintId,
+      skipped: false,
+    },
+    imagePersisted,
+    imageAlreadyStable,
+    storageFailed,
+  };
+}
+
+/**
+ * Phase 2: Persiste les données d'une page en transaction.
+ * Cette phase fait toutes les opérations DB en une seule transaction.
+ */
+async function persistPageInTransaction(
+  tx: Prisma.TransactionClient,
+  page: StoryboardPage,
+  chapterId: string,
+  projectId: string,
+  preparedPanels: PreparedPanelData[],
+): Promise<{
+  sceneCreated: boolean;
+  sceneId: string;
+  imagesUpserted: number;
+  imagesSkipped: number;
+  warnings: string[];
+}> {
+  const sceneNumber = page.pageNumber;
+  const warnings: string[] = [];
+  let imagesUpserted = 0;
+  let imagesSkipped = 0;
+
+  // 1. Upsert ChapterScene
+  const existingScene = await tx.chapterScene.findFirst({
+    where: { chapterId, sceneNumber },
+    select: { id: true },
+  });
+
+  let sceneId: string;
+  let sceneCreated = false;
+
+  if (existingScene) {
+    sceneId = existingScene.id;
+  } else {
+    const createdScene = await tx.chapterScene.create({
+      data: {
+        chapterId,
+        sceneNumber,
+        title: `Page ${sceneNumber}`,
+        summary: page.dramaticRole ?? null,
+        metadata: {
+          v3: true,
+          layoutTemplate: page.layoutTemplate,
+          dramaticRole: page.dramaticRole,
+          beatIds: page.beatIds,
+        } as unknown as Prisma.InputJsonValue,
+        pageLayoutTemplate: page.layoutTemplate,
+      },
+      select: { id: true },
+    });
+    sceneId = createdScene.id;
+    sceneCreated = true;
+  }
+
+  // 2. Pour chaque panel préparé
+  for (const prepared of preparedPanels) {
+    if (prepared.skipped) {
+      imagesSkipped += 1;
+      if (prepared.skipReason) warnings.push(prepared.skipReason);
+      continue;
+    }
+
+    const { panel, record, panelNumber, durableImageUrl, storageMeta, status, metadata, routingDecision, externalPanelId, panelBlueprintId } = prepared;
+
+    // P1.7 — Créer un MediaAsset pour chaque image persistée
+    let mediaAssetId: string | null = null;
+    if (durableImageUrl && storageMeta.bucket && storageMeta.storageKey) {
+      const mediaAsset = await tx.mediaAsset.create({
+        data: {
+          projectId,
+          chapterId,
+          sceneId,
+          type: "panel_output",
+          origin: "fal_output",
+          storageProvider: "supabase",
+          bucket: storageMeta.bucket,
+          storageKey: storageMeta.storageKey,
+          publicUrl: durableImageUrl,
+          mimeType: storageMeta.mimeType,
+          metadata: {
+            panelId: panel.panelId,
+            pageNumber: page.pageNumber,
+            panelNumberInPage: panel.panelNumberInPage,
+            renderMode: record.spec.renderMode,
+            provider: record.provider,
+            model: record.model,
+          } as unknown as Prisma.InputJsonValue,
+        },
+        select: { id: true },
+      });
+      mediaAssetId = mediaAsset.id;
+    }
+
+    const data = {
+      renderingMode: "PANEL_DRAFT" as const,
+      prompt: record.prompt.positive,
+      negativePrompt: record.prompt.negative,
+      provider: record.provider ?? null,
+      model: record.model ?? null,
+      status,
+      imageUrl: durableImageUrl,
+      persistedUrl: durableImageUrl,
+      routingDecision,
+      metadata,
+      failureReason: record.error ?? null,
+      externalPanelId,
+      panelBlueprintId,
+      mediaAssetId,
+    };
+
+    // Vérifier l'image existante
+    const existingImage = await tx.sceneImage.findUnique({
+      where: {
+        sceneId_panelNumber: { sceneId, panelNumber },
+      },
+      select: { id: true, userValidatedAt: true, externalPanelId: true },
+    });
+
+    // P1.6 — Si le panel a changé d'identité narrative et qu'il est validé,
+    // ne pas réutiliser cette ligne pour un autre panel
+    const panelIdentityChanged = existingImage?.externalPanelId &&
+      existingImage.externalPanelId !== externalPanelId;
+
+    if (existingImage?.userValidatedAt && panelIdentityChanged) {
+      warnings.push(
+        `skipped_validated_panel_identity_mismatch panelId=${panel.panelId} ` +
+        `slot=${panelNumber} existing=${existingImage.externalPanelId}`,
+      );
+      imagesSkipped += 1;
+      continue;
+    }
+
+    if (existingImage?.userValidatedAt && !panelIdentityChanged) {
+      await tx.sceneImage.update({
+        where: { id: existingImage.id },
+        data: { metadata, routingDecision, externalPanelId, panelBlueprintId },
+      });
+    } else {
+      await tx.sceneImage.upsert({
+        where: {
+          sceneId_panelNumber: { sceneId, panelNumber },
+        },
+        create: { sceneId, panelNumber, ...data },
+        update: data,
+      });
+    }
+    imagesUpserted += 1;
+  }
+
+  return { sceneCreated, sceneId, imagesUpserted, imagesSkipped, warnings };
+}
+
 /**
  * Persiste les panels rendus par le render-pass v3 en DB.
  *
  * Idempotent : si une scène / image existe déjà pour ce (chapterId,
  * sceneNumber, panelNumber), on la met à jour. On ne recrée pas.
+ *
+ * P1.8 — Utilise des transactions par page pour éviter les chapitres
+ * partiellement écrits en cas d'erreur.
  */
 export async function persistV3RenderedPanels(
   input: V3SceneImagePersistInput,
@@ -90,268 +464,61 @@ export async function persistV3RenderedPanels(
   }
 
   for (const page of storyboardPlan.pages) {
-    const sceneNumber = page.pageNumber;
-    const existingScene = await prisma.chapterScene.findFirst({
-      where: { chapterId, sceneNumber },
-      select: { id: true },
-    });
-    let sceneId: string;
-    if (existingScene) {
-      sceneId = existingScene.id;
-      scenesReused += 1;
-    } else {
-      const createdScene = await prisma.chapterScene.create({
-        data: {
-          chapterId,
-          sceneNumber,
-          title: `Page ${sceneNumber}`,
-          summary: page.dramaticRole ?? null,
-          metadata: {
-            v3: true,
-            layoutTemplate: page.layoutTemplate,
-            dramaticRole: page.dramaticRole,
-            beatIds: page.beatIds,
-          } as unknown as Prisma.InputJsonValue,
-          pageLayoutTemplate: page.layoutTemplate,
-        },
-        select: { id: true },
-      });
-      sceneId = createdScene.id;
-      scenesCreated += 1;
-    }
+    // Phase 1: Préparer toutes les données (uploads externes)
+    const preparedPanels: PreparedPanelData[] = [];
 
     for (const panel of page.panels) {
       const record = renderedByPanelId.get(panel.panelId);
       if (!record) {
-        imagesSkipped += 1;
-        warnings.push(
-          `panel_not_rendered panelId=${panel.panelId} page=${page.pageNumber}`,
-        );
+        preparedPanels.push({
+          panel,
+          record: null as unknown as V3RenderedPanelRecord,
+          panelNumber: panel.panelNumberInPage,
+          durableImageUrl: null,
+          storageMeta: { bucket: null, storageKey: null, mimeType: null },
+          status: "pending",
+          metadata: {} as Prisma.InputJsonValue,
+          routingDecision: {} as Prisma.InputJsonValue,
+          externalPanelId: panel.panelId,
+          panelBlueprintId: null,
+          skipped: true,
+          skipReason: `panel_not_rendered panelId=${panel.panelId} page=${page.pageNumber}`,
+        });
         continue;
       }
 
-      const panelNumber = panel.panelNumberInPage;
-      const providerImageUrl = record.imageUrl ?? null;
+      const { prepared, imagePersisted, imageAlreadyStable, storageFailed } = await preparePanelData(
+        panel,
+        record,
+        page,
+        projectId,
+        chapterId,
+      );
 
-      // P0.3 — Ne jamais persister d'URL provider temporaire
-      // On copie vers Supabase avant de stocker en DB
-      let durableImageUrl: string | null = null;
-      let storageMeta: { bucket: string | null; storageKey: string | null; mimeType: string | null } = {
-        bucket: null,
-        storageKey: null,
-        mimeType: null,
-      };
-
-      if (providerImageUrl) {
-        const persistResult: PersistedImageResult = await persistImageIfNeeded({
-          imageUrl: providerImageUrl,
-          projectId,
-          chapterId,
-          sceneImageId: panel.panelId,
-          logContext: `v3-persist:${panel.panelId}`,
-        });
-
-        if (persistResult.ok && persistResult.persisted) {
-          durableImageUrl = persistResult.url;
-          storageMeta = {
-            bucket: persistResult.bucket,
-            storageKey: persistResult.storageKey,
-            mimeType: persistResult.mimeType,
-          };
-          imagesPersisted += 1;
-        } else if (persistResult.ok && !persistResult.persisted) {
-          // URL déjà stable (Supabase), pas besoin de copier
-          durableImageUrl = persistResult.url;
-          imagesAlreadyStable += 1;
-        } else {
-          // Échec de persistance — on refuse de stocker l'URL provider
-          warnings.push(
-            `storage_failed panelId=${panel.panelId} reason=${persistResult.reason} — URL provider NON persistée`,
-          );
-          imagesStorageFailed += 1;
-        }
+      if (imagePersisted) imagesPersisted += 1;
+      if (imageAlreadyStable) imagesAlreadyStable += 1;
+      if (storageFailed) {
+        imagesStorageFailed += 1;
+        prepared.skipped = true;
+        prepared.skipReason = `storage_failed panelId=${panel.panelId} — URL provider NON persistée`;
       }
 
-      const hasImage = !!durableImageUrl;
-      const pageSlots = buildReaderPanelSlots({
-        template: page.layoutTemplate,
-        readingDirection: "rtl",
-        panelIds: page.panels.map((pagePanel) => pagePanel.panelId),
-      });
-      const panelSlot = pageSlots.find((slot) => slot.panelId === panel.panelId) ?? null;
-      const status = record.error
-        ? "failed"
-        : hasImage
-          ? "completed"
-          : "pending";
-
-      const generationDebugSnapshot: GenerationDebugSnapshot = {
-        version: "v2",
-        panelId: panel.panelId,
-        pageNumber: page.pageNumber,
-        panelNumberInPage: panel.panelNumberInPage,
-        readerLayout: {
-          templateId: panel.readerTemplateId ?? `${page.layoutTemplate}_rtl`,
-          readingDirection: "rtl",
-          panelSlotArea: panelSlot?.area ?? null,
-          panelSlotOrder: panelSlot?.order ?? null,
-        },
-        roster: [
-          ...panel.characters.map((characterId) => ({
-            entityId: characterId,
-            entityType: "character" as const,
-            displayName:
-              record.spec.visibleCharacters.find((character) => character.characterId === characterId)?.name
-              ?? characterId,
-            presence: "must_show" as const,
-            continuityNotes: panel.continuityNotes,
-          })),
-          ...(panel.npcs ?? []).map((npc) => ({
-            entityId: npc.continuityId ?? npc.displayName ?? "npc",
-            entityType: npc.category === "antagonist_enemy" ? ("enemy" as const) : ("npc" as const),
-            displayName: npc.displayName ?? npc.continuityId ?? null,
-            presence: "support" as const,
-            continuityNotes: panel.continuityNotes,
-          })),
-        ],
-        characterVisualDna: panel.characterVisualDna ?? [],
-        npcVisualDna: panel.npcVisualDna ?? [],
-        environmentVisualDna:
-          panel.environmentVisualDna
-          ?? {
-            locationName: record.spec.locationName,
-            anchorId: panel.visualAnchors.environmentAnchorId ?? null,
-            forbiddenDrift: record.spec.constraints.forbiddenDrift ?? [],
-          },
-        continuity: panel.continuityState ?? {
-          previousPanelId: panel.visualAnchors.previousPanelAnchorId ?? null,
-          previousEnvironmentAnchorId: panel.visualAnchors.environmentAnchorId ?? null,
-          notes: panel.continuityNotes,
-          mustPersist: panel.mustShow,
-          mustAvoid: panel.mustNotShow,
-        },
-        text: {
-          dialogues: panel.dialogue,
-          narration: panel.narration ?? null,
-          sfx: panel.sfx ?? [],
-          reservedZones: [],
-          preferredAnchorZones: panel.textPlacementHint?.preferredAnchorZones ?? [],
-          overflowStrategy: panel.textPlacementHint?.overflowStrategy ?? "caption_strip",
-        },
-        prompt: {
-          positive: record.prompt.positive,
-          negative: record.prompt.negative,
-          provider: record.provider ?? null,
-          model: record.model ?? null,
-          routeModelId: record.route.modelId,
-          referencePolicy: record.route.referencePolicy,
-          seed: record.seed ?? null,
-        },
-        result: {
-          status: status as "completed" | "failed" | "pending",
-          imageUrl: durableImageUrl,
-          providerImageUrl,
-          storageBucket: storageMeta.bucket,
-          storageKey: storageMeta.storageKey,
-          error: record.error ?? null,
-        },
-      };
-
-      const metadata = {
-        v3: true,
-        panelId: panel.panelId,
-        globalPanelIndex: panel.globalPanelIndex,
-        panelPurpose: record.spec.panelPurpose,
-        renderMode: record.spec.renderMode,
-        shotType: record.spec.shotType,
-        cameraAngle: record.spec.cameraAngle,
-        subjectFocus: record.spec.subjectFocus,
-        sourceBeatId: panel.sourceBeatId,
-        locationName: record.spec.locationName,
-        actionLine: record.spec.actionLine,
-        emotionLine: record.spec.emotionLine,
-        dialogue: panel.dialogue,
-        narration: panel.narration ?? null,
-        sfx: panel.sfx ?? [],
-        textMeta: panel.textPlacementHint
-          ? {
-              preferredAnchorZones: panel.textPlacementHint.preferredAnchorZones ?? [],
-              overflowStrategy: panel.textPlacementHint.overflowStrategy ?? "caption_strip",
-              overlayReadingDirection: "rtl",
-            }
-          : null,
-        readerLayout: generationDebugSnapshot.readerLayout,
-        generationDebugSnapshot,
-      } as unknown as Prisma.InputJsonValue;
-
-      const routingDecision = {
-        modelId: record.route.modelId,
-        referencePolicy: record.route.referencePolicy,
-        panelCategory: record.route.panelCategory,
-        sizePreset: record.route.sizePreset,
-        retryPolicy: record.route.retryPolicy,
-      } as unknown as Prisma.InputJsonValue;
-
-      // P1.6 — Identité stable du panel pour éviter corruption
-      const externalPanelId = panel.panelId;
-      const panelBlueprintId = (panel as unknown as { blueprintId?: string }).blueprintId ?? null;
-
-      const data = {
-        renderingMode: "PANEL_DRAFT" as const,
-        prompt: record.prompt.positive,
-        negativePrompt: record.prompt.negative,
-        provider: record.provider ?? null,
-        model: record.model ?? null,
-        status,
-        imageUrl: durableImageUrl,
-        persistedUrl: durableImageUrl,
-        routingDecision,
-        metadata,
-        failureReason: record.error ?? null,
-        externalPanelId,
-        panelBlueprintId,
-      };
-
-      const existingImage = await prisma.sceneImage.findUnique({
-        where: {
-          sceneId_panelNumber: { sceneId, panelNumber },
-        },
-        select: { id: true, userValidatedAt: true, externalPanelId: true },
-      });
-
-      // P1.6 — Si le panel a changé d'identité narrative et qu'il est validé,
-      // ne pas réutiliser cette ligne pour un autre panel
-      const panelIdentityChanged = existingImage?.externalPanelId &&
-        existingImage.externalPanelId !== externalPanelId;
-
-      if (existingImage?.userValidatedAt && panelIdentityChanged) {
-        // Le panel à cette position a une identité différente et est validé
-        // → On ne touche pas à cette image, on signale un warning
-        warnings.push(
-          `skipped_validated_panel_identity_mismatch panelId=${panel.panelId} ` +
-          `slot=${panelNumber} existing=${existingImage.externalPanelId}`,
-        );
-        imagesSkipped += 1;
-        continue;
-      }
-
-      if (existingImage?.userValidatedAt && !panelIdentityChanged) {
-        // Même identité, juste mise à jour des metadata
-        await prisma.sceneImage.update({
-          where: { id: existingImage.id },
-          data: { metadata, routingDecision, externalPanelId, panelBlueprintId },
-        });
-      } else {
-        await prisma.sceneImage.upsert({
-          where: {
-            sceneId_panelNumber: { sceneId, panelNumber },
-          },
-          create: { sceneId, panelNumber, ...data },
-          update: data,
-        });
-      }
-      imagesUpserted += 1;
+      preparedPanels.push(prepared);
     }
+
+    // Phase 2: Persister en transaction
+    const result = await prisma.$transaction(async (tx) => {
+      return persistPageInTransaction(tx, page, chapterId, projectId, preparedPanels);
+    });
+
+    if (result.sceneCreated) {
+      scenesCreated += 1;
+    } else {
+      scenesReused += 1;
+    }
+    imagesUpserted += result.imagesUpserted;
+    imagesSkipped += result.imagesSkipped;
+    warnings.push(...result.warnings);
   }
 
   return {
