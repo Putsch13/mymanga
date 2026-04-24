@@ -19,6 +19,7 @@ import { runRenderPass, V3ImagePersistenceError } from "./render-pass";
 const mocks = vi.hoisted(() => ({
   saveRenderPassResult: vi.fn().mockResolvedValue(undefined),
   persistV3RenderedPanels: vi.fn(),
+  startChapterImageGenerationRun: vi.fn().mockResolvedValue({ runId: "test-run-id", deletedCount: 0 }),
 }));
 
 vi.mock("../persistence/render-persistence", () => ({
@@ -27,6 +28,10 @@ vi.mock("../persistence/render-persistence", () => ({
 
 vi.mock("../persistence/v3-scene-image-persistence", () => ({
   persistV3RenderedPanels: mocks.persistV3RenderedPanels,
+}));
+
+vi.mock("../persistence/chapter-generation-run", () => ({
+  startChapterImageGenerationRun: mocks.startChapterImageGenerationRun,
 }));
 
 function makePanel(overrides: Partial<StoryboardPanel> = {}): StoryboardPanel {
@@ -171,6 +176,38 @@ describe("render-pass.persistence-fail-hard (P0.2)", () => {
 
     expect(result.summary.failedCount).toBe(0);
     expect(mocks.persistV3RenderedPanels).toHaveBeenCalledOnce();
+    expect(mocks.startChapterImageGenerationRun).toHaveBeenCalledWith("ch-1");
+    expect(mocks.persistV3RenderedPanels).toHaveBeenCalledWith(
+      expect.objectContaining({ chapterId: "ch-1", generationRunId: "test-run-id" }),
+    );
+  });
+
+  it("n’appelle pas startChapter si generationRunId est fourni explicitement", async () => {
+    const plan = makePlan([makePanel({ panelId: "p1" })]);
+
+    mocks.persistV3RenderedPanels.mockResolvedValueOnce({
+      scenesCreated: 1,
+      scenesReused: 0,
+      imagesUpserted: 1,
+      imagesSkipped: 0,
+      warnings: [],
+    });
+
+    await runRenderPass({
+      chapterId: "ch-1",
+      storyboardPlan: plan,
+      styleBible: createDefaultChapterStyleBible(),
+      visualMemory: makeMemoryWithHero(),
+      characters: [{ id: "hero-1", name: "Hero", roleType: "main" }],
+      mainCharacterIds: ["hero-1"],
+      persistToDb: true,
+      generationRunId: "preset-run-id",
+    });
+
+    expect(mocks.startChapterImageGenerationRun).not.toHaveBeenCalled();
+    expect(mocks.persistV3RenderedPanels).toHaveBeenCalledWith(
+      expect.objectContaining({ generationRunId: "preset-run-id" }),
+    );
   });
 
   it("ne persiste pas quand persistToDb=false (tests unitaires)", async () => {

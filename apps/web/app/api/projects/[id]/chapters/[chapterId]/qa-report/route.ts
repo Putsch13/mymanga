@@ -14,6 +14,16 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+/** P1.14 — Exclure l’historique hors run courant (sauf panels déjà validés utilisateur). */
+function sceneImageIncludedInCurrentRunReport(
+  image: { generationRunId: string | null; userValidatedAt: Date | null },
+  chapter: { currentGenerationRunId: string | null },
+): boolean {
+  if (!chapter.currentGenerationRunId) return true;
+  if (image.userValidatedAt) return true;
+  return image.generationRunId === chapter.currentGenerationRunId;
+}
+
 export async function GET(_req: Request, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return unauthorized();
@@ -58,7 +68,9 @@ export async function GET(_req: Request, ctx: Ctx) {
   const minimumImages = studio.data.productionPlan?.minimumImages ?? studio.data.readinessReport?.imageCounts.minimumImages ?? PREMIUM_PANEL_RANGE.target;
 
   const panelResults = chapter.scenes.flatMap((scene) =>
-    scene.images.map((image) => {
+    scene.images
+      .filter((image) => sceneImageIncludedInCurrentRunReport(image, chapter))
+      .map((image) => {
       const meta = asRecord(image.metadata);
       const validationDetails = asRecord(meta.validationDetails);
       const qualityScores = asRecord(validationDetails.qualityScores);
@@ -82,7 +94,7 @@ export async function GET(_req: Request, ctx: Ctx) {
             panelCategory: typeof meta.panelCategory === "string" ? meta.panelCategory : null,
             pageNumber: scene.sceneNumber,
             panelNumber: image.panelNumber,
-            pagePanelCount: scene.images.length,
+            pagePanelCount: scene.images.filter((im) => sceneImageIncludedInCurrentRunReport(im, chapter)).length,
             visualPriority: typeof meta.visualPriority === "string" ? meta.visualPriority : null,
           });
       const qaWasRequired =
@@ -294,7 +306,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     contractualCritical: boolean;
   }> = [];
   for (const scene of chapter.scenes) {
-    for (const image of scene.images) {
+    for (const image of scene.images.filter((im) => sceneImageIncludedInCurrentRunReport(im, chapter))) {
       const meta = asRecord(image.metadata);
       const validationDetails = asRecord(meta.validationDetails);
       const panelContractMeta = asRecord(meta.panelContract);

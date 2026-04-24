@@ -74,6 +74,10 @@ export {
   type PersistedImageResult,
 } from "./pipeline-image-persistence";
 export {
+  deleteUnvalidatedSceneImagesForChapter,
+  startChapterImageGenerationRun,
+} from "./persistence/chapter-generation-run";
+export {
   assertStableImageUrl,
   checkStableImageUrl,
   isDataUrl,

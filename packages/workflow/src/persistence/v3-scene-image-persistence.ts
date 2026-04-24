@@ -53,6 +53,8 @@ export interface V3SceneImagePersistInput {
   chapterId: string;
   storyboardPlan: StoryboardPlan;
   rendered: V3RenderedPanelRecord[];
+  /** P1.14 — aligné sur Chapter.currentGenerationRunId pour filtrage QA / reader */
+  generationRunId?: string | null;
 }
 
 export interface V3SceneImagePersistResult {
@@ -288,6 +290,7 @@ async function persistPageInTransaction(
   chapterId: string,
   projectId: string,
   preparedPanels: PreparedPanelData[],
+  generationRunId: string | null,
 ): Promise<{
   sceneCreated: boolean;
   sceneId: string;
@@ -386,6 +389,7 @@ async function persistPageInTransaction(
       externalPanelId,
       panelBlueprintId,
       mediaAssetId,
+      generationRunId,
     };
 
     // Vérifier l'image existante
@@ -413,7 +417,13 @@ async function persistPageInTransaction(
     if (existingImage?.userValidatedAt && !panelIdentityChanged) {
       await tx.sceneImage.update({
         where: { id: existingImage.id },
-        data: { metadata, routingDecision, externalPanelId, panelBlueprintId },
+        data: {
+          metadata,
+          routingDecision,
+          externalPanelId,
+          panelBlueprintId,
+          ...(generationRunId ? { generationRunId } : {}),
+        },
       });
     } else {
       await tx.sceneImage.upsert({
@@ -443,6 +453,7 @@ export async function persistV3RenderedPanels(
   input: V3SceneImagePersistInput,
 ): Promise<V3SceneImagePersistResult> {
   const { chapterId, storyboardPlan, rendered } = input;
+  const generationRunId = input.generationRunId ?? null;
   let scenesCreated = 0;
   let scenesReused = 0;
   let imagesUpserted = 0;
@@ -508,7 +519,7 @@ export async function persistV3RenderedPanels(
 
     // Phase 2: Persister en transaction
     const result = await prisma.$transaction(async (tx) => {
-      return persistPageInTransaction(tx, page, chapterId, projectId, preparedPanels);
+      return persistPageInTransaction(tx, page, chapterId, projectId, preparedPanels, generationRunId);
     });
 
     if (result.sceneCreated) {

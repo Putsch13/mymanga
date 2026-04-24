@@ -626,6 +626,8 @@ model Chapter {
   // "lisible" (stale). Les lectures doivent être défensives : un chapitre
   // legacy peut avoir narrativeCommitId null sans être corrompu.
   narrativeCommitId String?
+  /// Dernier run de génération image premium V3 — filtre QA / reader vs historique
+  currentGenerationRunId String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -718,10 +720,13 @@ model SceneImage {
   externalPanelId    String?
   /// panelBlueprintId = ID du blueprint source si approved_plan_driven
   panelBlueprintId   String?
+  /// Run de génération V3 — aligné sur Chapter.currentGenerationRunId
+  generationRunId    String?
 
   @@unique([sceneId, panelNumber])
   @@index([externalPanelId])
   @@index([panelBlueprintId])
+  @@index([generationRunId])
 }
 
 model MediaAsset {

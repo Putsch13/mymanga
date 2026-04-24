@@ -47,6 +47,7 @@ import {
   persistV3RenderedPanels,
   type V3RenderedPanelRecord,
 } from "../persistence/v3-scene-image-persistence";
+import { startChapterImageGenerationRun } from "../persistence/chapter-generation-run";
 import { runPanelQaPass, type PanelQaPassOutput } from "./panel-qa-pass";
 import { runPageQaPass, type PageQaPassOutput } from "./page-qa-pass";
 import { enrichPanelRenderSpecForRenderPass } from "./enrich-panel-render-spec";
@@ -162,6 +163,11 @@ export interface RunRenderPassInput {
    * tourne. À laisser à `false` uniquement en tests unitaires.
    */
   persistToDb?: boolean;
+  /**
+   * P1.14 — Si absent et `persistToDb`, un nouveau run est créé (chapter + purge
+   * des SceneImage non validées). Fournir une valeur pour les tests sans DB.
+   */
+  generationRunId?: string | null;
 }
 
 export interface RunRenderPassResult {
@@ -445,11 +451,22 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
     const expectedPanelIds = rendered.map((r) => r.spec.panelId);
     let persistResult;
 
+    let generationRunId = input.generationRunId ?? null;
+    if (!generationRunId) {
+      const runStart = await startChapterImageGenerationRun(input.chapterId);
+      generationRunId = runStart.runId;
+      console.info(
+        `[render-pass:generation-run] chapterId=${input.chapterId} runId=${generationRunId} ` +
+          `deletedUnvalidated=${runStart.deletedCount}`,
+      );
+    }
+
     try {
       persistResult = await persistV3RenderedPanels({
         chapterId: input.chapterId,
         storyboardPlan: input.storyboardPlan,
         rendered: rendered as V3RenderedPanelRecord[],
+        generationRunId,
       });
       console.log(
         `[render-pass:persist] chapterId=${input.chapterId} scenesCreated=${persistResult.scenesCreated} scenesReused=${persistResult.scenesReused} imagesUpserted=${persistResult.imagesUpserted} imagesSkipped=${persistResult.imagesSkipped}`,
