@@ -133,7 +133,7 @@ export function resolveCharacters(bp: PanelBlueprintPremium): string[] {
   ]);
 }
 
-function resolveBlueprintLocationName(
+export function resolveBlueprintLocationName(
   bp: PanelBlueprintPremium,
   fallback: string | null | undefined,
 ): string {
@@ -164,7 +164,7 @@ function extractNonLocationMustShow(bp: PanelBlueprintPremium, usedAsLocation: s
   );
 }
 
-function assignBlueprintsToPages(args: {
+export function assignBlueprintsToPages(args: {
   panelBlueprints: PanelBlueprintPremium[];
   pages?: Array<{ pageNumber: number; panelCount: number; beatIds?: string[] | null }>;
   fallbackPageSize: number;

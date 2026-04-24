@@ -177,4 +177,63 @@ describe("buildStoryboardPlanFromApprovedProductionPlan", () => {
     expect(plan.totalTargetPanels).toBe(2);
     expect(plan.pages.flatMap((p) => p.panels)).toHaveLength(2);
   });
+
+  it("redistribue 70 blueprints pageNumber=1 en 10 pages via productionPlan.pages", () => {
+    const blueprints = Array.from({ length: 70 }, (_, i) =>
+      minimalBp({
+        panelId: `panel-${i + 1}`,
+        beatId: `beat-${Math.floor(i / 7) + 1}`,
+        panelNumber: i + 1,
+        pageNumber: 1,
+      }),
+    );
+
+    const pages = Array.from({ length: 10 }, (_, i) => ({
+      pageNumber: i + 1,
+      panelCount: 7,
+      beatIds: [`beat-${i + 1}`],
+    }));
+
+    const plan = buildStoryboardPlanFromApprovedProductionPlan({
+      chapterId: "c1",
+      projectId: "proj-1",
+      chapterNumber: 1,
+      projectFormat: "manga",
+      productionPlan: {
+        panelBlueprints: blueprints,
+        pages,
+      },
+    });
+
+    expect(plan.pages).toHaveLength(10);
+    expect(plan.totalTargetPanels).toBe(70);
+
+    for (let i = 0; i < 10; i++) {
+      const page = plan.pages[i]!;
+      expect(page.pageNumber).toBe(i + 1);
+      expect(page.panels).toHaveLength(7);
+      for (let j = 0; j < 7; j++) {
+        expect(page.panels[j]!.panelNumberInPage).toBe(j + 1);
+      }
+    }
+  });
+
+  it("utilise resolveBlueprintLocationName au lieu de 'unknown'", () => {
+    const bp = minimalBp({
+      panelId: "p-loc",
+      panelNumber: 1,
+      requiredLocationSignals: ["Clairière magique"],
+    });
+    const plan = buildStoryboardPlanFromApprovedProductionPlan({
+      chapterId: "c1",
+      projectId: "proj-1",
+      chapterNumber: 1,
+      projectFormat: "manga",
+      productionPlan: { panelBlueprints: [bp] },
+      chapterLocationName: "unknown",
+    });
+    const panel = plan.pages[0]!.panels[0]!;
+    expect(panel.locationName).toBe("Clairière magique");
+    expect(panel.locationName).not.toBe("unknown");
+  });
 });

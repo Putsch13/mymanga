@@ -234,9 +234,27 @@ export async function runPremiumV3Pipeline(
     }
 
     const pageQa = await runPageQaPass(storyboardPassResult.storyboardPlan);
+    timings.page_qa_ms = Date.now() - pipelineStartMs;
     console.log(
       `[pipeline:v3:page-qa] ok=${pageQa.okCount} fail=${pageQa.failCount}`,
     );
+
+    // P0.4 — Fail hard si des pages échouent au QA
+    if (pageQa.failCount > 0) {
+      const issues = pageQa.results
+        .filter((r) => !r.ok)
+        .slice(0, 5)
+        .map((r) => `page=${r.pageNumber}:${r.issues.join(",")}`)
+        .join(" | ");
+
+      console.error(
+        `[pipeline:v3:page-qa] page_qa_failed chapterId=${input.chapterId} failCount=${pageQa.failCount} issues=${issues}`,
+      );
+
+      if (input.premiumV3OnlyEnabled) {
+        throw new Error(`premium_v3_only_page_qa_failed: ${pageQa.failCount} pages failed [${issues}]`);
+      }
+    }
 
     const requiredCoverage = storyArc
       ? extractRequiredVisualCoverage(storyArc)

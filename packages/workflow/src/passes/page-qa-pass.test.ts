@@ -92,4 +92,39 @@ describe("runPageQaPass", () => {
     const r = await runPageQaPass(plan);
     expect(r.results[0]!.warnings).toContain("dialogue_tension_page_without_dialogue_panel");
   });
+
+  it("échoue si grid_2x3 reçoit 7+ panels (capacité dépassée)", async () => {
+    const panels = Array.from({ length: 7 }, (_, i) =>
+      makePanel({ panelId: `p-${i + 1}`, panelNumberInPage: i + 1 }),
+    );
+    const page: StoryboardPage = {
+      pageNumber: 1,
+      layoutTemplate: "grid_2x3",
+      dramaticRole: "setup",
+      beatIds: [],
+      panels,
+    };
+    const plan = makePlan([page]);
+    const r = await runPageQaPass(plan);
+    expect(r.failCount).toBe(1);
+    expect(r.results[0]!.ok).toBe(false);
+    expect(
+      r.results[0]!.issues.some((i) => i.includes("page_panel_count_exceeds_layout_capacity")),
+    ).toBe(true);
+    expect(r.results[0]!.issues[0]).toMatch(/7\/6/);
+  });
+
+  it("échoue si layout template inconnu", async () => {
+    const page: StoryboardPage = {
+      pageNumber: 1,
+      layoutTemplate: "unknown_layout_xyz" as typeof page.layoutTemplate,
+      dramaticRole: "setup",
+      beatIds: [],
+      panels: [makePanel()],
+    };
+    const plan = makePlan([page]);
+    const r = await runPageQaPass(plan);
+    expect(r.failCount).toBe(1);
+    expect(r.results[0]!.issues.some((i) => i.includes("unknown_layout_template"))).toBe(true);
+  });
 });

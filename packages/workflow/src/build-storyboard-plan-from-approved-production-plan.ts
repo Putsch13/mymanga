@@ -32,11 +32,13 @@ import {
   isPanelPurpose,
 } from "@manga-ai-studio/ai";
 import {
+  assignBlueprintsToPages,
   buildEditorialDiagnostics,
   derivePanelPurpose,
   deriveRenderMode,
   pickLayoutTemplateForPage,
   resolveCharacters,
+  resolveBlueprintLocationName,
   toCameraAngle,
   toCutawayType,
   toShotType,
@@ -176,10 +178,11 @@ function approvedBlueprintToStoryboardPanel(
   const cutawayType = storyboardCutawayFromBlueprint(ex, bp);
   const panelPurpose = panelPurposeFromBlueprint(ex, bp);
 
+  // P0.7 — Utiliser resolveBlueprintLocationName pour éviter "unknown"
   const locationName =
     typeof ex.locationName === "string" && ex.locationName.length > 0
       ? ex.locationName
-      : ctx.chapterLocationName ?? "unknown";
+      : resolveBlueprintLocationName(bp, ctx.chapterLocationName);
 
   const emotionLine = typeof ex.emotionLine === "string" ? ex.emotionLine : "";
 
@@ -316,20 +319,16 @@ export function buildStoryboardPlanFromApprovedProductionPlan(
       ? pagesFromPlan as Array<{ pageNumber: number; panelCount: number; beatIds?: string[] | null }>
       : explicitPages;
 
-  const panelsByPage = new Map<number, PanelBlueprintPremium[]>();
-  for (const bp of blueprints) {
-    const pageNumber = typeof bp.pageNumber === "number" && bp.pageNumber > 0
-      ? bp.pageNumber
-      : Math.floor((bp.panelNumber - 1) / pageSize) + 1;
-    const arr = panelsByPage.get(pageNumber) ?? [];
-    arr.push(bp);
-    panelsByPage.set(pageNumber, arr);
-  }
+  // P0.3 — Utiliser assignBlueprintsToPages pour redistribuer correctement
+  // même si tous les blueprints ont pageNumber=1
+  const panelsByPage = assignBlueprintsToPages({
+    panelBlueprints: blueprints,
+    pages: explicitPagesMerged,
+    fallbackPageSize: pageSize,
+  });
 
-  const pageNumbers = Array.from(new Set([
-    ...explicitPagesMerged.map((page) => page.pageNumber),
-    ...Array.from(panelsByPage.keys()),
-  ])).sort((a, b) => a - b);
+  // Ne pas réinjecter les pages explicites vides
+  const pageNumbers = Array.from(panelsByPage.keys()).sort((a, b) => a - b);
 
   const explicitPagesByNumber = new Map(explicitPagesMerged.map((page) => [page.pageNumber, page]));
   const chapterLocationName = input.chapterLocationName ?? null;

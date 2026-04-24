@@ -189,4 +189,32 @@ describe("render-pass.persistence-fail-hard (P0.2)", () => {
     expect(result.summary.failedCount).toBe(0);
     expect(mocks.persistV3RenderedPanels).not.toHaveBeenCalled();
   });
+
+  it("échoue quand imagesStorageFailed > 0 (upload Supabase échoué)", async () => {
+    const plan = makePlan([
+      makePanel({ panelId: "p1" }),
+      makePanel({ panelId: "p2", panelNumberInPage: 2 }),
+    ]);
+
+    mocks.persistV3RenderedPanels.mockResolvedValueOnce({
+      scenesCreated: 1,
+      scenesReused: 0,
+      imagesUpserted: 1,
+      imagesSkipped: 0,
+      imagesStorageFailed: 1,
+      warnings: ["storage_failed panelId=p2 bucket=panel-images"],
+    });
+
+    await expect(
+      runRenderPass({
+        chapterId: "ch-1",
+        storyboardPlan: plan,
+        styleBible: createDefaultChapterStyleBible(),
+        visualMemory: makeMemoryWithHero(),
+        characters: [{ id: "hero-1", name: "Hero", roleType: "main" }],
+        mainCharacterIds: ["hero-1"],
+        persistToDb: true,
+      }),
+    ).rejects.toThrow(V3ImagePersistenceError);
+  });
 });

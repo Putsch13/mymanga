@@ -7,10 +7,12 @@
  *     moins un panel a du dialogue_two_shot ou dialogue_over_shoulder)
  *   - progression lisible (pas de saut de pageNumber)
  *   - pas de 3 pages full closeup héros
+ *   - P0.5: capacité du layout (pas plus de panels que le layout permet)
  */
 
 import type { StoryboardPlan } from "@manga-ai-studio/ai";
 import type { StoryboardPage } from "@manga-ai-studio/ai/contracts";
+import { PAGE_LAYOUT_CONFIGS, type PageLayoutTemplate } from "@manga-ai-studio/core";
 
 export interface PageQaResult {
   pageNumber: number;
@@ -52,6 +54,17 @@ export async function runPageQaPass(plan: StoryboardPlan): Promise<PageQaPassOut
     }
 
     if (page.panels.length === 0) issues.push("page_has_no_panels");
+
+    // P0.5 — Contrôle de capacité : pas plus de panels que le layout permet
+    const layoutTemplate = page.layoutTemplate as PageLayoutTemplate;
+    const layoutConfig = PAGE_LAYOUT_CONFIGS[layoutTemplate];
+    if (!layoutConfig) {
+      issues.push(`unknown_layout_template=${page.layoutTemplate}`);
+    } else if (page.panels.length > layoutConfig.areas.length) {
+      issues.push(
+        `page_panel_count_exceeds_layout_capacity=${page.panels.length}/${layoutConfig.areas.length}:${page.layoutTemplate}`,
+      );
+    }
 
     results.push({ pageNumber: page.pageNumber, ok: issues.length === 0, issues, warnings });
   }

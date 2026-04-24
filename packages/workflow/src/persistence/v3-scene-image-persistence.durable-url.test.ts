@@ -95,10 +95,16 @@ function makeMinimalRendered(imageUrl: string | null) {
     {
       spec: {
         panelId: "panel-1",
+        panelPurpose: "hero_focus",
         renderMode: "hero_closeup",
+        shotType: "closeup",
+        cameraAngle: "eye_level",
+        subjectFocus: "hero",
         visibleCharacters: [],
         constraints: { forbiddenDrift: [] },
         locationName: "Street",
+        actionLine: "Hero stares forward",
+        emotionLine: "determined",
       } as unknown as PanelRenderSpec,
       prompt: { positive: "test", negative: "bad" },
       route: { modelId: "test", referencePolicy: "none" } as unknown as FalRenderRoute,
@@ -212,5 +218,86 @@ describe("v3-scene-image-persistence.durable-url (P0.3)", () => {
       create: { imageUrl: string };
     };
     expect(upsertCall.create.imageUrl).toBe(stableUrl);
+  });
+
+  it("n'envoie JAMAIS storageBucket/storageKey dans SceneImage.data (P0.1)", async () => {
+    const falTempUrl = "https://v3.fal.media/files/abc123/output.png";
+    const durableUrl = "https://xyz.supabase.co/storage/v1/object/public/bucket/path.png";
+
+    mocks.persistImageIfNeeded.mockResolvedValueOnce({
+      ok: true,
+      persisted: true,
+      url: durableUrl,
+      bucket: "panel-images",
+      storageKey: "ch-1/panel-1.png",
+      mimeType: "image/png",
+      debugSourceUrl: falTempUrl,
+    });
+
+    await persistV3RenderedPanels({
+      chapterId: "ch-1",
+      storyboardPlan: makeMinimalPlan(),
+      rendered: makeMinimalRendered(falTempUrl),
+    });
+
+    const upsertCall = mocks.prismaSceneImageUpsert.mock.calls[0]![0] as {
+      create: Record<string, unknown>;
+      update: Record<string, unknown>;
+    };
+
+    expect(upsertCall.create).not.toHaveProperty("storageBucket");
+    expect(upsertCall.create).not.toHaveProperty("storageKey");
+    expect(upsertCall.update).not.toHaveProperty("storageBucket");
+    expect(upsertCall.update).not.toHaveProperty("storageKey");
+
+    expect(upsertCall.create.metadata).toBeDefined();
+    const metadata = upsertCall.create.metadata as { generationDebugSnapshot?: { result?: { storageBucket?: string; storageKey?: string } } };
+    expect(metadata.generationDebugSnapshot?.result?.storageBucket).toBe("panel-images");
+    expect(metadata.generationDebugSnapshot?.result?.storageKey).toBe("ch-1/panel-1.png");
+  });
+
+  it("ne met JAMAIS undefined dans metadata (JSON serialization safe) (P0.2)", async () => {
+    const falTempUrl = "https://v3.fal.media/files/abc123/output.png";
+    const durableUrl = "https://xyz.supabase.co/storage/v1/object/public/bucket/path.png";
+
+    mocks.persistImageIfNeeded.mockResolvedValueOnce({
+      ok: true,
+      persisted: true,
+      url: durableUrl,
+      bucket: "bucket",
+      storageKey: "path.png",
+      mimeType: "image/png",
+      debugSourceUrl: falTempUrl,
+    });
+
+    await persistV3RenderedPanels({
+      chapterId: "ch-1",
+      storyboardPlan: makeMinimalPlan(),
+      rendered: makeMinimalRendered(falTempUrl),
+    });
+
+    const upsertCall = mocks.prismaSceneImageUpsert.mock.calls[0]![0] as {
+      create: Record<string, unknown>;
+    };
+
+    const metadata = upsertCall.create.metadata as Record<string, unknown>;
+    const jsonString = JSON.stringify(metadata);
+    expect(jsonString).not.toContain("undefined");
+
+    const checkForUndefined = (obj: unknown, path = ""): void => {
+      if (obj === undefined) {
+        throw new Error(`Found undefined at ${path}`);
+      }
+      if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+        for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+          checkForUndefined(value, `${path}.${key}`);
+        }
+      }
+      if (Array.isArray(obj)) {
+        obj.forEach((item, idx) => checkForUndefined(item, `${path}[${idx}]`));
+      }
+    };
+
+    expect(() => checkForUndefined(metadata, "metadata")).not.toThrow();
   });
 });

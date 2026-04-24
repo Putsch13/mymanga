@@ -469,22 +469,23 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
     }
 
     // Vérification stricte : tous les panels attendus doivent être persistés
-    if (persistResult.imagesSkipped > 0) {
+    // P0.6 — Inclure aussi imagesStorageFailed (upload Supabase échoué)
+    if (persistResult.imagesSkipped > 0 || persistResult.imagesStorageFailed > 0) {
       const missingPanels = persistResult.warnings
-        .filter((w) => w.startsWith("panel_not_rendered"))
+        .filter((w) => w.startsWith("panel_not_rendered") || w.startsWith("storage_failed"))
         .map((w) => w.match(/panelId=([^\s]+)/)?.[1] ?? "unknown");
 
       console.error(
         `[render-pass:persist] incomplete chapterId=${input.chapterId} ` +
           `expected=${expectedPanelIds.length} persisted=${persistResult.imagesUpserted} ` +
-          `skipped=${persistResult.imagesSkipped}`,
+          `skipped=${persistResult.imagesSkipped} storageFailed=${persistResult.imagesStorageFailed}`,
       );
 
       throw new V3ImagePersistenceError({
         chapterId: input.chapterId,
         expectedPanels: expectedPanelIds.length,
         persistedPanels: persistResult.imagesUpserted,
-        missingPanels,
+        missingPanels: missingPanels.length > 0 ? missingPanels : expectedPanelIds,
       });
     }
 
