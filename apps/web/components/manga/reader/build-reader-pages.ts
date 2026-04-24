@@ -17,7 +17,7 @@
  */
 
 import { flattenPagesToPanels, type PipelinePanel, type UniversalMangaPage, type UniversalPanel } from "../manga-page-grid";
-import { buildReaderPanelSlots, type PageLayoutTemplate, type ReaderTextPlacementHint } from "@manga-ai-studio/core";
+import { buildReaderPanelSlots, type ReaderTextPlacementHint } from "@manga-ai-studio/core";
 import {
   buildPersistedReaderPanelSlots,
   mergePlanLayoutIntoUniversalPanel,
