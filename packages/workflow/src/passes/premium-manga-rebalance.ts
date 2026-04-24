@@ -15,8 +15,18 @@ import {
   panelDeclaresVisibleOpponent,
   stripBannedPlaceholdersFromBlueprint,
 } from "./premium-manga-cutaway";
-import type { VisualEntity } from "./visual-entity-registry";
-import { pickOpponentEntityForBeat, pickPrimaryActorForBeat } from "./visual-entity-registry";
+import {
+  pickPrimaryActorForBeat,
+  pickRequiredOpponentForBeat,
+  subjectFocusForVisualEntity,
+  type VisualEntity,
+} from "./visual-entity-registry";
+import { getRequiredVisualEntityIds } from "./visual-entity-ids";
+import {
+  buildEntityActionLine,
+  resolveBlueprintReferencePolicyForEntity,
+  resolveRenderModeForEntity,
+} from "./visual-entity-prompt";
 import { runMangaStructureQaOnBlueprints } from "./manga-structure-qa";
 
 function isDialogueHeavyBeat(bp: PanelBlueprintPremium): boolean {
@@ -87,23 +97,38 @@ function narrativeValueScore(bp: PanelBlueprintPremium): number {
   return score;
 }
 
-function subjectFocusForEntityKind(kind: VisualEntity["kind"]): SubjectFocus {
-  switch (kind) {
-    case "enemy":
-    case "soldier":
-    case "faction":
-      return "enemy";
-    case "creature":
-    case "monster":
-    case "beast":
-    case "spirit":
-      return "enemy";
-    case "robot":
-    case "android":
-      return "enemy";
-    default:
-      return "hero";
+export function convertPanelToEntityDrivenPanel(
+  bp: PanelBlueprintPremium,
+  entity: VisualEntity,
+  options: { reason: string },
+): void {
+  if (entity.consistencyLevel === "strict" && entity.referenceImageUrls.length === 0) {
+    throw new Error(`required_entity_missing_model_sheet entity=${entity.id}`);
   }
+
+  bp.cutawayType = "none" as CutawayType;
+  bp.rebalancedFromCutaway = true;
+  bp.subjectFocus = "visual_entity";
+  bp.mangaPanelFunction = entity.isOpponent ? "opponent_pressure" : "entity_action";
+  bp.renderMode = resolveRenderModeForEntity(entity);
+  bp.mustShowEnemy = entity.isOpponent;
+
+  const merged = new Set<string>([
+    ...(bp.requiredEntityIds ?? []),
+    ...(bp.mustShowCharacterIds ?? []),
+    entity.id,
+  ]);
+  bp.requiredEntityIds = [...merged];
+  bp.mustShowCharacterIds = [...merged];
+  bp.requiredCharacters = [...merged];
+
+  bp.shotType = bp.shotType === "wide" ? "medium" : bp.shotType || "medium";
+  bp.cameraAngle = entity.isOpponent ? bp.cameraAngle || "low" : bp.cameraAngle || "eye_level";
+
+  bp.purpose = buildEntityActionLine(bp, entity);
+  bp.referencePolicy = resolveBlueprintReferencePolicyForEntity(entity);
+
+  bp.notes = [...(bp.notes ?? []), options.reason, `entity_driven:${entity.id}`];
 }
 
 export function buildActorDrivenReplacement(
@@ -112,7 +137,7 @@ export function buildActorDrivenReplacement(
   fallbackHeroId: string | null,
 ): Partial<PanelBlueprintPremium> {
   const primary = pickPrimaryActorForBeat(bp.beatId, entities, fallbackHeroId);
-  const opponent = pickOpponentEntityForBeat(bp.beatId, entities);
+  const opponent = pickRequiredOpponentForBeat({ beatId: bp.beatId, visualEntities: entities });
 
   if (isDialogueHeavyBeat(bp) && primary) {
     return {
@@ -130,24 +155,25 @@ export function buildActorDrivenReplacement(
   }
 
   if (isConflictHeavyBeatPanel(bp) && opponent) {
-    const sf = subjectFocusForEntityKind(opponent.kind);
+    const sf = subjectFocusForVisualEntity(opponent);
     return {
       purpose: `${opponent.name} — visible pressure / conflict beat`,
       shotType: "medium",
       cameraAngle: "low",
       subjectFocus: sf,
       cutawayType: "none" as CutawayType,
-      mustShowEnemy: opponent.kind === "enemy" || opponent.role === "antagonist",
+      mustShowEnemy: opponent.isOpponent,
       mustShowCharacterIds: primary
         ? [primary.id, opponent.id].filter((id, i, a) => a.indexOf(id) === i)
         : [opponent.id],
       requiredCharacters: primary ? [primary.id, opponent.id] : [opponent.id],
+      requiredEntityIds: [...new Set([...(bp.requiredEntityIds ?? []), opponent.id])],
       heroCenterAllowed: sf === "hero",
     };
   }
 
   if (primary) {
-    const sf: SubjectFocus = primary.kind === "hero" ? "hero" : "npc";
+    const sf: SubjectFocus = primary.role === "protagonist" ? "hero" : "npc";
     return {
       purpose: "character advances the scene — visible action or emotion",
       shotType: "medium",
@@ -156,6 +182,7 @@ export function buildActorDrivenReplacement(
       cutawayType: "none" as CutawayType,
       mustShowCharacterIds: [primary.id],
       requiredCharacters: [primary.id],
+      requiredEntityIds: [...new Set([...(bp.requiredEntityIds ?? []), primary.id])],
       heroCenterAllowed: sf === "hero",
     };
   }
@@ -201,6 +228,14 @@ export function convertCutawayToActorDrivenPanel(
   fallbackHeroId: string | null,
   _orderMap: Map<string, number>,
 ): void {
+  const opponent = pickRequiredOpponentForBeat({ beatId: bp.beatId, visualEntities: entities });
+  if (isConflictHeavyBeatPanel(bp) && opponent) {
+    convertPanelToEntityDrivenPanel(bp, opponent, {
+      reason: "cutaway_rebalanced_to_actor_driven_panel",
+    });
+    return;
+  }
+
   const replacement = buildActorDrivenReplacement(bp, entities, fallbackHeroId);
   Object.assign(bp, replacement);
   bp.cutawayType = "none" as CutawayType;
@@ -262,6 +297,17 @@ function rebalanceCutawaysToBudgetOnce(
   return converted;
 }
 
+function beatAlreadyShowsOpponentEntity(
+  beatPanels: PanelBlueprintPremium[],
+  visualEntities: VisualEntity[],
+): boolean {
+  return beatPanels.some((bp) => {
+    if (!isPremiumMangaActorDrivenBlueprint(bp)) return false;
+    const ids = getRequiredVisualEntityIds(bp);
+    return ids.some((id) => visualEntities.find((e) => e.id === id)?.isOpponent === true);
+  });
+}
+
 function breakConsecutiveCutaways(
   blueprints: PanelBlueprintPremium[],
   maxConsecutive: number,
@@ -304,7 +350,16 @@ function ensureConflictBeatsHaveOpponents(args: {
 
   for (const beatId of conflictBeatIds) {
     const beatPanels = args.blueprints.filter((bp) => bp.beatId === beatId);
-    if (beatPanels.some(panelDeclaresVisibleOpponent)) continue;
+    if (beatAlreadyShowsOpponentEntity(beatPanels, args.visualEntities)) continue;
+
+    const opponent = pickRequiredOpponentForBeat({
+      beatId,
+      beatPanels,
+      visualEntities: args.visualEntities,
+    });
+    if (!opponent) {
+      throw new Error(`conflict_beat_without_resolved_opponent_entity beat=${beatId}`);
+    }
 
     const target =
       beatPanels.find(
@@ -312,42 +367,13 @@ function ensureConflictBeatsHaveOpponents(args: {
           isPremiumMangaCutawayBlueprint(bp)
           && !isHardCriticalCutawayBlueprint(bp, args.orderMap.get(bp.panelId) ?? 0),
       )
-      ?? beatPanels.find(
-        (bp) => !isHardCriticalCutawayBlueprint(bp, args.orderMap.get(bp.panelId) ?? 0),
-      )
       ?? beatPanels[0];
 
     if (!target) continue;
 
-    let opponent = pickOpponentEntityForBeat(beatId, args.visualEntities);
-    if (!opponent) {
-      opponent =
-        args.visualEntities.find((e) => e.kind === "enemy" || e.role === "antagonist")
-        ?? args.visualEntities.find((e) =>
-          ["creature", "monster", "robot", "soldier", "android"].includes(e.kind),
-        )
-        ?? args.visualEntities.find((e) => e.kind !== "hero" && e.id !== args.fallbackHeroId)
-        ?? null;
-    }
-
-    const sf: SubjectFocus = opponent ? subjectFocusForEntityKind(opponent.kind) : "enemy";
-    target.cutawayType = "none" as CutawayType;
-    target.subjectFocus = sf;
-    target.mustShowEnemy = true;
-    target.shotType = target.shotType === "wide" ? "medium" : target.shotType || "medium";
-    target.cameraAngle = target.cameraAngle || "low";
-    target.purpose = opponent
-      ? `${opponent.name} is clearly visible and creates immediate pressure in the scene.`
-      : "A hostile opposing force is clearly visible and creates immediate pressure in the scene.";
-
-    if (opponent) {
-      const primary = pickPrimaryActorForBeat(beatId, args.visualEntities, args.fallbackHeroId);
-      const ids = [opponent.id, ...(primary ? [primary.id] : [])].filter((id, i, a) => a.indexOf(id) === i);
-      target.mustShowCharacterIds = ids;
-      target.requiredCharacters = ids;
-    }
-
-    target.notes = [...(target.notes ?? []), "forced_opponent_panel_for_conflict_beat"];
+    convertPanelToEntityDrivenPanel(target, opponent, {
+      reason: "forced_opponent_panel_for_conflict_beat",
+    });
     fixes += 1;
   }
 
@@ -427,6 +453,7 @@ export function rebalancePremiumBlueprintsForManga(
       blueprints,
       maxCutawayRatio: args.maxCutawayRatio,
       minActorDrivenRatio: args.minActorDrivenRatio,
+      visualEntities: args.visualEntities,
     });
     if (qa.ok) break;
   }

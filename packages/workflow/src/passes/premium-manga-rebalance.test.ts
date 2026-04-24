@@ -28,16 +28,40 @@ function bp(overrides: Partial<PanelBlueprintPremium> & { panelId: string; panel
   } as PanelBlueprintPremium;
 }
 
-const heroEntity: VisualEntity = {
+function minimalEntity(p: Partial<VisualEntity> & Pick<VisualEntity, "id" | "name">): VisualEntity {
+  const dna = p.visualDna ?? { colors: [], props: [], symbols: [], forbiddenDrift: [] };
+  return {
+    projectId: p.projectId ?? "test-proj",
+    aliases: p.aliases ?? [],
+    id: p.id,
+    name: p.name,
+    userDefinedKind: p.userDefinedKind ?? "story character",
+    semanticTags: p.semanticTags ?? [],
+    role: p.role ?? "neutral",
+    scale: p.scale ?? "individual",
+    isOpponent: p.isOpponent ?? false,
+    isSentient: p.isSentient ?? true,
+    isNamed: p.isNamed ?? true,
+    isFaction: p.isFaction ?? false,
+    canAppearAsGroup: p.canAppearAsGroup ?? false,
+    groupCountHint: p.groupCountHint,
+    canonicalDescription: p.canonicalDescription ?? p.name,
+    visualDna: dna,
+    referenceImageUrls: p.referenceImageUrls ?? [],
+    consistencyLevel: p.consistencyLevel ?? "medium",
+    createdFrom: p.createdFrom ?? "character_sheet",
+    beatIds: p.beatIds ?? [],
+  };
+}
+
+const heroEntity: VisualEntity = minimalEntity({
   id: "h1",
   name: "Miya",
-  kind: "hero",
   role: "protagonist",
-  importance: "primary",
-  visualTags: [],
-  beatIds: [],
-  canAppearAsGroup: false,
-};
+  userDefinedKind: "main protagonist",
+  isOpponent: false,
+  consistencyLevel: "strict",
+});
 
 describe("premium-manga-rebalance", () => {
   it("réduit les cutaways au-delà de 35%", () => {
@@ -104,16 +128,13 @@ describe("premium-manga-rebalance", () => {
   });
 
   it("ajoute un panel adversaire sur un beat de combat sans ennemi visible", () => {
-    const villain: VisualEntity = {
+    const villain: VisualEntity = minimalEntity({
       id: "v1",
       name: "Shade",
-      kind: "enemy",
       role: "antagonist",
-      importance: "secondary",
-      visualTags: [],
-      beatIds: [],
-      canAppearAsGroup: false,
-    };
+      userDefinedKind: "shadow antagonist",
+      isOpponent: true,
+    });
 
     const blueprints: PanelBlueprintPremium[] = [
       bp({
@@ -140,8 +161,9 @@ describe("premium-manga-rebalance", () => {
       blueprints: out.blueprints,
       maxCutawayRatio: 0.35,
       minActorDrivenRatio: 0.58,
+      visualEntities: [heroEntity, villain],
     });
     expect(qa.ok).toBe(true);
-    expect(out.blueprints[0]?.subjectFocus).toBe("enemy");
+    expect(out.blueprints[0]?.subjectFocus).toBe("visual_entity");
   });
 });

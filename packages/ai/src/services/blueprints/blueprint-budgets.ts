@@ -64,13 +64,17 @@ export function computeChapterFocusBudget(
 
     if (bp.heroCenterAllowed && bp.subjectFocus === "hero") heroCenterCount++;
     if (bp.cutawayType !== "none") cutawayCount++;
-    if (bp.subjectFocus === "enemy") enemyFocusCount++;
+    if (bp.subjectFocus === "enemy" || (bp.subjectFocus === "visual_entity" && bp.mustShowEnemy)) {
+      enemyFocusCount++;
+    }
     if (bp.subjectFocus === "prop" || bp.cutawayType === "prop_insert") propInsertCount++;
     if (bp.subjectFocus === "environment") environmentCount++;
     // P1.6 : un panel compte comme couverture NPC seulement si son focus l'est
     // reellement (subjectFocus=npc|group). Un blueprint heros avec
     // `requiredNpcCount>0` exprime une obligation, pas une satisfaction.
-    if (bp.subjectFocus === "npc" || bp.subjectFocus === "group") npcCount++;
+    if (bp.subjectFocus === "npc" || bp.subjectFocus === "group" || (bp.subjectFocus === "visual_entity" && !bp.mustShowEnemy)) {
+      npcCount++;
+    }
     if (bp.subjectFocus === "reaction") reactionCount++;
     if (bp.subjectFocus === "speaker" || bp.dialogueCarrier === "speaker_visible") speakerCount++;
     if (bp.subjectFocus === "group" || bp.subjectFocus === "duo") groupCount++;
@@ -367,8 +371,17 @@ export function computeContractualFocusAdequacy(
   for (const bp of blueprints) {
     if (bp.subjectFocus === "environment") environmentPanels++;
     if (bp.subjectFocus === "prop" || bp.cutawayType === "prop_insert") propInsertPanels++;
-    if (bp.subjectFocus === "enemy") enemyFocusPanels++;
-    if (bp.subjectFocus === "npc" || bp.subjectFocus === "group" || bp.requiredNpcCount > 0) npcPanels++;
+    if (bp.subjectFocus === "enemy" || (bp.subjectFocus === "visual_entity" && bp.mustShowEnemy)) {
+      enemyFocusPanels++;
+    }
+    if (
+      bp.subjectFocus === "npc"
+      || bp.subjectFocus === "group"
+      || (bp.subjectFocus === "visual_entity" && !bp.mustShowEnemy)
+      || bp.requiredNpcCount > 0
+    ) {
+      npcPanels++;
+    }
     if (bp.subjectFocus === "reaction") reactionPanels++;
     if (bp.subjectFocus === "aftermath") aftermathPanels++;
     if (bp.heroCenterAllowed && bp.subjectFocus === "hero") heroCenterCount++;

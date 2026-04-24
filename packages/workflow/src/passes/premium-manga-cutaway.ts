@@ -3,6 +3,8 @@
  */
 
 import type { PanelBlueprintPremium, SubjectFocus } from "@manga-ai-studio/core";
+import { getRequiredVisualEntityIds } from "./visual-entity-ids";
+import type { VisualEntity } from "./visual-entity-registry";
 
 const BANNED_PLACEHOLDER_SNIPPETS = [
   "densified_to_meet_premium_range",
@@ -112,9 +114,16 @@ export function isConflictHeavyBeatPanel(bp: PanelBlueprintPremium): boolean {
 }
 
 /** Panneau acteur montrant clairement une opposition (QA conflit). */
-export function panelDeclaresVisibleOpponent(bp: PanelBlueprintPremium): boolean {
+export function panelDeclaresVisibleOpponent(
+  bp: PanelBlueprintPremium,
+  visualEntities?: readonly VisualEntity[] | null,
+): boolean {
   if (!isPremiumMangaActorDrivenBlueprint(bp)) return false;
-  if (bp.subjectFocus === "enemy") return true;
+  if (visualEntities && visualEntities.length > 0) {
+    const ids = getRequiredVisualEntityIds(bp);
+    if (ids.some((id) => visualEntities.find((e) => e.id === id)?.isOpponent)) return true;
+  }
+  if (bp.subjectFocus === "enemy" || (bp.subjectFocus === "visual_entity" && bp.mustShowEnemy)) return true;
   if (bp.mustShowEnemy) return true;
   const blob = `${bp.purpose} ${bp.shotType}`.toLowerCase();
   if (

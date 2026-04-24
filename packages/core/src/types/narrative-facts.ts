@@ -149,7 +149,34 @@ export type SubjectFocus =
   | "reaction"
   | "speaker"
   | "location"
-  | "aftermath";
+  | "aftermath"
+  /** Entité du registre visuel (réf. `requiredEntityIds` / personnages liés). */
+  | "visual_entity";
+
+/** Fonction narrative du panel (QA / rebalancing premium). */
+export type MangaPanelFunction =
+  | "establishing"
+  | "character_action"
+  | "character_reaction"
+  | "dialogue_speaker"
+  | "dialogue_listener"
+  | "opponent_pressure"
+  | "impact"
+  | "aftermath_with_actor"
+  | "prop_with_actor"
+  | "location_transition"
+  | "cliffhanger"
+  | "entity_action";
+
+/** Texte réservé pour composition post-rendu (pas dans l’image FAL). */
+export interface PanelTextBundle {
+  dialogues?: Array<{ speaker: string; text: string }>;
+  narration?: string | null;
+  sfx?: string[];
+  reservedZones?: string[];
+  preferredAnchorZones?: string[];
+  overflowStrategy?: string;
+}
 
 export type CutawayType =
   | "none"
@@ -223,6 +250,19 @@ export interface PanelBlueprintPremium {
   characterVisualDna?: CharacterVisualDna[];
   npcVisualDna?: NpcVisualDna[];
   environmentVisualDna?: EnvironmentVisualDna | null;
+
+  /** IDs d’entités visuelles (registre premium) requises sur ce panel. */
+  requiredEntityIds?: string[];
+  /** Rôle narratif explicite (structure manga premium). */
+  mangaPanelFunction?: MangaPanelFunction | null;
+  /** Mode de rendu libre (ex. opponent_reveal, entity_action). */
+  renderMode?: string | null;
+  /** Politique de refs suggérée côté blueprint (STRONG / LIGHT / NEEDS_MODEL_SHEET / CANONIZE_FROM_FIRST_APPEARANCE). */
+  referencePolicy?: string | null;
+  /** Marqueur post-rebalance cutaway → acteur. */
+  rebalancedFromCutaway?: boolean;
+  /** Texte et zones réservées pour la composition lecteur (hors FAL). */
+  panelTextBundle?: PanelTextBundle | null;
 }
 
 // ─── Focus Budget ─────────────────────────────────────────────────────────────

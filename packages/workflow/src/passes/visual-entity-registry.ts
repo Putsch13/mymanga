@@ -1,49 +1,87 @@
 /**
- * Registre d'entités visuelles premium — base pour rebalancing / QA / prompts canoniques.
- * Les soldats / robots / créatures doivent exister ici pour être comptés et cadrés,
- * pas seulement "devinés" par le LLM au moment du rendu.
+ * Registre d’entités visuelles premium — modèle ouvert (userDefinedKind + ADN + rôle).
  */
 
-export type VisualEntityKind =
-  | "hero"
-  | "main_character"
-  | "ally"
-  | "enemy"
-  | "soldier"
-  | "creature"
-  | "monster"
-  | "robot"
-  | "android"
-  | "spirit"
-  | "beast"
-  | "npc"
-  | "crowd"
-  | "vehicle"
-  | "faction"
-  | "environment";
+import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
 
 export type VisualEntityRole =
   | "protagonist"
   | "ally"
   | "antagonist"
   | "obstacle"
-  | "background"
-  | "neutral";
+  | "neutral"
+  | "ambient"
+  | "faction"
+  | "crowd"
+  | "summon"
+  | "pet"
+  | "vehicle"
+  | "environmental_threat";
 
-export type VisualEntityImportance = "primary" | "secondary" | "group" | "ambient";
+export type VisualEntityScale =
+  | "individual"
+  | "pair"
+  | "small_group"
+  | "squad"
+  | "crowd"
+  | "swarm"
+  | "giant"
+  | "environment_scale";
+
+export type VisualEntityConsistency = "strict" | "medium" | "loose";
+
+export type VisualEntityCreatedFrom =
+  | "user_description"
+  | "story_bible"
+  | "character_sheet"
+  | "npc_sheet"
+  | "faction_sheet"
+  | "auto_canonized"
+  | "generated_model_sheet";
+
+export interface VisualEntityVisualDna {
+  silhouette?: string;
+  face?: string;
+  hair?: string;
+  body?: string;
+  outfit?: string;
+  armor?: string;
+  anatomy?: string;
+  materials?: string[];
+  colors: string[];
+  props: string[];
+  symbols: string[];
+  aura?: string;
+  movementStyle?: string;
+  forbiddenDrift: string[];
+}
 
 export interface VisualEntity {
   id: string;
+  projectId: string;
   name: string;
-  kind: VisualEntityKind;
+  aliases: string[];
+  userDefinedKind: string;
+  semanticTags: string[];
   role: VisualEntityRole;
-  importance: VisualEntityImportance;
-  visualTags: string[];
-  beatIds: string[];
+  scale: VisualEntityScale;
+  isOpponent: boolean;
+  isSentient: boolean;
+  isNamed: boolean;
+  isFaction: boolean;
   canAppearAsGroup: boolean;
   groupCountHint?: number;
-  referenceImageUrls?: string[];
-  fallbackVisualDna?: string;
+  canonicalDescription: string;
+  visualDna: VisualEntityVisualDna;
+  referenceImageUrls: string[];
+  consistencyLevel: VisualEntityConsistency;
+  createdFrom: VisualEntityCreatedFrom;
+  /** Optionnel : restriction par beat (vide = tous les beats). */
+  beatIds: string[];
+}
+
+function emptyDna(): VisualEntityVisualDna {
+  return { colors: [], props: [], symbols: [], forbiddenDrift: [] };
 }
 
 function roleFromCharacter(roleType: string | null | undefined): VisualEntityRole {
@@ -54,14 +92,8 @@ function roleFromCharacter(roleType: string | null | undefined): VisualEntityRol
   return "neutral";
 }
 
-function kindFromCharacter(roleType: string | null | undefined): VisualEntityKind {
-  const r = (roleType ?? "").toLowerCase();
-  if (r.includes("enemy") || r.includes("antagonist") || r.includes("villain")) return "enemy";
-  if (r.includes("hero") || r.includes("protagonist")) return "hero";
-  return "main_character";
-}
-
 export interface BuildVisualEntitiesInput {
+  projectId: string;
   rawCharacters: Array<{
     id: string;
     name: string;
@@ -75,31 +107,47 @@ export interface BuildVisualEntitiesInput {
   activeCreatureIds?: string[];
 }
 
-/**
- * Construit un registre minimal à partir du contexte pipeline V3.
- * Étendre plus tard avec story bible / outline / factions explicites.
- */
 export function buildVisualEntitiesFromPremiumV3Input(input: BuildVisualEntitiesInput): VisualEntity[] {
   const out: VisualEntity[] = [];
   const heroId = input.heroCharacterId ?? input.focusCharacterIds[0] ?? null;
 
   for (const c of input.rawCharacters) {
     const isHero = heroId === c.id || (c.roleType ?? "").toLowerCase().includes("hero");
+    const role = roleFromCharacter(c.roleType);
+    const colors: string[] = [];
+    if (c.hairColor) colors.push(`hair:${c.hairColor}`);
+    if (c.eyeColor) colors.push(`eyes:${c.eyeColor}`);
+    const tags = [
+      ...(c.canonSignatureText ? [c.canonSignatureText] : []),
+      ...colors,
+    ].filter(Boolean) as string[];
+
     out.push({
       id: c.id,
+      projectId: input.projectId,
       name: c.name,
-      kind: isHero ? "hero" : kindFromCharacter(c.roleType),
-      role: roleFromCharacter(c.roleType),
-      importance: isHero ? "primary" : "secondary",
-      visualTags: [
-        ...(c.canonSignatureText ? [c.canonSignatureText] : []),
-        ...(c.hairColor ? [`hair:${c.hairColor}`] : []),
-        ...(c.eyeColor ? [`eyes:${c.eyeColor}`] : []),
-      ].filter(Boolean),
-      beatIds: [],
+      aliases: [],
+      userDefinedKind: isHero ? "main protagonist" : "story character",
+      semanticTags: tags.length ? tags : [isHero ? "hero" : "cast"],
+      role,
+      scale: "individual",
+      isOpponent: role === "antagonist" || role === "obstacle",
+      isSentient: true,
+      isNamed: true,
+      isFaction: false,
       canAppearAsGroup: false,
+      canonicalDescription: c.canonSignatureText ?? c.name,
+      visualDna: {
+        ...emptyDna(),
+        colors: colors.length ? colors : ["(palette from project)"],
+        props: [],
+        symbols: [],
+        forbiddenDrift: [],
+      },
       referenceImageUrls: [],
-      fallbackVisualDna: c.canonSignatureText ?? undefined,
+      consistencyLevel: isHero ? "strict" : "medium",
+      createdFrom: "character_sheet",
+      beatIds: [],
     });
   }
 
@@ -107,13 +155,30 @@ export function buildVisualEntitiesFromPremiumV3Input(input: BuildVisualEntities
     if (out.some((e) => e.id === cid)) continue;
     out.push({
       id: cid,
+      projectId: input.projectId,
       name: `creature:${cid}`,
-      kind: "creature",
+      aliases: [],
+      userDefinedKind: "creature",
+      semanticTags: ["creature", "non_human_threat"],
       role: "obstacle",
-      importance: "secondary",
-      visualTags: ["creature", "non_human_threat"],
-      beatIds: [],
+      scale: "individual",
+      isOpponent: true,
+      isSentient: true,
+      isNamed: false,
+      isFaction: false,
       canAppearAsGroup: false,
+      canonicalDescription: "Non-human threat presence for this chapter.",
+      visualDna: {
+        ...emptyDna(),
+        colors: ["muted natural tones"],
+        props: [],
+        symbols: [],
+        forbiddenDrift: ["human proportions", "cute mascot"],
+      },
+      referenceImageUrls: [],
+      consistencyLevel: "loose",
+      createdFrom: "npc_sheet",
+      beatIds: [],
     });
   }
 
@@ -126,25 +191,42 @@ export function pickPrimaryActorForBeat(
   fallbackHeroId: string | null,
 ): VisualEntity | null {
   const inBeat = entities.filter((e) => e.beatIds.length === 0 || e.beatIds.includes(beatId));
-  const hero = inBeat.find((e) => e.kind === "hero") ?? entities.find((e) => e.kind === "hero");
+  const hero =
+    inBeat.find((e) => e.role === "protagonist")
+    ?? entities.find((e) => e.role === "protagonist");
   if (hero) return hero;
-  const main = inBeat.find((e) => e.kind === "main_character" && e.importance === "primary");
-  if (main) return main;
   if (fallbackHeroId) {
     return entities.find((e) => e.id === fallbackHeroId) ?? null;
   }
-  return inBeat.find((e) => e.role === "protagonist") ?? entities[0] ?? null;
+  return inBeat.find((e) => !e.isOpponent && e.role !== "antagonist") ?? entities[0] ?? null;
 }
 
-export function pickOpponentEntityForBeat(beatId: string, entities: VisualEntity[]): VisualEntity | null {
-  const inBeat = entities.filter((e) => e.beatIds.length === 0 || e.beatIds.includes(beatId));
-  const enemy =
-    inBeat.find((e) => e.kind === "enemy" || e.role === "antagonist")
-    ?? entities.find((e) => e.kind === "enemy" || e.role === "antagonist");
-  if (enemy) return enemy;
+export function pickRequiredOpponentForBeat(args: {
+  beatId: string;
+  beatPanels?: PanelBlueprintPremium[];
+  visualEntities: VisualEntity[];
+}): VisualEntity | null {
+  void args.beatPanels;
+  const { beatId, visualEntities } = args;
+  const inBeat = visualEntities.filter((e) => e.beatIds.length === 0 || e.beatIds.includes(beatId));
   return (
-    inBeat.find((e) => e.kind === "creature" || e.kind === "monster" || e.kind === "robot" || e.kind === "soldier")
-    ?? entities.find((e) => e.kind === "creature" || e.kind === "robot" || e.kind === "soldier")
+    inBeat.find((e) => e.isOpponent)
+    ?? visualEntities.find((e) => e.isOpponent)
     ?? null
   );
+}
+
+/** @deprecated utiliser pickRequiredOpponentForBeat */
+export function pickOpponentEntityForBeat(beatId: string, entities: VisualEntity[]): VisualEntity | null {
+  return pickRequiredOpponentForBeat({ beatId, visualEntities: entities });
+}
+
+export function subjectFocusForVisualEntity(entity: VisualEntity): "hero" | "enemy" | "npc" {
+  if (entity.isOpponent) return "enemy";
+  if (entity.role === "protagonist") return "hero";
+  return "npc";
+}
+
+export function entityForId(entities: VisualEntity[], id: string): VisualEntity | undefined {
+  return entities.find((e) => e.id === id);
 }

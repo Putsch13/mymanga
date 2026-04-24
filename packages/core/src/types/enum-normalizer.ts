@@ -48,6 +48,7 @@ export const CANONICAL_SUBJECT_FOCUS_VALUES = [
   "speaker",
   "location",
   "aftermath",
+  "visual_entity",
 ] as const;
 
 export type CanonicalSubjectFocus = typeof CANONICAL_SUBJECT_FOCUS_VALUES[number];
@@ -68,6 +69,7 @@ const _checkSubjectFocusAlignment: Record<CanonicalSubjectFocus, NarrativeSubjec
   speaker: "speaker",
   location: "location",
   aftermath: "aftermath",
+  visual_entity: "visual_entity",
 };
 void _checkSubjectFocusAlignment;
 

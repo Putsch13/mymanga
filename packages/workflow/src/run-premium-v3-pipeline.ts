@@ -17,6 +17,8 @@ import { buildStyleBibleFromUserProject } from "./chapter-style-bible-resolver";
 import { isPipelineV3RenderFalEnabled } from "./pipeline-feature-flags";
 import { loadLocationsForV3StoryPass, type PremiumV3PipelineLocation } from "./load-locations-for-v3-story-pass";
 import { saveStoryboardPlan } from "./persistence/storyboard-persistence";
+import { computeEntityCoverageTelemetry, formatEntityCoverageTypesLine } from "./passes/entity-coverage-telemetry";
+import { ensureDialogueBeatsHaveAnchors, runDialogueQaOnBlueprints } from "./passes/dialogue-beat-rebalance";
 import { buildVisualEntitiesFromPremiumV3Input } from "./passes/visual-entity-registry";
 import {
   isPremiumMangaCutawayBlueprint,
@@ -186,6 +188,7 @@ export async function runPremiumV3Pipeline(
         const mangaMinActorDrivenRatio = 0.58;
 
         const visualEntities = buildVisualEntitiesFromPremiumV3Input({
+          projectId: input.projectId,
           rawCharacters: input.rawCharacters,
           focusCharacterIds: input.focusCharacterIds,
           heroCharacterId: input.heroCharacterId ?? null,
@@ -219,18 +222,23 @@ export async function runPremiumV3Pipeline(
           `[pipeline:v3:densify-balance] actorDriven=${afterActor}/${total} ratio=${(actorRatio * 100).toFixed(1)}%`,
         );
 
-        const opponentPanels = rebal.blueprints.filter((bp) => bp.subjectFocus === "enemy" || bp.mustShowEnemy).length;
-        const blobSoldiers = rebal.blueprints.filter((bp) =>
-          /soldier|soldats|army|armée|squad|escadron|garde/i.test(bp.purpose),
-        ).length;
-        const blobCreatures = rebal.blueprints.filter((bp) =>
-          /creature|monstre|bête|beast|demon|démon|wraith|spirit/i.test(bp.purpose),
-        ).length;
-        const blobRobots = rebal.blueprints.filter((bp) =>
-          /robot|drone|mecha|android|machine/i.test(bp.purpose),
-        ).length;
+        const entityCov = computeEntityCoverageTelemetry(rebal.blueprints, visualEntities);
         console.info(
-          `[pipeline:v3:entity-coverage] opponents=${opponentPanels} panels, soldiers=${blobSoldiers} panels, creatures=${blobCreatures} panels, robots=${blobRobots} panels`,
+          `[pipeline:v3:entity-coverage] required=${entityCov.required} covered=${entityCov.covered} missing=${entityCov.missing.length} opponentPanels=${entityCov.opponentPanels} groupEntityPanels=${entityCov.groupEntityPanels} namedNpcPanels=${entityCov.namedNpcPanels} ambientEntityPanels=${entityCov.ambientEntityPanels}`,
+        );
+        const typesLine = formatEntityCoverageTypesLine(entityCov.byUserDefinedKind);
+        if (typesLine.length > 0) {
+          console.info(`[pipeline:v3:entity-coverage:types] ${typesLine}`);
+        }
+
+        ensureDialogueBeatsHaveAnchors({
+          blueprints: rebal.blueprints,
+          visualEntities,
+          fallbackHeroId: input.heroCharacterId ?? input.focusCharacterIds[0] ?? null,
+        });
+        const dialogueQa = runDialogueQaOnBlueprints(rebal.blueprints);
+        console.info(
+          `[pipeline:v3:dialogue-qa] ok=${dialogueQa.ok} dialogueBeats=${dialogueQa.dialogueBeats} speakerPanels=${dialogueQa.speakerPanels} reactionPanels=${dialogueQa.reactionPanels} anchored=${dialogueQa.anchored} floating=${dialogueQa.floating}`,
         );
 
         timings.densify_balance_ms = Date.now() - densifyBalanceStart;
@@ -246,6 +254,7 @@ export async function runPremiumV3Pipeline(
           blueprints: rebal.blueprints,
           maxCutawayRatio: mangaMaxCutawayRatio,
           minActorDrivenRatio: mangaMinActorDrivenRatio,
+          visualEntities,
         });
         console.info(
           `[pipeline:v3:rhythm] maxConsecutiveCutaways=${mangaQa.maxConsecutiveCutaways}`,

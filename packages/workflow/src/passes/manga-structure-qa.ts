@@ -11,6 +11,7 @@ import {
   maxConsecutiveCutawaysInOrder,
   panelDeclaresVisibleOpponent,
 } from "./premium-manga-cutaway";
+import type { VisualEntity } from "./visual-entity-registry";
 
 export interface MangaStructureQaResult {
   ok: boolean;
@@ -42,14 +43,22 @@ function beatRequiresOpponentPanel(beatId: string, blueprints: PanelBlueprintPre
   return blueprints.some((bp) => bp.beatId === beatId && isConflictHeavyBeatPanel(bp));
 }
 
-function beatHasVisibleOpponentForConflict(beatId: string, blueprints: PanelBlueprintPremium[]): boolean {
-  return blueprints.some((bp) => bp.beatId === beatId && panelDeclaresVisibleOpponent(bp));
+function beatHasVisibleOpponentForConflict(
+  beatId: string,
+  blueprints: PanelBlueprintPremium[],
+  visualEntities?: readonly VisualEntity[] | null,
+): boolean {
+  return blueprints.some(
+    (bp) => bp.beatId === beatId && panelDeclaresVisibleOpponent(bp, visualEntities ?? null),
+  );
 }
 
 export interface RunMangaStructureQaArgs {
   blueprints: PanelBlueprintPremium[];
   maxCutawayRatio: number;
   minActorDrivenRatio: number;
+  /** Si fourni, la détection d’adversaire visible utilise `isOpponent` du registre. */
+  visualEntities?: readonly VisualEntity[] | null;
 }
 
 export function runMangaStructureQaOnBlueprints(args: RunMangaStructureQaArgs): MangaStructureQaResult {
@@ -84,7 +93,10 @@ export function runMangaStructureQaOnBlueprints(args: RunMangaStructureQaArgs): 
     if (!beatDialogueCoverage(bid, args.blueprints)) {
       reasons.push(`no_speaker_panel_for_dialogue_beat beat=${bid}`);
     }
-    if (beatRequiresOpponentPanel(bid, args.blueprints) && !beatHasVisibleOpponentForConflict(bid, args.blueprints)) {
+    if (
+      beatRequiresOpponentPanel(bid, args.blueprints)
+      && !beatHasVisibleOpponentForConflict(bid, args.blueprints, args.visualEntities ?? null)
+    ) {
       reasons.push(`no_enemy_panel_for_conflict_beat beat=${bid}`);
     }
   }
