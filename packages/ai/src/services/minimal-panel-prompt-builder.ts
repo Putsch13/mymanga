@@ -107,10 +107,16 @@ export function buildPromptSubjectBlock(spec: PanelRenderSpec): string {
 }
 
 export function buildPromptEnvironmentBlock(spec: PanelRenderSpec): string {
+  const rawLoc = typeof spec.locationName === "string" ? spec.locationName.trim() : "";
+  const envLock = spec.continuityLocks.environmentLocks
+    .map(normalizePromptClause)
+    .find((s) => s.length > 0);
   const environmentAnchor =
-    spec.locationName?.trim()
-    || spec.continuityLocks.environmentLocks.map(normalizePromptClause).find(Boolean)
-    || "story-consistent interior/exterior";
+    rawLoc && rawLoc.toLowerCase() !== "unknown"
+      ? rawLoc
+      : envLock
+        ? envLock
+        : "story-consistent interior/exterior";
   const density = spec.styleBible.backgroundDensity;
   const environmentLocks = spec.continuityLocks.environmentLocks
     .map(normalizePromptClause)

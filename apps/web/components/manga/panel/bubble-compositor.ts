@@ -20,6 +20,33 @@
 
 import type { InPanelTextBox } from "@manga-ai-studio/ai";
 
+/**
+ * Coerce une valeur texte hétérogène (string, string[], {text}, Array<{text}>)
+ * en string simple. Protège contre les crashes `.trim()` en prod quand
+ * le backend renvoie un format inattendu.
+ */
+function coerceText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object" && "text" in item) {
+          const text = (item as { text?: unknown }).text;
+          return typeof text === "string" ? text : "";
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join(" ");
+  }
+  if (value && typeof value === "object" && "text" in value) {
+    const text = (value as { text?: unknown }).text;
+    return typeof text === "string" ? text : "";
+  }
+  return "";
+}
+
 import {
   bubbleOverlapArea,
   clampBoundsToPanel,
@@ -273,14 +300,15 @@ export function composePanelTextLayer(input: BubbleCompositorInput): PanelTextLa
   }
 
   const captions: BubbleLayout[] = [];
-  if (narration && narration.trim().length > 0) {
+  const narrationText = coerceText(narration);
+  if (narrationText.trim().length > 0) {
     const overrideId = `${panelId}:caption:0`;
     const override = overrides?.get(overrideId);
     const defaultBounds: BubbleBounds = { x: 2, y: 2, width: 96, height: 14 };
     captions.push({
       bubbleId: overrideId,
       kind: "caption",
-      text: override?.text ?? narration,
+      text: override?.text ?? narrationText,
       speakerId: null,
       bounds: clampBoundsToPanel(override?.bounds ?? defaultBounds),
       tailAnchor: null,
@@ -292,7 +320,8 @@ export function composePanelTextLayer(input: BubbleCompositorInput): PanelTextLa
   }
 
   const sfxLayers: BubbleLayout[] = [];
-  if (sfx && sfx.trim().length > 0) {
+  const sfxText = coerceText(sfx);
+  if (sfxText.trim().length > 0) {
     const sfxId = `${panelId}:sfx:0`;
     const override = overrides?.get(sfxId);
     const hasDialogue = bubbles.length > 0;
@@ -302,7 +331,7 @@ export function composePanelTextLayer(input: BubbleCompositorInput): PanelTextLa
     sfxLayers.push({
       bubbleId: sfxId,
       kind: "sfx",
-      text: override?.text ?? sfx,
+      text: override?.text ?? sfxText,
       speakerId: null,
       bounds: clampBoundsToPanel(override?.bounds ?? defaultBounds),
       tailAnchor: null,

@@ -37,6 +37,7 @@ export function toSubjectFocus(raw: string): StoryboardSubjectFocus {
   if (v.includes("environment")) return "environment";
   if (v.includes("prop")) return "prop";
   if (v.includes("enemy") || v.includes("antagon")) return "enemy";
+  if (v.includes("creature") || v.includes("monster") || v.includes("beast")) return "threat";
   if (v.includes("npc")) return "important_npc";
   if (v.includes("group")) return "group";
   if (v.includes("reaction")) return "reaction";
@@ -59,12 +60,25 @@ export function deriveRenderMode(bp: PanelBlueprintPremium): StoryboardRenderMod
   const cutaway = toCutawayType(bp.cutawayType);
   const focus = toSubjectFocus(bp.subjectFocus);
   const shot = toShotType(bp.shotType);
+
+  const requiredSubjects = ((bp.requiredSubjects as string[] | undefined) ?? []).join(" ").toLowerCase();
+  const purpose = (bp.purpose ?? "").toLowerCase();
+  const isCreaturePanel =
+    requiredSubjects.includes("creature") ||
+    requiredSubjects.includes("monster") ||
+    requiredSubjects.includes("beast") ||
+    purpose.includes("creature") ||
+    purpose.includes("monstre") ||
+    purpose.includes("créature");
+
+  if (isCreaturePanel) return "creature_reveal";
   if (cutaway === "environment") return "establishing_environment";
   if (cutaway === "prop_insert") return "insert_object";
   if (cutaway === "reaction") return "reaction_closeup";
   if (cutaway === "surveillance") return "surveillance_reveal";
   if (cutaway === "crowd") return "group_tension";
   if (cutaway === "aftermath") return "combat_aftermath";
+  if (focus === "threat") return "creature_reveal";
   if (focus === "enemy") return shot === "closeup" || shot === "extreme_closeup" ? "enemy_closeup" : "enemy_reveal";
   if (focus === "important_npc") return "npc_closeup";
   if (focus === "reaction") return "reaction_closeup";
@@ -100,8 +114,112 @@ export function pickLayoutTemplateForPage(panelCount: number, projectFormat: "ma
   return "grid_2x3";
 }
 
+function uniqStrings(values: unknown[]): string[] {
+  return Array.from(new Set(
+    values.filter((v): v is string => typeof v === "string" && v.trim().length > 0),
+  ));
+}
+
 export function resolveCharacters(bp: PanelBlueprintPremium): string[] {
-  return bp.mustShowCharacterIds ?? bp.requiredCharacterIds ?? bp.requiredCharacters ?? [];
+  return uniqStrings([
+    ...(bp.mustShowCharacterIds ?? []),
+    ...(bp.requiredCharacterIds ?? []),
+    ...(bp.requiredCharacters ?? []),
+    bp.speakerAnchorCharacterId ?? null,
+    ...((bp.characterVisualDna as Array<{ characterId?: string }> | undefined) ?? []).map((dna) => dna.characterId),
+    ...((bp.sceneRoster as Array<{ entityType?: string; entityId?: string }> | undefined) ?? [])
+      .filter((entry) => entry.entityType === "character")
+      .map((entry) => entry.entityId),
+  ]);
+}
+
+function resolveBlueprintLocationName(
+  bp: PanelBlueprintPremium,
+  fallback: string | null | undefined,
+): string {
+  const envDna = bp.environmentVisualDna as { locationName?: string } | null | undefined;
+  const envName = envDna?.locationName;
+  if (typeof envName === "string" && envName.trim()) return envName.trim();
+
+  const sceneLabel = bp.sceneContextLabel;
+  if (typeof sceneLabel === "string" && sceneLabel.trim()) return sceneLabel.trim();
+
+  const firstLocationSignal = bp.requiredLocationSignals?.find(
+    (signal) => typeof signal === "string" && signal.trim().length > 0,
+  );
+  if (firstLocationSignal) return firstLocationSignal.trim();
+
+  const cleanFallback = fallback?.trim();
+  if (cleanFallback && cleanFallback.toLowerCase() !== "unknown") {
+    return cleanFallback;
+  }
+
+  return "story-consistent setting";
+}
+
+function extractNonLocationMustShow(bp: PanelBlueprintPremium, usedAsLocation: string): string[] {
+  const signals = bp.requiredLocationSignals ?? [];
+  return signals.filter(
+    (v) => typeof v === "string" && v.trim().length > 0 && v.trim() !== usedAsLocation,
+  );
+}
+
+function assignBlueprintsToPages(args: {
+  panelBlueprints: PanelBlueprintPremium[];
+  pages?: Array<{ pageNumber: number; panelCount: number; beatIds?: string[] | null }>;
+  fallbackPageSize: number;
+}): Map<number, PanelBlueprintPremium[]> {
+  const panelsByPage = new Map<number, PanelBlueprintPremium[]>();
+  const sorted = [...args.panelBlueprints].sort((a, b) => a.panelNumber - b.panelNumber);
+
+  const explicitPages = Array.isArray(args.pages)
+    ? args.pages.filter((p) => Number.isFinite(p.pageNumber) && Number.isFinite(p.panelCount) && p.panelCount > 0)
+    : [];
+
+  const allBlueprintPages = new Set(
+    sorted
+      .map((bp) => bp.pageNumber)
+      .filter((n): n is number => typeof n === "number" && n > 0),
+  );
+
+  const pageNumbersLookBroken =
+    allBlueprintPages.size <= 1 && explicitPages.length > 1;
+
+  if (explicitPages.length > 0 && pageNumbersLookBroken) {
+    console.warn(
+      `[storyboard-from-premium-plan] pageNumber_broken blueprints=${sorted.length} ` +
+        `distinctPages=${allBlueprintPages.size} explicitPages=${explicitPages.length} — ` +
+        `redistributing via panelCount`,
+    );
+    let cursor = 0;
+    for (const page of explicitPages.sort((a, b) => a.pageNumber - b.pageNumber)) {
+      const slice = sorted.slice(cursor, cursor + page.panelCount);
+      if (slice.length > 0) panelsByPage.set(page.pageNumber, slice);
+      cursor += page.panelCount;
+    }
+
+    if (cursor < sorted.length) {
+      let pageNumber = explicitPages[explicitPages.length - 1]!.pageNumber + 1;
+      for (let i = cursor; i < sorted.length; i += args.fallbackPageSize) {
+        panelsByPage.set(pageNumber++, sorted.slice(i, i + args.fallbackPageSize));
+      }
+    }
+
+    return panelsByPage;
+  }
+
+  for (const bp of sorted) {
+    const pageNumber =
+      typeof bp.pageNumber === "number" && bp.pageNumber > 0
+        ? bp.pageNumber
+        : Math.floor((bp.panelNumber - 1) / args.fallbackPageSize) + 1;
+
+    const arr = panelsByPage.get(pageNumber) ?? [];
+    arr.push(bp);
+    panelsByPage.set(pageNumber, arr);
+  }
+
+  return panelsByPage;
 }
 
 export function buildEditorialDiagnostics(pages: StoryboardPage[]): StoryboardPlan["editorialDiagnostics"] {
@@ -127,21 +245,24 @@ export function buildStoryboardPlanFromPremiumBlueprints(args: {
 }): StoryboardPlan {
   const pageSize = args.projectFormat === "webtoon" ? 3 : 5;
   const explicitPages = args.pages ?? [];
-  const panelsByPage = new Map<number, PanelBlueprintPremium[]>();
 
-  for (const bp of args.panelBlueprints) {
-    const pageNumber = typeof bp.pageNumber === "number" && bp.pageNumber > 0
-      ? bp.pageNumber
-      : Math.floor((bp.panelNumber - 1) / pageSize) + 1;
-    const arr = panelsByPage.get(pageNumber) ?? [];
-    arr.push(bp);
-    panelsByPage.set(pageNumber, arr);
+  const panelsByPage = assignBlueprintsToPages({
+    panelBlueprints: args.panelBlueprints,
+    pages: explicitPages,
+    fallbackPageSize: pageSize,
+  });
+
+  const emptyExplicitPages = explicitPages
+    .filter((page) => !panelsByPage.has(page.pageNumber))
+    .map((page) => page.pageNumber);
+
+  if (emptyExplicitPages.length > 0) {
+    console.warn(
+      `[storyboard-from-premium-plan] ignored_empty_explicit_pages=${emptyExplicitPages.join(",")}`,
+    );
   }
 
-  const pageNumbers = Array.from(new Set([
-    ...explicitPages.map((page) => page.pageNumber),
-    ...Array.from(panelsByPage.keys()),
-  ])).sort((a, b) => a - b);
+  const pageNumbers = Array.from(panelsByPage.keys()).sort((a, b) => a - b);
 
   const explicitPagesByNumber = new Map(explicitPages.map((page) => [page.pageNumber, page]));
   const pages: StoryboardPage[] = pageNumbers.map((pageNumber) => {
@@ -167,7 +288,7 @@ export function buildStoryboardPlanFromPremiumBlueprints(args: {
         cutawayType: toCutawayType(bp.cutawayType),
         characters: resolveCharacters(bp),
         locationId: null,
-        locationName: args.chapterLocationName ?? "unknown",
+        locationName: resolveBlueprintLocationName(bp, args.chapterLocationName),
         actionLine: bp.purpose,
         emotionLine: "",
         dialogue: bp.dialogueLines ?? [],
@@ -175,7 +296,7 @@ export function buildStoryboardPlanFromPremiumBlueprints(args: {
         sfx: bp.sfxCues ?? [],
         mustShow: [
           ...bp.requiredProps.map((prop) => prop.canonicalName),
-          ...bp.requiredLocationSignals,
+          ...extractNonLocationMustShow(bp, resolveBlueprintLocationName(bp, args.chapterLocationName)),
         ],
         mustNotShow: [],
         continuityNotes: bp.notes ?? [],

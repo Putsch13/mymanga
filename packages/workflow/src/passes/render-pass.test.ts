@@ -299,4 +299,42 @@ describe("runRenderPass", () => {
     const s = res.specs.find((x) => x.panelId === "p-wide");
     expect(s?.layoutMeta?.targetAspectRatio).toBe("landscape");
   });
+
+  it("ne requiert pas de face ref pour combat_aftermath", async () => {
+    const memoryWithoutFaceRef = createEmptyChapterVisualMemory("ch-1");
+    addCharacterEntry(memoryWithoutFaceRef, {
+      characterId: "hero-1",
+      name: "Hero",
+      role: "hero",
+      faceRefUrl: null,
+      silhouetteRefUrl: "https://ref/hero-body.png",
+      outfitRefUrl: "https://ref/hero-outfit.png",
+      defaultWeight: 1,
+    });
+
+    const plan = makePlan([
+      makePanel({
+        panelId: "p-aftermath",
+        renderMode: "combat_aftermath",
+        panelPurpose: "combat_aftermath",
+        subjectFocus: "environment",
+        characters: ["hero-1"],
+        visualAnchors: { characterIds: ["hero-1"], environmentAnchorId: null, previousPanelAnchorId: null },
+      }),
+    ]);
+
+    const res = await runRenderPass({
+      chapterId: "ch-1",
+      storyboardPlan: plan,
+      styleBible: createDefaultChapterStyleBible(),
+      visualMemory: memoryWithoutFaceRef,
+      characters: [{ id: "hero-1", name: "Hero", roleType: "main" }],
+      mainCharacterIds: ["hero-1"],
+    });
+
+    expect(res.summary.failedCount).toBe(0);
+    expect(res.specs).toHaveLength(1);
+    expect(res.specs[0]!.panelId).toBe("p-aftermath");
+  });
+
 });

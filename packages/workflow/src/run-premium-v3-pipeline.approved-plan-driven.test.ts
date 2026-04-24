@@ -34,6 +34,10 @@ vi.mock("./pipeline-feature-flags", async (importOriginal) => {
   };
 });
 
+vi.mock("./persistence/storyboard-persistence", () => ({
+  saveStoryboardPlan: vi.fn().mockResolvedValue(undefined),
+}));
+
 function minimalBlueprint(overrides: Record<string, unknown> = {}): PanelBlueprintPremium & Record<string, unknown> {
   return {
     panelId: "panel-1",

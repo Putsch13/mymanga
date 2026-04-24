@@ -322,4 +322,50 @@ describe("buildMinimalPanelPrompt", () => {
     expect(neg).toContain("environment only");
     expect(neg).toContain("empty battlefield");
   });
+
+  it("n'utilise jamais 'ENVIRONMENT: unknown' dans le prompt", () => {
+    const r = buildMinimalPanelPrompt(
+      makeSpec({
+        locationName: "unknown",
+        continuityLocks: {
+          outfitLocks: [],
+          bodyStateLocks: [],
+          propLocks: [],
+          environmentLocks: [],
+        },
+      }),
+    );
+    expect(r.positive.toLowerCase()).not.toContain("environment: unknown");
+  });
+
+  it("remplace locationName='unknown' par le fallback story-consistent", () => {
+    const r = buildMinimalPanelPrompt(
+      makeSpec({
+        locationName: "unknown",
+        continuityLocks: {
+          outfitLocks: [],
+          bodyStateLocks: [],
+          propLocks: [],
+          environmentLocks: [],
+        },
+      }),
+    );
+    expect(r.positive.toLowerCase()).toContain("story-consistent");
+  });
+
+  it("utilise environmentLocks quand locationName est 'unknown'", () => {
+    const r = buildMinimalPanelPrompt(
+      makeSpec({
+        locationName: "unknown",
+        continuityLocks: {
+          outfitLocks: [],
+          bodyStateLocks: [],
+          propLocks: [],
+          environmentLocks: ["Clairière magique"],
+        },
+      }),
+    );
+    expect(r.positive).toContain("Clairière magique");
+    expect(r.positive.toLowerCase()).not.toContain("environment: unknown");
+  });
 });

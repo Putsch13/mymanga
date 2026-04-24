@@ -15,6 +15,7 @@ import { runStoryboardPass } from "./passes/storyboard-pass";
 import { buildStyleBibleFromUserProject } from "./chapter-style-bible-resolver";
 import { isPipelineV3RenderFalEnabled } from "./pipeline-feature-flags";
 import { loadLocationsForV3StoryPass, type PremiumV3PipelineLocation } from "./load-locations-for-v3-story-pass";
+import { saveStoryboardPlan } from "./persistence/storyboard-persistence";
 
 export type { PremiumV3PipelineLocation } from "./load-locations-for-v3-story-pass";
 
@@ -202,6 +203,11 @@ export async function runPremiumV3Pipeline(
               targetPanelCount: PREMIUM_PANEL_RANGE.target,
             });
     }
+    await saveStoryboardPlan(input.chapterId, storyboardPassResult.storyboardPlan);
+    console.info(
+      `[pipeline:v3:storyboard] persisted storyboardPlanV2 chapterId=${input.chapterId} pages=${storyboardPassResult.storyboardPlan.pages.length} panels=${storyboardPassResult.storyboardPlan.pages.reduce((sum, p) => sum + p.panels.length, 0)}`,
+    );
+
     if (storyboardPassResult.blockers.length > 0) {
       console.error(
         `[pipeline:v3:storyboard] blockers=${storyboardPassResult.blockers.join(" | ")}`,

@@ -92,6 +92,22 @@ function formatRenderFailure(detail: RenderPassImageFailureDetail): string {
   return `render_failed:${JSON.stringify(detail)}`;
 }
 
+/**
+ * Indique si ce renderMode nécessite une face ref dédiée closeup.
+ * Les modes où le visage doit être reconnaissable requièrent la ref.
+ * Les modes environnement/creature/aftermath/silhouette peuvent s'en passer.
+ */
+function requiresDedicatedFaceRef(spec: PanelRenderSpec): boolean {
+  return (
+    spec.renderMode === "hero_closeup" ||
+    spec.renderMode === "reaction_closeup" ||
+    spec.renderMode === "npc_closeup" ||
+    spec.renderMode === "enemy_closeup" ||
+    spec.renderMode === "dialogue_over_shoulder" ||
+    spec.renderMode === "dialogue_two_shot"
+  );
+}
+
 export interface RunRenderPassInput {
   chapterId: string;
   storyboardPlan: StoryboardPlan;
@@ -175,27 +191,32 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
     // doit avoir une face ref dédiée (chargée depuis CharacterVisualRef
     // avec metadata closeup) pour chaque personnage principal visible.
     // Plus de fallback silencieux vers la silhouette/outfit.
-    try {
-      const visibleMain = spec.visibleCharacters.filter(
-        (c) => c.role === "hero" || c.role === "support" || c.role === "enemy",
-      );
-      for (const c of visibleMain) {
-        const entry = input.visualMemory.characters.get(c.characterId);
-        assertDedicatedFaceCloseupForPanel({
-          characterId: c.characterId,
-          faceCloseupRefUrl: entry?.faceRefUrl ?? null,
-          renderMode: spec.renderMode,
-          panelId: spec.panelId,
-        });
+    // PATCH 4 — on n'applique ce guard qu'aux modes où le visage doit
+    // être reconnaissable. Les modes environment/creature/aftermath/silhouette
+    // peuvent s'en passer.
+    if (requiresDedicatedFaceRef(spec)) {
+      try {
+        const visibleMain = spec.visibleCharacters.filter(
+          (c) => c.role === "hero" || c.role === "support" || c.role === "enemy",
+        );
+        for (const c of visibleMain) {
+          const entry = input.visualMemory.characters.get(c.characterId);
+          assertDedicatedFaceCloseupForPanel({
+            characterId: c.characterId,
+            faceCloseupRefUrl: entry?.faceRefUrl ?? null,
+            renderMode: spec.renderMode,
+            panelId: spec.panelId,
+          });
+        }
+      } catch (err) {
+        if (err instanceof MissingDedicatedFaceCloseupRefError) {
+          errors.push({ panelId: panel.panelId, error: `missing_face_closeup_ref: ${err.message}` });
+          failedCount += 1;
+          previousPanel = panel;
+          continue;
+        }
+        throw err;
       }
-    } catch (err) {
-      if (err instanceof MissingDedicatedFaceCloseupRefError) {
-        errors.push({ panelId: panel.panelId, error: `missing_face_closeup_ref: ${err.message}` });
-        failedCount += 1;
-        previousPanel = panel;
-        continue;
-      }
-      throw err;
     }
 
     // COMMIT C — le routeur v3 peut refuser un spec qui traînerait malgré
