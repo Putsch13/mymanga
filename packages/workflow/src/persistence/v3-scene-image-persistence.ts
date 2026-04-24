@@ -36,6 +36,7 @@ import type {
   StoryboardPanelV3 as StoryboardPanel,
 } from "@manga-ai-studio/ai";
 import { persistImageIfNeeded, type PersistedImageResult } from "../pipeline-image-persistence";
+import { runVisualPanelQa } from "@manga-ai-studio/ai";
 
 export interface V3RenderedPanelRecord {
   spec: PanelRenderSpec;
@@ -222,6 +223,38 @@ async function preparePanelData(
     },
   };
 
+  const reserveTextArea =
+    (Array.isArray(panel.dialogue) && panel.dialogue.length > 0)
+    || Boolean(panel.narration?.trim())
+    || (Array.isArray(panel.sfx) && panel.sfx.length > 0)
+    || Boolean(record.spec.panelTextPayload?.dialogue?.length)
+    || Boolean(record.spec.panelTextPayload?.narration?.trim());
+
+  const visualQa =
+    durableImageUrl && !record.error
+      ? runVisualPanelQa({
+          panelId: panel.panelId,
+          imageUrl: durableImageUrl,
+          panelMetadata: {
+            role: String(record.spec.panelPurpose),
+            purpose: String(record.spec.actionLine ?? panel.actionLine ?? ""),
+            shotType: String(record.spec.shotType),
+            subjectFocus: String(record.spec.subjectFocus),
+            isCutaway: record.spec.cutawayType !== "none",
+            mustShowCharacterIds: [...record.spec.constraints.mustShow],
+            reserveTextArea,
+            textMode: panel.textPlacementHint?.overflowStrategy ?? "overlay",
+          },
+          promptUsed: record.prompt.positive,
+          expectedCharacters: record.spec.visibleCharacters.map((vc) => ({
+            characterId: vc.characterId,
+            name: vc.name,
+            isProtagonist: vc.characterId === record.spec.heroCharacterId,
+          })),
+          attemptNumber: 1,
+        })
+      : null;
+
   const metadata = {
     v3: true,
     panelId: panel.panelId,
@@ -247,6 +280,7 @@ async function preparePanelData(
       : null,
     readerLayout: generationDebugSnapshot.readerLayout,
     generationDebugSnapshot,
+    visualQa,
   } as unknown as Prisma.InputJsonValue;
 
   const routingDecision = {

@@ -5,7 +5,9 @@ import {
   classifyPanelCriticality,
   getCharacterTierPolicy,
   resolveEffectiveCharacterCanon,
+  resolveEffectiveProductionSource,
 } from "./chapter-runtime";
+import type { ChapterStudioSnapshot } from "./types/chapter-studio";
 import { chapterStudioDataSchema } from "./types/chapter-studio";
 
 describe("chapter-runtime helpers", () => {
@@ -35,6 +37,29 @@ describe("chapter-runtime helpers", () => {
     expect(counts.missingImages).toBe(26);
     expect(counts.acceptedImages).toBe(49);
     expect(counts.minimumImages).toBe(75);
+  });
+
+  it("traite un productionOutline persisté invalide comme absent", () => {
+    const snapshot = {
+      status: "DRAFT",
+      currentStep: "intent",
+      updatedAt: null,
+      autosaveVersion: 1,
+      history: [],
+      data: {
+        productionOutline: {
+          source: "generated",
+          chapterGoal: "trop court",
+          cliffhanger: "x",
+          beats: [],
+        },
+      },
+    } as unknown as ChapterStudioSnapshot;
+
+    const resolved = resolveEffectiveProductionSource(snapshot);
+    expect(resolved.outline).toBeNull();
+    expect(resolved.source).toBe("missing");
+    expect(resolved.fallbackUsed).toBe(true);
   });
 
   it("normalise les champs runtime structurés persistables", () => {

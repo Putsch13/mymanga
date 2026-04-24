@@ -15,7 +15,7 @@ import {
 import { summarizeGenerationStatuses } from "./generation-status";
 import { parseIntentEntities } from "./services/entity-brain";
 import { writeDialogueForScene } from "./services/dialogue-writer";
-import { planPanelText, type PanelTextPlan } from "./services/panel-text-planner";
+import { planPanelDialogueText, type PanelDialogueTextPlan } from "@manga-ai-studio/core";
 import { analyzeBeatsForRepetition } from "./beat-advancement-checker";
 import type { ApprovedChapterOutline, SceneContinuityPayload, StructuredBeatPayload } from "@manga-ai-studio/core";
 import { creativityControlsSchema, type CreativityControls } from "@manga-ai-studio/world";
@@ -573,6 +573,7 @@ function buildPanelPrompt(
   action: string,
   mood: PanelMood,
   visualStyle: string,
+  reserveTextArea?: boolean,
 ): string {
   const charDescs = characters
     .map((name) => {
@@ -599,6 +600,13 @@ function buildPanelPrompt(
     dramatic: "dramatic composition, strong shadows, cinematic",
   };
 
+  const textZone =
+    reserveTextArea === true
+      ? "leave clear negative space in corners for speech balloons and SFX lettering, do not fill those zones with busy detail"
+      : reserveTextArea === false
+        ? "full-bleed art allowed, minimal reserved lettering zones"
+        : null;
+
   return [
     visualStyle,
     `manga panel, ${camera}`,
@@ -606,6 +614,7 @@ function buildPanelPrompt(
     charDescs,
     action,
     moodMap[mood],
+    textZone,
     "high detail, professional manga art, consistent character design, environmental storytelling",
   ]
     .filter(Boolean)
@@ -619,7 +628,7 @@ function buildPanelsForScene(
   panelBlueprints: PanelBlueprint[],
   visualStyle: string,
   genre: string,
-  panelTextPlan?: PanelTextPlan[],
+  panelTextPlan?: PanelDialogueTextPlan[],
 ): StoryboardPanel[] {
   const PANEL_FUNCTION_CAMERAS: Record<string, string[]> = {
     establishing: ["wide establishing shot", "medium shot", "close-up on face", "medium shot", "wide shot", "medium shot"],
@@ -675,6 +684,7 @@ function buildPanelsForScene(
         action,
         mood,
         visualStyle,
+        textPlan?.reserveTextArea,
       ),
       negativePrompt: STD_NEGATIVE,
       camera,
@@ -1034,7 +1044,7 @@ export async function generateChapterBundle(input: {
       }
 
       return {
-        plannedPanels: planPanelText({
+        plannedPanels: planPanelDialogueText({
           sceneId: scene.id,
           layout,
           panels: blueprints,

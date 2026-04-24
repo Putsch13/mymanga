@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { ChapterReadinessIssue, ChapterStudioData } from "@manga-ai-studio/core";
+import type { ChapterReadinessIssue, ChapterStudioData, EstimateCanonicalProductionPlan } from "@manga-ai-studio/core";
 import { AlertTriangle, Pencil, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -224,6 +224,13 @@ export function ChapterPlanStep({
   const minimumImages = imageCounts.minimumImages ?? draft.productionPlan?.minimumImages ?? 0;
   const contractComplete = hasProductionPlan && panelBlueprintCount >= minimumImages && minimumImages > 0;
   const outlineValidated = hasOutline;
+  const canonicalPlan: EstimateCanonicalProductionPlan | null | undefined =
+    draft.estimateContext?.canonicalProductionPlan ?? undefined;
+
+  const canonicalMetrics =
+    canonicalPlan && typeof canonicalPlan.metrics === "object" && canonicalPlan.metrics !== null
+      ? (canonicalPlan.metrics as Record<string, unknown>)
+      : null;
 
   return (
     <div data-studio-section="plan" className="space-y-6">
@@ -383,7 +390,10 @@ export function ChapterPlanStep({
         />
       </div>
 
-      <ProductionPlanCard plan={draft.productionPlan} />
+      <ProductionPlanCard
+        plan={draft.productionPlan}
+        canonicalProductionPlan={canonicalPlan ?? null}
+      />
 
       {/* Section Auto-déductions (lecture seule) */}
       {draft.productionPlan?.premiumReadinessScore !== undefined && (
@@ -494,10 +504,33 @@ export function ChapterPlanStep({
 
           <div className="grid gap-4 md:grid-cols-5">
             <div><p className="text-muted-foreground">Préparation</p><p>{preparationScore}/100</p></div>
-            <div><p className="text-muted-foreground">Images estimées</p><p>{imageCounts.estimatedImages}</p></div>
-            <div><p className="text-muted-foreground">Images cibles</p><p>{imageCounts.targetImages}</p></div>
-            <div><p className="text-muted-foreground">Cible indicative</p><p>{imageCounts.minimumImages}</p></div>
-            <div><p className="text-muted-foreground">Manquantes</p><p>{imageCounts.missingImages}</p></div>
+            {canonicalPlan ? (
+              <>
+                <div>
+                  <p className="text-muted-foreground">Panels (canonique)</p>
+                  <p>{canonicalPlan.panelCount}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Pages (canonique)</p>
+                  <p>{typeof canonicalMetrics?.totalPages === "number" ? canonicalMetrics.totalPages : "—"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Beats</p>
+                  <p>{canonicalPlan.beatCount}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Format</p>
+                  <p className="capitalize">{canonicalPlan.format}</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <div><p className="text-muted-foreground">Images estimées</p><p>{imageCounts.estimatedImages}</p></div>
+                <div><p className="text-muted-foreground">Images cibles</p><p>{imageCounts.targetImages}</p></div>
+                <div><p className="text-muted-foreground">Cible indicative</p><p>{imageCounts.minimumImages}</p></div>
+                <div><p className="text-muted-foreground">Manquantes</p><p>{imageCounts.missingImages}</p></div>
+              </>
+            )}
           </div>
 
           {/* P8 — blocants stricts : plan vide OU plan hors range 70-75.

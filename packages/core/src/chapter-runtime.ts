@@ -7,6 +7,7 @@ import {
   type CharacterCanon,
   type CharacterImportanceTier,
   type LocationCanon,
+  productionOutlineSchema,
   type ProductionOutline,
   type ProjectCanon,
 } from "./types";
@@ -341,13 +342,18 @@ export function resolveEffectiveChapterCanonState(snapshot: ChapterStudioSnapsho
 }
 
 export function resolveEffectiveProductionSource(snapshot: ChapterStudioSnapshot) {
-  if (snapshot.data.productionOutline) {
-    return {
-      outline: snapshot.data.productionOutline as ProductionOutline,
-      source: snapshot.data.productionOutline.source === "legacy_adapted" ? "legacy_bridge" : "studio",
-      fallbackUsed: snapshot.data.productionOutline.source === "legacy_adapted",
-      legacyBridgeUsed: snapshot.data.productionOutline.source === "legacy_adapted",
-    };
+  const rawOutline = snapshot.data.productionOutline;
+  if (rawOutline) {
+    const parsed = productionOutlineSchema.safeParse(rawOutline);
+    if (parsed.success) {
+      const outline: ProductionOutline = parsed.data;
+      return {
+        outline,
+        source: outline.source === "legacy_adapted" ? "legacy_bridge" : "studio",
+        fallbackUsed: outline.source === "legacy_adapted",
+        legacyBridgeUsed: outline.source === "legacy_adapted",
+      };
+    }
   }
   return {
     outline: null,

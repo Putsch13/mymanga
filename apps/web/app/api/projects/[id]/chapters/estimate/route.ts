@@ -388,6 +388,14 @@ export async function POST(req: Request, ctx: Ctx) {
       creativityControlsUsed: body.creativityControls ?? null,
       estimateSource: estimateMode,
       estimatedAt: new Date().toISOString(),
+      canonicalProductionPlan: {
+        format: canonicalFromBlueprints.format,
+        beatCount: canonicalFromBlueprints.beatCount,
+        panelCount: canonicalFromBlueprints.metrics.totalPanels,
+        metrics: canonicalFromBlueprints.metrics,
+        rhythm: canonicalFromBlueprints.rhythm,
+        qa: canonicalFromBlueprints.qa,
+      },
     },
     contextPreview: {
       recentChapters: context.recentChapters,

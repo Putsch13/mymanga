@@ -1,4 +1,4 @@
-import type { ProductionPlan } from "@manga-ai-studio/core";
+import type { EstimateCanonicalProductionPlan, ProductionPlan } from "@manga-ai-studio/core";
 import { PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -31,9 +31,17 @@ function isLegacyContract(plan: ProductionPlan | null | undefined): boolean {
   return hasNoBlueprintsOrCoverage;
 }
 
-export function ProductionPlanCard({ plan, productionOutlineSource }: {
+function metricNum(metrics: unknown, key: string): number | null {
+  if (!metrics || typeof metrics !== "object") return null;
+  const v = (metrics as Record<string, unknown>)[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+export function ProductionPlanCard({ plan, productionOutlineSource, canonicalProductionPlan }: {
   plan: ProductionPlan | null | undefined;
   productionOutlineSource?: string | null;
+  /** Quand présent (estimate), les compteurs affichés viennent du plan canonique — pas du plan brut. */
+  canonicalProductionPlan?: EstimateCanonicalProductionPlan | null;
 }) {
   const hasPremium =
     plan?.premiumReadinessScore !== undefined ||
@@ -50,6 +58,13 @@ export function ProductionPlanCard({ plan, productionOutlineSource }: {
   // l'ancienne version était trompeuse — le backend refuse le launch dans ce cas.
   const minimumImages = plan?.minimumImages ?? PREMIUM_PANEL_RANGE.target;
   const blueprintCount = Array.isArray(plan?.panelBlueprints) ? plan.panelBlueprints.length : 0;
+  const canonicalPanels = canonicalProductionPlan?.panelCount ?? null;
+  const canonicalPages = metricNum(canonicalProductionPlan?.metrics, "totalPages");
+  const canonicalCutawayRatio = metricNum(canonicalProductionPlan?.metrics, "cutawayRatio");
+  const canonicalQaValid =
+    canonicalProductionPlan?.qa && typeof canonicalProductionPlan.qa === "object"
+      ? (canonicalProductionPlan.qa as { valid?: boolean }).valid
+      : undefined;
   const hasProductionPlan = Boolean(plan);
   const contractComplete = hasProductionPlan && blueprintCount >= minimumImages;
   const contractBannerTone: "danger" | "success" | null = !hasProductionPlan
@@ -98,15 +113,20 @@ export function ProductionPlanCard({ plan, productionOutlineSource }: {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
-        {/* Budget images */}
+        {canonicalProductionPlan ? (
+          <p className="text-xs text-muted-foreground">
+            Métriques issues du <span className="font-medium text-foreground">plan canonique</span> (estimate) — alignées launch / QA.
+          </p>
+        ) : null}
+        {/* Budget images : source canonique si disponible après estimate */}
         <div className="grid gap-3 sm:grid-cols-4">
           <div>
             <p className="text-muted-foreground">Pages</p>
-            <p>{plan?.pageCount ?? 0}</p>
+            <p>{canonicalPages ?? plan?.pageCount ?? 0}</p>
           </div>
           <div>
-            <p className="text-muted-foreground">Images estimées</p>
-            <p>{plan?.estimatedImages ?? 0}</p>
+            <p className="text-muted-foreground">Panels (canonique)</p>
+            <p>{canonicalPanels ?? plan?.estimatedImages ?? 0}</p>
           </div>
           <div>
             <p className="text-muted-foreground">Images cibles</p>
@@ -117,6 +137,21 @@ export function ProductionPlanCard({ plan, productionOutlineSource }: {
             <p>{plan?.minimumImages ?? PREMIUM_PANEL_RANGE.target}</p>
           </div>
         </div>
+        {canonicalProductionPlan && typeof canonicalCutawayRatio === "number" ? (
+          <div className="rounded-lg border border-border/40 bg-muted/20 px-3 py-2 text-xs">
+            <span className="text-muted-foreground">Cutaways (ratio canonique) : </span>
+            <span className="font-medium tabular-nums">{(canonicalCutawayRatio * 100).toFixed(1)}%</span>
+            {typeof canonicalQaValid === "boolean" ? (
+              <>
+                <span className="mx-2 text-muted-foreground">·</span>
+                <span className="text-muted-foreground">QA structure : </span>
+                <span className={canonicalQaValid ? "text-emerald-600 font-medium" : "text-red-500 font-medium"}>
+                  {canonicalQaValid ? "OK" : "Échec"}
+                </span>
+              </>
+            ) : null}
+          </div>
+        ) : null}
 
         {/* Premium intelligence section */}
         {hasPremium && (

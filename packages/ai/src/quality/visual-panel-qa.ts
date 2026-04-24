@@ -5,6 +5,10 @@
  * C'est LA SOURCE DE VÉRITÉ pour la qualité visuelle des panels.
  *
  * L'auto-retry n'est pas "renvoyer pareil" mais est piloté par les causes d'échec.
+ *
+ * Persistance : le résultat de `runVisualPanelQa` est stocké dans `SceneImage.metadata.visualQa`
+ * après rendu v3 (`v3-scene-image-persistence`). Une couche vision réelle peut s'appuyer sur
+ * `analyzePanelWithVision` (panel-vision-analyzer) et fusionner les scores avant persistance.
  */
 
 import { PRODUCTION_RULES } from "@manga-ai-studio/core";

@@ -586,6 +586,18 @@ export const autofillMetaSchema = z.object({
 
 export type AutofillMeta = z.infer<typeof autofillMetaSchema>;
 
+/** Sous-ensemble du plan canonique renvoyé par POST /chapters/estimate (persisté avec le snapshot). */
+export const estimateCanonicalProductionPlanSchema = z.object({
+  format: z.enum(["manga", "webtoon"]),
+  beatCount: z.number().int().min(0),
+  panelCount: z.number().int().min(0),
+  metrics: z.unknown(),
+  rhythm: z.unknown(),
+  qa: z.unknown(),
+});
+
+export type EstimateCanonicalProductionPlan = z.infer<typeof estimateCanonicalProductionPlanSchema>;
+
 export const estimateContextSchema = z.object({
   targetChapterId: z.string().optional().nullable(),
   targetChapterNumber: z.number().int().positive().optional().nullable(),
@@ -593,6 +605,7 @@ export const estimateContextSchema = z.object({
   creativityControlsUsed: z.record(z.string(), z.unknown()).optional().nullable(),
   estimateSource: z.enum(["new_chapter", "existing_chapter"]).default("new_chapter"),
   estimatedAt: z.string(),
+  canonicalProductionPlan: estimateCanonicalProductionPlanSchema.optional(),
 });
 
 export type EstimateContext = z.infer<typeof estimateContextSchema>;

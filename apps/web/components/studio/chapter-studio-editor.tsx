@@ -208,13 +208,27 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
       forbiddenNarrativeMisses: [],
     };
 
+    const mergedEstimateContext = (() => {
+      if (!json.estimateContext && !json.canonicalProductionPlan) return undefined;
+      const base = json.estimateContext ?? {
+        estimatedAt: new Date().toISOString(),
+        estimateSource: json.estimateMode === "existing_chapter" ? "existing_chapter" : "new_chapter",
+      };
+      return {
+        ...base,
+        ...(!base.canonicalProductionPlan && json.canonicalProductionPlan
+          ? { canonicalProductionPlan: json.canonicalProductionPlan }
+          : {}),
+      };
+    })();
+
     const nextDraft: ChapterStudioData = {
       ...draft,
       editorialOutline: json.editorialOutline,
       productionOutline: json.productionOutline,
       productionPlan: json.productionPlan,
       narrativeContract: autoNarrativeContract,
-      ...(json.estimateContext ? { estimateContext: json.estimateContext } : {}),
+      ...(mergedEstimateContext ? { estimateContext: mergedEstimateContext } : {}),
     };
 
     // Vérification de progression narrative côté client

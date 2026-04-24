@@ -4,7 +4,11 @@ import {
   validateVisualCoverage,
   type StoryArc,
 } from "@manga-ai-studio/ai";
-import { PREMIUM_PANEL_RANGE, type PanelBlueprintPremium, type ProductionOutline } from "@manga-ai-studio/core";
+import {
+  PREMIUM_PANEL_RANGE,
+  resolveProductionOutlineForPremiumPipeline,
+  type PanelBlueprintPremium,
+} from "@manga-ai-studio/core";
 import { createDefaultPanelImageGenerator } from "./passes/default-panel-image-generator";
 import { loadChapterVisualMemory } from "./passes/load-chapter-visual-memory";
 import { runPageQaPass } from "./passes/page-qa-pass";
@@ -163,6 +167,12 @@ export async function runPremiumV3Pipeline(
   try {
     const approvedPlanDriven = hasApprovedPlanDrivenInput(input);
     const projectFormat = resolveProjectFormat(input.project, input.projectId);
+    const resolvedProductionOutline = resolveProductionOutlineForPremiumPipeline({
+      approvedOutlineRaw: input.approvedOutline ?? null,
+      productionPlanRaw: input.productionPlan ?? null,
+      chapterSummary: input.chapterSummary,
+      cliffhangerOverride: null,
+    });
     let storyArc: StoryArc | null = null;
 
     let storyboardPassResult: Awaited<ReturnType<typeof runStoryboardPass>>;
@@ -247,7 +257,7 @@ export async function runPremiumV3Pipeline(
         const sfxEnrichment = ensureDialogueAndSfxForPremiumBlueprints({
           blueprints: rebal.blueprints,
           chapterUserIntent: input.chapterUserIntent,
-          productionOutline: input.approvedOutline as ProductionOutline | null | undefined,
+          productionOutline: resolvedProductionOutline ?? undefined,
           chapterSummary: input.chapterSummary,
         });
         if (
@@ -299,11 +309,10 @@ export async function runPremiumV3Pipeline(
           }
         }
 
-        if (input.approvedOutline) {
-          const typedOutlineForQa = input.approvedOutline as ProductionOutline;
+        if (resolvedProductionOutline) {
           const narrativeQa = runNarrativeContractQa({
             blueprints: rebal.blueprints,
-            outline: typedOutlineForQa,
+            outline: resolvedProductionOutline,
             chapterUserIntent: input.chapterUserIntent,
             chapterSummary: input.chapterSummary,
             chapterLocationName: input.chapterLocationName,
@@ -334,17 +343,16 @@ export async function runPremiumV3Pipeline(
       const storyboardBuildStart = Date.now();
 
       const productionPlanForArc = productionPlanForStoryboard ?? input.productionPlan;
-      const typedOutline = input.approvedOutline as ProductionOutline | null | undefined;
       const storyArcFromPlan = buildStoryArcFromProductionPlan({
         productionPlan: productionPlanForArc as { panelBlueprints?: PanelBlueprintPremium[]; [key: string]: unknown },
-        approvedOutline: typedOutline,
+        approvedOutline: resolvedProductionOutline,
         chapterId: input.chapterId,
         chapterNumber: input.chapterNumber,
         chapterTitle: input.chapterTitle,
         chapterSummary: input.chapterSummary,
         chapterUserIntent: input.chapterUserIntent,
-        chapterGoal: typedOutline?.chapterGoal,
-        cliffhanger: typedOutline?.cliffhanger,
+        chapterGoal: resolvedProductionOutline?.chapterGoal,
+        cliffhanger: resolvedProductionOutline?.cliffhanger,
       });
 
       console.info(

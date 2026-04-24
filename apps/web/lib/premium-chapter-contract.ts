@@ -8,6 +8,8 @@ import {
   buildChapterReadinessReport,
   PREMIUM_PANEL_RANGE,
   classifyPremiumPanelCount,
+  productionOutlineSchema,
+  productionPlanSchema,
   type ApprovedChapterOutline,
   type ChapterStudioSnapshot,
   type ProductionOutline,
@@ -101,21 +103,27 @@ export async function buildPremiumChapterContractFromApprovedOutline(
       : undefined,
   });
 
-  const productionOutline = raw.productionOutline as ProductionOutline;
-  const productionPlan = raw.productionPlan as ProductionPlan;
-  const panelBlueprints = Array.isArray(productionPlan?.panelBlueprints)
-    ? productionPlan.panelBlueprints
-    : [];
+  const outlineResult = productionOutlineSchema.safeParse(raw.productionOutline);
+  if (!outlineResult.success) {
+    throw new Error(`premium_contract_invalid_production_outline: ${outlineResult.error.message}`);
+  }
+  const planResult = productionPlanSchema.safeParse(raw.productionPlan);
+  if (!planResult.success) {
+    throw new Error(`premium_contract_invalid_production_plan: ${planResult.error.message}`);
+  }
+  const productionOutline: ProductionOutline = outlineResult.data;
+  const productionPlan: ProductionPlan = planResult.data;
+  const panelBlueprints = Array.isArray(productionPlan.panelBlueprints) ? productionPlan.panelBlueprints : [];
 
   const coverage: PremiumContractCoverage = {
-    focusDistribution: productionPlan?.focusDistribution as Record<string, number> | undefined,
-    propCoverage: productionPlan?.propCoverage as PremiumContractCoverage["propCoverage"],
-    enemyCoverage: productionPlan?.enemyCoverage as PremiumContractCoverage["enemyCoverage"],
-    npcCoverage: productionPlan?.npcCoverage as PremiumContractCoverage["npcCoverage"],
-    cutawayCoverage: productionPlan?.cutawayCoverage as PremiumContractCoverage["cutawayCoverage"],
-    dialogueAnchorCoverage: productionPlan?.dialogueAnchorCoverage as PremiumContractCoverage["dialogueAnchorCoverage"],
-    heroCenterRatio: typeof productionPlan?.heroCenterRatio === "number" ? productionPlan.heroCenterRatio : undefined,
-    premiumReadinessScore: typeof productionPlan?.premiumReadinessScore === "number" ? productionPlan.premiumReadinessScore : undefined,
+    focusDistribution: productionPlan.focusDistribution,
+    propCoverage: productionPlan.propCoverage,
+    enemyCoverage: productionPlan.enemyCoverage,
+    npcCoverage: productionPlan.npcCoverage,
+    cutawayCoverage: productionPlan.cutawayCoverage,
+    dialogueAnchorCoverage: productionPlan.dialogueAnchorCoverage,
+    heroCenterRatio: productionPlan.heroCenterRatio,
+    premiumReadinessScore: productionPlan.premiumReadinessScore,
   };
 
   return {
@@ -144,21 +152,35 @@ export function mergePremiumContractIntoSnapshot(
     data: {
       ...existingData,
       productionOutline: premiumContract.productionOutline,
-      productionPlan: {
-        ...existingData.productionPlan,
-        ...premiumContract.productionPlan,
-        panelBlueprints: premiumContract.panelBlueprints.length > 0
-          ? premiumContract.panelBlueprints as ProductionPlan["panelBlueprints"]
-          : existingData.productionPlan?.panelBlueprints,
-        focusDistribution: premiumContract.coverage.focusDistribution ?? existingData.productionPlan?.focusDistribution,
-        propCoverage: (premiumContract.coverage.propCoverage ?? existingData.productionPlan?.propCoverage) as ProductionPlan["propCoverage"],
-        enemyCoverage: (premiumContract.coverage.enemyCoverage ?? existingData.productionPlan?.enemyCoverage) as ProductionPlan["enemyCoverage"],
-        npcCoverage: (premiumContract.coverage.npcCoverage ?? existingData.productionPlan?.npcCoverage) as ProductionPlan["npcCoverage"],
-        cutawayCoverage: (premiumContract.coverage.cutawayCoverage ?? existingData.productionPlan?.cutawayCoverage) as ProductionPlan["cutawayCoverage"],
-        dialogueAnchorCoverage: (premiumContract.coverage.dialogueAnchorCoverage ?? existingData.productionPlan?.dialogueAnchorCoverage) as ProductionPlan["dialogueAnchorCoverage"],
-        heroCenterRatio: premiumContract.coverage.heroCenterRatio ?? existingData.productionPlan?.heroCenterRatio,
-        premiumReadinessScore: premiumContract.coverage.premiumReadinessScore ?? existingData.productionPlan?.premiumReadinessScore,
-      },
+      productionPlan: (() => {
+        const mergedPlanRaw = {
+          ...existingData.productionPlan,
+          ...premiumContract.productionPlan,
+          panelBlueprints:
+            premiumContract.panelBlueprints.length > 0
+              ? premiumContract.panelBlueprints
+              : existingData.productionPlan?.panelBlueprints,
+          focusDistribution:
+            premiumContract.coverage.focusDistribution ?? existingData.productionPlan?.focusDistribution,
+          propCoverage: premiumContract.coverage.propCoverage ?? existingData.productionPlan?.propCoverage,
+          enemyCoverage: premiumContract.coverage.enemyCoverage ?? existingData.productionPlan?.enemyCoverage,
+          npcCoverage: premiumContract.coverage.npcCoverage ?? existingData.productionPlan?.npcCoverage,
+          cutawayCoverage: premiumContract.coverage.cutawayCoverage ?? existingData.productionPlan?.cutawayCoverage,
+          dialogueAnchorCoverage:
+            premiumContract.coverage.dialogueAnchorCoverage ?? existingData.productionPlan?.dialogueAnchorCoverage,
+          heroCenterRatio: premiumContract.coverage.heroCenterRatio ?? existingData.productionPlan?.heroCenterRatio,
+          premiumReadinessScore:
+            premiumContract.coverage.premiumReadinessScore ?? existingData.productionPlan?.premiumReadinessScore,
+        };
+        const merged = productionPlanSchema.safeParse(mergedPlanRaw);
+        if (!merged.success) {
+          console.warn(
+            `[mergePremiumContractIntoSnapshot] production_plan_parse_failed: ${merged.error.message} — fallback server plan`,
+          );
+          return premiumContract.productionPlan;
+        }
+        return merged.data;
+      })(),
       // Préserver les champs enrichis premium existants
       characterSelection: existingData.characterSelection,
       narrativeContract: existingData.narrativeContract,
@@ -515,9 +537,20 @@ export function reconcileIncomingPremiumContract(opts: {
     }
   }
 
+  const reconciledParsed = productionPlanSchema.safeParse(reconciledPP);
+  if (!reconciledParsed.success) {
+    console.warn(
+      `[reconcileIncomingPremiumContract] production_plan_parse_failed: ${reconciledParsed.error.message} — using server plan`,
+    );
+    return {
+      productionOutline: rebuiltContract.productionOutline,
+      productionPlan: rebuiltContract.productionPlan,
+    };
+  }
+
   return {
     productionOutline: rebuiltContract.productionOutline,
-    productionPlan: reconciledPP as ProductionPlan,
+    productionPlan: reconciledParsed.data,
   };
 }
 

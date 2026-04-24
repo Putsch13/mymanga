@@ -4,6 +4,8 @@ import {
   PREMIUM_PANEL_RANGE,
   productionOutlineSchema,
   productionPlanSchema,
+  type ProductionOutline,
+  type ProductionPlan,
 } from "@manga-ai-studio/core";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { notFound, unauthorized } from "@/lib/api-response";
@@ -86,12 +88,6 @@ export async function PATCH(req: Request, ctx: Ctx) {
     usedFallbackHeroCharacterId,
   };
 
-  // Si productionOutline + productionPlan sont fournis (depuis generate/page.tsx), les persister tels quels
-  // Sinon, reconstruire le contrat premium complet depuis l'approvedOutline
-  let resolvedProductionOutline: unknown;
-  let resolvedProductionPlan: unknown;
-  let premiumMeta: unknown;
-
   const providedProductionOutline = body.productionOutline;
   const providedProductionPlan = body.productionPlan;
 
@@ -112,6 +108,11 @@ export async function PATCH(req: Request, ctx: Ctx) {
     minimumPanels: chapterMinimumImages,
   });
 
+  // Si productionOutline + productionPlan sont fournis (depuis generate/page.tsx), les persister après réconciliation.
+  let resolvedProductionOutline: ProductionOutline = rebuiltContract.productionOutline;
+  let resolvedProductionPlan: ProductionPlan = rebuiltContract.productionPlan;
+  let premiumMeta: unknown;
+
   if (providedProductionOutline && providedProductionPlan) {
     // Contrat fourni par le client — valider les schémas puis réconcilier avec le serveur
     const parsedOutline = productionOutlineSchema.safeParse(providedProductionOutline);
@@ -127,26 +128,26 @@ export async function PATCH(req: Request, ctx: Ctx) {
       });
       resolvedProductionOutline = reconciled.productionOutline;
       resolvedProductionPlan = reconciled.productionPlan;
-      const reconciledPP = reconciled.productionPlan as Record<string, unknown>;
+      const reconciledPlan = reconciled.productionPlan;
       premiumMeta = {
         source: reconciled.productionOutline.source,
-        premiumReadinessScore: reconciledPP.premiumReadinessScore,
-        panelBlueprintsCount: Array.isArray(reconciledPP.panelBlueprints) ? reconciledPP.panelBlueprints.length : 0,
-        heroCenterRatio: reconciledPP.heroCenterRatio,
-        focusDistribution: reconciledPP.focusDistribution,
-        propCoverage: reconciledPP.propCoverage,
-        enemyCoverage: reconciledPP.enemyCoverage,
-        npcCoverage: reconciledPP.npcCoverage,
-        cutawayCoverage: reconciledPP.cutawayCoverage,
-        dialogueAnchorCoverage: reconciledPP.dialogueAnchorCoverage,
+        premiumReadinessScore: reconciledPlan.premiumReadinessScore,
+        panelBlueprintsCount: Array.isArray(reconciledPlan.panelBlueprints) ? reconciledPlan.panelBlueprints.length : 0,
+        heroCenterRatio: reconciledPlan.heroCenterRatio,
+        focusDistribution: reconciledPlan.focusDistribution,
+        propCoverage: reconciledPlan.propCoverage,
+        enemyCoverage: reconciledPlan.enemyCoverage,
+        npcCoverage: reconciledPlan.npcCoverage,
+        cutawayCoverage: reconciledPlan.cutawayCoverage,
+        dialogueAnchorCoverage: reconciledPlan.dialogueAnchorCoverage,
         reconciled: true,
         ...heroPremiumMeta,
       };
       console.info(
         `[approved-outline] reconciled chapterId=${chapterId} ` +
         `incomingBeats=${parsedOutline.data.beats.length} rebuiltBeats=${rebuiltContract.productionOutline.beats.length} ` +
-        `panelBlueprintsCount=${Array.isArray(reconciledPP.panelBlueprints) ? reconciledPP.panelBlueprints.length : 0} ` +
-        `premiumReadinessScore=${reconciledPP.premiumReadinessScore ?? "n/a"}`,
+        `panelBlueprintsCount=${Array.isArray(reconciledPlan.panelBlueprints) ? reconciledPlan.panelBlueprints.length : 0} ` +
+        `premiumReadinessScore=${reconciledPlan.premiumReadinessScore ?? "n/a"}`,
       );
     } else {
       // Payload client invalide — utiliser directement le contrat serveur
@@ -245,8 +246,8 @@ export async function PATCH(req: Request, ctx: Ctx) {
           involvedCharacters: beat.characters,
         })),
       },
-      productionOutline: resolvedProductionOutline as never,
-      productionPlan: resolvedProductionPlan as never,
+      productionOutline: resolvedProductionOutline,
+      productionPlan: resolvedProductionPlan,
     },
     {
       chapterNumber: chapter.chapterNumber,

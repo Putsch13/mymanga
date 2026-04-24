@@ -197,6 +197,11 @@ describe("chapter estimate route", () => {
 
     expect(response.status).toBe(200);
     expect(payload.estimateMode).toBe("new_chapter");
+    expect(payload.estimateContext?.canonicalProductionPlan).toMatchObject({
+      format: expect.stringMatching(/manga|webtoon/),
+      panelCount: expect.any(Number),
+      beatCount: expect.any(Number),
+    });
     expect(payload.targetChapter.chapterNumber).toBe(3);
     expect(buildProjectContextMock).toHaveBeenCalledWith(
       prismaMock,
