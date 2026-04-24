@@ -135,15 +135,31 @@ function checkNonCutawayNarrativeAnchor(plan: CanonicalChapterProductionPlan): Q
 
   const silentRatio = nonCutawayPanels.length > 0 ? withoutAnchor.length / nonCutawayPanels.length : 0;
 
-  if (silentRatio > PRODUCTION_RULES.dialogue.maxSilentNonCutawayRatio) {
+  if (silentRatio > PRODUCTION_RULES.dialogue.maxSilentActorDrivenRatio) {
     return {
-      passed: true,
-      message: `${(silentRatio * 100).toFixed(1)}% of non-cutaway panels are silent (max ${(PRODUCTION_RULES.dialogue.maxSilentNonCutawayRatio * 100).toFixed(1)}%)`,
-      severity: "warning",
+      passed: false,
+      message: `${(silentRatio * 100).toFixed(1)}% of non-cutaway panels are silent (max ${(PRODUCTION_RULES.dialogue.maxSilentActorDrivenRatio * 100).toFixed(1)}%)`,
+      severity: "error",
     };
   }
 
   return { passed: true, message: "Non-cutaway narrative anchor OK", severity: "warning" };
+}
+
+function checkIntentionalSilenceBudget(plan: CanonicalChapterProductionPlan): QaCheckResult {
+  const actorDriven = plan.panels.filter((p) => p.isActorDriven && !p.isCutaway);
+  const intentional = plan.panels.filter(
+    (p) => p.isActorDriven && !p.isCutaway && p.textPlan.mode === "intentional_silence",
+  );
+  const ratio = actorDriven.length > 0 ? intentional.length / actorDriven.length : 0;
+  if (ratio > PRODUCTION_RULES.dialogue.maxSilentActorDrivenRatio) {
+    return {
+      passed: false,
+      message: `Intentional silence ratio ${(ratio * 100).toFixed(1)}% exceeds max ${(PRODUCTION_RULES.dialogue.maxSilentActorDrivenRatio * 100).toFixed(1)}% on actor-driven panels`,
+      severity: "error",
+    };
+  }
+  return { passed: true, message: "Intentional silence budget OK", severity: "warning" };
 }
 
 function checkRequiredCharacterPresence(plan: CanonicalChapterProductionPlan): QaCheckResult {
@@ -168,9 +184,9 @@ function checkRequiredCharacterPresence(plan: CanonicalChapterProductionPlan): Q
 
   if (missingCharacters.length > 0) {
     return {
-      passed: true,
-      message: `${missingCharacters.length} characters mentioned in beats but not in panels: ${missingCharacters.slice(0, 3).join(", ")}`,
-      severity: "warning",
+      passed: false,
+      message: `${missingCharacters.length} characters required by beats are absent from panels: ${missingCharacters.slice(0, 5).join(", ")}`,
+      severity: "error",
     };
   }
 
@@ -216,6 +232,7 @@ export function runProductionPlanQa(plan: CanonicalChapterProductionPlan): Produ
     checkBeatCoverage(plan),
     checkDialogueCoverage(plan),
     checkNonCutawayNarrativeAnchor(plan),
+    checkIntentionalSilenceBudget(plan),
     checkRequiredCharacterPresence(plan),
     checkHighPropRatio(plan),
     checkHighEnvironmentRatio(plan),
@@ -256,4 +273,8 @@ export function runProductionPlanQaOrThrow(plan: CanonicalChapterProductionPlan)
     throw new ProductionPlanQaError(result);
   }
   return result;
+}
+
+export function assertCanonicalPlanIsUsable(plan: CanonicalChapterProductionPlan): void {
+  runProductionPlanQaOrThrow(plan);
 }

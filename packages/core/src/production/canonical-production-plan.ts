@@ -38,7 +38,9 @@ export type PanelNarrativeMode =
   | "narration"
   | "thought"
   | "sfx"
-  | "silent";
+  | "silent"
+  /** Silence volontaire avec intention narrative documentée (`purpose` / notes). */
+  | "intentional_silence";
 
 export type DialogueAnchorPosition = "top" | "bottom" | "left" | "right" | "center";
 
@@ -166,6 +168,7 @@ export interface ProductionMetrics {
   dialogueFloatingCount: number;
   narrationCount: number;
   silentCount: number;
+  intentionalSilenceCount: number;
   sfxCount: number;
 
   maxConsecutiveCutaways: number;
@@ -234,7 +237,7 @@ export const canonicalPanelPlanSchema = z.object({
   requiredLocationSignals: z.array(z.string()),
   textPlan: z.object({
     panelId: z.string(),
-    mode: z.enum(["dialogue", "narration", "thought", "sfx", "silent"]),
+    mode: z.enum(["dialogue", "narration", "thought", "sfx", "silent", "intentional_silence"]),
     anchor: z.object({
       speakerId: z.string().optional(),
       speakerName: z.string().optional(),
@@ -306,7 +309,7 @@ export function createEmptyProductionPlan(
       cutawayMaxRatio: PRODUCTION_RULES.cutaway.maxRatio,
       actorDrivenMinRatio: PRODUCTION_RULES.actorDriven.minRatio,
       maxConsecutiveCutaways: PRODUCTION_RULES.cutaway.maxConsecutive,
-      pattern: [...PRODUCTION_RULES.rhythm.defaultPattern],
+      pattern: [...PRODUCTION_RULES.rhythm.preferredNarrativePattern],
       cutawayInsertionPolicy: PRODUCTION_RULES.rhythm.cutawayInsertionPolicy,
     },
     metrics: createEmptyMetrics(),
@@ -338,6 +341,7 @@ function createEmptyMetrics(): ProductionMetrics {
     dialogueFloatingCount: 0,
     narrationCount: 0,
     silentCount: 0,
+    intentionalSilenceCount: 0,
     sfxCount: 0,
     maxConsecutiveCutaways: 0,
     focusDistribution: {},

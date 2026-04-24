@@ -37,7 +37,7 @@ describe("P0.5 — Legacy pipeline isolation", () => {
     process.env.ENABLE_LEGACY_PIPELINE = "false";
 
     const { runLegacyCompatibleChapterPipeline, LegacyPipelineDisabledError } =
-      await import("./run-legacy-compatible-chapter-pipeline");
+      await import("./legacy/run-legacy-compatible-chapter-pipeline");
 
     await expect(
       runLegacyCompatibleChapterPipeline({

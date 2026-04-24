@@ -21,6 +21,8 @@ import type {
   CanonicalBeatPlan,
   CanonicalPanelPlan,
   ProductionMetrics,
+  ProductionQaResult,
+  PanelNarrativeMode,
   PanelRole,
   PanelTextPlan,
 } from "./canonical-production-plan";
@@ -56,6 +58,7 @@ export function computeCanonicalProductionMetrics(panels: CanonicalPanelPlan[]):
   let dialogueFloatingCount = 0;
   let narrationCount = 0;
   let silentCount = 0;
+  let intentionalSilenceCount = 0;
   let sfxCount = 0;
   let maxConsecutiveCutaways = 0;
   let currentCutawayStreak = 0;
@@ -93,6 +96,9 @@ export function computeCanonicalProductionMetrics(panels: CanonicalPanelPlan[]):
       case "silent":
         silentCount++;
         break;
+      case "intentional_silence":
+        intentionalSilenceCount++;
+        break;
     }
   }
 
@@ -121,6 +127,7 @@ export function computeCanonicalProductionMetrics(panels: CanonicalPanelPlan[]):
     dialogueFloatingCount,
     narrationCount,
     silentCount,
+    intentionalSilenceCount,
     sfxCount,
     maxConsecutiveCutaways,
     focusDistribution,
@@ -199,6 +206,123 @@ function buildPanelPlan(
   };
 }
 
+/**
+ * Garantit qu’aucun panel non-cutaway n’est « vide » : dialogue, narration,
+ * pensée, SFX ou silence intentionnel (budget limité).
+ */
+export function assignPanelTextAnchors(plan: CanonicalChapterProductionPlan): CanonicalChapterProductionPlan {
+  const beatById = new Map(plan.beats.map((b) => [b.beatId, b]));
+  const actorDrivenPanels = plan.panels.filter((p) => p.isActorDriven && !p.isCutaway);
+  const maxIntentional = Math.max(
+    0,
+    Math.floor(actorDrivenPanels.length * PRODUCTION_RULES.dialogue.maxSilentActorDrivenRatio),
+  );
+  let intentionalBudget = maxIntentional;
+
+  const newPanels = plan.panels.map((panel) => {
+    if (panel.isCutaway) return panel;
+    if (panel.textPlan.mode !== "silent") return panel;
+
+    const beat = beatById.get(panel.beatId);
+    const storyHint = [beat?.dramaticChange, beat?.summary, panel.purpose].filter(Boolean).join(" ").trim();
+
+    if (intentionalBudget > 0 && (beat?.hasTension || beat?.hasEmotion)) {
+      intentionalBudget -= 1;
+      return {
+        ...panel,
+        purpose: panel.purpose?.trim() || `Silence narratif — ${storyHint.slice(0, 120) || "tension"}`,
+        textPlan: {
+          ...panel.textPlan,
+          panelId: panel.panelId,
+          mode: "intentional_silence" as const satisfies PanelNarrativeMode,
+          reserveTextArea: false,
+        },
+      };
+    }
+
+    if (beat?.hasDialogue) {
+      return {
+        ...panel,
+        textPlan: {
+          panelId: panel.panelId,
+          mode: "dialogue" as const satisfies PanelNarrativeMode,
+          anchor: {
+            speakerId: beat.involvedCharacters[0],
+            reserveBubbleSpace: true,
+          },
+          reserveTextArea: true,
+        },
+      };
+    }
+
+    if (beat?.hasAction) {
+      return {
+        ...panel,
+        textPlan: {
+          panelId: panel.panelId,
+          mode: "sfx" as const satisfies PanelNarrativeMode,
+          sfx: ["FWOOM"],
+          reserveTextArea: true,
+        },
+      };
+    }
+
+    return {
+      ...panel,
+      textPlan: {
+        panelId: panel.panelId,
+        mode: "narration" as const satisfies PanelNarrativeMode,
+        text: (beat?.summary || panel.purpose || "…").slice(0, 140),
+        reserveTextArea: true,
+      },
+    };
+  });
+
+  const metrics = computeCanonicalProductionMetrics(newPanels);
+  return { ...plan, panels: newPanels, metrics };
+}
+
+export function qaCanonicalProductionPlan(plan: CanonicalChapterProductionPlan): ProductionQaResult {
+  return runProductionPlanQa(plan);
+}
+
+export function autoRepairCanonicalPlan(plan: CanonicalChapterProductionPlan): {
+  plan: CanonicalChapterProductionPlan;
+  messages: string[];
+} {
+  const next = assignPanelTextAnchors(plan);
+  const changed = JSON.stringify(next.panels) !== JSON.stringify(plan.panels);
+  return { plan: next, messages: changed ? ["assignPanelTextAnchors"] : [] };
+}
+
+export function qaCanonicalProductionPlanWithAutoRepair(plan: CanonicalChapterProductionPlan): {
+  plan: CanonicalChapterProductionPlan;
+  qa: ProductionQaResult;
+  repairLog: string[];
+} {
+  let current = plan;
+  let qa = runProductionPlanQa(current);
+  const repairLog: string[] = [];
+
+  if (!qa.valid) {
+    const { plan: repaired, messages } = autoRepairCanonicalPlan(current);
+    if (messages.length > 0) {
+      repairLog.push(...messages);
+      current = repaired;
+      qa = runProductionPlanQa(current);
+    }
+    if (qa.valid) {
+      console.warn("[canonical-plan] qa_repaired", repairLog.join(", ") || "noop");
+    } else {
+      console.error("[canonical-plan] qa_failed", qa.errors.join(" | "));
+    }
+  } else {
+    console.info("[canonical-plan] qa_ok");
+  }
+
+  return { plan: current, qa, repairLog };
+}
+
 export function buildCanonicalChapterProductionPlan(
   input: BuildCanonicalPlanInput,
 ): CanonicalChapterProductionPlan {
@@ -249,9 +373,7 @@ export function buildCanonicalChapterProductionPlan(
     beatPlans.push(buildBeatPlan(beat, panelIdsForBeat));
   }
 
-  const metrics = computeCanonicalProductionMetrics(panels);
-
-  const partialPlan: CanonicalChapterProductionPlan = {
+  const partialPlanBare: CanonicalChapterProductionPlan = {
     chapterId: input.chapterId,
     projectId: input.projectId,
     chapterNumber: input.chapterNumber,
@@ -269,19 +391,21 @@ export function buildCanonicalChapterProductionPlan(
       cutawayMaxRatio: PRODUCTION_RULES.cutaway.maxRatio,
       actorDrivenMinRatio: PRODUCTION_RULES.actorDriven.minRatio,
       maxConsecutiveCutaways: PRODUCTION_RULES.cutaway.maxConsecutive,
-      pattern: [...PRODUCTION_RULES.rhythm.defaultPattern],
+      pattern: [...PRODUCTION_RULES.rhythm.preferredNarrativePattern],
       cutawayInsertionPolicy: PRODUCTION_RULES.rhythm.cutawayInsertionPolicy,
     },
-    metrics,
+    metrics: computeCanonicalProductionMetrics(panels),
     qa: { valid: false, warnings: [], errors: [], details: {} as any },
     createdAt: new Date().toISOString(),
     version: "1.0.0",
   };
 
-  const qaResult = runProductionPlanQa(partialPlan);
+  const partialPlan = assignPanelTextAnchors(partialPlanBare);
+  console.info("[canonical-plan] built", { chapterId: input.chapterId, panels: partialPlan.panels.length });
+  const { plan: finalPlan, qa: qaResult } = qaCanonicalProductionPlanWithAutoRepair(partialPlan);
 
   return {
-    ...partialPlan,
+    ...finalPlan,
     qa: qaResult,
   };
 }
@@ -293,4 +417,32 @@ export function safelyBuildCanonicalPlan(input: BuildCanonicalPlanInput): Canoni
     console.error("[build-canonical-production-plan] Failed to build plan:", error);
     return null;
   }
+}
+
+/** Alias CTO — métriques officielles à partir des panels canoniques. */
+export const computeCanonicalPlanMetrics = computeCanonicalProductionMetrics;
+
+/**
+ * Rythme premium : même logique que `buildCanonicalChapterProductionPlan`
+ * (outline normalisé → panels dans la plage 70–75 avec contraintes).
+ */
+export function planPremiumPanelRhythm(input: {
+  outline: NormalizedOutline;
+  format: ChapterFormat;
+  rules?: Partial<RhythmConfig>;
+}): CanonicalPanelPlan[] {
+  return buildCanonicalChapterProductionPlan({
+    chapterId: "rhythm-preview",
+    projectId: "rhythm-preview",
+    chapterNumber: 1,
+    chapterTitle: "Rhythm preview",
+    format: input.format,
+    rawOutline: {
+      source: input.outline.source,
+      chapterGoal: input.outline.chapterGoal,
+      cliffhanger: input.outline.cliffhanger,
+      beats: input.outline.beats,
+    },
+    rhythmConfig: input.rules,
+  }).panels;
 }

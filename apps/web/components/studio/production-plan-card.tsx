@@ -1,5 +1,5 @@
 import type { EstimateCanonicalProductionPlan, ProductionPlan } from "@manga-ai-studio/core";
-import { PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
+import { PREMIUM_PANEL_RANGE, PRODUCTION_RULES } from "@manga-ai-studio/core";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 function PremiumScoreBadge({ score }: { score: number }) {
@@ -56,11 +56,16 @@ export function ProductionPlanCard({ plan, productionOutlineSource, canonicalPro
   // Règle : rouge si `panelBlueprints` absent/vide OU `panelBlueprints.length < minimumImages`,
   // vert si `panelBlueprints.length >= minimumImages`. La couleur "verte si > 0" de
   // l'ancienne version était trompeuse — le backend refuse le launch dans ce cas.
-  const minimumImages = plan?.minimumImages ?? PREMIUM_PANEL_RANGE.target;
+  const minimumImages =
+    canonicalProductionPlan != null
+      ? PRODUCTION_RULES.panelCount.minimum
+      : (plan?.minimumImages ?? PREMIUM_PANEL_RANGE.min);
   const blueprintCount = Array.isArray(plan?.panelBlueprints) ? plan.panelBlueprints.length : 0;
   const canonicalPanels = canonicalProductionPlan?.panelCount ?? null;
   const canonicalPages = metricNum(canonicalProductionPlan?.metrics, "totalPages");
   const canonicalCutawayRatio = metricNum(canonicalProductionPlan?.metrics, "cutawayRatio");
+  const canonicalActorDrivenRatio = metricNum(canonicalProductionPlan?.metrics, "actorDrivenRatio");
+  const canonicalMaxConsecutiveCutaways = metricNum(canonicalProductionPlan?.metrics, "maxConsecutiveCutaways");
   const canonicalQaValid =
     canonicalProductionPlan?.qa && typeof canonicalProductionPlan.qa === "object"
       ? (canonicalProductionPlan.qa as { valid?: boolean }).valid
@@ -130,25 +135,52 @@ export function ProductionPlanCard({ plan, productionOutlineSource, canonicalPro
           </div>
           <div>
             <p className="text-muted-foreground">Images cibles</p>
-            <p>{plan?.targetImages ?? 0}</p>
+            <p>
+              {canonicalProductionPlan != null
+                ? PRODUCTION_RULES.panelCount.target
+                : (plan?.targetImages ?? 0)}
+            </p>
           </div>
           <div>
-            <p className="text-muted-foreground">Minimum</p>
-            <p>{plan?.minimumImages ?? PREMIUM_PANEL_RANGE.target}</p>
+            <p className="text-muted-foreground">Minimum garanti</p>
+            <p>{minimumImages}</p>
           </div>
         </div>
-        {canonicalProductionPlan && typeof canonicalCutawayRatio === "number" ? (
-          <div className="rounded-lg border border-border/40 bg-muted/20 px-3 py-2 text-xs">
-            <span className="text-muted-foreground">Cutaways (ratio canonique) : </span>
-            <span className="font-medium tabular-nums">{(canonicalCutawayRatio * 100).toFixed(1)}%</span>
+        {canonicalProductionPlan ? (
+          <div className="rounded-lg border border-border/40 bg-muted/20 px-3 py-2 text-xs space-y-1">
+            <div>
+              <span className="text-muted-foreground">Panels : </span>
+              <span className="font-medium tabular-nums">{canonicalPanels ?? "—"}</span>
+              <span className="text-muted-foreground"> / cible {PRODUCTION_RULES.panelCount.target}</span>
+              <span className="text-muted-foreground"> · max {PRODUCTION_RULES.panelCount.maximum}</span>
+            </div>
+            {typeof canonicalCutawayRatio === "number" ? (
+              <div>
+                <span className="text-muted-foreground">Cutaways (ratio) : </span>
+                <span className="font-medium tabular-nums">{(canonicalCutawayRatio * 100).toFixed(1)}%</span>
+                <span className="text-muted-foreground"> · plafond {(PRODUCTION_RULES.cutaway.maxRatio * 100).toFixed(0)}%</span>
+              </div>
+            ) : null}
+            {typeof canonicalActorDrivenRatio === "number" ? (
+              <div>
+                <span className="text-muted-foreground">Actor-driven : </span>
+                <span className="font-medium tabular-nums">{(canonicalActorDrivenRatio * 100).toFixed(1)}%</span>
+                <span className="text-muted-foreground"> · min {(PRODUCTION_RULES.actorDriven.minRatio * 100).toFixed(0)}%</span>
+              </div>
+            ) : null}
+            {typeof canonicalMaxConsecutiveCutaways === "number" ? (
+              <div>
+                <span className="text-muted-foreground">Max cutaways consécutifs : </span>
+                <span className="font-medium tabular-nums">{canonicalMaxConsecutiveCutaways}</span>
+              </div>
+            ) : null}
             {typeof canonicalQaValid === "boolean" ? (
-              <>
-                <span className="mx-2 text-muted-foreground">·</span>
+              <div>
                 <span className="text-muted-foreground">QA structure : </span>
                 <span className={canonicalQaValid ? "text-emerald-600 font-medium" : "text-red-500 font-medium"}>
                   {canonicalQaValid ? "OK" : "Échec"}
                 </span>
-              </>
+              </div>
             ) : null}
           </div>
         ) : null}

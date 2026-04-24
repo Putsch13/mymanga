@@ -137,16 +137,19 @@ function extractEntities(beat: Record<string, unknown>): string[] {
 
 function extractProps(beat: Record<string, unknown>): string[] {
   const props = asStringArray(beat.props);
-  if (props.length > 0) return props;
+  const fromObjects = asStringArray(beat.objects);
+  const mergedBase = [...new Set([...props, ...fromObjects])];
 
   const requiredProps = beat.requiredProps;
   if (Array.isArray(requiredProps)) {
-    return requiredProps
+    const fromRequired = requiredProps
       .map((p) => (typeof p === "object" && p !== null ? asString((p as Record<string, unknown>).canonicalName) : asString(p)))
       .filter(Boolean);
+    const merged = [...new Set([...mergedBase, ...fromRequired])];
+    return merged;
   }
 
-  return [];
+  return mergedBase;
 }
 
 function extractLocations(beat: Record<string, unknown>): string[] {

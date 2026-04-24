@@ -13,7 +13,7 @@ import {
   isPipelineV3PremiumOnlyEnabled,
 } from "./pipeline-feature-flags";
 import { runPremiumV3Pipeline } from "./run-premium-v3-pipeline";
-import { runLegacyCompatibleChapterPipeline } from "./run-legacy-compatible-chapter-pipeline";
+import { runLegacyCompatibleChapterPipeline } from "./legacy/run-legacy-compatible-chapter-pipeline";
 
 export { setJobProgress } from "./pipeline-job";
 export { buildStyleBibleFromUserProject } from "./chapter-style-bible-resolver";

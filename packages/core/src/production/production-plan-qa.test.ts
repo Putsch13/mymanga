@@ -110,6 +110,10 @@ function createValidPlan(): CanonicalChapterProductionPlan {
     actorDrivenRatio: actorDrivenCount / plan.panels.length,
     dialogueAnchoredCount: dialogueAnchored,
     dialogueFloatingCount: 0,
+    narrationCount: plan.panels.filter((p) => p.textPlan.mode === "narration").length,
+    silentCount: plan.panels.filter((p) => p.textPlan.mode === "silent").length,
+    intentionalSilenceCount: 0,
+    sfxCount: plan.panels.filter((p) => p.textPlan.mode === "sfx").length,
     maxConsecutiveCutaways: 1,
   };
 

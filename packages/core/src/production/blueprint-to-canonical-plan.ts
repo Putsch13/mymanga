@@ -12,10 +12,13 @@ import type {
   PanelTextPlan,
   ProductionQaResult,
 } from "./canonical-production-plan";
-import { computeCanonicalProductionMetrics } from "./build-canonical-production-plan";
+import {
+  assignPanelTextAnchors,
+  computeCanonicalProductionMetrics,
+  qaCanonicalProductionPlanWithAutoRepair,
+} from "./build-canonical-production-plan";
 import { normalizeOutline } from "./normalize-outline";
 import { PRODUCTION_RULES, type ChapterFormat } from "./production-rules";
-import { runProductionPlanQa } from "./production-plan-qa";
 
 function subjectFocusToRole(bp: PanelBlueprintPremium, isCutaway: boolean): PanelRole {
   if (isCutaway) {
@@ -144,9 +147,8 @@ export function buildCanonicalProductionPlanFromPremiumBlueprints(input: {
     };
   });
 
-  const panels = blueprints.map((bp, idx) => blueprintToCanonicalPanel(bp, idx));
-  const metrics = computeCanonicalProductionMetrics(panels);
-  const pageCount = new Set(panels.map((p) => p.pageNumber)).size;
+  const panelsRaw = blueprints.map((bp, idx) => blueprintToCanonicalPanel(bp, idx));
+  const pageCount = new Set(panelsRaw.map((p) => p.pageNumber)).size;
 
   const placeholderQa: ProductionQaResult = {
     valid: false,
@@ -162,7 +164,7 @@ export function buildCanonicalProductionPlanFromPremiumBlueprints(input: {
     },
   };
 
-  const partial: CanonicalChapterProductionPlan = {
+  const partialBare: CanonicalChapterProductionPlan = {
     chapterId: input.chapterId,
     projectId: input.projectId,
     chapterNumber: input.chapterNumber,
@@ -175,22 +177,23 @@ export function buildCanonicalProductionPlanFromPremiumBlueprints(input: {
     beatCount: beats.length,
     pageCount,
     beats,
-    panels,
+    panels: panelsRaw,
     rhythm: {
       cutawayMaxRatio: PRODUCTION_RULES.cutaway.maxRatio,
       actorDrivenMinRatio: PRODUCTION_RULES.actorDriven.minRatio,
       maxConsecutiveCutaways: PRODUCTION_RULES.cutaway.maxConsecutive,
-      pattern: [...PRODUCTION_RULES.rhythm.defaultPattern],
+      pattern: [...PRODUCTION_RULES.rhythm.preferredNarrativePattern],
       cutawayInsertionPolicy: PRODUCTION_RULES.rhythm.cutawayInsertionPolicy,
     },
-    metrics,
+    metrics: computeCanonicalProductionMetrics(panelsRaw),
     qa: placeholderQa,
     createdAt: new Date().toISOString(),
     version: "1.0.0",
   };
 
-  const qa = runProductionPlanQa(partial);
-  return { ...partial, qa };
+  const anchored = assignPanelTextAnchors(partialBare);
+  const { plan: finalPlan, qa } = qaCanonicalProductionPlanWithAutoRepair(anchored);
+  return { ...finalPlan, qa };
 }
 
 export function runStructuralQaOnPremiumBlueprints(input: Parameters<typeof buildCanonicalProductionPlanFromPremiumBlueprints>[0]) {

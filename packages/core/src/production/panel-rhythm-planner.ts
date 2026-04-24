@@ -162,7 +162,7 @@ export function planRhythm(
 ): RhythmPlanResult {
   const fullConfig: RhythmConfig = {
     targetPanelCount: config.targetPanelCount ?? PRODUCTION_RULES.panelCount.target,
-    pattern: config.pattern ?? PRODUCTION_RULES.rhythm.defaultPattern,
+    pattern: config.pattern ?? PRODUCTION_RULES.rhythm.preferredNarrativePattern,
     cutawayInsertionPolicy: config.cutawayInsertionPolicy ?? PRODUCTION_RULES.rhythm.cutawayInsertionPolicy,
     maxConsecutiveCutaways: config.maxConsecutiveCutaways ?? PRODUCTION_RULES.cutaway.maxConsecutive,
     cutawayMaxRatio: config.cutawayMaxRatio ?? PRODUCTION_RULES.cutaway.maxRatio,

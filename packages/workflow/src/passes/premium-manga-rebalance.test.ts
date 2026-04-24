@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
+import { PRODUCTION_RULES } from "@manga-ai-studio/core";
 import {
   isHardCriticalCutawayBlueprint,
   isPremiumMangaCutawayBlueprint,
@@ -66,7 +67,7 @@ const heroEntity: VisualEntity = minimalEntity({
 });
 
 describe("premium-manga-rebalance", () => {
-  it("réduit les cutaways au-delà de 35%", () => {
+  it("réduit les cutaways au-delà du seuil produit", () => {
     const blueprints: PanelBlueprintPremium[] = Array.from({ length: 20 }, (_, i) =>
       bp({
         panelId: `p-${i}`,
@@ -82,14 +83,14 @@ describe("premium-manga-rebalance", () => {
       blueprints,
       visualEntities: [heroEntity],
       projectFormat: "manga",
-      maxCutawayRatio: 0.35,
-      minActorDrivenRatio: 0.58,
+      maxCutawayRatio: PRODUCTION_RULES.cutaway.maxRatio,
+      minActorDrivenRatio: PRODUCTION_RULES.actorDriven.minRatio,
       fallbackHeroId: "h1",
       projectId: "test-proj",
     });
 
     const ratio = out.blueprints.filter(isPremiumMangaCutawayBlueprint).length / out.blueprints.length;
-    expect(ratio).toBeLessThanOrEqual(0.35 + 1e-9);
+    expect(ratio).toBeLessThanOrEqual(PRODUCTION_RULES.cutaway.maxRatio + 1e-9);
     expect(out.convertedCount).toBeGreaterThan(0);
   });
 
@@ -97,9 +98,10 @@ describe("premium-manga-rebalance", () => {
     const blueprints: PanelBlueprintPremium[] = [
       bp({ panelId: "p1", panelNumber: 1, subjectFocus: "hero", cutawayType: "none", purpose: "hero beat" }),
       bp({ panelId: "p2", panelNumber: 2, subjectFocus: "hero", cutawayType: "none", purpose: "hero beat 2" }),
+      bp({ panelId: "p2b", panelNumber: 3, subjectFocus: "hero", cutawayType: "none", purpose: "hero beat 3" }),
       bp({
         panelId: "p3",
-        panelNumber: 3,
+        panelNumber: 4,
         subjectFocus: "environment",
         cutawayType: "environment",
         purpose: "establishing",
@@ -109,8 +111,8 @@ describe("premium-manga-rebalance", () => {
     ];
     const qa = runMangaStructureQaOnBlueprints({
       blueprints,
-      maxCutawayRatio: 0.35,
-      minActorDrivenRatio: 0.58,
+      maxCutawayRatio: PRODUCTION_RULES.cutaway.maxRatio,
+      minActorDrivenRatio: PRODUCTION_RULES.actorDriven.minRatio,
     });
     expect(qa.ok).toBe(true);
   });
@@ -155,16 +157,16 @@ describe("premium-manga-rebalance", () => {
       blueprints,
       visualEntities: [heroEntity, villain],
       projectFormat: "manga",
-      maxCutawayRatio: 0.35,
-      minActorDrivenRatio: 0.58,
+      maxCutawayRatio: PRODUCTION_RULES.cutaway.maxRatio,
+      minActorDrivenRatio: PRODUCTION_RULES.actorDriven.minRatio,
       fallbackHeroId: "h1",
       projectId: "test-proj",
     });
 
     const qa = runMangaStructureQaOnBlueprints({
       blueprints: out.blueprints,
-      maxCutawayRatio: 0.35,
-      minActorDrivenRatio: 0.58,
+      maxCutawayRatio: PRODUCTION_RULES.cutaway.maxRatio,
+      minActorDrivenRatio: PRODUCTION_RULES.actorDriven.minRatio,
       visualEntities: [heroEntity, villain],
     });
     expect(qa.ok).toBe(true);
@@ -188,8 +190,8 @@ describe("premium-manga-rebalance", () => {
       blueprints,
       visualEntities: [heroEntity],
       projectFormat: "manga",
-      maxCutawayRatio: 0.35,
-      minActorDrivenRatio: 0.58,
+      maxCutawayRatio: PRODUCTION_RULES.cutaway.maxRatio,
+      minActorDrivenRatio: PRODUCTION_RULES.actorDriven.minRatio,
       fallbackHeroId: "h1",
       projectId: "test-proj",
     });
@@ -232,8 +234,8 @@ describe("premium-manga-rebalance", () => {
       blueprints,
       visualEntities: [heroEntity],
       projectFormat: "manga",
-      maxCutawayRatio: 0.35,
-      minActorDrivenRatio: 0.58,
+      maxCutawayRatio: PRODUCTION_RULES.cutaway.maxRatio,
+      minActorDrivenRatio: PRODUCTION_RULES.actorDriven.minRatio,
       fallbackHeroId: "h1",
       projectId: "test-proj",
     });

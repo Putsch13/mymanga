@@ -21,6 +21,7 @@ import {
   type FalRenderRoute,
   type PanelRenderSpec,
 } from "@manga-ai-studio/ai";
+import { isPremiumImageMockAllowed } from "@manga-ai-studio/core";
 import type { RunRenderPassInput } from "./render-pass";
 
 export interface DefaultPanelImageGeneratorArgs {
@@ -51,9 +52,15 @@ export interface DefaultPanelImageGeneratorResult {
  * ```
  */
 export function createDefaultPanelImageGenerator(
-  options: { apiKey?: string } = {},
+  options: { apiKey?: string; forbidMock?: boolean } = {},
 ): NonNullable<RunRenderPassInput["generatePanelImage"]> {
   const apiKey = options.apiKey ?? process.env.FAL_KEY;
+  const forbidMock = options.forbidMock === true;
+  if (!apiKey && (forbidMock || !isPremiumImageMockAllowed())) {
+    throw new Error(
+      "fal_key_required: génération image impossible sans FAL_KEY lorsque les mocks sont interdits (production / premium-only).",
+    );
+  }
   const adapter = createFalPanelAdapter(apiKey);
 
   return async ({ spec, prompt, negative, route }) => {

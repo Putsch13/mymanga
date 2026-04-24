@@ -6,6 +6,7 @@ import {
 } from "@manga-ai-studio/ai";
 import {
   PREMIUM_PANEL_RANGE,
+  PRODUCTION_RULES,
   resolveProductionOutlineForPremiumPipeline,
   type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
@@ -201,8 +202,8 @@ export async function runPremiumV3Pipeline(
         const total = workingBlueprints.length;
         const beforeCut = workingBlueprints.filter(isPremiumMangaCutawayBlueprint).length;
         const beforeRatio = total > 0 ? beforeCut / total : 0;
-        const mangaMaxCutawayRatio = 0.35;
-        const mangaMinActorDrivenRatio = 0.58;
+        const mangaMaxCutawayRatio = PRODUCTION_RULES.cutaway.maxRatio;
+        const mangaMinActorDrivenRatio = PRODUCTION_RULES.actorDriven.minRatio;
 
         const visualEntities = buildVisualEntitiesFromPremiumV3Input({
           projectId: input.projectId,
@@ -359,34 +360,23 @@ export async function runPremiumV3Pipeline(
         `[pipeline:v3:story-arc-from-plan] beats=${storyArcFromPlan.beats.length} chapterGoal=${storyArcFromPlan.chapterGoal?.slice(0, 50)}...`,
       );
 
-      try {
-        storyboardPassResult = await runStoryboardPass({
-          storyArc: storyArcFromPlan,
-          heroCharacterIds: input.focusCharacterIds,
-          projectFormat,
-          targetPanelCount: PREMIUM_PANEL_RANGE.target,
-          useLlmEditor: true,
-        });
-        storyboardPassResult.warnings.push("storyboard_plan.source=approved_production_plan_via_llm");
-        console.info(`[pipeline:v3:storyboard] source=llm panels=${storyboardPassResult.storyboardPlan.pages.flatMap((p) => p.panels).length}`);
-      } catch (llmError) {
-        console.warn(
-          `[pipeline:v3:storyboard] llm_failed, falling back to sync builder: ${llmError instanceof Error ? llmError.message : String(llmError)}`,
-        );
-        storyboardPassResult = {
-          storyboardPlan: buildStoryboardPlanFromApprovedProductionPlan({
-            chapterId: input.chapterId,
-            projectId: input.projectId,
-            chapterNumber: input.chapterNumber,
-            productionPlan: (productionPlanForStoryboard ?? input.productionPlan) as Record<string, unknown>,
-            projectFormat,
-            chapterLocationName: input.chapterLocationName,
-            productionPlanPages: input.productionPlanPages,
-          }),
-          warnings: ["storyboard_plan.source=approved_production_plan_sync_fallback"],
-          blockers: [],
-        };
-      }
+      const deterministicPlan = buildStoryboardPlanFromApprovedProductionPlan({
+        chapterId: input.chapterId,
+        projectId: input.projectId,
+        chapterNumber: input.chapterNumber,
+        productionPlan: (productionPlanForStoryboard ?? input.productionPlan) as Record<string, unknown>,
+        projectFormat,
+        chapterLocationName: input.chapterLocationName,
+        productionPlanPages: input.productionPlanPages,
+      });
+      storyboardPassResult = {
+        storyboardPlan: deterministicPlan,
+        warnings: ["storyboard_plan.source=approved_production_plan_deterministic"],
+        blockers: [],
+      };
+      console.info(
+        `[pipeline:v3:storyboard] source=deterministic_approved_plan panels=${deterministicPlan.pages.flatMap((p) => p.panels).length}`,
+      );
 
       timings.storyboard_build_ms = Date.now() - storyboardBuildStart;
     } else {
@@ -518,18 +508,18 @@ export async function runPremiumV3Pipeline(
         panel.renderMode === "surveillance_reveal",
     );
     const cutawayRatio = allPanels.length > 0 ? cutawayPanels.length / allPanels.length : 0;
-    const MAX_CUTAWAY_RATIO = 0.35;
+    const maxCutawayRatio = PRODUCTION_RULES.cutaway.maxRatio;
 
     console.log(
-      `[pipeline:v3:cutaway-ratio] count=${cutawayPanels.length}/${allPanels.length} ratio=${(cutawayRatio * 100).toFixed(1)}% max=${(MAX_CUTAWAY_RATIO * 100).toFixed(0)}%`,
+      `[pipeline:v3:cutaway-ratio] count=${cutawayPanels.length}/${allPanels.length} ratio=${(cutawayRatio * 100).toFixed(1)}% max=${(maxCutawayRatio * 100).toFixed(0)}%`,
     );
 
-    if (cutawayRatio > MAX_CUTAWAY_RATIO && input.premiumV3OnlyEnabled) {
+    if (cutawayRatio > maxCutawayRatio && input.premiumV3OnlyEnabled) {
       console.error(
         `[pipeline:v3:cutaway-ratio] exceeded chapterId=${input.chapterId} ratio=${(cutawayRatio * 100).toFixed(1)}%`,
       );
       throw new Error(
-        `premium_v3_only_cutaway_ratio_exceeded: ${(cutawayRatio * 100).toFixed(1)}% > ${(MAX_CUTAWAY_RATIO * 100).toFixed(0)}% — trop de cutaways, pas assez de personnages/action`,
+        `premium_v3_only_cutaway_ratio_exceeded: ${(cutawayRatio * 100).toFixed(1)}% > ${(maxCutawayRatio * 100).toFixed(0)}% — trop de cutaways, pas assez de personnages/action`,
       );
     }
 
@@ -601,7 +591,10 @@ export async function runPremiumV3Pipeline(
         })),
         mainCharacterIds: input.focusCharacterIds,
         generatePanelImage: renderFalEnabled
-          ? createDefaultPanelImageGenerator()
+          ? createDefaultPanelImageGenerator({
+              forbidMock:
+                process.env.NODE_ENV === "production" || Boolean(input.premiumV3OnlyEnabled),
+            })
           : undefined,
         persistToDb: renderFalEnabled,
       });

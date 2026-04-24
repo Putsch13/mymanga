@@ -39,6 +39,19 @@ import { persistImageIfNeeded, type PersistedImageResult } from "../pipeline-ima
 import { buildVisualQaInputFromRenderSpec, runVisualPanelQaWithOptionalVision } from "@manga-ai-studio/ai";
 import type { VisualQaResult } from "@manga-ai-studio/ai";
 
+/** Historique des tentatives image + QA (persisté dans `SceneImage.metadata`). */
+export interface V3PanelRenderAttemptLog {
+  attemptNumber: number;
+  prompt: string;
+  negative: string;
+  imageUrl: string | null;
+  qaScore: number;
+  qaReasons: string[];
+  retryStrategy?: string;
+  passed: boolean;
+  createdAt: string;
+}
+
 export interface V3RenderedPanelRecord {
   spec: PanelRenderSpec;
   prompt: { positive: string; negative: string };
@@ -51,6 +64,8 @@ export interface V3RenderedPanelRecord {
   renderFailure?: unknown;
   /** Renseigné par le render-pass v3 après QA (évite un second passage vision en persistance). */
   visualQa?: VisualQaResult | null;
+  /** Chaque tentative FAL + résultat QA (ordre chronologique). */
+  renderAttempts?: V3PanelRenderAttemptLog[];
 }
 
 export interface V3SceneImagePersistInput {
@@ -285,6 +300,7 @@ async function preparePanelData(
     readerLayout: generationDebugSnapshot.readerLayout,
     generationDebugSnapshot,
     visualQa,
+    renderAttempts: record.renderAttempts ?? [],
   } as unknown as Prisma.InputJsonValue;
 
   const routingDecision = {

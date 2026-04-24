@@ -50,6 +50,9 @@ interface WebtoonLazyScrollProps {
   pages: WebtoonPage[];
   onRetryPanel?: (panelId: string, mode: "environment" | "character" | "composition") => void;
   retryingPanel?: string | null;
+  /** Affiche score / raisons QA panel (mode debug lecteur). */
+  showDebug?: boolean;
+  panelQaByPanelId?: Record<string, { score?: number; reasons?: string[] }>;
 }
 
 /* ── Helpers ───────────────────────────────────────────────────── */
@@ -119,7 +122,13 @@ function PanelSkeleton({ aspectRatio }: { aspectRatio: string }) {
 
 /* ── Main component ────────────────────────────────────────────── */
 
-export default function WebtoonLazyScroll({ pages }: WebtoonLazyScrollProps) {
+export default function WebtoonLazyScroll({
+  pages,
+  onRetryPanel,
+  retryingPanel,
+  showDebug = false,
+  panelQaByPanelId,
+}: WebtoonLazyScrollProps) {
   const observerRef = useRef<IntersectionObserver | null>(null);
   const [visiblePanels, setVisiblePanels] = useState<Set<string>>(new Set());
   const [revealedPanels, setRevealedPanels] = useState<Set<string>>(new Set());
@@ -210,10 +219,48 @@ export default function WebtoonLazyScroll({ pages }: WebtoonLazyScrollProps) {
                     style={{ marginBottom: "1.25rem" }}
                   >
                     {!splash && (
-                      <div className="mb-1 flex items-center justify-end">
+                      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
                         <span className="text-[10px] font-mono tracking-wider text-zinc-600">
                           {sceneNumber}.{panelIdx + 1}
                         </span>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {onRetryPanel && panel.sceneImageId ? (
+                            <>
+                              <button
+                                type="button"
+                                className="rounded border border-zinc-600 px-1.5 py-0.5 text-[10px] text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+                                disabled={retryingPanel != null}
+                                onClick={() => onRetryPanel(panel.sceneImageId!, "environment")}
+                              >
+                                {retryingPanel === `${panel.sceneImageId}:environment` ? "…" : "Décor"}
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded border border-zinc-600 px-1.5 py-0.5 text-[10px] text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+                                disabled={retryingPanel != null}
+                                onClick={() => onRetryPanel(panel.sceneImageId!, "character")}
+                              >
+                                {retryingPanel === `${panel.sceneImageId}:character` ? "…" : "Perso"}
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded border border-zinc-600 px-1.5 py-0.5 text-[10px] text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+                                disabled={retryingPanel != null}
+                                onClick={() => onRetryPanel(panel.sceneImageId!, "composition")}
+                              >
+                                {retryingPanel === `${panel.sceneImageId}:composition` ? "…" : "Compo"}
+                              </button>
+                            </>
+                          ) : null}
+                          {showDebug && panelQaByPanelId && panel.sceneImageId ? (
+                            <span className="max-w-[14rem] truncate text-[9px] text-amber-500/90" title={panelQaByPanelId[panel.sceneImageId]?.reasons?.join(" · ")}>
+                              QA{" "}
+                              {typeof panelQaByPanelId[panel.sceneImageId]?.score === "number"
+                                ? `${Math.round((panelQaByPanelId[panel.sceneImageId]!.score ?? 0) * 100)}%`
+                                : "—"}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                     )}
                     {isLoaded ? (

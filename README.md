@@ -154,7 +154,7 @@ Le coeur du refactor recent est :
 
 - `packages/workflow/src/run-full-chapter-pipeline.ts` : orchestrateur mince ;
 - `packages/workflow/src/run-premium-v3-pipeline.ts` : cerveau premium v3 strict ;
-- `packages/workflow/src/run-legacy-compatible-chapter-pipeline.ts` : pont de compatibilite legacy ;
+- `packages/workflow/src/legacy/run-legacy-compatible-chapter-pipeline.ts` : pont de compatibilite legacy ;
 - `packages/workflow/src/chapter-style-bible-resolver.ts` : source de verite style v3.
 
 ## Pipeline premium v3
@@ -262,7 +262,7 @@ Le chemin legacy n'est pas mort, il est encapsule.
 
 Il passe aujourd'hui par :
 
-- `packages/workflow/src/run-legacy-compatible-chapter-pipeline.ts`
+- `packages/workflow/src/legacy/run-legacy-compatible-chapter-pipeline.ts`
 - `packages/workflow/src/passes/narrative-pass.ts`
 - `packages/workflow/src/passes/image-generation-pass.ts`
 - `packages/workflow/src/passes/memory-pass.ts`
@@ -826,7 +826,7 @@ Travail suivant probable :
 
 - `packages/workflow/src/run-full-chapter-pipeline.ts`
 - `packages/workflow/src/run-premium-v3-pipeline.ts`
-- `packages/workflow/src/run-legacy-compatible-chapter-pipeline.ts`
+- `packages/workflow/src/legacy/run-legacy-compatible-chapter-pipeline.ts`
 
 ### Passes premium
 
@@ -978,7 +978,7 @@ La v3 n'utilise pas un style par defaut "neutre" : la `ChapterStyleBible` est de
 Point d'integration :
 - `packages/workflow/src/chapter-style-bible-resolver.ts` est la source de verite pour `ChapterStyleBible`.
 - `packages/workflow/src/run-premium-v3-pipeline.ts` execute le chemin strict IA1 → IA2 → IA3.
-- `packages/workflow/src/run-legacy-compatible-chapter-pipeline.ts` encapsule le pont de compatibilite legacy restant.
+- `packages/workflow/src/legacy/run-legacy-compatible-chapter-pipeline.ts` encapsule le pont de compatibilite legacy restant.
 - `packages/workflow/src/run-full-chapter-pipeline.ts` n'orchestre plus que le setup, le gate premium-only, puis le choix `v3 strict` ou `legacy compat`.
 
 ### Flags & pre-requis (premium-only = fail-hard)

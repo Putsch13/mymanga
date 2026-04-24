@@ -17,7 +17,7 @@ import type {
   ChapterFocusBudget,
   FocusBudgetViolation,
 } from "@manga-ai-studio/core";
-import { MANGA_SHOT_BUDGET } from "@manga-ai-studio/core";
+import { MANGA_SHOT_BUDGET, PRODUCTION_RULES } from "@manga-ai-studio/core";
 
 // ─── Focus Budget ─────────────────────────────────────────────────────────────
 
@@ -492,8 +492,8 @@ export function computePremiumReadinessScore(
   const warningViolations = budget.violations.filter((v) => v.severity === "warning").length;
   score -= warningViolations * 0.05;
 
-  // P2.15 — Pénalité pour cutaway ratio excessif (> 35%)
-  const MAX_CUTAWAY_RATIO = 0.35;
+  // P2.15 — Pénalité pour cutaway ratio excessif (seuil produit unique)
+  const MAX_CUTAWAY_RATIO = PRODUCTION_RULES.cutaway.maxRatio;
   if (budget.cutawayRatio > MAX_CUTAWAY_RATIO) {
     score -= 0.10;
     const excessRatio = budget.cutawayRatio - MAX_CUTAWAY_RATIO;

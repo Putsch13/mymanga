@@ -20,6 +20,10 @@ export type RetryStrategy =
   | "refined_prompt"
   | "stronger_character_lock"
   | "composition_fix"
+  | "text_space_fix"
+  | "style_lock"
+  | "simplify_scene"
+  /** @deprecated utiliser {@link simplify_scene} */
   | "simpler_scene"
   | "force_subject_focus";
 
@@ -404,8 +408,8 @@ export function runVisualPanelQa(
   input: VisualQaInput,
   weights: VisualQaScoreWeights = DEFAULT_WEIGHTS,
 ): VisualQaResult {
-  const maxAttempts = PRODUCTION_RULES.retry.maxImageAttempts;
-  const passThreshold = PRODUCTION_RULES.retry.visualQaPassScore;
+  const maxAttempts = PRODUCTION_RULES.visualQa.maxAttemptsPerPanel;
+  const passThreshold = PRODUCTION_RULES.visualQa.passScore;
 
   const narrative = checkNarrativeFidelity(input);
   const character = checkCharacterFidelity(input);
@@ -507,8 +511,8 @@ export async function runVisualPanelQaWithOptionalVision(
   weights: VisualQaScoreWeights = DEFAULT_WEIGHTS,
 ): Promise<VisualQaResult> {
   const base = runVisualPanelQa(input, weights);
-  const passThreshold = PRODUCTION_RULES.retry.visualQaPassScore;
-  const maxAttempts = PRODUCTION_RULES.retry.maxImageAttempts;
+  const passThreshold = PRODUCTION_RULES.visualQa.passScore;
+  const maxAttempts = PRODUCTION_RULES.visualQa.maxAttemptsPerPanel;
 
   if (process.env.VISUAL_PANEL_QA_VISION !== "true" || !input.imageUrl?.trim()) {
     return base;
@@ -625,8 +629,19 @@ export function buildRetryPrompt(
       break;
 
     case "simpler_scene":
+    case "simplify_scene":
       simplifiedScene = true;
       prompt += " Simplify the scene. Focus on fewer elements. Clear, uncluttered composition.";
+      break;
+
+    case "text_space_fix":
+      prompt +=
+        " Reserve a clean empty band at top or bottom for dialogue balloons; keep faces and main action out of the text zone.";
+      break;
+
+    case "style_lock":
+      prompt +=
+        " Lock ink style: consistent manga line weight, coherent screentones, no color drift vs reference style.";
       break;
 
     case "force_subject_focus":

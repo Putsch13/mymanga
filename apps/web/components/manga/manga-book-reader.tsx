@@ -122,6 +122,7 @@ export function MangaBookReader({
     // PHASE 5: Initialiser le mode lecteur basé sur le format du projet
     if (!options?.skipModeInit && j.projectFormat) {
       setReaderMode(j.projectFormat);
+      console.info("[reader] projectFormat", j.projectFormat, "initialMode", j.projectFormat);
     }
     // Charger le canon state
     fetch(`/api/projects/${projectId}/chapters/${chapterId}/canon-state`)
@@ -182,6 +183,26 @@ export function MangaBookReader({
 
   const totalPages = pages.length;
   const webtoonPanels = useMemo(() => flattenPagesToPanels(pages), [pages]);
+
+  const panelQaByPanelId = useMemo(() => {
+    if (!chapter?.scenes) return undefined;
+    const map: Record<string, { score?: number; reasons?: string[] }> = {};
+    for (const scene of chapter.scenes) {
+      for (const img of scene.images) {
+        const raw = img.metadata as Record<string, unknown> | undefined;
+        const v = raw?.visualQa;
+        if (v && typeof v === "object") {
+          const o = v as { score?: unknown; reasons?: unknown };
+          const score = typeof o.score === "number" ? o.score : undefined;
+          const reasons = Array.isArray(o.reasons)
+            ? o.reasons.filter((x): x is string => typeof x === "string")
+            : undefined;
+          map[img.id] = { score, reasons };
+        }
+      }
+    }
+    return Object.keys(map).length > 0 ? map : undefined;
+  }, [chapter]);
 
   const goNext = useCallback(() => {
     setTurn({ dir: "next", at: Date.now() });
@@ -625,6 +646,8 @@ export function MangaBookReader({
       }))}
       onRetryPanel={retryPanel}
       retryingPanel={retryingPanel}
+      showDebug={inspectOpen}
+      panelQaByPanelId={panelQaByPanelId}
     />
   );
 

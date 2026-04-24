@@ -53,6 +53,7 @@ import {
 } from "../persistence/render-persistence";
 import {
   persistV3RenderedPanels,
+  type V3PanelRenderAttemptLog,
   type V3RenderedPanelRecord,
 } from "../persistence/v3-scene-image-persistence";
 import { startChapterImageGenerationRun } from "../persistence/chapter-generation-run";
@@ -86,6 +87,8 @@ export interface RenderedPanelDescriptor {
   renderFailure?: RenderPassImageFailureDetail | null;
   /** QA visuelle (heuristique + vision si `VISUAL_PANEL_QA_VISION`) après rendu. */
   visualQa?: VisualQaResult | null;
+  /** Tentatives FAL + scores QA (persistées en DB). */
+  renderAttempts?: V3PanelRenderAttemptLog[];
 }
 
 export interface GeneratePanelImageResult {
@@ -422,6 +425,7 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
         let positivePrompt = prompt.positive;
         const qaHistory: VisualQaResult[] = [];
         let lastQa: VisualQaResult | null = null;
+        descriptor.renderAttempts = [];
 
         if (imageUrl) {
           let attempt = 1;
@@ -447,9 +451,32 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
             });
             lastQa = await runVisualPanelQaWithOptionalVision(qaInput);
             qaHistory.push(lastQa);
+            const attemptLog: V3PanelRenderAttemptLog = {
+              attemptNumber: attempt,
+              prompt: positivePrompt,
+              negative: prompt.negative,
+              imageUrl,
+              qaScore: lastQa.score,
+              qaReasons: [...lastQa.reasons],
+              retryStrategy: lastQa.retryStrategy,
+              passed: lastQa.passed,
+              createdAt: new Date().toISOString(),
+            };
+            descriptor.renderAttempts!.push(attemptLog);
+            console.info(
+              `[visual-qa] ${lastQa.passed ? "passed" : "failed"} panel=${enrichedSpec.panelId} attempt=${attempt} score=${lastQa.score.toFixed(2)}`,
+            );
+            if (lastQa.shouldMarkManualReview) {
+              console.warn(
+                `[visual-qa] manual_review_required panel=${enrichedSpec.panelId} attempt=${attempt}`,
+              );
+            }
             if (lastQa.passed) break;
             if (!visualRetryEnabled || !lastQa.retryRecommended) break;
             if (attempt >= lastQa.maxAttempts) break;
+            console.warn(
+              `[visual-qa] retry panel=${enrichedSpec.panelId} attempt=${attempt} strategy=${lastQa.retryStrategy ?? "refined_prompt"}`,
+            );
             attempt += 1;
             const retry = buildRetryPrompt({
               panelId: enrichedSpec.panelId,
