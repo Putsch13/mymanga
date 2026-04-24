@@ -292,6 +292,10 @@ export async function persistV3RenderedPanels(
         retryPolicy: record.route.retryPolicy,
       } as unknown as Prisma.InputJsonValue;
 
+      // P1.6 — Identité stable du panel pour éviter corruption
+      const externalPanelId = panel.panelId;
+      const panelBlueprintId = (panel as unknown as { blueprintId?: string }).blueprintId ?? null;
+
       const data = {
         renderingMode: "PANEL_DRAFT" as const,
         prompt: record.prompt.positive,
@@ -304,19 +308,38 @@ export async function persistV3RenderedPanels(
         routingDecision,
         metadata,
         failureReason: record.error ?? null,
+        externalPanelId,
+        panelBlueprintId,
       };
 
       const existingImage = await prisma.sceneImage.findUnique({
         where: {
           sceneId_panelNumber: { sceneId, panelNumber },
         },
-        select: { id: true, userValidatedAt: true },
+        select: { id: true, userValidatedAt: true, externalPanelId: true },
       });
 
-      if (existingImage?.userValidatedAt) {
+      // P1.6 — Si le panel a changé d'identité narrative et qu'il est validé,
+      // ne pas réutiliser cette ligne pour un autre panel
+      const panelIdentityChanged = existingImage?.externalPanelId &&
+        existingImage.externalPanelId !== externalPanelId;
+
+      if (existingImage?.userValidatedAt && panelIdentityChanged) {
+        // Le panel à cette position a une identité différente et est validé
+        // → On ne touche pas à cette image, on signale un warning
+        warnings.push(
+          `skipped_validated_panel_identity_mismatch panelId=${panel.panelId} ` +
+          `slot=${panelNumber} existing=${existingImage.externalPanelId}`,
+        );
+        imagesSkipped += 1;
+        continue;
+      }
+
+      if (existingImage?.userValidatedAt && !panelIdentityChanged) {
+        // Même identité, juste mise à jour des metadata
         await prisma.sceneImage.update({
           where: { id: existingImage.id },
-          data: { metadata, routingDecision },
+          data: { metadata, routingDecision, externalPanelId, panelBlueprintId },
         });
       } else {
         await prisma.sceneImage.upsert({

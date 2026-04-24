@@ -170,3 +170,146 @@ export function extractRequiredVisualCoverage(
   }
   return Array.from(out.values());
 }
+
+/**
+ * P1.9 — Extrait le coverage depuis `productionPlan.panelBlueprints` pour le mode
+ * `approved_plan_driven` où `storyArc` n'existe pas.
+ *
+ * On extrait les entités obligatoires depuis :
+ *   - requiredCharacterIds / mustShowCharacterIds → character
+ *   - requiredProps → prop
+ *   - mustShowEnemy / requiredEnemyIds → enemy
+ *   - requiredLocationSignals → location
+ *   - requiredCreature / creaturePresent → creature
+ */
+export interface PanelBlueprintForCoverage {
+  panelId: string;
+  beatId: string;
+  requiredCharacterIds?: string[];
+  mustShowCharacterIds?: string[];
+  requiredProps?: Array<{ canonicalName: string }>;
+  mustShowEnemy?: boolean;
+  requiredEnemyIds?: string[];
+  requiredLocationSignals?: string[];
+  subjectFocus?: string;
+  cutawayType?: string;
+  purpose?: string;
+}
+
+export function extractRequiredVisualCoverageFromProductionPlan(
+  blueprints: PanelBlueprintForCoverage[],
+): RequiredVisualCoverage[] {
+  const out = new Map<string, RequiredVisualCoverage>();
+
+  for (const bp of blueprints) {
+    // Characters
+    const characterIds = [
+      ...(bp.requiredCharacterIds ?? []),
+      ...(bp.mustShowCharacterIds ?? []),
+    ];
+    for (const charId of characterIds) {
+      const key = `character|${charId}`;
+      if (!out.has(key)) {
+        out.set(key, {
+          entity: charId,
+          entityType: "character",
+          sourceBeatId: bp.beatId,
+          requiresDedicatedPanel: false,
+          acceptedRenderModes: [
+            "hero_closeup",
+            "dialogue_two_shot",
+            "dialogue_over_shoulder",
+            "reaction_closeup",
+            "npc_closeup",
+            "enemy_closeup",
+            "group_tension",
+          ],
+          acceptedSubjectFocuses: ["hero", "group", "important_npc", "enemy", "reaction"],
+          tokensHint: [charId],
+          fulfilledByPanelIds: [],
+        });
+      }
+    }
+
+    // Props
+    for (const prop of bp.requiredProps ?? []) {
+      const key = `prop|${prop.canonicalName}`;
+      if (!out.has(key)) {
+        out.set(key, {
+          entity: prop.canonicalName,
+          entityType: "prop",
+          sourceBeatId: bp.beatId,
+          requiresDedicatedPanel: false,
+          acceptedRenderModes: ["insert_object", "establishing_environment"],
+          acceptedSubjectFocuses: ["prop", "environment"],
+          tokensHint: [prop.canonicalName],
+          fulfilledByPanelIds: [],
+        });
+      }
+    }
+
+    // Enemies
+    if (bp.mustShowEnemy || (bp.requiredEnemyIds && bp.requiredEnemyIds.length > 0)) {
+      const enemyIds = bp.requiredEnemyIds ?? ["enemy"];
+      for (const enemyId of enemyIds) {
+        const key = `enemy|${enemyId}`;
+        if (!out.has(key)) {
+          out.set(key, {
+            entity: enemyId,
+            entityType: "enemy",
+            sourceBeatId: bp.beatId,
+            requiresDedicatedPanel: true,
+            acceptedRenderModes: ["enemy_reveal", "enemy_closeup", "creature_reveal"],
+            acceptedSubjectFocuses: ["enemy", "threat"],
+            tokensHint: [enemyId, "enemy", "antagonist"],
+            fulfilledByPanelIds: [],
+          });
+        }
+      }
+    }
+
+    // Locations
+    for (const location of bp.requiredLocationSignals ?? []) {
+      if (location.toLowerCase() === "unknown") continue;
+      const key = `location|${location}`;
+      if (!out.has(key)) {
+        out.set(key, {
+          entity: location,
+          entityType: "location",
+          sourceBeatId: bp.beatId,
+          requiresDedicatedPanel: false,
+          acceptedRenderModes: ["establishing_environment", "surveillance_reveal"],
+          acceptedSubjectFocuses: ["environment"],
+          tokensHint: [location],
+          fulfilledByPanelIds: [],
+        });
+      }
+    }
+
+    // Creature detection from purpose or subjectFocus
+    const purposeLower = (bp.purpose ?? "").toLowerCase();
+    const focusLower = (bp.subjectFocus ?? "").toLowerCase();
+    if (
+      purposeLower.includes("creature") ||
+      purposeLower.includes("monstre") ||
+      focusLower.includes("creature") ||
+      focusLower.includes("threat")
+    ) {
+      const key = `creature|${bp.beatId}`;
+      if (!out.has(key)) {
+        out.set(key, {
+          entity: "creature",
+          entityType: "creature",
+          sourceBeatId: bp.beatId,
+          requiresDedicatedPanel: true,
+          acceptedRenderModes: ["creature_reveal"],
+          acceptedSubjectFocuses: ["threat"],
+          tokensHint: ["creature", "monster", "beast"],
+          fulfilledByPanelIds: [],
+        });
+      }
+    }
+  }
+
+  return Array.from(out.values());
+}

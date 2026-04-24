@@ -713,7 +713,15 @@ model SceneImage {
   debugTrace         Json?
   falTraces          FalTrace[]
 
+  /// P1.6 : identité stable du panel pour éviter corruption si le plan change
+  /// externalPanelId = panelId du StoryboardPanel (stable même si panelNumber change)
+  externalPanelId    String?
+  /// panelBlueprintId = ID du blueprint source si approved_plan_driven
+  panelBlueprintId   String?
+
   @@unique([sceneId, panelNumber])
+  @@index([externalPanelId])
+  @@index([panelBlueprintId])
 }
 
 model MediaAsset {

@@ -445,6 +445,21 @@ export function computeContractualFocusAdequacy(
 
 // ─── Score de premium readiness ───────────────────────────────────────────────
 
+/**
+ * P2.15 — Score de préparation premium honnête.
+ *
+ * Pénalités appliquées :
+ *   - violations bloquantes (-15% chacune)
+ *   - violations warnings (-5% chacune)
+ *   - cutawayRatio > 35% (-10% + 5% par 10% supplémentaire)
+ *   - locationName unknown > 20% (-10%)
+ *   - dialogueCarrier floating > 30% (-5%)
+ *   - pas de character ref (hero) visible (-15%)
+ *
+ * Bonus :
+ *   - variété de shots (+10% max)
+ *   - cutaways présents (+5%)
+ */
 export function computePremiumReadinessScore(
   blueprints: PanelBlueprintPremium[],
 ): number {
@@ -456,15 +471,58 @@ export function computePremiumReadinessScore(
 
   let score = 1.0;
 
-  // Penalites pour violations bloquantes
+  // Pénalités pour violations bloquantes
   const blockingViolations = budget.violations.filter((v) => v.severity === "blocking").length;
   score -= blockingViolations * 0.15;
 
-  // Penalites pour violations warnings
+  // Pénalités pour violations warnings
   const warningViolations = budget.violations.filter((v) => v.severity === "warning").length;
   score -= warningViolations * 0.05;
 
-  // Bonus variete de plans
+  // P2.15 — Pénalité pour cutaway ratio excessif (> 35%)
+  const MAX_CUTAWAY_RATIO = 0.35;
+  if (budget.cutawayRatio > MAX_CUTAWAY_RATIO) {
+    score -= 0.10;
+    const excessRatio = budget.cutawayRatio - MAX_CUTAWAY_RATIO;
+    score -= Math.floor(excessRatio * 10) * 0.05;
+  }
+
+  // P2.15 — Pénalité pour locationName unknown trop fréquent
+  const unknownLocationPanels = blueprints.filter((bp) => {
+    const envDna = bp.environmentVisualDna as { locationName?: string } | null | undefined;
+    const locName = envDna?.locationName ?? "unknown";
+    return locName.toLowerCase() === "unknown" || locName.toLowerCase() === "story-consistent setting";
+  });
+  const unknownLocationRatio = unknownLocationPanels.length / blueprints.length;
+  if (unknownLocationRatio > 0.2) {
+    score -= 0.10;
+  }
+
+  // P2.15 — Pénalité pour dialogueCarrier non ancré trop fréquent
+  // offscreen_allowed = locuteur hors champ, narration = pas de dialogue visible
+  const floatingDialoguePanels = blueprints.filter(
+    (bp) => bp.dialogueCarrier === "offscreen_allowed" || bp.dialogueCarrier === "narration" || !bp.dialogueCarrier,
+  );
+  const floatingDialogueRatio = floatingDialoguePanels.length / blueprints.length;
+  if (floatingDialogueRatio > 0.5) {
+    score -= 0.05;
+  }
+
+  // P2.15 — Pénalité si aucun panel hero avec character ref
+  const heroFocusPanels = blueprints.filter(
+    (bp) => bp.subjectFocus === "hero" || bp.subjectFocus === "speaker",
+  );
+  const heroWithCharacterRef = heroFocusPanels.filter(
+    (bp) =>
+      (bp.mustShowCharacterIds && bp.mustShowCharacterIds.length > 0) ||
+      (bp.requiredCharacterIds && bp.requiredCharacterIds.length > 0) ||
+      (bp.characterVisualDna && Array.isArray(bp.characterVisualDna) && bp.characterVisualDna.length > 0),
+  );
+  if (heroFocusPanels.length > 0 && heroWithCharacterRef.length === 0) {
+    score -= 0.15;
+  }
+
+  // Bonus variété de plans
   score += shotVariety.varietyScore * 0.1;
 
   // Bonus cutaways

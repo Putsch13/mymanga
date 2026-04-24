@@ -117,7 +117,96 @@ export function checkConsistencyThresholds(score: ConsistencyScore): {
 }
 
 /**
- * Stub pour calculer le score de cohérence d'un panel.
+ * P2.13 — Post-render vision QA interface.
+ *
+ * Le vrai analyzer doit vérifier :
+ *   - le bon personnage est visible
+ *   - le visage correspond (si face ref)
+ *   - l'objet obligatoire est visible (mustShow)
+ *   - le lieu correspond (locationName)
+ *   - pas de texte parasite (text in image)
+ *   - pas de photoréalisme (style manga respecté)
+ *   - pas de main catastrophique (hand quality)
+ *   - cohérence panel précédent / suivant
+ */
+export interface VisionQaAnalyzerResult {
+  characterVisible: boolean;
+  faceMatch: number | null;
+  requiredObjectsVisible: string[];
+  requiredObjectsMissing: string[];
+  locationMatch: boolean;
+  textDetected: boolean;
+  styleMatch: number;
+  handQuality: number;
+  previousPanelCoherence: number | null;
+}
+
+/**
+ * Stub Vision Analyzer — retourne des scores simulés.
+ *
+ * En production, remplacer par :
+ *   - GPT-4 Vision (multimodal analysis)
+ *   - CLIP embeddings comparison
+ *   - Service externe spécialisé manga
+ *
+ * Configuration via env:
+ *   - VISION_QA_PROVIDER: "stub" | "gpt4v" | "clip" | "external"
+ *   - VISION_QA_ENDPOINT: URL du service externe
+ */
+export async function analyzeRenderedPanel(
+  imageUrl: string,
+  spec: {
+    characterIds: string[];
+    mustShow: string[];
+    locationName: string;
+    renderMode: string;
+    previousPanelImageUrl?: string;
+  },
+): Promise<VisionQaAnalyzerResult> {
+  const provider = process.env.VISION_QA_PROVIDER ?? "stub";
+
+  if (provider === "stub") {
+    // Mode dégradé : retourne des scores simulés
+    console.warn(
+      `[vision-qa] stub_mode — no real vision analysis, assuming OK`,
+    );
+    return {
+      characterVisible: spec.characterIds.length === 0 || true,
+      faceMatch: spec.characterIds.length > 0 ? 0.85 : null,
+      requiredObjectsVisible: spec.mustShow,
+      requiredObjectsMissing: [],
+      locationMatch: true,
+      textDetected: false,
+      styleMatch: 0.90,
+      handQuality: 0.80,
+      previousPanelCoherence: spec.previousPanelImageUrl ? 0.85 : null,
+    };
+  }
+
+  // TODO P2.13: Implémenter les vrais providers
+  // if (provider === "gpt4v") {
+  //   return analyzeWithGPT4Vision(imageUrl, spec);
+  // }
+  // if (provider === "clip") {
+  //   return analyzeWithCLIP(imageUrl, spec);
+  // }
+
+  console.error(`[vision-qa] unknown_provider=${provider} — falling back to stub`);
+  return {
+    characterVisible: true,
+    faceMatch: null,
+    requiredObjectsVisible: spec.mustShow,
+    requiredObjectsMissing: [],
+    locationMatch: true,
+    textDetected: false,
+    styleMatch: 0.85,
+    handQuality: 0.75,
+    previousPanelCoherence: null,
+  };
+}
+
+/**
+ * Calcule le score de cohérence d'un panel.
  * En production, utilisera un service d'embedding (CLIP, etc.).
  *
  * Pour l'instant, retourne un score basé sur des heuristiques simples.

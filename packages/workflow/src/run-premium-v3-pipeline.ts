@@ -1,5 +1,6 @@
 import {
   extractRequiredVisualCoverage,
+  extractRequiredVisualCoverageFromProductionPlan,
   validateVisualCoverage,
   type StoryArc,
 } from "@manga-ai-studio/ai";
@@ -256,16 +257,60 @@ export async function runPremiumV3Pipeline(
       }
     }
 
+    // P1.9 — Extraire le coverage depuis productionPlan si approved_plan_driven
     const requiredCoverage = storyArc
       ? extractRequiredVisualCoverage(storyArc)
-      : [];
+      : approvedPlanDriven && input.productionPlan?.panelBlueprints
+        ? extractRequiredVisualCoverageFromProductionPlan(
+            input.productionPlan.panelBlueprints as Array<{
+              panelId: string;
+              beatId: string;
+              requiredCharacterIds?: string[];
+              mustShowCharacterIds?: string[];
+              requiredProps?: Array<{ canonicalName: string }>;
+              mustShowEnemy?: boolean;
+              requiredEnemyIds?: string[];
+              requiredLocationSignals?: string[];
+              subjectFocus?: string;
+              cutawayType?: string;
+              purpose?: string;
+            }>,
+          )
+        : [];
     const coverageReport = validateVisualCoverage(
       requiredCoverage,
       storyboardPassResult.storyboardPlan,
     );
     console.log(
-      `[pipeline:v3:visual-coverage] required=${requiredCoverage.length} fulfilled=${coverageReport.fulfilled.length} gaps=${coverageReport.gaps.length}`,
+      `[pipeline:v3:visual-coverage] required=${requiredCoverage.length} fulfilled=${coverageReport.fulfilled.length} gaps=${coverageReport.gaps.length} source=${storyArc ? "storyArc" : approvedPlanDriven ? "productionPlan" : "none"}`,
     );
+    // P1.10 — Valider le cutaway ratio (max 35% sauf chapitre expérimental)
+    const allPanels = storyboardPassResult.storyboardPlan.pages.flatMap((p) => p.panels);
+    const cutawayPanels = allPanels.filter(
+      (panel) =>
+        panel.cutawayType !== "none" ||
+        panel.subjectFocus === "environment" ||
+        panel.subjectFocus === "prop" ||
+        panel.renderMode === "establishing_environment" ||
+        panel.renderMode === "insert_object" ||
+        panel.renderMode === "surveillance_reveal",
+    );
+    const cutawayRatio = allPanels.length > 0 ? cutawayPanels.length / allPanels.length : 0;
+    const MAX_CUTAWAY_RATIO = 0.35;
+
+    console.log(
+      `[pipeline:v3:cutaway-ratio] count=${cutawayPanels.length}/${allPanels.length} ratio=${(cutawayRatio * 100).toFixed(1)}% max=${(MAX_CUTAWAY_RATIO * 100).toFixed(0)}%`,
+    );
+
+    if (cutawayRatio > MAX_CUTAWAY_RATIO && input.premiumV3OnlyEnabled) {
+      console.error(
+        `[pipeline:v3:cutaway-ratio] exceeded chapterId=${input.chapterId} ratio=${(cutawayRatio * 100).toFixed(1)}%`,
+      );
+      throw new Error(
+        `premium_v3_only_cutaway_ratio_exceeded: ${(cutawayRatio * 100).toFixed(1)}% > ${(MAX_CUTAWAY_RATIO * 100).toFixed(0)}% — trop de cutaways, pas assez de personnages/action`,
+      );
+    }
+
     if (!coverageReport.ok) {
       const gapSummary = coverageReport.gaps
         .slice(0, 8)
