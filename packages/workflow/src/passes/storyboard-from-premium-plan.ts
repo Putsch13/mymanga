@@ -1,4 +1,5 @@
 import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
+import { PAGE_LAYOUT_CONFIGS, type PageLayoutTemplate } from "@manga-ai-studio/core";
 import { inferStoryboardPanelLayoutMeta } from "@manga-ai-studio/ai";
 import type {
   PanelPurpose,
@@ -12,6 +13,21 @@ import type {
   StoryboardShotType,
   StoryboardSubjectFocus,
 } from "@manga-ai-studio/ai";
+
+/**
+ * Retourne la capacité max d'un layout (nombre de panels qu'il peut contenir).
+ */
+export function getLayoutCapacity(layout: PageLayoutTemplate): number {
+  return PAGE_LAYOUT_CONFIGS[layout]?.areas.length ?? 6;
+}
+
+/**
+ * Retourne la capacité max par défaut pour un format de projet.
+ * Manga: grid_2x3 = 6, Webtoon: vertical_hero_4 = 5
+ */
+export function getMaxPanelsPerPage(projectFormat: "manga" | "webtoon"): number {
+  return projectFormat === "webtoon" ? 5 : 6;
+}
 
 export function toShotType(raw: string): StoryboardShotType {
   const v = raw.toLowerCase();
@@ -168,7 +184,9 @@ export function assignBlueprintsToPages(args: {
   panelBlueprints: PanelBlueprintPremium[];
   pages?: Array<{ pageNumber: number; panelCount: number; beatIds?: string[] | null }>;
   fallbackPageSize: number;
+  maxPanelsPerPage?: number;
 }): Map<number, PanelBlueprintPremium[]> {
+  const maxPerPage = args.maxPanelsPerPage ?? 6;
   const panelsByPage = new Map<number, PanelBlueprintPremium[]>();
   const sorted = [...args.panelBlueprints].sort((a, b) => a.panelNumber - b.panelNumber);
 
@@ -192,31 +210,72 @@ export function assignBlueprintsToPages(args: {
         `redistributing via panelCount`,
     );
     let cursor = 0;
+    let nextPageNumber = 1;
+
     for (const page of explicitPages.sort((a, b) => a.pageNumber - b.pageNumber)) {
-      const slice = sorted.slice(cursor, cursor + page.panelCount);
-      if (slice.length > 0) panelsByPage.set(page.pageNumber, slice);
-      cursor += page.panelCount;
+      const requested = Math.min(page.panelCount, sorted.length - cursor);
+      if (requested <= 0) continue;
+
+      const slice = sorted.slice(cursor, cursor + requested);
+
+      // Split si la page dépasse la capacité max
+      if (slice.length > maxPerPage) {
+        console.warn(
+          `[storyboard-from-premium-plan] page_capacity_exceeded page=${page.pageNumber} ` +
+            `requested=${slice.length} max=${maxPerPage} — splitting into multiple pages`,
+        );
+        for (let i = 0; i < slice.length; i += maxPerPage) {
+          const chunk = slice.slice(i, i + maxPerPage);
+          panelsByPage.set(nextPageNumber++, chunk);
+        }
+      } else if (slice.length > 0) {
+        panelsByPage.set(nextPageNumber++, slice);
+      }
+
+      cursor += requested;
     }
 
+    // Reste des blueprints
     if (cursor < sorted.length) {
-      let pageNumber = explicitPages[explicitPages.length - 1]!.pageNumber + 1;
-      for (let i = cursor; i < sorted.length; i += args.fallbackPageSize) {
-        panelsByPage.set(pageNumber++, sorted.slice(i, i + args.fallbackPageSize));
+      for (let i = cursor; i < sorted.length; i += Math.min(args.fallbackPageSize, maxPerPage)) {
+        const chunk = sorted.slice(i, i + Math.min(args.fallbackPageSize, maxPerPage));
+        panelsByPage.set(nextPageNumber++, chunk);
       }
     }
 
     return panelsByPage;
   }
 
+  // Mode normal: grouper par pageNumber du blueprint
+  const rawPanelsByPage = new Map<number, PanelBlueprintPremium[]>();
   for (const bp of sorted) {
     const pageNumber =
       typeof bp.pageNumber === "number" && bp.pageNumber > 0
         ? bp.pageNumber
         : Math.floor((bp.panelNumber - 1) / args.fallbackPageSize) + 1;
 
-    const arr = panelsByPage.get(pageNumber) ?? [];
+    const arr = rawPanelsByPage.get(pageNumber) ?? [];
     arr.push(bp);
-    panelsByPage.set(pageNumber, arr);
+    rawPanelsByPage.set(pageNumber, arr);
+  }
+
+  // Post-process: splitter les pages qui dépassent la capacité
+  let outputPageNumber = 1;
+  const rawPageNumbers = Array.from(rawPanelsByPage.keys()).sort((a, b) => a - b);
+
+  for (const rawPageNum of rawPageNumbers) {
+    const panels = rawPanelsByPage.get(rawPageNum) ?? [];
+    if (panels.length > maxPerPage) {
+      console.warn(
+        `[storyboard-from-premium-plan] page_capacity_exceeded page=${rawPageNum} ` +
+          `panels=${panels.length} max=${maxPerPage} — splitting`,
+      );
+      for (let i = 0; i < panels.length; i += maxPerPage) {
+        panelsByPage.set(outputPageNumber++, panels.slice(i, i + maxPerPage));
+      }
+    } else {
+      panelsByPage.set(outputPageNumber++, panels);
+    }
   }
 
   return panelsByPage;
@@ -244,12 +303,14 @@ export function buildStoryboardPlanFromPremiumBlueprints(args: {
   chapterLocationName?: string | null;
 }): StoryboardPlan {
   const pageSize = args.projectFormat === "webtoon" ? 3 : 5;
+  const maxPanelsPerPage = getMaxPanelsPerPage(args.projectFormat);
   const explicitPages = args.pages ?? [];
 
   const panelsByPage = assignBlueprintsToPages({
     panelBlueprints: args.panelBlueprints,
     pages: explicitPages,
     fallbackPageSize: pageSize,
+    maxPanelsPerPage,
   });
 
   const emptyExplicitPages = explicitPages

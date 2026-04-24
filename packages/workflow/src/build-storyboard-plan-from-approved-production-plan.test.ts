@@ -178,7 +178,7 @@ describe("buildStoryboardPlanFromApprovedProductionPlan", () => {
     expect(plan.pages.flatMap((p) => p.panels)).toHaveLength(2);
   });
 
-  it("redistribue 70 blueprints pageNumber=1 en 10 pages via productionPlan.pages", () => {
+  it("redistribue 70 blueprints pageNumber=1 et splitte les pages qui dépassent la capacité max (6 panels/page manga)", () => {
     const blueprints = Array.from({ length: 70 }, (_, i) =>
       minimalBp({
         panelId: `panel-${i + 1}`,
@@ -188,6 +188,8 @@ describe("buildStoryboardPlanFromApprovedProductionPlan", () => {
       }),
     );
 
+    // 10 pages explicites demandant 7 panels chacune
+    // Mais manga max = 6, donc chaque page sera splitée en 2 (6 + 1)
     const pages = Array.from({ length: 10 }, (_, i) => ({
       pageNumber: i + 1,
       panelCount: 7,
@@ -205,17 +207,17 @@ describe("buildStoryboardPlanFromApprovedProductionPlan", () => {
       },
     });
 
-    expect(plan.pages).toHaveLength(10);
+    // 10 pages * 7 panels → 10 * 2 = 20 pages (chaque page de 7 splitée en 6 + 1)
+    expect(plan.pages).toHaveLength(20);
     expect(plan.totalTargetPanels).toBe(70);
 
-    for (let i = 0; i < 10; i++) {
-      const page = plan.pages[i]!;
-      expect(page.pageNumber).toBe(i + 1);
-      expect(page.panels).toHaveLength(7);
-      for (let j = 0; j < 7; j++) {
-        expect(page.panels[j]!.panelNumberInPage).toBe(j + 1);
-      }
+    // Toutes les pages doivent respecter la capacité max (6)
+    for (const page of plan.pages) {
+      expect(page.panels.length).toBeLessThanOrEqual(6);
     }
+
+    // Tous les 70 panels sont distribués
+    expect(plan.pages.flatMap((p) => p.panels)).toHaveLength(70);
   });
 
   it("utilise resolveBlueprintLocationName au lieu de 'unknown'", () => {

@@ -36,6 +36,7 @@ import {
   buildEditorialDiagnostics,
   derivePanelPurpose,
   deriveRenderMode,
+  getMaxPanelsPerPage,
   pickLayoutTemplateForPage,
   resolveCharacters,
   resolveBlueprintLocationName,
@@ -321,10 +322,13 @@ export function buildStoryboardPlanFromApprovedProductionPlan(
 
   // P0.3 — Utiliser assignBlueprintsToPages pour redistribuer correctement
   // même si tous les blueprints ont pageNumber=1
+  // P0.2 — Ne jamais créer de page avec plus de panels que le layout max
+  const maxPanelsPerPage = getMaxPanelsPerPage(input.projectFormat);
   const panelsByPage = assignBlueprintsToPages({
     panelBlueprints: blueprints,
     pages: explicitPagesMerged,
     fallbackPageSize: pageSize,
+    maxPanelsPerPage,
   });
 
   // Ne pas réinjecter les pages explicites vides
