@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
 import {
+  isHardCriticalCutawayBlueprint,
   isPremiumMangaCutawayBlueprint,
   rebalancePremiumBlueprintsForManga,
 } from "./premium-manga-rebalance";
+import { buildReadingOrderIndexMap } from "./premium-manga-cutaway";
 import { runMangaStructureQaOnBlueprints } from "./manga-structure-qa";
 import type { VisualEntity } from "./visual-entity-registry";
 
@@ -55,7 +57,7 @@ describe("premium-manga-rebalance", () => {
       visualEntities: [heroEntity],
       projectFormat: "manga",
       maxCutawayRatio: 0.35,
-      minActorDrivenRatio: 0.55,
+      minActorDrivenRatio: 0.58,
       fallbackHeroId: "h1",
     });
 
@@ -81,8 +83,65 @@ describe("premium-manga-rebalance", () => {
     const qa = runMangaStructureQaOnBlueprints({
       blueprints,
       maxCutawayRatio: 0.35,
-      minActorDrivenRatio: 0.55,
+      minActorDrivenRatio: 0.58,
     });
     expect(qa.ok).toBe(true);
+  });
+
+  it("ne marque pas tout reveal comme hard-critical (évite keptCritical massif)", () => {
+    const bps: PanelBlueprintPremium[] = [
+      bp({
+        panelId: "p1",
+        panelNumber: 5,
+        subjectFocus: "environment",
+        cutawayType: "environment",
+        purpose: "minor reveal of a door",
+        criticality: "high",
+      }),
+    ];
+    const order = buildReadingOrderIndexMap(bps);
+    expect(isHardCriticalCutawayBlueprint(bps[0]!, order.get("p1") ?? 0)).toBe(false);
+  });
+
+  it("ajoute un panel adversaire sur un beat de combat sans ennemi visible", () => {
+    const villain: VisualEntity = {
+      id: "v1",
+      name: "Shade",
+      kind: "enemy",
+      role: "antagonist",
+      importance: "secondary",
+      visualTags: [],
+      beatIds: [],
+      canAppearAsGroup: false,
+    };
+
+    const blueprints: PanelBlueprintPremium[] = [
+      bp({
+        panelId: "p1",
+        panelNumber: 1,
+        beatId: "beat_fight",
+        subjectFocus: "environment",
+        cutawayType: "environment",
+        purpose: "combat begins — atmospheric tension",
+        mustShowEnemy: true,
+      }),
+    ];
+
+    const out = rebalancePremiumBlueprintsForManga({
+      blueprints,
+      visualEntities: [heroEntity, villain],
+      projectFormat: "manga",
+      maxCutawayRatio: 0.35,
+      minActorDrivenRatio: 0.58,
+      fallbackHeroId: "h1",
+    });
+
+    const qa = runMangaStructureQaOnBlueprints({
+      blueprints: out.blueprints,
+      maxCutawayRatio: 0.35,
+      minActorDrivenRatio: 0.58,
+    });
+    expect(qa.ok).toBe(true);
+    expect(out.blueprints[0]?.subjectFocus).toBe("enemy");
   });
 });

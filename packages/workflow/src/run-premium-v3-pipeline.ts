@@ -182,6 +182,8 @@ export async function runPremiumV3Pipeline(
         const total = workingBlueprints.length;
         const beforeCut = workingBlueprints.filter(isPremiumMangaCutawayBlueprint).length;
         const beforeRatio = total > 0 ? beforeCut / total : 0;
+        const mangaMaxCutawayRatio = 0.35;
+        const mangaMinActorDrivenRatio = 0.58;
 
         const visualEntities = buildVisualEntitiesFromPremiumV3Input({
           rawCharacters: input.rawCharacters,
@@ -194,8 +196,8 @@ export async function runPremiumV3Pipeline(
           blueprints: workingBlueprints,
           visualEntities,
           projectFormat: "manga",
-          maxCutawayRatio: 0.35,
-          minActorDrivenRatio: 0.55,
+          maxCutawayRatio: mangaMaxCutawayRatio,
+          minActorDrivenRatio: mangaMinActorDrivenRatio,
           fallbackHeroId: input.heroCharacterId ?? input.focusCharacterIds[0] ?? null,
         });
 
@@ -208,12 +210,16 @@ export async function runPremiumV3Pipeline(
           `[pipeline:v3:densify-balance] before cutaways=${beforeCut}/${total} ratio=${(beforeRatio * 100).toFixed(1)}%`,
         );
         console.info(
-          `[pipeline:v3:densify-balance] converted=${rebal.convertedCount} keptCritical=${rebal.keptCriticalCount}`,
+          `[pipeline:v3:densify-balance] converted=${rebal.convertedCount} keptHardCritical=${rebal.keptHardCriticalCount} keptSoftCritical=${rebal.keptSoftCriticalCount} structureIterations=${rebal.structureIterations}`,
+        );
+        console.info(
+          `[pipeline:v3:densify-balance] after cutaways=${afterCut}/${total} ratio=${(afterRatio * 100).toFixed(1)}%`,
         );
         console.info(
           `[pipeline:v3:densify-balance] actorDriven=${afterActor}/${total} ratio=${(actorRatio * 100).toFixed(1)}%`,
         );
 
+        const opponentPanels = rebal.blueprints.filter((bp) => bp.subjectFocus === "enemy" || bp.mustShowEnemy).length;
         const blobSoldiers = rebal.blueprints.filter((bp) =>
           /soldier|soldats|army|armée|squad|escadron|garde/i.test(bp.purpose),
         ).length;
@@ -224,7 +230,7 @@ export async function runPremiumV3Pipeline(
           /robot|drone|mecha|android|machine/i.test(bp.purpose),
         ).length;
         console.info(
-          `[pipeline:v3:entity-coverage] soldiers=${blobSoldiers} panels, creatures=${blobCreatures} panels, robots=${blobRobots} panels`,
+          `[pipeline:v3:entity-coverage] opponents=${opponentPanels} panels, soldiers=${blobSoldiers} panels, creatures=${blobCreatures} panels, robots=${blobRobots} panels`,
         );
 
         timings.densify_balance_ms = Date.now() - densifyBalanceStart;
@@ -238,9 +244,12 @@ export async function runPremiumV3Pipeline(
 
         const mangaQa = runMangaStructureQaOnBlueprints({
           blueprints: rebal.blueprints,
-          maxCutawayRatio: 0.35,
-          minActorDrivenRatio: 0.55,
+          maxCutawayRatio: mangaMaxCutawayRatio,
+          minActorDrivenRatio: mangaMinActorDrivenRatio,
         });
+        console.info(
+          `[pipeline:v3:rhythm] maxConsecutiveCutaways=${mangaQa.maxConsecutiveCutaways}`,
+        );
         console.info(
           `[pipeline:v3:manga-structure-qa] ok=${mangaQa.ok} cutawayRatio=${(mangaQa.cutawayRatio * 100).toFixed(1)}% ` +
             `actorDrivenRatio=${(mangaQa.actorDrivenRatio * 100).toFixed(1)}% maxConsecutiveCutaways=${mangaQa.maxConsecutiveCutaways}`,

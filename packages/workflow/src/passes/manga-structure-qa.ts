@@ -5,9 +5,12 @@
 import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
 import {
   containsBannedPlaceholder,
+  isConflictHeavyBeatPanel,
   isPremiumMangaActorDrivenBlueprint,
   isPremiumMangaCutawayBlueprint,
-} from "./premium-manga-rebalance";
+  maxConsecutiveCutawaysInOrder,
+  panelDeclaresVisibleOpponent,
+} from "./premium-manga-cutaway";
 
 export interface MangaStructureQaResult {
   ok: boolean;
@@ -16,25 +19,6 @@ export interface MangaStructureQaResult {
   cutawayRatio: number;
   actorDrivenRatio: number;
   maxConsecutiveCutaways: number;
-}
-
-function sortedByReadingOrder(blueprints: PanelBlueprintPremium[]): PanelBlueprintPremium[] {
-  return [...blueprints].sort((a, b) => a.panelNumber - b.panelNumber);
-}
-
-function maxConsecutiveCutaways(blueprints: PanelBlueprintPremium[]): number {
-  const sorted = sortedByReadingOrder(blueprints);
-  let maxRun = 0;
-  let run = 0;
-  for (const bp of sorted) {
-    if (isPremiumMangaCutawayBlueprint(bp)) {
-      run += 1;
-      maxRun = Math.max(maxRun, run);
-    } else {
-      run = 0;
-    }
-  }
-  return maxRun;
 }
 
 function beatHasActorPanel(beatId: string, blueprints: PanelBlueprintPremium[]): boolean {
@@ -53,11 +37,13 @@ function beatDialogueCoverage(beatId: string, blueprints: PanelBlueprintPremium[
   );
 }
 
-function beatConflictCoverage(beatId: string, blueprints: PanelBlueprintPremium[]): boolean {
-  const beatPanels = blueprints.filter((bp) => bp.beatId === beatId);
-  const needsEnemy = beatPanels.some((bp) => bp.mustShowEnemy || bp.subjectFocus === "enemy");
-  if (!needsEnemy) return true;
-  return beatPanels.some((bp) => bp.subjectFocus === "enemy" || (bp.mustShowEnemy && isPremiumMangaActorDrivenBlueprint(bp)));
+/** Beat de conflit : nécessite au moins un panel avec adversaire / pression visible. */
+function beatRequiresOpponentPanel(beatId: string, blueprints: PanelBlueprintPremium[]): boolean {
+  return blueprints.some((bp) => bp.beatId === beatId && isConflictHeavyBeatPanel(bp));
+}
+
+function beatHasVisibleOpponentForConflict(beatId: string, blueprints: PanelBlueprintPremium[]): boolean {
+  return blueprints.some((bp) => bp.beatId === beatId && panelDeclaresVisibleOpponent(bp));
 }
 
 export interface RunMangaStructureQaArgs {
@@ -72,7 +58,7 @@ export function runMangaStructureQaOnBlueprints(args: RunMangaStructureQaArgs): 
   const actorCount = args.blueprints.filter(isPremiumMangaActorDrivenBlueprint).length;
   const cutawayRatio = cutawayCount / total;
   const actorDrivenRatio = actorCount / total;
-  const maxRun = maxConsecutiveCutaways(args.blueprints);
+  const maxRun = maxConsecutiveCutawaysInOrder(args.blueprints);
 
   const reasons: string[] = [];
 
@@ -98,7 +84,7 @@ export function runMangaStructureQaOnBlueprints(args: RunMangaStructureQaArgs): 
     if (!beatDialogueCoverage(bid, args.blueprints)) {
       reasons.push(`no_speaker_panel_for_dialogue_beat beat=${bid}`);
     }
-    if (!beatConflictCoverage(bid, args.blueprints)) {
+    if (beatRequiresOpponentPanel(bid, args.blueprints) && !beatHasVisibleOpponentForConflict(bid, args.blueprints)) {
       reasons.push(`no_enemy_panel_for_conflict_beat beat=${bid}`);
     }
   }

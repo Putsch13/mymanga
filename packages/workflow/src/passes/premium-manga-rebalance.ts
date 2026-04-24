@@ -4,105 +4,75 @@
  */
 
 import type { CutawayType, PanelBlueprintPremium, SubjectFocus } from "@manga-ai-studio/core";
-import type { VisualEntity } from "./visual-entity-registry";
 import {
-  pickOpponentEntityForBeat,
-  pickPrimaryActorForBeat,
-} from "./visual-entity-registry";
+  blueprintTextBlob,
+  buildReadingOrderIndexMap,
+  containsBannedPlaceholder,
+  isConflictHeavyBeatPanel,
+  isPremiumMangaActorDrivenBlueprint,
+  isPremiumMangaCutawayBlueprint,
+  maxConsecutiveCutawaysInOrder,
+  panelDeclaresVisibleOpponent,
+  stripBannedPlaceholdersFromBlueprint,
+} from "./premium-manga-cutaway";
+import type { VisualEntity } from "./visual-entity-registry";
+import { pickOpponentEntityForBeat, pickPrimaryActorForBeat } from "./visual-entity-registry";
+import { runMangaStructureQaOnBlueprints } from "./manga-structure-qa";
 
-const BANNED_PLACEHOLDER_SNIPPETS = [
-  "densified_to_meet_premium_range",
-  "story-consistent interior",
-  "story-consistent exterior",
-  "story-consistent setting",
-  "atmospheric scene without",
-  "without a dominant identifiable face",
-  "environment only",
-  "prop insert as primary",
-  "terrain damage",
-] as const;
-
-const ATMOSPHERIC_SIGNALS = [
-  "atmospheric scene",
-  "environment only",
-  "without a dominant",
-  "densified_to_meet_premium_range",
-] as const;
-
-export function blueprintTextBlob(bp: PanelBlueprintPremium): string {
-  const parts = [
-    bp.purpose,
-    bp.sceneContextLabel ?? "",
-    bp.narrationText ?? "",
-    ...(bp.notes ?? []),
-    ...((bp.dialogueLines ?? []).map((l) => `${l.speaker} ${l.text}`)),
-  ];
-  return parts.join(" ").toLowerCase();
+function isDialogueHeavyBeat(bp: PanelBlueprintPremium): boolean {
+  return (bp.dialogueLines?.length ?? 0) > 0 || bp.dialogueCarrier === "speaker_visible";
 }
 
-export function containsBannedPlaceholder(bp: PanelBlueprintPremium): boolean {
-  const blob = blueprintTextBlob(bp);
-  return BANNED_PLACEHOLDER_SNIPPETS.some((s) => blob.includes(s.toLowerCase()));
-}
+/** Cutaway « dur » : plafonné sévèrement (ouverture, splash, révélation majeure, etc.). */
+export function isHardCriticalCutawayBlueprint(
+  bp: PanelBlueprintPremium,
+  readingOrderIndex: number,
+): boolean {
+  if (bp.contractualCritical === true) return true;
 
-/** Retire ou remplace les placeholders interdits dans les champs texte du blueprint. */
-export function stripBannedPlaceholdersFromBlueprint(bp: PanelBlueprintPremium): void {
-  const clean = (s: string | null | undefined): string | null => {
-    if (!s || typeof s !== "string") return s ?? null;
-    let out = s;
-    for (const frag of BANNED_PLACEHOLDER_SNIPPETS) {
-      const re = new RegExp(frag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
-      out = out.replace(re, "").trim();
-    }
-    return out.length > 0 ? out : null;
-  };
+  const purpose = bp.purpose.toLowerCase();
+  const shotType = bp.shotType.toLowerCase();
+  const actionLine = blueprintTextBlob(bp);
 
-  const p = clean(bp.purpose);
-  if (p) bp.purpose = p;
-  else bp.purpose = "character-driven story beat";
-
-  bp.sceneContextLabel = clean(bp.sceneContextLabel ?? undefined);
-  bp.narrationText = clean(bp.narrationText ?? undefined);
-  if (Array.isArray(bp.notes)) {
-    bp.notes = bp.notes
-      .map((n) => clean(n) ?? "")
-      .filter((n) => n.length > 0);
+  if ((purpose.includes("establishing") || purpose.includes("establish")) && readingOrderIndex <= 2) {
+    return true;
   }
-}
+  if (purpose.includes("major_reveal") || purpose.includes("major reveal")) return true;
+  if (purpose.includes("cliffhanger") || purpose.includes("cliff-hanger")) return true;
+  if (shotType.includes("splash")) return true;
 
-const CUTAWAY_SUBJECT: ReadonlySet<SubjectFocus> = new Set([
-  "environment",
-  "prop",
-  "location",
-  "aftermath",
-]);
-
-/**
- * Définition standardisée "cutaway" côté blueprint premium (manga).
- * Alignée avec le ratio storyboard V3 (cutawayType + focus environnement / prop).
- */
-export function isPremiumMangaCutawayBlueprint(bp: PanelBlueprintPremium): boolean {
-  if (bp.cutawayType && bp.cutawayType !== "none") return true;
-  if (CUTAWAY_SUBJECT.has(bp.subjectFocus)) return true;
-
-  const blob = blueprintTextBlob(bp);
-  for (const sig of ATMOSPHERIC_SIGNALS) {
-    if (blob.includes(sig)) return true;
+  if (
+    purpose.includes("key_object_reveal")
+    || purpose.includes("key object reveal")
+    || actionLine.includes("reveals the talisman")
+    || actionLine.includes("reveals the grimoire")
+  ) {
+    return true;
   }
+
   return false;
 }
 
-export function isPremiumMangaActorDrivenBlueprint(bp: PanelBlueprintPremium): boolean {
-  return !isPremiumMangaCutawayBlueprint(bp);
-}
+/** Cutaway « soft » : convertible en priorité moindre après les plans normaux. */
+export function isSoftCriticalCutawayBlueprint(
+  bp: PanelBlueprintPremium,
+  readingOrderIndex: number,
+): boolean {
+  if (isHardCriticalCutawayBlueprint(bp, readingOrderIndex)) return false;
 
-export function isCriticalCutawayBlueprint(bp: PanelBlueprintPremium): boolean {
-  if (bp.contractualCritical === true) return true;
-  if (bp.criticality === "critical" || bp.criticality === "high") return true;
-  const p = bp.purpose.toLowerCase();
-  if (p.includes("establish") || p.includes("révélation") || p.includes("reveal")) return true;
-  if (p.includes("key object") || p.includes("objet clé") || p.includes("cliff")) return true;
-  if (bp.cutawayType === "aftermath" && p.includes("after")) return true;
+  const purpose = bp.purpose.toLowerCase();
+  const actionLine = blueprintTextBlob(bp);
+  const requiredProps = Array.isArray(bp.requiredProps) ? bp.requiredProps : [];
+
+  if (requiredProps.length > 0) return true;
+  if (purpose.includes("prop")) return true;
+  if (purpose.includes("environment")) return true;
+  if (purpose.includes("aftermath")) return true;
+  if (actionLine.includes("barrière") || actionLine.includes("barrier")) return true;
+  if (actionLine.includes("talisman")) return true;
+  if (actionLine.includes("grimoire")) return true;
+  if (actionLine.includes("magic") || actionLine.includes("magique")) return true;
+
   return false;
 }
 
@@ -111,26 +81,10 @@ function narrativeValueScore(bp: PanelBlueprintPremium): number {
   if (bp.contractualCritical) score += 40;
   if (bp.criticality === "high" || bp.criticality === "critical") score += 25;
   const p = bp.purpose.toLowerCase();
-  if (p.includes("establish") || p.includes("reveal")) score += 15;
+  if (p.includes("establish") || p.includes("major_reveal") || p.includes("major reveal")) score += 15;
   if (p.includes("atmos") || p.includes("densified")) score -= 30;
   if (containsBannedPlaceholder(bp)) score -= 25;
   return score;
-}
-
-function isDialogueHeavyBeat(bp: PanelBlueprintPremium): boolean {
-  return (bp.dialogueLines?.length ?? 0) > 0 || bp.dialogueCarrier === "speaker_visible";
-}
-
-function isConflictHeavyBeat(bp: PanelBlueprintPremium): boolean {
-  if (bp.mustShowEnemy) return true;
-  const p = bp.purpose.toLowerCase();
-  return (
-    p.includes("combat")
-    || p.includes("fight")
-    || p.includes("battle")
-    || p.includes("confront")
-    || p.includes("affrontement")
-  );
 }
 
 function subjectFocusForEntityKind(kind: VisualEntity["kind"]): SubjectFocus {
@@ -170,15 +124,12 @@ export function buildActorDrivenReplacement(
       cutawayType: "none" as CutawayType,
       dialogueCarrier: "speaker_visible",
       heroCenterAllowed: true,
-      mustShowCharacterIds: [
-        ...(bp.mustShowCharacterIds ?? []),
-        primary.id,
-      ].filter((id, i, a) => a.indexOf(id) === i),
+      mustShowCharacterIds: [...(bp.mustShowCharacterIds ?? []), primary.id].filter((id, i, a) => a.indexOf(id) === i),
       requiredCharacters: [primary.id],
     };
   }
 
-  if (isConflictHeavyBeat(bp) && opponent) {
+  if (isConflictHeavyBeatPanel(bp) && opponent) {
     const sf = subjectFocusForEntityKind(opponent.kind);
     return {
       purpose: `${opponent.name} — visible pressure / conflict beat`,
@@ -219,6 +170,190 @@ export function buildActorDrivenReplacement(
   };
 }
 
+function rewritePurposeWithVisibleActor(bp: PanelBlueprintPremium): string {
+  const propNames = (bp.requiredProps ?? [])
+    .filter((p) => p.mustBeVisible !== false)
+    .map((p) => p.canonicalName)
+    .filter(Boolean);
+  const props =
+    propNames.length > 0 ? ` Key props stay readable in-frame: ${propNames.join(", ")}.` : "";
+
+  const base = String(bp.purpose ?? "").trim();
+
+  if (isConflictHeavyBeatPanel(bp)) {
+    return `A visible character reacts to the threat or advances the conflict.${props} Original beat cue: ${base}`;
+  }
+
+  if (isDialogueHeavyBeat(bp)) {
+    return `A visible speaker or listener expresses the dialogue subtext through gaze, posture and facial emotion.${props} Original beat cue: ${base}`;
+  }
+
+  return `A visible character advances the scene through action or emotion.${props} Original beat cue: ${base}`;
+}
+
+function mergeActorDrivenPurpose(bp: PanelBlueprintPremium): void {
+  bp.purpose = rewritePurposeWithVisibleActor(bp);
+}
+
+export function convertCutawayToActorDrivenPanel(
+  bp: PanelBlueprintPremium,
+  entities: VisualEntity[],
+  fallbackHeroId: string | null,
+  _orderMap: Map<string, number>,
+): void {
+  const replacement = buildActorDrivenReplacement(bp, entities, fallbackHeroId);
+  Object.assign(bp, replacement);
+  bp.cutawayType = "none" as CutawayType;
+
+  if (bp.shotType === "wide") bp.shotType = "medium";
+  if (!bp.cameraAngle) bp.cameraAngle = "eye_level";
+
+  mergeActorDrivenPurpose(bp);
+
+  bp.notes = [...(bp.notes ?? []), "cutaway_rebalanced_to_actor_driven_panel"];
+}
+
+function rebalanceCutawaysToBudgetOnce(
+  blueprints: PanelBlueprintPremium[],
+  args: Pick<RebalancePremiumBlueprintsArgs, "maxCutawayRatio" | "minActorDrivenRatio" | "visualEntities" | "fallbackHeroId">,
+  orderMap: Map<string, number>,
+): number {
+  const total = blueprints.length;
+  if (total === 0) return 0;
+
+  const maxCutaways = Math.floor(total * args.maxCutawayRatio);
+  const minActorDriven = Math.ceil(total * args.minActorDrivenRatio);
+
+  const cutaways = blueprints.filter(isPremiumMangaCutawayBlueprint);
+  let currentCutaways = cutaways.length;
+  let currentActorDriven = blueprints.filter(isPremiumMangaActorDrivenBlueprint).length;
+
+  const hardCritical = cutaways.filter((bp) =>
+    isHardCriticalCutawayBlueprint(bp, orderMap.get(bp.panelId) ?? 0),
+  );
+  const softCritical = cutaways.filter((bp) =>
+    isSoftCriticalCutawayBlueprint(bp, orderMap.get(bp.panelId) ?? 0),
+  );
+  const normalCutaways = cutaways.filter(
+    (bp) =>
+      !isHardCriticalCutawayBlueprint(bp, orderMap.get(bp.panelId) ?? 0)
+      && !isSoftCriticalCutawayBlueprint(bp, orderMap.get(bp.panelId) ?? 0),
+  );
+
+  const maxHardCritical = Math.min(Math.floor(total * 0.15), maxCutaways);
+  const hardSorted = [...hardCritical].sort((a, b) => narrativeValueScore(b) - narrativeValueScore(a));
+  const hardCriticalToKeep = new Set(hardSorted.slice(0, maxHardCritical).map((bp) => bp.panelId));
+
+  const convertible = [
+    ...normalCutaways,
+    ...softCritical,
+    ...hardCritical.filter((bp) => !hardCriticalToKeep.has(bp.panelId)),
+  ].sort((a, b) => narrativeValueScore(a) - narrativeValueScore(b));
+
+  let converted = 0;
+  for (const bp of convertible) {
+    if (currentCutaways <= maxCutaways && currentActorDriven >= minActorDriven) break;
+    convertCutawayToActorDrivenPanel(bp, args.visualEntities, args.fallbackHeroId, orderMap);
+    currentCutaways -= 1;
+    currentActorDriven += 1;
+    converted += 1;
+  }
+
+  return converted;
+}
+
+function breakConsecutiveCutaways(
+  blueprints: PanelBlueprintPremium[],
+  maxConsecutive: number,
+  orderMap: Map<string, number>,
+  entities: VisualEntity[],
+  fallbackHeroId: string | null,
+): number {
+  const sorted = [...blueprints].sort((a, b) => {
+    if (a.panelNumber !== b.panelNumber) return a.panelNumber - b.panelNumber;
+    return a.panelId.localeCompare(b.panelId);
+  });
+  let streak = 0;
+  let converted = 0;
+  for (const bp of sorted) {
+    if (isPremiumMangaCutawayBlueprint(bp)) {
+      streak += 1;
+      const idx = orderMap.get(bp.panelId) ?? 0;
+      if (streak > maxConsecutive && !isHardCriticalCutawayBlueprint(bp, idx)) {
+        convertCutawayToActorDrivenPanel(bp, entities, fallbackHeroId, orderMap);
+        streak = 0;
+        converted += 1;
+      }
+    } else {
+      streak = 0;
+    }
+  }
+  return converted;
+}
+
+function ensureConflictBeatsHaveOpponents(args: {
+  blueprints: PanelBlueprintPremium[];
+  visualEntities: VisualEntity[];
+  fallbackHeroId: string | null;
+  orderMap: Map<string, number>;
+}): number {
+  let fixes = 0;
+  const conflictBeatIds = new Set(
+    args.blueprints.filter(isConflictHeavyBeatPanel).map((bp) => bp.beatId),
+  );
+
+  for (const beatId of conflictBeatIds) {
+    const beatPanels = args.blueprints.filter((bp) => bp.beatId === beatId);
+    if (beatPanels.some(panelDeclaresVisibleOpponent)) continue;
+
+    const target =
+      beatPanels.find(
+        (bp) =>
+          isPremiumMangaCutawayBlueprint(bp)
+          && !isHardCriticalCutawayBlueprint(bp, args.orderMap.get(bp.panelId) ?? 0),
+      )
+      ?? beatPanels.find(
+        (bp) => !isHardCriticalCutawayBlueprint(bp, args.orderMap.get(bp.panelId) ?? 0),
+      )
+      ?? beatPanels[0];
+
+    if (!target) continue;
+
+    let opponent = pickOpponentEntityForBeat(beatId, args.visualEntities);
+    if (!opponent) {
+      opponent =
+        args.visualEntities.find((e) => e.kind === "enemy" || e.role === "antagonist")
+        ?? args.visualEntities.find((e) =>
+          ["creature", "monster", "robot", "soldier", "android"].includes(e.kind),
+        )
+        ?? args.visualEntities.find((e) => e.kind !== "hero" && e.id !== args.fallbackHeroId)
+        ?? null;
+    }
+
+    const sf: SubjectFocus = opponent ? subjectFocusForEntityKind(opponent.kind) : "enemy";
+    target.cutawayType = "none" as CutawayType;
+    target.subjectFocus = sf;
+    target.mustShowEnemy = true;
+    target.shotType = target.shotType === "wide" ? "medium" : target.shotType || "medium";
+    target.cameraAngle = target.cameraAngle || "low";
+    target.purpose = opponent
+      ? `${opponent.name} is clearly visible and creates immediate pressure in the scene.`
+      : "A hostile opposing force is clearly visible and creates immediate pressure in the scene.";
+
+    if (opponent) {
+      const primary = pickPrimaryActorForBeat(beatId, args.visualEntities, args.fallbackHeroId);
+      const ids = [opponent.id, ...(primary ? [primary.id] : [])].filter((id, i, a) => a.indexOf(id) === i);
+      target.mustShowCharacterIds = ids;
+      target.requiredCharacters = ids;
+    }
+
+    target.notes = [...(target.notes ?? []), "forced_opponent_panel_for_conflict_beat"];
+    fixes += 1;
+  }
+
+  return fixes;
+}
+
 export interface RebalancePremiumBlueprintsArgs {
   blueprints: PanelBlueprintPremium[];
   visualEntities: VisualEntity[];
@@ -233,9 +368,13 @@ export interface RebalancePremiumBlueprintsResult {
   beforeCutawayCount: number;
   afterCutawayCount: number;
   convertedCount: number;
+  /** @deprecated utiliser keptHardCriticalCount + keptSoftCriticalCount */
   keptCriticalCount: number;
+  keptHardCriticalCount: number;
+  keptSoftCriticalCount: number;
   beforeActorDrivenCount: number;
   afterActorDrivenCount: number;
+  structureIterations: number;
 }
 
 export function rebalancePremiumBlueprintsForManga(
@@ -251,8 +390,11 @@ export function rebalancePremiumBlueprintsForManga(
       afterCutawayCount: cut,
       convertedCount: 0,
       keptCriticalCount: 0,
+      keptHardCriticalCount: 0,
+      keptSoftCriticalCount: 0,
       beforeActorDrivenCount: act,
       afterActorDrivenCount: act,
+      structureIterations: 0,
     };
   }
 
@@ -262,49 +404,62 @@ export function rebalancePremiumBlueprintsForManga(
   }
 
   const total = blueprints.length;
-  const maxCutaways = Math.floor(total * args.maxCutawayRatio);
-  let cutaways = blueprints.filter(isPremiumMangaCutawayBlueprint);
-  const beforeCutawayCount = cutaways.length;
+  const beforeCutawayCount = blueprints.filter(isPremiumMangaCutawayBlueprint).length;
   const beforeActorDrivenCount = blueprints.filter(isPremiumMangaActorDrivenBlueprint).length;
 
-  if (cutaways.length <= maxCutaways) {
-    const afterActor = blueprints.filter(isPremiumMangaActorDrivenBlueprint).length;
-    return {
+  let orderMap = buildReadingOrderIndexMap(blueprints);
+  let structureIterations = 0;
+  const maxStructureIterations = 6;
+
+  for (; structureIterations < maxStructureIterations; structureIterations += 1) {
+    rebalanceCutawaysToBudgetOnce(blueprints, args, orderMap);
+    breakConsecutiveCutaways(blueprints, 2, orderMap, args.visualEntities, args.fallbackHeroId);
+    ensureConflictBeatsHaveOpponents({
       blueprints,
-      beforeCutawayCount,
-      afterCutawayCount: cutaways.length,
-      convertedCount: 0,
-      keptCriticalCount: cutaways.filter(isCriticalCutawayBlueprint).length,
-      beforeActorDrivenCount,
-      afterActorDrivenCount: afterActor,
-    };
+      visualEntities: args.visualEntities,
+      fallbackHeroId: args.fallbackHeroId,
+      orderMap,
+    });
+    rebalanceCutawaysToBudgetOnce(blueprints, args, orderMap);
+
+    orderMap = buildReadingOrderIndexMap(blueprints);
+    const qa = runMangaStructureQaOnBlueprints({
+      blueprints,
+      maxCutawayRatio: args.maxCutawayRatio,
+      minActorDrivenRatio: args.minActorDrivenRatio,
+    });
+    if (qa.ok) break;
   }
 
-  const excess = cutaways.length - maxCutaways;
-  const candidates = cutaways
-    .filter((bp) => !isCriticalCutawayBlueprint(bp))
-    .sort((a, b) => narrativeValueScore(a) - narrativeValueScore(b))
-    .slice(0, excess);
-
-  let converted = 0;
-  for (const bp of candidates) {
-    const replacement = buildActorDrivenReplacement(bp, args.visualEntities, args.fallbackHeroId);
-    Object.assign(bp, replacement);
-    bp.cutawayType = "none" as CutawayType;
-    bp.notes = [...(bp.notes ?? []), "cutaway_rebalanced_to_actor_driven_panel"];
-    converted += 1;
-  }
-
-  cutaways = blueprints.filter(isPremiumMangaCutawayBlueprint);
+  const afterCutawayCount = blueprints.filter(isPremiumMangaCutawayBlueprint).length;
   const afterActorDrivenCount = blueprints.filter(isPremiumMangaActorDrivenBlueprint).length;
+  const finalCutaways = blueprints.filter(isPremiumMangaCutawayBlueprint);
+  const keptHardCriticalCount = finalCutaways.filter((bp) =>
+    isHardCriticalCutawayBlueprint(bp, orderMap.get(bp.panelId) ?? 0),
+  ).length;
+  const keptSoftCriticalCount = finalCutaways.filter((bp) =>
+    isSoftCriticalCutawayBlueprint(bp, orderMap.get(bp.panelId) ?? 0),
+  ).length;
 
   return {
     blueprints,
     beforeCutawayCount,
-    afterCutawayCount: cutaways.length,
-    convertedCount: converted,
-    keptCriticalCount: cutaways.filter(isCriticalCutawayBlueprint).length,
+    afterCutawayCount,
+    convertedCount: Math.max(0, beforeCutawayCount - afterCutawayCount),
+    keptCriticalCount: keptHardCriticalCount + keptSoftCriticalCount,
+    keptHardCriticalCount,
+    keptSoftCriticalCount,
     beforeActorDrivenCount,
     afterActorDrivenCount,
+    structureIterations,
   };
 }
+
+export {
+  blueprintTextBlob,
+  containsBannedPlaceholder,
+  isPremiumMangaActorDrivenBlueprint,
+  isPremiumMangaCutawayBlueprint,
+  maxConsecutiveCutawaysInOrder,
+  stripBannedPlaceholdersFromBlueprint,
+} from "./premium-manga-cutaway";
