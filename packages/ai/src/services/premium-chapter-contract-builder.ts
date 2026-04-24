@@ -4,7 +4,12 @@
  * Interdit de reconstruire un productionOutline minimaliste "pour dépanner" ailleurs.
  */
 
-import { buildProductionPlanFromOutline, classifyPremiumPanelCount, PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
+import {
+  buildProductionPlanFromOutline,
+  classifyPremiumPanelCount,
+  densifyBlueprintsToPremiumRangeContract,
+  PREMIUM_PANEL_RANGE,
+} from "@manga-ai-studio/core";
 import type { ApprovedChapterOutline, ProductionBeat } from "@manga-ai-studio/core";
 import type { PanelBlueprintPremium, RequiredProp } from "@manga-ai-studio/core";
 import { inferNarrativeFactsFromBeat, type NarrativeExtractionContext } from "./narrative-fact-extractor";
@@ -106,185 +111,6 @@ export interface BuildPremiumChapterContractResult {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-type EnrichmentVariant = {
-  shotType: PanelBlueprintPremium["shotType"];
-  subjectFocus: PanelBlueprintPremium["subjectFocus"];
-  cameraAngle: PanelBlueprintPremium["cameraAngle"];
-  cutawayType: PanelBlueprintPremium["cutawayType"];
-  purpose: PanelBlueprintPremium["purpose"];
-};
-
-/**
- * Densification déterministe, sans "random padding".
- * Objectif : produire un contrat premium exploitable (70–75 panels) même quand
- * l'outline a peu de beats.
- *
- * Note : on n'invente pas d'événements, on ajoute des cases de grammaire visuelle
- * (cutaways / réactions / inserts) dérivées des beats existants.
- */
-const DENSIFY_VARIANTS: readonly EnrichmentVariant[] = [
-  {
-    shotType: "medium",
-    subjectFocus: "duo",
-    cameraAngle: "eye_level",
-    cutawayType: "none",
-    purpose: "story action — progression visible du beat",
-  },
-  {
-    shotType: "medium",
-    subjectFocus: "reaction",
-    cameraAngle: "eye_level",
-    cutawayType: "none",
-    purpose: "reaction_closeup — émotion lisible et contexte narratif",
-  },
-  {
-    shotType: "medium_close",
-    subjectFocus: "hero",
-    cameraAngle: "eye_level",
-    cutawayType: "none",
-    purpose: "hero_focus — protagoniste visible avec action",
-  },
-  {
-    shotType: "medium",
-    subjectFocus: "group",
-    cameraAngle: "eye_level",
-    cutawayType: "none",
-    purpose: "group_dynamic — interaction visible entre personnages",
-  },
-  {
-    shotType: "over_shoulder",
-    subjectFocus: "speaker",
-    cameraAngle: "eye_level",
-    cutawayType: "none",
-    purpose: "dialogue_anchor — speaker visible pour ancrage texte",
-  },
-  {
-    shotType: "medium",
-    subjectFocus: "enemy",
-    cameraAngle: "low",
-    cutawayType: "none",
-    purpose: "opponent_pressure — menace visible et concrète",
-  },
-] as const;
-
-function isNonHumanFocus(focus: PanelBlueprintPremium["subjectFocus"]): boolean {
-  return focus === "environment" || focus === "prop" || focus === "aftermath";
-}
-
-function makeDensifiedBlueprint(input: {
-  seed: PanelBlueprintPremium;
-  globalIndex: number;
-  variant: EnrichmentVariant;
-}): PanelBlueprintPremium {
-  const { seed, globalIndex, variant } = input;
-  const nonHuman = isNonHumanFocus(variant.subjectFocus);
-
-  return {
-    ...seed,
-    panelId: `panel_${seed.beatId}_densify_${globalIndex + 1}`,
-    // Renumérotation globale refaite après, mais on met déjà un ordre cohérent.
-    panelIndex: globalIndex,
-    panelNumber: globalIndex + 1,
-    shotType: variant.shotType,
-    subjectFocus: variant.subjectFocus,
-    cameraAngle: variant.cameraAngle,
-    cutawayType: variant.cutawayType,
-    purpose: variant.purpose,
-    heroCenterAllowed: false,
-    mustShowEnemy: false,
-    requiredNpcCount: variant.subjectFocus === "npc" ? Math.max(1, seed.requiredNpcCount) : 0,
-    dialogueCarrier: "narration",
-    dialogueLinesAnchored: 0,
-    speakerAnchorCharacterId: null,
-    speakerAnchorCharacterName: null,
-    mustShowCharacterIds: nonHuman ? [] : (seed.mustShowCharacterIds ?? []).slice(0, 1),
-    mayShowCharacterIds: nonHuman ? [] : (seed.mayShowCharacterIds ?? []).slice(0, 2),
-    requiredCharacters: nonHuman ? [] : (seed.requiredCharacters ?? []).slice(0, 1),
-    requiredCharacterIds: nonHuman ? [] : (seed.requiredCharacterIds ?? []).slice(0, 1),
-    notes: [...(seed.notes ?? []), "densified_to_meet_premium_range"],
-    contractualCritical: false,
-    criticality: "low",
-  };
-}
-
-function renumberBlueprintsGlobally(blueprints: PanelBlueprintPremium[]): PanelBlueprintPremium[] {
-  return blueprints.map((bp, idx) => ({
-    ...bp,
-    panelIndex: idx,
-    panelNumber: idx + 1,
-    pageNumber: bp.pageNumber ?? 1,
-  }));
-}
-
-function densifyBlueprintsToPremiumRange(input: {
-  beats: Array<{ beatId: string; _blueprints: PanelBlueprintPremium[] }>;
-  minPanels: number;
-  maxPanels: number;
-}): { beats: typeof input.beats; allBlueprints: PanelBlueprintPremium[] } {
-  const beats = input.beats.map((b) => ({ ...b, _blueprints: [...b._blueprints] }));
-  let all = beats.flatMap((b) => b._blueprints);
-
-  if (all.length === 0) return { beats, allBlueprints: [] };
-
-  if (all.length < input.minPanels) {
-    const missing = input.minPanels - all.length;
-    // Répartition round-robin sur les beats pour éviter de surcharger un seul beat.
-    for (let i = 0; i < missing; i += 1) {
-      const beat = beats[i % beats.length];
-      const seed = (beat?._blueprints[beat._blueprints.length - 1] ?? all[all.length - 1]) as PanelBlueprintPremium;
-      const variant = DENSIFY_VARIANTS[i % DENSIFY_VARIANTS.length]!;
-      const densified = makeDensifiedBlueprint({
-        seed,
-        globalIndex: all.length,
-        variant,
-      });
-      beat._blueprints.push(densified);
-      all.push(densified);
-    }
-  } else if (all.length > input.maxPanels) {
-    // Sur-densité : on retire en priorité des panels non critiques (low + non contractual).
-    // Si on ne peut pas revenir sous max sans toucher des panels critiques, on échoue.
-    const removable = (bp: PanelBlueprintPremium) =>
-      bp.contractualCritical !== true && bp.criticality !== "critical" && bp.criticality !== "high";
-
-    while (all.length > input.maxPanels) {
-      let removed = false;
-      // Supprime depuis la fin (garde le rythme début/fin) mais en respectant removable.
-      for (let i = beats.length - 1; i >= 0; i -= 1) {
-        const beat = beats[i]!;
-        const idx = [...beat._blueprints].reverse().findIndex(removable);
-        if (idx === -1) continue;
-        const removeAt = beat._blueprints.length - 1 - idx;
-        beat._blueprints.splice(removeAt, 1);
-        all = beats.flatMap((b) => b._blueprints);
-        removed = true;
-        break;
-      }
-      if (!removed) {
-        throw new Error(
-          `premium_panel_count_over_max_non_removable raw=${all.length} max=${input.maxPanels} — regen outline required`,
-        );
-      }
-    }
-  }
-
-  const renumbered = renumberBlueprintsGlobally(beats.flatMap((b) => b._blueprints));
-  // Réinjecter la renumérotation globale dans chaque beat
-  const byBeat = new Map<string, PanelBlueprintPremium[]>();
-  for (const bp of renumbered) {
-    const list = byBeat.get(bp.beatId) ?? [];
-    list.push(bp);
-    byBeat.set(bp.beatId, list);
-  }
-
-  const beatsRenumbered = beats.map((b) => ({
-    ...b,
-    _blueprints: byBeat.get(b.beatId) ?? [],
-  }));
-
-  return { beats: beatsRenumbered, allBlueprints: renumbered };
-}
 
 function deduceObjectState(
   prop: RequiredProp,
@@ -417,7 +243,7 @@ export function buildPremiumChapterContract(
   // FIX — densification déterministe du contrat pour rester dans la range premium
   // sans “random padding” : on dérive des cutaways / réactions / inserts depuis
   // les beats existants et on répartit l'effort sur tous les beats.
-  const densified = densifyBlueprintsToPremiumRange({
+  const densified = densifyBlueprintsToPremiumRangeContract({
     beats: enrichedBeats.map((b) => ({ beatId: b.beatId, _blueprints: b._blueprints })),
     minPanels,
     maxPanels,
@@ -650,7 +476,7 @@ export async function buildPremiumChapterContractAsync(
   });
 
   // Densification avec les blueprints LLM
-  const densified = densifyBlueprintsToPremiumRange({
+  const densified = densifyBlueprintsToPremiumRangeContract({
     beats: enrichedBeatsWithLLMBlueprints.map((b) => ({ beatId: b.beatId, _blueprints: b._blueprints })),
     minPanels,
     maxPanels,

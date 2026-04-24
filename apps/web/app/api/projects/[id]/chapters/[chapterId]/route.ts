@@ -436,8 +436,12 @@ export async function GET(_req: Request, ctx: Ctx) {
   const isStaleReady =
     chapter.status === "ready_for_render" && chapterNarrativeCommitId === null;
 
+  // PHASE 5: Exposer le format du projet pour que le reader puisse s'initialiser correctement
+  const projectFormat = (project.format === "webtoon" ? "webtoon" : "manga") as "manga" | "webtoon";
+
   return NextResponse.json({
     chapter: { ...chapter, scenes: filteredScenes },
+    projectFormat,
     isStaleReady,
     narrativeCommitId: chapterNarrativeCommitId,
     studio: studioSnapshot,

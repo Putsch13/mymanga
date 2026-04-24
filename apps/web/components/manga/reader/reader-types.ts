@@ -112,6 +112,8 @@ export type CanonStateData = {
 
 export type ReaderResponse = {
   chapter: ChapterPayload;
+  /** PHASE 5: Format du projet pour initialisation correcte du reader */
+  projectFormat?: "manga" | "webtoon";
   memorySnapshot?: {
     narrativeSummary?: string | null;
     openLoops?: string[] | null;

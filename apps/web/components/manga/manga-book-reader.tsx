@@ -86,7 +86,8 @@ export function MangaBookReader({
   const [showEnd, setShowEnd] = useState(false);
   const [fullscreen, setFullscreen] = useState(autoFullscreen);
   const [spreadMode, setSpreadMode] = useState(true);
-  // READ-PREMIUM : défaut manga paginé (ex-webtoon donnait une mise en page moche)
+  // PHASE 5: Le mode lecteur initial est déterminé par le format du projet (manga/webtoon)
+  // Le state sera mis à jour après le chargement du chapitre avec le format réel du projet
   const [readerMode, setReaderMode] = useState<"manga" | "webtoon">("manga");
   const [inspectOpen, setInspectOpen] = useState(false);
   const [mangaRtl, setMangaRtl] = useState(true);
@@ -101,7 +102,7 @@ export function MangaBookReader({
   const { playingTtsId, playDialogue } = useReaderTts();
   const degradedReaderWarning = computeReaderDegradedWarning(generationDiagnostics);
 
-  const load = useCallback(async (options?: { preserveIndex?: boolean }) => {
+  const load = useCallback(async (options?: { preserveIndex?: boolean; skipModeInit?: boolean }) => {
     setLoadError(null);
     const res = await fetch(`/api/projects/${projectId}/chapters/${chapterId}`);
     if (!res.ok) {
@@ -117,6 +118,10 @@ export function MangaBookReader({
     if (!options?.preserveIndex) {
       setPageIndex(0);
       setShowEnd(false);
+    }
+    // PHASE 5: Initialiser le mode lecteur basé sur le format du projet
+    if (!options?.skipModeInit && j.projectFormat) {
+      setReaderMode(j.projectFormat);
     }
     // Charger le canon state
     fetch(`/api/projects/${projectId}/chapters/${chapterId}/canon-state`)
@@ -137,7 +142,7 @@ export function MangaBookReader({
         body: JSON.stringify({ mode }),
       });
       if (res.ok) {
-        await load({ preserveIndex: true });
+        await load({ preserveIndex: true, skipModeInit: true });
       }
     } finally {
       setRetryingPanel(null);
@@ -153,7 +158,7 @@ export function MangaBookReader({
     if (!activeJob) return;
     if (!["queued", "running", "waiting_external"].includes(activeJob.status)) return;
     const interval = window.setInterval(() => {
-      void load({ preserveIndex: true });
+      void load({ preserveIndex: true, skipModeInit: true });
     }, 2500);
     return () => window.clearInterval(interval);
   }, [activeJob, load]);
@@ -1089,7 +1094,12 @@ export function MangaBookReader({
     return (
       <div className="fixed inset-0 z-50 flex flex-col gap-3 bg-[#0a0a0f] p-3">
         {toolbar}
-        <div className="relative flex-1 overflow-hidden">
+        {/* PHASE 5: En mode webtoon, autoriser le scroll vertical (overflow-y-auto)
+            En mode manga, garder overflow-hidden pour la pagination */}
+        <div className={cn(
+          "relative flex-1",
+          readerMode === "webtoon" ? "overflow-y-auto" : "overflow-hidden"
+        )}>
           {!showEnd ? (readerMode === "webtoon" ? renderWebtoon() : renderPage()) : null}
 
           {/* UX-5 : Dots de progression manga */}

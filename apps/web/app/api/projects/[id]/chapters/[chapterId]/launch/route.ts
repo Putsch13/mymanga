@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { buildChapterReadinessReport, PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
+import {
+  buildCanonicalProductionPlanFromPremiumBlueprints,
+  buildChapterReadinessReport,
+  PREMIUM_PANEL_RANGE,
+  type PanelBlueprintPremium,
+} from "@manga-ai-studio/core";
 import { computeShotVarietyBudget, computeContractualFocusAdequacy } from "@manga-ai-studio/ai";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { isUnlimitedAdminEmail } from "@/lib/auth/get-app-user";
@@ -184,6 +189,45 @@ export async function POST(_req: Request, ctx: Ctx) {
       },
       { status: 422 },
     );
+  }
+
+  // QA structurelle canonique sur les blueprints réels (même logique que /estimate → canonicalProductionPlan).
+  const outlineForStructuralQa =
+    snapshot.data.productionOutline && typeof snapshot.data.productionOutline === "object"
+      ? snapshot.data.productionOutline
+      : {
+          source: "approved_fallback",
+          chapterGoal: typeof approvedOutline.summary === "string" ? approvedOutline.summary : "",
+          cliffhanger: typeof approvedOutline.cliffhanger === "string" ? approvedOutline.cliffhanger : "",
+          beats: approvedOutline.beats,
+        };
+  const bpStructural = snapshot.data.productionPlan?.panelBlueprints;
+  if (Array.isArray(bpStructural) && bpStructural.length > 0) {
+    const fmt = chapter.project.format === "webtoon" ? "webtoon" : "manga";
+    const structuralPlan = buildCanonicalProductionPlanFromPremiumBlueprints({
+      chapterId,
+      projectId,
+      chapterNumber: chapter.chapterNumber,
+      chapterTitle: chapter.title ?? "",
+      format: fmt,
+      productionOutline: outlineForStructuralQa,
+      blueprints: bpStructural as PanelBlueprintPremium[],
+    });
+    if (!structuralPlan.qa.valid) {
+      console.warn(
+        `[launch] production_plan_structural_qa_failed chapterId=${chapterId} errors=${JSON.stringify(structuralPlan.qa.errors)}`,
+      );
+      return NextResponse.json(
+        {
+          error: "production_plan_structural_qa_failed",
+          code: "PRODUCTION_PLAN_STRUCTURAL_QA_FAILED",
+          message:
+            "Le plan de production ne passe pas la QA structurelle (panels, ratios cutaway / actor-driven, couverture des beats). Corrige le plan avant de lancer.",
+          structuralQa: structuralPlan.qa,
+        },
+        { status: 422 },
+      );
+    }
   }
 
   // B3-3 : Shot Variety Enforcer — vérifier la variété des plans avant lancement

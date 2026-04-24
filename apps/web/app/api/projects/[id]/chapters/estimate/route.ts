@@ -13,8 +13,9 @@ import {
 } from "@manga-ai-studio/ai";
 import {
   PREMIUM_PANEL_RANGE,
+  buildCanonicalProductionPlanFromPremiumBlueprints,
   classifyPremiumPanelCount,
-  type PanelBlueprintPremium,
+  densifyBlueprintsToPremiumRangeEstimate,
 } from "@manga-ai-studio/core";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { buildApprovedOutlineVersion, buildProductionPlanFromOutline } from "@manga-ai-studio/core";
@@ -30,167 +31,6 @@ import {
 } from "@/lib/outline-dedup";
 
 type Ctx = { params: Promise<{ id: string }> };
-
-type EnrichmentVariant = {
-  shotType: PanelBlueprintPremium["shotType"];
-  subjectFocus: PanelBlueprintPremium["subjectFocus"];
-  cameraAngle: PanelBlueprintPremium["cameraAngle"];
-  cutawayType: PanelBlueprintPremium["cutawayType"];
-  purpose: PanelBlueprintPremium["purpose"];
-};
-
-// Densification DÉTERMINISTE (pas de random, pas de legacy padding).
-// Objectif: quand le découpage natif sort à ~50–65 panels, on remonte à 70–75
-// en ajoutant des cases de grammaire visuelle dérivées des beats existants
-// (cutaways / reactions / inserts / crowd / aftermath), réparties round-robin.
-const DENSIFY_VARIANTS: readonly EnrichmentVariant[] = [
-  {
-    shotType: "wide",
-    subjectFocus: "environment",
-    cameraAngle: "eye_level",
-    cutawayType: "environment",
-    purpose: "environment_cutaway — ancrage décor",
-  },
-  {
-    shotType: "medium",
-    subjectFocus: "reaction",
-    cameraAngle: "eye_level",
-    cutawayType: "reaction",
-    purpose: "reaction_closeup — respiration émotionnelle",
-  },
-  {
-    shotType: "closeup",
-    subjectFocus: "prop",
-    cameraAngle: "eye_level",
-    cutawayType: "prop_insert",
-    purpose: "prop_insert — indice / objet",
-  },
-  {
-    shotType: "wide",
-    subjectFocus: "npc",
-    cameraAngle: "eye_level",
-    cutawayType: "crowd",
-    purpose: "npc_context — foule / pression",
-  },
-  {
-    shotType: "wide",
-    subjectFocus: "aftermath",
-    cameraAngle: "high_angle",
-    cutawayType: "aftermath",
-    purpose: "aftermath — conséquence visible",
-  },
-  {
-    shotType: "over_shoulder",
-    subjectFocus: "duo",
-    cameraAngle: "eye_level",
-    cutawayType: "none",
-    purpose: "over_shoulder — tension / réaction",
-  },
-] as const;
-
-function isNonHumanFocus(focus: PanelBlueprintPremium["subjectFocus"]): boolean {
-  return focus === "environment" || focus === "prop" || focus === "aftermath";
-}
-
-function makeDensifiedBlueprint(input: {
-  seed: PanelBlueprintPremium;
-  globalIndex: number;
-  variant: EnrichmentVariant;
-}): PanelBlueprintPremium {
-  const { seed, globalIndex, variant } = input;
-  const nonHuman = isNonHumanFocus(variant.subjectFocus);
-
-  return {
-    ...seed,
-    panelId: `panel_${seed.beatId}_densify_${globalIndex + 1}`,
-    panelIndex: globalIndex,
-    panelNumber: globalIndex + 1,
-    shotType: variant.shotType,
-    subjectFocus: variant.subjectFocus,
-    cameraAngle: variant.cameraAngle,
-    cutawayType: variant.cutawayType,
-    purpose: variant.purpose,
-    heroCenterAllowed: false,
-    mustShowEnemy: false,
-    requiredNpcCount: variant.subjectFocus === "npc" ? Math.max(1, seed.requiredNpcCount) : 0,
-    dialogueCarrier: "narration",
-    dialogueLinesAnchored: 0,
-    speakerAnchorCharacterId: null,
-    speakerAnchorCharacterName: null,
-    mustShowCharacterIds: nonHuman ? [] : (seed.mustShowCharacterIds ?? []).slice(0, 1),
-    mayShowCharacterIds: nonHuman ? [] : (seed.mayShowCharacterIds ?? []).slice(0, 2),
-    requiredCharacters: nonHuman ? [] : (seed.requiredCharacters ?? []).slice(0, 1),
-    requiredCharacterIds: nonHuman ? [] : (seed.requiredCharacterIds ?? []).slice(0, 1),
-    notes: [...(seed.notes ?? []), "densified_to_meet_premium_range"],
-    contractualCritical: false,
-    criticality: "low",
-  };
-}
-
-function renumberBlueprintsGlobally(blueprints: PanelBlueprintPremium[]): PanelBlueprintPremium[] {
-  return blueprints.map((bp, idx) => ({
-    ...bp,
-    panelIndex: idx,
-    panelNumber: idx + 1,
-    pageNumber: bp.pageNumber ?? 1,
-  }));
-}
-
-function densifyBlueprintsToPremiumRange(input: {
-  beats: Array<{ beatId: string; blueprints: PanelBlueprintPremium[] }>;
-  minPanels: number;
-  maxPanels: number;
-}): { blueprints: PanelBlueprintPremium[]; added: number; removed: number } {
-  const beats = input.beats.map((b) => ({ ...b, blueprints: [...b.blueprints] }));
-  let all = beats.flatMap((b) => b.blueprints);
-  if (all.length === 0) return { blueprints: [], added: 0, removed: 0 };
-
-  let added = 0;
-  let removed = 0;
-
-  if (all.length < input.minPanels) {
-    const missing = input.minPanels - all.length;
-    for (let i = 0; i < missing; i += 1) {
-      const beat = beats[i % beats.length]!;
-      const seed =
-        (beat.blueprints[beat.blueprints.length - 1] ?? all[all.length - 1]) as PanelBlueprintPremium;
-      const variant = DENSIFY_VARIANTS[i % DENSIFY_VARIANTS.length]!;
-      const densified = makeDensifiedBlueprint({
-        seed,
-        globalIndex: all.length,
-        variant,
-      });
-      beat.blueprints.push(densified);
-      all.push(densified);
-      added += 1;
-    }
-  } else if (all.length > input.maxPanels) {
-    const removable = (bp: PanelBlueprintPremium) =>
-      bp.contractualCritical !== true && bp.criticality !== "critical" && bp.criticality !== "high";
-
-    while (all.length > input.maxPanels) {
-      let didRemove = false;
-      for (let i = beats.length - 1; i >= 0; i -= 1) {
-        const beat = beats[i]!;
-        const reverseIdx = [...beat.blueprints].reverse().findIndex(removable);
-        if (reverseIdx === -1) continue;
-        const removeAt = beat.blueprints.length - 1 - reverseIdx;
-        beat.blueprints.splice(removeAt, 1);
-        all = beats.flatMap((b) => b.blueprints);
-        removed += 1;
-        didRemove = true;
-        break;
-      }
-      if (!didRemove) break;
-    }
-  }
-
-  return {
-    blueprints: renumberBlueprintsGlobally(all),
-    added,
-    removed,
-  };
-}
 
 const schema = z.object({
   userIntent: z.string().min(3),
@@ -391,7 +231,7 @@ export async function POST(req: Request, ctx: Ctx) {
   // FIX — densification DÉTERMINISTE (pas de random) pour atteindre 70–75.
   // On ne “bricole” pas les prompts : on ajuste le contrat panelBlueprints,
   // ce qui nourrit ensuite shotPlan/focusBudget et le launch.
-  const densified = densifyBlueprintsToPremiumRange({
+  const densified = densifyBlueprintsToPremiumRangeEstimate({
     beats: enrichedBeats.map((b) => ({ beatId: b.beatId, blueprints: b._blueprints })),
     minPanels: PREMIUM_PANEL_RANGE.min,
     maxPanels: PREMIUM_PANEL_RANGE.max,
@@ -511,6 +351,17 @@ export async function POST(req: Request, ctx: Ctx) {
     context.characters?.length ?? 0,
   ].join("|");
 
+  const projectFormat = context.project.format === "webtoon" ? "webtoon" : "manga";
+  const canonicalFromBlueprints = buildCanonicalProductionPlanFromPremiumBlueprints({
+    chapterId: targetChapter?.id ?? `estimate-${projectId}-ch${targetChapterNumber}`,
+    projectId,
+    chapterNumber: targetChapterNumber,
+    chapterTitle: targetChapter?.title ?? `Chapitre ${targetChapterNumber}`,
+    format: projectFormat,
+    productionOutline,
+    blueprints: allBlueprints,
+  });
+
   console.log(
     `[estimate] estimate_generated projectId=${projectId} chapterId=${targetChapter?.id ?? "new"} ` +
     `chapterNumber=${targetChapterNumber} estimateMode=${estimateMode} ` +
@@ -587,5 +438,14 @@ export async function POST(req: Request, ctx: Ctx) {
     repairApplied: !progressionCheck.ok,
     repairReasons: progressionCheck.ok ? [] : progressionCheck.issues,
     progressionScore: progressionCheck.progressionScore,
+    /** Plan canonique + QA structurelle sur les blueprints réels (même source que le launch). */
+    canonicalProductionPlan: {
+      format: canonicalFromBlueprints.format,
+      beatCount: canonicalFromBlueprints.beatCount,
+      panelCount: canonicalFromBlueprints.metrics.totalPanels,
+      metrics: canonicalFromBlueprints.metrics,
+      rhythm: canonicalFromBlueprints.rhythm,
+      qa: canonicalFromBlueprints.qa,
+    },
   });
 }

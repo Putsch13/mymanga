@@ -163,3 +163,5 @@ export * from "./services/required-visual-coverage";
 export * from "./validators/storyboard-validator";
 export * from "./validators/render-spec-validator";
 export * from "./validators/visual-coverage-validator";
+// Quality module — Visual QA and auto-retry
+export * from "./quality";
