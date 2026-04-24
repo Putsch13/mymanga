@@ -2,7 +2,7 @@
  * Ancrage des beats de dialogue (speaker / réaction / zones texte réservées).
  */
 
-import type { CutawayType, PanelBlueprintPremium, PanelTextBundle } from "@manga-ai-studio/core";
+import type { CutawayType, PanelBlueprintPremium, PanelTextBundle, ProductionOutline } from "@manga-ai-studio/core";
 import { blueprintTextBlob } from "./premium-manga-cutaway";
 import type { VisualEntity } from "./visual-entity-registry";
 import { pickPrimaryActorForBeat } from "./visual-entity-registry";
@@ -197,9 +197,80 @@ function extractDialogueFromIntent(chapterUserIntent: string | null): Array<{ sp
   return dialogues;
 }
 
+function normalizeBeatText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function firstNamedCharacter(text: string): string | null {
+  const common = new Set(["Le", "La", "Les", "Un", "Une", "Des", "Ce", "Cette", "Alors", "Temps"]);
+  const match = text.match(/\b[A-ZÀ-ÖØ-Ý][a-zà-öø-ÿA-ZÀ-ÖØ-Ý'-]{1,}\b/g) ?? [];
+  return match.find((token) => !common.has(token)) ?? null;
+}
+
+function inferDialogueFromBeatSummary(summary: string): { speaker: string; text: string } | null {
+  const cleaned = normalizeBeatText(summary);
+  if (!cleaned) return null;
+  const lower = cleaned.toLowerCase();
+  const speaker = firstNamedCharacter(cleaned) ?? "";
+
+  if (/(accuse|ne .*fait pas confiance|confiance)/i.test(lower)) {
+    return { speaker, text: "Tu ne m'as jamais fait confiance." };
+  }
+  if (/(calme|calmer|craintes|doutes|peur)/i.test(lower)) {
+    return { speaker, text: "Je ne veux pas te combattre, mais j'ai peur de ce que je découvre." };
+  }
+  if (/(révèle|revele|lié|lie|trahison|magicien)/i.test(lower)) {
+    return { speaker, text: "La vérité, c'est que tout me relie encore à lui." };
+  }
+  if (/(hésite|hesite|ami|blesser)/i.test(lower)) {
+    return { speaker, text: "Tu es mon ami... je ne veux pas te blesser." };
+  }
+  if (/(décision|decision|déterminée|determinee|céder|ceder)/i.test(lower)) {
+    return { speaker, text: "Je ne céderai pas." };
+  }
+
+  return null;
+}
+
+function buildBeatSummaryMap(outline?: ProductionOutline | null): Map<string, string> {
+  const map = new Map<string, string>();
+  const beats = Array.isArray(outline?.beats) ? outline.beats : [];
+  for (const beat of beats) {
+    const beatId = typeof beat.beatId === "string" ? beat.beatId : null;
+    if (!beatId) continue;
+    const text = normalizeBeatText([
+      beat.summary,
+      beat.whyThisBeatExists,
+      beat.dramaticChange,
+    ].filter((v): v is string => typeof v === "string" && v.trim().length > 0).join(" "));
+    if (text) map.set(beatId, text);
+  }
+  return map;
+}
+
+function isCutawayPanel(bp: PanelBlueprintPremium): boolean {
+  return bp.cutawayType !== "none"
+    || bp.subjectFocus === "environment"
+    || bp.subjectFocus === "prop"
+    || bp.subjectFocus === "aftermath";
+}
+
+function ensureTextBundle(bp: PanelBlueprintPremium): PanelTextBundle {
+  const bundle: PanelTextBundle = {
+    ...(bp.panelTextBundle ?? {}),
+    reservedZones: [...(bp.panelTextBundle?.reservedZones ?? []), "bottom_band"],
+    preferredAnchorZones: bp.panelTextBundle?.preferredAnchorZones ?? ["bottom_band"],
+    overflowStrategy: bp.panelTextBundle?.overflowStrategy ?? "caption_strip",
+  };
+  bp.panelTextBundle = bundle;
+  return bundle;
+}
+
 export interface EnsureDialogueAndSfxInput {
   blueprints: PanelBlueprintPremium[];
   chapterUserIntent: string | null;
+  productionOutline?: ProductionOutline | null;
+  chapterSummary?: string | null;
 }
 
 /**
@@ -210,11 +281,14 @@ export interface EnsureDialogueAndSfxInput {
 export function ensureDialogueAndSfxForPremiumBlueprints(input: EnsureDialogueAndSfxInput): {
   combatSfxAdded: number;
   dialogueEnriched: number;
+  narrativeContextAdded: number;
 } {
   let combatSfxAdded = 0;
   let dialogueEnriched = 0;
+  let narrativeContextAdded = 0;
 
   const extractedDialogues = extractDialogueFromIntent(input.chapterUserIntent);
+  const beatSummaryById = buildBeatSummaryMap(input.productionOutline);
 
   for (const bp of input.blueprints) {
     if (isCombatBeatPanel(bp) && (!bp.sfxCues || bp.sfxCues.length === 0)) {
@@ -232,9 +306,35 @@ export function ensureDialogueAndSfxForPremiumBlueprints(input: EnsureDialogueAn
         dialogueEnriched += 1;
       }
     }
+
+    const beatSummary = beatSummaryById.get(bp.beatId) ?? normalizeBeatText(input.chapterSummary ?? "");
+    if (
+      !isCutawayPanel(bp)
+      && (!bp.dialogueLines || bp.dialogueLines.length === 0)
+      && !bp.narrationText
+      && beatSummary
+    ) {
+      if (bp.dialogueCarrier === "speaker_visible" || bp.subjectFocus === "speaker") {
+        const inferred = inferDialogueFromBeatSummary(beatSummary);
+        if (inferred) {
+          bp.dialogueLines = [inferred];
+          bp.dialogueLinesAnchored = Math.max(1, bp.dialogueLinesAnchored ?? 0);
+          bp.notes = [...(bp.notes ?? []), "auto_dialogue_from_beat_summary"];
+          dialogueEnriched += 1;
+          continue;
+        }
+      }
+
+      const narration = beatSummary.length > 170 ? `${beatSummary.slice(0, 167).trim()}…` : beatSummary;
+      bp.narrationText = narration;
+      const bundle = ensureTextBundle(bp);
+      bundle.narration = narration;
+      bp.notes = [...(bp.notes ?? []), "auto_narrative_context_from_beat_summary"];
+      narrativeContextAdded += 1;
+    }
   }
 
-  return { combatSfxAdded, dialogueEnriched };
+  return { combatSfxAdded, dialogueEnriched, narrativeContextAdded };
 }
 
 export function runDialogueQaOnBlueprints(blueprints: PanelBlueprintPremium[]): DialogueQaResult {

@@ -101,6 +101,15 @@ function extractNamesFromIntent(intent: string): string[] {
   return capitalizedWords.filter((w) => !commonWords.has(w));
 }
 
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
 export function buildNarrativeContractsFromOutline(
   input: BuildNarrativeContractsInput,
 ): BeatNarrativeContract[] {
@@ -112,17 +121,20 @@ export function buildNarrativeContractsFromOutline(
   const globalLocations = extractLocationsFromIntent(intentText);
   const globalNames = extractNamesFromIntent(intentText);
 
-  for (const beat of outline.beats) {
-    const beatText = `${beat.summary} ${beat.whyThisBeatExists ?? ""} ${beat.dramaticChange ?? ""}`;
+  const beats = Array.isArray(outline.beats) ? outline.beats : [];
+
+  for (const beat of beats) {
+    const involvedCharacters = asStringArray((beat as { involvedCharacters?: unknown }).involvedCharacters);
+    const beatText = `${asString(beat.summary)} ${asString(beat.whyThisBeatExists)} ${asString(beat.dramaticChange)}`;
     const beatEntities = extractEntitiesFromIntent(beatText);
     const beatLocations = extractLocationsFromIntent(beatText);
     const beatNames = extractNamesFromIntent(beatText);
 
     const contract: BeatNarrativeContract = {
-      beatId: beat.beatId,
+      beatId: asString(beat.beatId) || `beat_${contracts.length + 1}`,
       location: chapterLocationName ?? beatLocations[0] ?? globalLocations[0] ?? "",
-      requiredCharacters: [...new Set([...beat.involvedCharacters, ...beatNames])],
-      requiredEntities: [...new Set([...beatEntities, ...(beat.involvedCharacters.length === 0 ? globalEntities : [])])],
+      requiredCharacters: [...new Set([...involvedCharacters, ...beatNames])],
+      requiredEntities: [...new Set([...beatEntities, ...(involvedCharacters.length === 0 ? globalEntities : [])])],
       requiredProps: [],
       requiredActions: [],
       dialogueLines: [],

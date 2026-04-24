@@ -247,10 +247,16 @@ export async function runPremiumV3Pipeline(
         const sfxEnrichment = ensureDialogueAndSfxForPremiumBlueprints({
           blueprints: rebal.blueprints,
           chapterUserIntent: input.chapterUserIntent,
+          productionOutline: input.approvedOutline as ProductionOutline | null | undefined,
+          chapterSummary: input.chapterSummary,
         });
-        if (sfxEnrichment.combatSfxAdded > 0 || sfxEnrichment.dialogueEnriched > 0) {
+        if (
+          sfxEnrichment.combatSfxAdded > 0
+          || sfxEnrichment.dialogueEnriched > 0
+          || sfxEnrichment.narrativeContextAdded > 0
+        ) {
           console.info(
-            `[pipeline:v3:dialogue-sfx-enrichment] combatSfxAdded=${sfxEnrichment.combatSfxAdded} dialogueEnriched=${sfxEnrichment.dialogueEnriched}`,
+            `[pipeline:v3:dialogue-sfx-enrichment] combatSfxAdded=${sfxEnrichment.combatSfxAdded} dialogueEnriched=${sfxEnrichment.dialogueEnriched} narrativeContextAdded=${sfxEnrichment.narrativeContextAdded}`,
           );
         }
 

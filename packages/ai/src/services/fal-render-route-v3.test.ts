@@ -61,7 +61,7 @@ describe("resolveFalRenderRoute", () => {
           { characterId: "c1", name: "Hero", role: "hero", poseIntent: null, expressionIntent: null },
         ],
         imageReferences: {
-          characterRefs: [{ characterId: "c1", urls: ["https://example.com/hero.png"] }],
+          characterRefs: [{ characterId: "c1", url: "https://example.com/hero.png", weight: 1 }],
           environmentRefs: [],
           panelRefs: [],
           styleRefs: [],
@@ -98,7 +98,7 @@ describe("resolveFalRenderRoute", () => {
           { characterId: "c1", name: "Hero", role: "hero", poseIntent: null, expressionIntent: null },
         ],
         imageReferences: {
-          characterRefs: [{ characterId: "c1", urls: ["https://example.com/hero.png"] }],
+          characterRefs: [{ characterId: "c1", url: "https://example.com/hero.png", weight: 1 }],
           environmentRefs: [],
           panelRefs: [],
           styleRefs: [],
@@ -112,7 +112,7 @@ describe("resolveFalRenderRoute", () => {
   it("route déterministe : même spec → même route", () => {
     const spec = makeSpec("dialogue_two_shot", {
       imageReferences: {
-        characterRefs: [{ characterId: "c1", urls: ["https://example.com/char.png"] }],
+        characterRefs: [{ characterId: "c1", url: "https://example.com/char.png", weight: 1 }],
         environmentRefs: [],
         panelRefs: [],
         styleRefs: [],
