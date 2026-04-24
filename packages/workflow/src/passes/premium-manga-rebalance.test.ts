@@ -168,7 +168,7 @@ describe("premium-manga-rebalance", () => {
       visualEntities: [heroEntity, villain],
     });
     expect(qa.ok).toBe(true);
-    expect(out.blueprints[0]?.subjectFocus).toBe("visual_entity");
+    expect(out.blueprints[0]?.subjectFocus).toBe("enemy");
   });
 
   it("auto-canonise un opposant si beat de conflit sans entité existante", () => {

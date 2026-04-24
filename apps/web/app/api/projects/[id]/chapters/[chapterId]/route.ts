@@ -21,6 +21,16 @@ const patchSchema = z.object({
   status: z.string().optional(),
 });
 
+/** P1.14 — Exclure l'historique hors run courant (sauf panels déjà validés utilisateur). */
+function sceneImageIncludedInCurrentRunReport(
+  image: { generationRunId?: string | null; userValidatedAt?: Date | null },
+  chapter: { currentGenerationRunId?: string | null },
+): boolean {
+  if (!chapter.currentGenerationRunId) return true;
+  if (image.userValidatedAt) return true;
+  return image.generationRunId === chapter.currentGenerationRunId;
+}
+
 export async function GET(_req: Request, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return unauthorized();
@@ -58,6 +68,8 @@ export async function GET(_req: Request, ctx: Ctx) {
                 consistencyScore: true,
                 prompt: true,
                 metadata: true,
+                generationRunId: true,      // P1.14 : filtre run courant
+                userValidatedAt: true,      // P1.14 : exception panels validés
                 falTraces: {
                   orderBy: { createdAt: "desc" },
                   take: 6,
@@ -95,12 +107,21 @@ export async function GET(_req: Request, ctx: Ctx) {
 
   if (!chapter) return notFound();
 
+  // P1.14 — Filtrer les images hors du run courant (sauf panels validés utilisateur)
+  // pour éviter de mélanger ancien run, nouveau storyboard, panels pending.
+  const filteredScenes = chapter.scenes.map((scene) => ({
+    ...scene,
+    images: scene.images.filter((img) =>
+      sceneImageIncludedInCurrentRunReport(img, chapter),
+    ),
+  }));
+
   // P0.4 — helper central (allowlist stricte + HMAC). Fini les listes de
   // hosts dupliquées par route.
   let proxiedCount = 0;
   let signedCount = 0;
   await Promise.all(
-    chapter.scenes.flatMap((scene) =>
+    filteredScenes.flatMap((scene) =>
       [
         ...scene.keyframes.map(async (keyframe) => {
           const original = keyframe.imageUrl;
@@ -122,11 +143,11 @@ export async function GET(_req: Request, ctx: Ctx) {
       ],
     ),
   );
-  const totalImages = chapter.scenes.flatMap((s) => s.images).length;
+  const totalImages = filteredScenes.flatMap((s) => s.images).length;
   console.log(`[chapter-route] images=${totalImages} signed=${signedCount} proxied=${proxiedCount}`);
 
-  // Statistiques images pour le reader
-  const allImages = chapter.scenes.flatMap((s) => s.images);
+  // Statistiques images pour le reader (utiliser filteredScenes pour les stats)
+  const allImages = filteredScenes.flatMap((s) => s.images);
   const imageStats = {
     total: allImages.length,
     completed: allImages.filter((i) => i.status === "completed" && i.imageUrl).length,
@@ -163,7 +184,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     chapter.script && typeof chapter.script === "object" && !Array.isArray(chapter.script)
       ? (chapter.script as Record<string, unknown>)
       : {};
-  const sceneFallbacks = chapter.scenes
+  const sceneFallbacks = filteredScenes
     .map((scene) => {
       const meta =
         scene.metadata && typeof scene.metadata === "object" && !Array.isArray(scene.metadata)
@@ -185,7 +206,7 @@ export async function GET(_req: Request, ctx: Ctx) {
         : null;
     })
     .filter((item): item is NonNullable<typeof item> => item !== null);
-  const firstImageMeta = chapter.scenes
+  const firstImageMeta = filteredScenes
     .flatMap((scene) => scene.images)
     .map((image) =>
       image.metadata && typeof image.metadata === "object" && !Array.isArray(image.metadata)
@@ -193,7 +214,7 @@ export async function GET(_req: Request, ctx: Ctx) {
         : null,
     )
     .find((meta): meta is Record<string, unknown> => meta !== null);
-  const panelDebug = chapter.scenes.flatMap((scene) =>
+  const panelDebug = filteredScenes.flatMap((scene) =>
     scene.images.slice(0, 4).map((image) => {
       const meta =
         image.metadata && typeof image.metadata === "object" && !Array.isArray(image.metadata)
@@ -416,7 +437,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     chapter.status === "ready_for_render" && chapterNarrativeCommitId === null;
 
   return NextResponse.json({
-    chapter,
+    chapter: { ...chapter, scenes: filteredScenes },
     isStaleReady,
     narrativeCommitId: chapterNarrativeCommitId,
     studio: studioSnapshot,

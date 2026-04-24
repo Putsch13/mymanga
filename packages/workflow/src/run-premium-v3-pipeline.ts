@@ -18,13 +18,18 @@ import { isPipelineV3RenderFalEnabled } from "./pipeline-feature-flags";
 import { loadLocationsForV3StoryPass, type PremiumV3PipelineLocation } from "./load-locations-for-v3-story-pass";
 import { saveStoryboardPlan } from "./persistence/storyboard-persistence";
 import { computeEntityCoverageTelemetry, formatEntityCoverageTypesLine } from "./passes/entity-coverage-telemetry";
-import { ensureDialogueBeatsHaveAnchors, runDialogueQaOnBlueprints } from "./passes/dialogue-beat-rebalance";
+import {
+  ensureDialogueBeatsHaveAnchors,
+  ensureDialogueAndSfxForPremiumBlueprints,
+  runDialogueQaOnBlueprints,
+} from "./passes/dialogue-beat-rebalance";
 import { buildVisualEntitiesFromPremiumV3Input } from "./passes/visual-entity-registry";
 import {
   isPremiumMangaCutawayBlueprint,
   rebalancePremiumBlueprintsForManga,
 } from "./passes/premium-manga-rebalance";
 import { runMangaStructureQaOnBlueprints } from "./passes/manga-structure-qa";
+import { runPreRenderPremiumQaOrThrow } from "./passes/pre-render-premium-qa";
 
 export type { PremiumV3PipelineLocation } from "./load-locations-for-v3-story-pass";
 
@@ -235,6 +240,16 @@ export async function runPremiumV3Pipeline(
         const typesLine = formatEntityCoverageTypesLine(entityCov.byUserDefinedKind);
         if (typesLine.length > 0) {
           console.info(`[pipeline:v3:entity-coverage:types] ${typesLine}`);
+        }
+
+        const sfxEnrichment = ensureDialogueAndSfxForPremiumBlueprints({
+          blueprints: rebal.blueprints,
+          chapterUserIntent: input.chapterUserIntent,
+        });
+        if (sfxEnrichment.combatSfxAdded > 0 || sfxEnrichment.dialogueEnriched > 0) {
+          console.info(
+            `[pipeline:v3:dialogue-sfx-enrichment] combatSfxAdded=${sfxEnrichment.combatSfxAdded} dialogueEnriched=${sfxEnrichment.dialogueEnriched}`,
+          );
         }
 
         ensureDialogueBeatsHaveAnchors({
@@ -469,6 +484,13 @@ export async function runPremiumV3Pipeline(
       console.log(
         `[pipeline:v3:visual-memory] chars=${visualMemoryResult.stats.charactersLoaded} missing_face=${visualMemoryResult.stats.charactersMissingFaceRef} env=${visualMemoryResult.stats.environmentsLoaded} style=${visualMemoryResult.stats.styleRefsLoaded}`,
       );
+
+      runPreRenderPremiumQaOrThrow({
+        storyboardPlan: storyboardPassResult.storyboardPlan,
+        chapterSummary: input.chapterSummary,
+        chapterUserIntent: input.chapterUserIntent,
+        chapterLocationName: input.chapterLocationName,
+      });
 
       const renderFalEnabled = isPipelineV3RenderFalEnabled();
       console.log(

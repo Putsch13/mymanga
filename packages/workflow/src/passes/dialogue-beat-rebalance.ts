@@ -153,6 +153,90 @@ function beatHasDialogue(beatPanels: PanelBlueprintPremium[]): boolean {
   return beatPanels.some(isDialogueBeatPanel);
 }
 
+const COMBAT_KEYWORDS = /combat|attaque|attack|sort|magic|magique|impact|threat|explosion|choc|fire|feu/i;
+const COMBAT_SFX_DEFAULTS = ["FWASH", "BOOM", "KRAKK", "ZZZAP", "WHAM"];
+
+function isCombatBeatPanel(bp: PanelBlueprintPremium): boolean {
+  const text = `${bp.purpose} ${(bp.requiredLocationSignals ?? []).join(" ")}`.toLowerCase();
+  return COMBAT_KEYWORDS.test(text) || bp.mangaPanelFunction === "impact" || bp.mustShowEnemy === true;
+}
+
+function ensureCombatSfx(bp: PanelBlueprintPremium): void {
+  if (!isCombatBeatPanel(bp)) return;
+  if (bp.sfxCues && bp.sfxCues.length > 0) return;
+
+  const purpose = bp.purpose.toLowerCase();
+  let sfx = "KRAKK";
+  if (purpose.includes("magic") || purpose.includes("sort") || purpose.includes("magique")) {
+    sfx = "FWASH";
+  } else if (purpose.includes("explosion") || purpose.includes("impact")) {
+    sfx = "BOOM";
+  } else if (purpose.includes("fire") || purpose.includes("feu")) {
+    sfx = "WHOOSH";
+  }
+
+  bp.sfxCues = [sfx];
+  bp.textPlacementHint = bp.textPlacementHint ?? {
+    preferredAnchorZones: ["top-left"],
+    overflowStrategy: "caption_strip",
+  };
+  bp.notes = [...(bp.notes ?? []), "auto_combat_sfx"];
+}
+
+function extractDialogueFromIntent(chapterUserIntent: string | null): Array<{ speaker: string; text: string }> {
+  if (!chapterUserIntent) return [];
+  const lines = chapterUserIntent.split(/[.!?\n]/).filter(Boolean);
+  const dialogues: Array<{ speaker: string; text: string }> = [];
+
+  for (const line of lines) {
+    const match = line.match(/(\w+)\s+(dit|says?|répond|réponds?|crie|yells?|demande|asks?)\s*[:"]?\s*(.+)/i);
+    if (match) {
+      dialogues.push({ speaker: match[1]!, text: match[3]?.trim() ?? "" });
+    }
+  }
+  return dialogues;
+}
+
+export interface EnsureDialogueAndSfxInput {
+  blueprints: PanelBlueprintPremium[];
+  chapterUserIntent: string | null;
+}
+
+/**
+ * Enrichit les blueprints avec dialogues et SFX manquants.
+ * - Combat panels → SFX automatiques
+ * - Dialogue panels → zones de texte réservées
+ */
+export function ensureDialogueAndSfxForPremiumBlueprints(input: EnsureDialogueAndSfxInput): {
+  combatSfxAdded: number;
+  dialogueEnriched: number;
+} {
+  let combatSfxAdded = 0;
+  let dialogueEnriched = 0;
+
+  const extractedDialogues = extractDialogueFromIntent(input.chapterUserIntent);
+
+  for (const bp of input.blueprints) {
+    if (isCombatBeatPanel(bp) && (!bp.sfxCues || bp.sfxCues.length === 0)) {
+      ensureCombatSfx(bp);
+      combatSfxAdded += 1;
+    }
+
+    if (isDialogueBeatPanel(bp) && (!bp.dialogueLines || bp.dialogueLines.length === 0)) {
+      const match = extractedDialogues.find((d) =>
+        bp.purpose.toLowerCase().includes(d.speaker.toLowerCase()),
+      );
+      if (match) {
+        bp.dialogueLines = [{ speaker: match.speaker, text: match.text }];
+        bp.notes = [...(bp.notes ?? []), "auto_dialogue_from_intent"];
+        dialogueEnriched += 1;
+      }
+    }
+  }
+
+  return { combatSfxAdded, dialogueEnriched };
+}
+
 export function runDialogueQaOnBlueprints(blueprints: PanelBlueprintPremium[]): DialogueQaResult {
   const issues: string[] = [];
   let dialogueBeats = 0;

@@ -32,6 +32,7 @@ import {
   MissingMainCharacterRefError,
   resolveFalRenderRoute,
   UnknownRenderModeError,
+  StrongPolicyWithoutRefsError,
   type ChapterStyleBible,
   type ChapterVisualMemory,
   type FalRenderRoute,
@@ -91,6 +92,27 @@ export interface GeneratePanelImageResult {
 
 function formatRenderFailure(detail: RenderPassImageFailureDetail): string {
   return `render_failed:${JSON.stringify(detail)}`;
+}
+
+/**
+ * P0.2 — Erreur bloquante quand la queue de rendu est incomplète.
+ * On refuse de payer FAL si le nombre de specs valides != totalPanels.
+ */
+export class RenderQueueIncompleteError extends Error {
+  constructor(
+    public readonly totalPanels: number,
+    public readonly specsCount: number,
+    public readonly preflightErrors: Array<{ panelId: string; error: string }>,
+  ) {
+    const errorsPreview = preflightErrors
+      .slice(0, 5)
+      .map((e) => `${e.panelId}:${e.error.substring(0, 50)}`)
+      .join(" | ");
+    super(
+      `premium_render_queue_incomplete totalPanels=${totalPanels} specs=${specsCount} errors=${errorsPreview}`,
+    );
+    this.name = "RenderQueueIncompleteError";
+  }
 }
 
 /**
@@ -182,7 +204,8 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
   const startedAt = new Date();
   const specs: PanelRenderSpec[] = [];
   const rendered: RenderedPanelDescriptor[] = [];
-  const errors: Array<{ panelId: string; error: string }> = [];
+  const preflightErrors: Array<{ panelId: string; error: string }> = [];
+  const renderErrors: Array<{ panelId: string; error: string }> = [];
   const warnings: string[] = [];
   let renderedCount = 0;
   let failedCount = 0;
@@ -190,6 +213,18 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
 
   const allPanels: StoryboardPanel[] = input.storyboardPlan.pages.flatMap((p) => p.panels);
   let previousPanel: StoryboardPanel | null = null;
+
+  // PHASE A — Preflight : build specs/routes/prompts AVANT tout appel FAL.
+  // Si le queue est incomplète (errors > 0), on fail-fast et on ne paye pas FAL.
+  interface PreflightEntry {
+    panel: StoryboardPanel;
+    spec: PanelRenderSpec;
+    route: FalRenderRoute;
+    prompt: { positive: string; negative: string };
+  }
+  const preflightQueue: PreflightEntry[] = [];
+
+  console.info(`[pipeline:v3:render-preflight] building specs for ${allPanels.length} panels...`);
 
   for (const panel of allPanels) {
     let spec: PanelRenderSpec;
@@ -203,13 +238,13 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
       });
     } catch (err) {
       if (err instanceof MissingMainCharacterRefError) {
-        errors.push({ panelId: panel.panelId, error: err.message });
+        preflightErrors.push({ panelId: panel.panelId, error: err.message });
         failedCount += 1;
         previousPanel = panel;
         continue;
       }
       const msg = err instanceof Error ? err.message : String(err);
-      errors.push({ panelId: panel.panelId, error: `spec_build_failed: ${msg}` });
+      preflightErrors.push({ panelId: panel.panelId, error: `spec_build_failed: ${msg}` });
       failedCount += 1;
       previousPanel = panel;
       continue;
@@ -219,19 +254,13 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
       assertValidRenderSpec(spec);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      errors.push({ panelId: panel.panelId, error: `spec_invalid: ${msg}` });
+      preflightErrors.push({ panelId: panel.panelId, error: `spec_invalid: ${msg}` });
       failedCount += 1;
       previousPanel = panel;
       continue;
     }
 
-    // P7 — garde strict face closeup : un panel en renderMode closeup
-    // doit avoir une face ref dédiée (chargée depuis CharacterVisualRef
-    // avec metadata closeup) pour chaque personnage principal visible.
-    // Plus de fallback silencieux vers la silhouette/outfit.
-    // PATCH 4 — on n'applique ce guard qu'aux modes où le visage doit
-    // être reconnaissable. Les modes environment/creature/aftermath/silhouette
-    // peuvent s'en passer.
+    // P7 — garde strict face closeup
     if (requiresDedicatedFaceRef(spec)) {
       try {
         const visibleMain = spec.visibleCharacters.filter(
@@ -248,7 +277,7 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
         }
       } catch (err) {
         if (err instanceof MissingDedicatedFaceCloseupRefError) {
-          errors.push({ panelId: panel.panelId, error: `missing_face_closeup_ref: ${err.message}` });
+          preflightErrors.push({ panelId: panel.panelId, error: `missing_face_closeup_ref: ${err.message}` });
           failedCount += 1;
           previousPanel = panel;
           continue;
@@ -257,15 +286,13 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
       }
     }
 
-    // COMMIT C — le routeur v3 peut refuser un spec qui traînerait malgré
-    // le validator (renderMode inconnu / hero visible sans refs). On fail
-    // ce panel proprement au lieu de casser tout le render-pass.
+    // COMMIT C — le routeur v3 peut refuser un spec
     let route: FalRenderRoute;
     try {
       route = resolveFalRenderRoute(spec);
     } catch (err) {
       if (err instanceof UnknownRenderModeError) {
-        errors.push({
+        preflightErrors.push({
           panelId: panel.panelId,
           error: `route_unknown_render_mode:${err.renderMode}`,
         });
@@ -274,9 +301,18 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
         continue;
       }
       if (err instanceof HeroWithoutReferencesError) {
-        errors.push({
+        preflightErrors.push({
           panelId: panel.panelId,
           error: `route_hero_without_references:${err.renderMode}`,
+        });
+        failedCount += 1;
+        previousPanel = panel;
+        continue;
+      }
+      if (err instanceof StrongPolicyWithoutRefsError) {
+        preflightErrors.push({
+          panelId: panel.panelId,
+          error: `route_strong_policy_without_refs:${err.renderMode}`,
         });
         failedCount += 1;
         previousPanel = panel;
@@ -299,7 +335,7 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
       prompt = buildMinimalPanelPromptStrict(enrichedSpec);
     } catch (err) {
       if (err instanceof ContradictoryPanelPromptError) {
-        errors.push({
+        preflightErrors.push({
           panelId: panel.panelId,
           error: `contradictory_prompt:${err.renderMode}:${err.violations.join("|")}`,
         });
@@ -310,13 +346,29 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
       throw err;
     }
 
+    preflightQueue.push({ panel, spec: enrichedSpec, route, prompt });
+    previousPanel = panel;
+  }
+
+  console.info(
+    `[pipeline:v3:render-preflight] specs=${preflightQueue.length}/${allPanels.length} ` +
+      `preflightErrors=${preflightErrors.length}`,
+  );
+
+  // PHASE A.2 — Check preflight : si queue incomplète, fail AVANT FAL
+  if (preflightErrors.length > 0 && input.generatePanelImage) {
+    throw new RenderQueueIncompleteError(allPanels.length, preflightQueue.length, preflightErrors);
+  }
+
+  // PHASE B — Render : appeler FAL seulement si preflight OK
+  for (const entry of preflightQueue) {
+    const { panel, spec: enrichedSpec, route, prompt } = entry;
     specs.push(enrichedSpec);
     const descriptor: RenderedPanelDescriptor = { spec: enrichedSpec, prompt, route };
     rendered.push(descriptor);
 
     if (!input.generatePanelImage) {
       skippedCount += 1;
-      previousPanel = panel;
       continue;
     }
 
@@ -370,7 +422,7 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
         };
         descriptor.renderFailure = detail;
         descriptor.error = errorMessage;
-        errors.push({ panelId: panel.panelId, error: formatRenderFailure(detail) });
+        renderErrors.push({ panelId: panel.panelId, error: formatRenderFailure(detail) });
         await dumpPanelDebugArtifacts({
           chapterId: input.chapterId,
           panelId: enrichedSpec.panelId,
@@ -396,7 +448,7 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
       };
       descriptor.renderFailure = detail;
       descriptor.error = `render_threw: ${msg}`;
-      errors.push({ panelId: panel.panelId, error: formatRenderFailure(detail) });
+      renderErrors.push({ panelId: panel.panelId, error: formatRenderFailure(detail) });
       await dumpPanelDebugArtifacts({
         chapterId: input.chapterId,
         panelId: enrichedSpec.panelId,
@@ -408,9 +460,9 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
         error: err,
       });
     }
-
-    previousPanel = panel;
   }
+
+  const errors = [...preflightErrors, ...renderErrors];
 
   const panelQa = await runPanelQaPass({
     specs,

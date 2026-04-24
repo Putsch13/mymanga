@@ -393,8 +393,10 @@ function pickPanelImageFit(
     return { fit: "contain", position: "center" };
   }
 
-  // 3. Fallback: COVER par défaut pour remplir le panel (comportement original)
-  return { fit: "cover", position: "center top" };
+  // 3. Fallback: CONTAIN par défaut pour éviter de couper cheveux/yeux.
+  // Quand la composition finale sera propre, on pourra remettre du cover slot par slot
+  // avec un focalPoint explicite.
+  return { fit: "contain", position: "center" };
 }
 
 function isDemoPage(page: UniversalMangaPage | DemoMangaPage): page is DemoMangaPage {

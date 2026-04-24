@@ -101,6 +101,13 @@ function narrativeValueScore(bp: PanelBlueprintPremium): number {
   return score;
 }
 
+function resolveSubjectFocusForEntity(entity: VisualEntity): SubjectFocus {
+  if (entity.isOpponent) return "enemy";
+  if (entity.role === "protagonist") return "hero";
+  if (entity.canAppearAsGroup) return "group";
+  return "npc";
+}
+
 export function convertPanelToEntityDrivenPanel(
   bp: PanelBlueprintPremium,
   entity: VisualEntity,
@@ -112,7 +119,7 @@ export function convertPanelToEntityDrivenPanel(
 
   bp.cutawayType = "none" as CutawayType;
   bp.rebalancedFromCutaway = true;
-  bp.subjectFocus = "visual_entity";
+  bp.subjectFocus = resolveSubjectFocusForEntity(entity);
   bp.mangaPanelFunction = entity.isOpponent ? "opponent_pressure" : "entity_action";
   bp.renderMode = resolveRenderModeForEntity(entity);
   bp.mustShowEnemy = entity.isOpponent;

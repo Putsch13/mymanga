@@ -48,7 +48,7 @@ export function toCameraAngle(raw: string): StoryboardCameraAngle {
   return "eye_level";
 }
 
-export function toSubjectFocus(raw: string): StoryboardSubjectFocus {
+export function toSubjectFocus(raw: string, bp?: { mustShowEnemy?: boolean }): StoryboardSubjectFocus {
   const v = raw.toLowerCase();
   if (v.includes("environment")) return "environment";
   if (v.includes("prop")) return "prop";
@@ -58,6 +58,9 @@ export function toSubjectFocus(raw: string): StoryboardSubjectFocus {
   if (v.includes("group")) return "group";
   if (v.includes("reaction")) return "reaction";
   if (v.includes("threat")) return "threat";
+  if (v.includes("visual_entity")) {
+    return bp?.mustShowEnemy ? "enemy" : "hero";
+  }
   return "hero";
 }
 
@@ -74,7 +77,7 @@ export function toCutawayType(raw: string | null | undefined): StoryboardCutaway
 
 export function deriveRenderMode(bp: PanelBlueprintPremium): StoryboardRenderMode {
   const cutaway = toCutawayType(bp.cutawayType);
-  const focus = toSubjectFocus(bp.subjectFocus);
+  const focus = toSubjectFocus(bp.subjectFocus, bp);
   const shot = toShotType(bp.shotType);
 
   const requiredSubjects = ((bp.requiredSubjects as string[] | undefined) ?? []).join(" ").toLowerCase();
@@ -104,7 +107,7 @@ export function deriveRenderMode(bp: PanelBlueprintPremium): StoryboardRenderMod
 
 export function derivePanelPurpose(bp: PanelBlueprintPremium): PanelPurpose {
   const cutaway = toCutawayType(bp.cutawayType);
-  const focus = toSubjectFocus(bp.subjectFocus);
+  const focus = toSubjectFocus(bp.subjectFocus, bp);
   if (cutaway === "environment") return "location_establishing";
   if (cutaway === "prop_insert") return "prop_insert";
   if (cutaway === "surveillance") return "surveillance_insert";
@@ -345,7 +348,7 @@ export function buildStoryboardPlanFromPremiumBlueprints(args: {
         slotType: layout.slotType,
         shotType: toShotType(bp.shotType),
         cameraAngle: toCameraAngle(bp.cameraAngle),
-        subjectFocus: toSubjectFocus(bp.subjectFocus),
+        subjectFocus: toSubjectFocus(bp.subjectFocus, bp),
         cutawayType: toCutawayType(bp.cutawayType),
         characters: resolveCharacters(bp),
         locationId: null,

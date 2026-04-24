@@ -112,8 +112,17 @@ export function buildVisualEntitiesFromPremiumV3Input(input: BuildVisualEntities
   const heroId = input.heroCharacterId ?? input.focusCharacterIds[0] ?? null;
 
   for (const c of input.rawCharacters) {
-    const isHero = heroId === c.id || (c.roleType ?? "").toLowerCase().includes("hero");
-    const role = roleFromCharacter(c.roleType);
+    const roleTypeLower = (c.roleType ?? "").toLowerCase();
+
+    const isHero =
+      heroId === c.id ||
+      input.focusCharacterIds.includes(c.id) ||
+      roleTypeLower.includes("hero") ||
+      roleTypeLower.includes("protagonist");
+
+    const rawRole = roleFromCharacter(c.roleType);
+    const role: VisualEntityRole = isHero ? "protagonist" : rawRole;
+
     const colors: string[] = [];
     if (c.hairColor) colors.push(`hair:${c.hairColor}`);
     if (c.eyeColor) colors.push(`eyes:${c.eyeColor}`);

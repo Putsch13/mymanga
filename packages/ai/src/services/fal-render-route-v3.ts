@@ -199,6 +199,37 @@ export class HeroWithoutReferencesError extends Error {
 }
 
 /**
+ * Erreur dédiée pour STRONG refs=[] — refuse de payer FAL pour un panel
+ * qui demande des références fortes mais n'en a aucune.
+ */
+export class StrongPolicyWithoutRefsError extends Error {
+  constructor(public readonly panelId: string, public readonly renderMode: string) {
+    super(
+      `fal_render_route.strong_policy_without_refs panelId=${panelId} renderMode=${renderMode} — STRONG policy requiert au moins une référence`,
+    );
+    this.name = "StrongPolicyWithoutRefsError";
+  }
+}
+
+const ENEMY_MODES_DOWNGRADE_TO_LIGHT: readonly string[] = [
+  "enemy_reveal",
+  "enemy_closeup",
+  "creature_reveal",
+  "threat_silhouette",
+];
+
+function specHasAnyRefs(spec: PanelRenderSpec): boolean {
+  const refs = spec.imageReferences;
+  if (!refs) return false;
+  return (
+    refs.characterRefs.length > 0 ||
+    refs.environmentRefs.length > 0 ||
+    refs.panelRefs.length > 0 ||
+    refs.styleRefs.length > 0
+  );
+}
+
+/**
  * Résout la route FAL d'un panel à partir de son PanelRenderSpec.
  *
  * Garanties (COMMIT C — durci) :
@@ -207,6 +238,8 @@ export class HeroWithoutReferencesError extends Error {
  *     (plus de fallback `CHARACTER_IN_SCENE` silencieux)
  *   - throw `HeroWithoutReferencesError` si hero/support visible et que la
  *     politique finale resterait `NONE`
+ *   - throw `StrongPolicyWithoutRefsError` si STRONG policy mais aucune ref
+ *     (sauf pour les modes enemy qui downgrade vers LIGHT)
  *   - si un héros/support est présent, `referencePolicy` est toujours au
  *     moins LIGHT (jamais NONE)
  *   - la route est déterministe : même spec → même route
@@ -216,17 +249,34 @@ export function resolveFalRenderRoute(spec: PanelRenderSpec): FalRenderRoute {
   if (!base) {
     throw new UnknownRenderModeError(String(spec.renderMode ?? "null"));
   }
+
   const hasHeroOrSupport = spec.visibleCharacters.some(
     (c) => c.role === "hero" || c.role === "support",
   );
-  const policy: FalRenderRoute["referencePolicy"] = hasHeroOrSupport
+
+  let policy: FalRenderRoute["referencePolicy"] = hasHeroOrSupport
     ? base.referencePolicy === "NONE"
       ? "LIGHT"
       : base.referencePolicy
     : base.referencePolicy;
+
   if (hasHeroOrSupport && policy === "NONE") {
     throw new HeroWithoutReferencesError(spec.panelId, spec.renderMode);
   }
+
+  const hasRefs = specHasAnyRefs(spec);
+
+  if (policy === "STRONG" && !hasRefs) {
+    if (ENEMY_MODES_DOWNGRADE_TO_LIGHT.includes(spec.renderMode)) {
+      policy = "LIGHT";
+      console.warn(
+        `[fal-render-route-v3] downgrade_strong_to_light panelId=${spec.panelId} renderMode=${spec.renderMode} reason=no_refs`,
+      );
+    } else {
+      throw new StrongPolicyWithoutRefsError(spec.panelId, spec.renderMode);
+    }
+  }
+
   return {
     modelId: base.modelId,
     panelCategory: base.panelCategory,

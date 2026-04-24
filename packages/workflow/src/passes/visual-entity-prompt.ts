@@ -20,13 +20,18 @@ export function buildEntityActionLine(bp: PanelBlueprintPremium, entity: VisualE
   return `${entity.name} (${entity.userDefinedKind}) performs a clear readable action. Original cue: ${base}`;
 }
 
-export function resolveRenderModeForEntity(entity: VisualEntity): string {
-  if (entity.isOpponent && entity.scale === "giant") return "opponent_reveal_large_scale";
-  if (entity.isOpponent && entity.canAppearAsGroup) return "opponent_group_pressure";
-  if (entity.isOpponent) return "opponent_reveal";
-  if (entity.isNamed) return "named_entity_focus";
-  if (entity.canAppearAsGroup) return "group_entity_action";
-  return "entity_action";
+import type { StoryboardRenderMode } from "@manga-ai-studio/ai/contracts";
+
+/**
+ * Résout le renderMode pour une entité en utilisant les modes storyboard valides.
+ * Map les concepts d'entité vers StoryboardRenderMode réels.
+ */
+export function resolveRenderModeForEntity(entity: VisualEntity): StoryboardRenderMode {
+  if (entity.isOpponent && entity.canAppearAsGroup) return "group_tension";
+  if (entity.isOpponent) return "enemy_reveal";
+  if (entity.canAppearAsGroup) return "group_tension";
+  if (entity.isNamed) return "npc_closeup";
+  return "dialogue_two_shot";
 }
 
 export function buildEntityPromptBlock(entity: VisualEntity): string {
