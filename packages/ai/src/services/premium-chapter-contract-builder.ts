@@ -474,8 +474,15 @@ export function buildPremiumChapterContract(
       .map((v) => v.message),
   };
 
+  // P1.3 — Pour le comptage de couverture ennemi (affiché dans l'UI), inclure
+  // les blueprints avec mustShowEnemy=true même si subjectFocus !== "enemy".
+  // La validation stricte (violations) reste dans focusBudget.
+  const enemyPanelCount = allBlueprints.filter(
+    (bp) => bp.subjectFocus === "enemy" || bp.mustShowEnemy,
+  ).length;
+
   const enemyCoverage = {
-    panelCount: focusBudget.enemyFocusPanels,
+    panelCount: enemyPanelCount,
     beatsCovered: enrichedBeats
       .filter((b) => b.narrativeFacts.some((f) => f.type === "enemy_presence"))
       .map((b) => b.beatId),
