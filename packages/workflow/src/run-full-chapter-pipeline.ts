@@ -95,7 +95,13 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
   );
   const intensityLayer = (project?.intensityLayer as string | null) ?? "TEEN";
   const jobInput = ((job.input as Record<string, unknown>) ?? {}) as PipelineJobInput;
+  const heroCharacterId = typeof jobInput.heroCharacterId === "string" && jobInput.heroCharacterId.length > 0
+    ? jobInput.heroCharacterId
+    : null;
   const focusCharacterIds = Array.isArray(jobInput.focusCharacterIds) ? jobInput.focusCharacterIds.filter(Boolean) : [];
+  const activeNpcIds = Array.isArray(jobInput.activeNpcIds) ? jobInput.activeNpcIds.filter(Boolean) : [];
+  const activeCreatureIds = Array.isArray(jobInput.activeCreatureIds) ? jobInput.activeCreatureIds.filter(Boolean) : [];
+  const locationIds = Array.isArray(jobInput.locationIds) ? jobInput.locationIds.filter(Boolean) : [];
   const selectedPlotLabel =
     jobInput.selectedPlotLabel === "safe" || jobInput.selectedPlotLabel === "bold" || jobInput.selectedPlotLabel === "shock"
       ? jobInput.selectedPlotLabel
@@ -124,6 +130,28 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
     `[pipeline:v3] PIPELINE_V3_STORYBOARD=${pipelineV3Enabled} PIPELINE_V3_PREMIUM_ONLY=${premiumV3OnlyEnabled}`,
   );
 
+  const outlineRecord = (chapter.outline as Record<string, unknown> | null | undefined) ?? {};
+  const approvedOutlineForV3 =
+    outlineRecord.approvedOutline
+    && typeof outlineRecord.approvedOutline === "object"
+    && !Array.isArray(outlineRecord.approvedOutline)
+      ? (outlineRecord.approvedOutline as Record<string, unknown>)
+      : null;
+  const productionPlanRaw = jobInput.productionPlan;
+  const productionPlanRecord =
+    productionPlanRaw && typeof productionPlanRaw === "object" && !Array.isArray(productionPlanRaw)
+      ? (productionPlanRaw as Record<string, unknown>)
+      : null;
+  const topLevelBlueprints = Array.isArray(jobInput.panelBlueprints) ? jobInput.panelBlueprints : [];
+  const productionPlanForV3 =
+    productionPlanRecord
+    && Array.isArray(productionPlanRecord.panelBlueprints)
+    && (productionPlanRecord.panelBlueprints as unknown[]).length > 0
+      ? productionPlanRecord
+      : topLevelBlueprints.length > 0
+        ? { ...(productionPlanRecord ?? {}), panelBlueprints: topLevelBlueprints }
+        : productionPlanRecord;
+
   try {
     const { v3RenderSucceeded } = await runPremiumV3Pipeline({
       chapterId,
@@ -145,7 +173,13 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           ? (c as { forbiddenVisualDrift?: string[] }).forbiddenVisualDrift
           : [],
       })),
+      approvedOutline: approvedOutlineForV3,
+      productionPlan: productionPlanForV3,
+      heroCharacterId,
       focusCharacterIds,
+      activeNpcIds,
+      activeCreatureIds,
+      locationIds,
       pipelineV3Enabled,
       premiumV3OnlyEnabled,
       productionPlanPages: Array.isArray(jobInput.productionPlanPages)

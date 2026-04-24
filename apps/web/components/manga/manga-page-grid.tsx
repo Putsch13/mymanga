@@ -139,9 +139,14 @@ export interface UniversalPanel {
   };
   /** Métadonnées de layout pour choix intelligent de la page */
   layoutMeta?: {
-    slotType?: "wide" | "tall" | "square" | "closeup" | "dialogue";
-    targetAspectRatio?: string;
-    layoutTemplate?: string;
+    slotType?: string | null;
+    targetAspectRatio?: string | null;
+    layoutTemplate?: string | null;
+    layoutHint?: string | null;
+    textPlacementPreference?: string | null;
+    safeTextZones?: Array<{ x: number; y: number; width: number; height: number }> | null;
+    isSplashPage?: boolean;
+    isDoublePage?: boolean;
   };
   textMeta?: ReaderTextPlacementHint & {
     overlayReadingDirection?: ReadingDirection;

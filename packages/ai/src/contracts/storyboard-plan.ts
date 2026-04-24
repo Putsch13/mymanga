@@ -281,6 +281,14 @@ export interface StoryboardPanel {
    * `continuityId` et sans `narrativeFunction`.
    */
   npcs?: StoryboardPanelNpc[];
+  /**
+   * PATCH 8 — place / ratio / slot prévus pour le reader et FAL avant rendu.
+   * Si absents, `inferStoryboardPanelLayoutMeta(renderMode)` les déduit.
+   */
+  layoutHint?: string | null;
+  targetAspectRatio?: "portrait" | "landscape" | "square" | null;
+  /** Souvent égal à `renderMode` (ex. `hero_closeup`, `creature_reveal`). */
+  slotType?: string | null;
 }
 
 export interface StoryboardPage {

@@ -25,6 +25,19 @@ export interface DialogueBubble {
   tailDirection: "left" | "right" | "bottom" | "top";
 }
 
+/** Texte in-panel (px page) — remplace progressivement les bulles elliptiques. */
+export type InPanelTextVariant = "cartouche" | "bandeau" | "embedded" | "narration_box";
+
+export interface InPanelTextBox {
+  text: string;
+  speaker?: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  variant: InPanelTextVariant;
+}
+
 export interface SfxElement {
   text: string;
   x: number;
@@ -39,7 +52,12 @@ export interface MangaPageCompositeInput {
   pageHeight: number;
   backgroundColor: string;
   panels: CompositePanel[];
+  /** @deprecated Préférer dialogueBoxes / captionBoxes / narrationBoxes (PATCH 10). */
   bubbles?: DialogueBubble[];
+  /** Texte dialogue en rectangles (coordonnées page px). */
+  dialogueBoxes?: InPanelTextBox[];
+  captionBoxes?: InPanelTextBox[];
+  narrationBoxes?: InPanelTextBox[];
   sfxElements?: SfxElement[];
   gutterColor?: string;
   gutterWidth?: number;
@@ -124,10 +142,21 @@ export async function compositeMangaPage(
     `<svg width="${PAGE_W}" height="${PAGE_H}" xmlns="http://www.w3.org/2000/svg">${gutterLines}</svg>`,
   );
 
-  // SVG pour les bulles de dialogue
-  const bubblesOverlay = input.bubbles && input.bubbles.length > 0
-    ? Buffer.from(generateBubblesSvg(input.bubbles, PAGE_W, PAGE_H))
-    : null;
+  const layoutBoxes = [
+    ...(input.narrationBoxes ?? []),
+    ...(input.captionBoxes ?? []),
+    ...(input.dialogueBoxes ?? []),
+  ];
+  const inPanelLayoutOverlay =
+    layoutBoxes.length > 0
+      ? Buffer.from(generateInPanelTextLayoutSvg(layoutBoxes, PAGE_W, PAGE_H))
+      : null;
+
+  // SVG bulles elliptiques (legacy) — seulement si aucun layout in-panel
+  const bubblesOverlay =
+    !inPanelLayoutOverlay && input.bubbles && input.bubbles.length > 0
+      ? Buffer.from(generateBubblesSvg(input.bubbles, PAGE_W, PAGE_H))
+      : null;
 
   // SVG pour les SFX
   const sfxOverlay = input.sfxElements && input.sfxElements.length > 0
@@ -138,6 +167,7 @@ export async function compositeMangaPage(
     ...panelComposites,
     { input: gutterSvg, top: 0, left: 0 },
   ];
+  if (inPanelLayoutOverlay) composites.push({ input: inPanelLayoutOverlay, top: 0, left: 0 });
   if (bubblesOverlay) composites.push({ input: bubblesOverlay, top: 0, left: 0 });
   if (sfxOverlay) composites.push({ input: sfxOverlay, top: 0, left: 0 });
 
@@ -148,6 +178,64 @@ export async function compositeMangaPage(
     .composite(composites)
     .jpeg({ quality: 90, progressive: true })
     .toBuffer();
+}
+
+// ─── SVG texte in-panel (rectangles) ─────────────────────────────────────────
+
+function generateInPanelTextLayoutSvg(boxes: InPanelTextBox[], pageW: number, pageH: number): string {
+  const elements = boxes.map((b) => {
+    const { x, y, width, height } = b;
+    const rx = b.variant === "bandeau" ? 2 : 6;
+    const pad = 4;
+    const fontSize =
+      b.variant === "narration_box" ? 13 : b.variant === "embedded" ? 12 : b.variant === "bandeau" ? 11 : 13;
+    const titleSize = Math.max(9, fontSize - 1);
+    const fill =
+      b.variant === "narration_box"
+        ? "#f4efe4"
+        : b.variant === "embedded"
+          ? "rgba(15,15,18,0.78)"
+          : "#ffffff";
+    const stroke = b.variant === "embedded" ? "rgba(255,255,255,0.25)" : "#1c1917";
+    const textFill = b.variant === "embedded" ? "#f5f5f4" : "#0c0a09";
+    const maxChars = Math.max(8, Math.floor((width - pad * 2) / (fontSize * 0.52)));
+    const lines = wrapSvgText(b.text, maxChars);
+    const lineH = fontSize + 3;
+    const firstLineY = y + pad + (b.speaker ? titleSize + 2 : 0) + fontSize;
+    const tspans = lines
+      .map((line, i) =>
+        i === 0
+          ? `<tspan x="${x + width / 2}" y="${firstLineY}" text-anchor="middle">${escSvg(line)}</tspan>`
+          : `<tspan x="${x + width / 2}" dy="${lineH}" text-anchor="middle">${escSvg(line)}</tspan>`,
+      )
+      .join("");
+    const speakerNode = b.speaker
+      ? `<text x="${x + width / 2}" y="${y + pad + titleSize}" text-anchor="middle" font-family="system-ui, sans-serif" font-size="${titleSize}" font-weight="700" fill="${b.variant === "embedded" ? "#d6d3d1" : "#57534e"}" letter-spacing="0.04em">${escSvg(b.speaker)}</text>`
+      : "";
+    return `<g>
+      <rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${rx}" ry="${rx}" fill="${fill}" stroke="${stroke}" stroke-width="1.2"/>
+      ${speakerNode}
+      <text font-family="system-ui, 'Noto Sans JP', sans-serif" font-size="${fontSize}" font-weight="500" fill="${textFill}">${tspans}</text>
+    </g>`;
+  });
+  return `<svg width="${pageW}" height="${pageH}" xmlns="http://www.w3.org/2000/svg">${elements.join("\n")}</svg>`;
+}
+
+function wrapSvgText(text: string, maxChars: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    const next = cur ? `${cur} ${w}` : w;
+    if (next.length > maxChars && cur) {
+      lines.push(cur);
+      cur = w;
+    } else {
+      cur = next;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [text];
 }
 
 // ─── SVG Bulles ───────────────────────────────────────────────────────────────

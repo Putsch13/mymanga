@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildMinimalPanelPrompt } from "./minimal-panel-prompt-builder";
+import {
+  buildMinimalPanelPrompt,
+  buildPromptNegativeBlock,
+  describeCharacterWithCanon,
+} from "./minimal-panel-prompt-builder";
 import { createDefaultChapterStyleBible } from "../contracts/chapter-style-bible";
 import type { PanelRenderSpec } from "../contracts/panel-render-spec";
 
@@ -110,6 +114,42 @@ describe("buildMinimalPanelPrompt", () => {
     expect(r.positive).toContain("balanced framing");
   });
 
+  it("injecte eyeColor du personnage dans le prompt positif", () => {
+    const r = buildMinimalPanelPrompt(
+      makeSpec({
+        visibleCharacters: [
+          {
+            characterId: "c1",
+            name: "Miya",
+            role: "hero",
+            poseIntent: null,
+            expressionIntent: null,
+            eyeColor: "amber",
+          },
+        ],
+      }),
+    );
+    expect(r.positive.toLowerCase()).toContain("amber eyes");
+  });
+
+  it("injecte hairColor du personnage dans le prompt positif", () => {
+    const r = buildMinimalPanelPrompt(
+      makeSpec({
+        visibleCharacters: [
+          {
+            characterId: "c1",
+            name: "Miya",
+            role: "hero",
+            poseIntent: null,
+            expressionIntent: null,
+            hairColor: "crimson",
+          },
+        ],
+      }),
+    );
+    expect(r.positive.toLowerCase()).toContain("crimson hair");
+  });
+
   it("injecte hairColor + eyeColor du personnage dans le prompt", () => {
     const r = buildMinimalPanelPrompt(
       makeSpec({
@@ -137,5 +177,149 @@ describe("buildMinimalPanelPrompt", () => {
     expect(r.positive.toLowerCase()).toContain("black hair");
     expect(r.positive.toLowerCase()).toContain("blue eyes");
     expect(r.negative.toLowerCase()).toContain("red eyes");
+  });
+
+  it("creature_reveal: le positif impose la créature, pas un sujet environment-first", () => {
+    const r = buildMinimalPanelPrompt(
+      makeSpec({
+        renderMode: "creature_reveal",
+        panelPurpose: "creature_reveal",
+        subjectFocus: "creature",
+        shotType: "wide",
+        visibleCharacters: [],
+      }),
+    );
+    expect(r.positive.toLowerCase()).toContain("creature");
+    expect(r.positive.toLowerCase()).toContain("non-human");
+    expect(r.positive.toLowerCase()).not.toContain("environment-first panel");
+  });
+
+  it("hero_closeup garde les traits canoniques (signature + couleurs + drift interdit)", () => {
+    const r = buildMinimalPanelPrompt(
+      makeSpec({
+        renderMode: "hero_closeup",
+        panelPurpose: "hero_focus",
+        subjectFocus: "hero",
+        visibleCharacters: [
+          {
+            characterId: "h1",
+            name: "Kael",
+            role: "hero",
+            poseIntent: null,
+            expressionIntent: null,
+            hairColor: "silver",
+            eyeColor: "violet",
+            canonSignatureText: "scarred left cheek",
+            forbiddenDrift: ["bald", "beard"],
+          },
+        ],
+        constraints: {
+          mustShow: [],
+          mustNotShow: [],
+          forbiddenDrift: ["bald"],
+          noTextInsideImage: true,
+        },
+      }),
+    );
+    expect(r.positive.toLowerCase()).toContain("scarred left cheek");
+    expect(r.positive.toLowerCase()).toContain("silver hair");
+    expect(r.positive.toLowerCase()).toContain("violet eyes");
+    expect(r.negative.toLowerCase()).toContain("bald");
+  });
+
+  it("describeCharacterWithCanon inclut visualDNA (hairStyle, outfit)", () => {
+    const line = describeCharacterWithCanon({
+      characterId: "c1",
+      name: "Rin",
+      role: "hero",
+      poseIntent: null,
+      expressionIntent: null,
+      visualDNA: {
+        eyeColor: "amber",
+        hairColor: "white",
+        hairStyle: "twin tails with red ribbons",
+        outfitSignature: "school blazer with armband",
+      },
+    });
+    expect(line).toContain("amber eyes");
+    expect(line).toContain("white hair");
+    expect(line).toContain("twin tails with red ribbons");
+    expect(line).toContain("wearing school blazer with armband");
+  });
+
+  it("ENVIRONMENT: sans locationName mais avec environmentLocks, évite neutral setting", () => {
+    const r = buildMinimalPanelPrompt(
+      makeSpec({
+        locationName: "   ",
+        continuityLocks: {
+          outfitLocks: [],
+          bodyStateLocks: [],
+          propLocks: [],
+          environmentLocks: ["rain-soaked neon alley with vending glow"],
+        },
+      }),
+    );
+    expect(r.positive).toContain("rain-soaked neon alley with vending glow");
+    expect(r.positive.toLowerCase()).not.toContain("neutral setting");
+  });
+
+  it("hero_closeup inclut jusqu’à 5 mustShow dans ACTION", () => {
+    const r = buildMinimalPanelPrompt(
+      makeSpec({
+        renderMode: "hero_closeup",
+        panelPurpose: "hero_focus",
+        subjectFocus: "hero",
+        constraints: {
+          mustShow: [
+            "blade glint",
+            "blood fleck",
+            "torn sleeve",
+            "dojo floor",
+            "sweat bead",
+            "sixth-must-not-appear-in-prompt",
+          ],
+          mustNotShow: [],
+          forbiddenDrift: [],
+          noTextInsideImage: true,
+        },
+      }),
+    );
+    expect(r.positive).toContain("blade glint");
+    expect(r.positive).toContain("sweat bead");
+    expect(r.positive).not.toContain("sixth-must-not-appear-in-prompt");
+  });
+
+  it("creature_reveal: le négatif interdit explicitement les contournements créature", () => {
+    const neg = buildPromptNegativeBlock(
+      makeSpec({
+        renderMode: "creature_reveal",
+        subjectFocus: "creature",
+        panelPurpose: "creature_reveal",
+        visibleCharacters: [],
+      }),
+    ).toLowerCase();
+    expect(neg).toContain("no creature visible");
+    expect(neg).toContain("environment only");
+    expect(neg).toContain("hero only close-up");
+  });
+
+  it("combat_aftermath + mustShow créature: négatif renforcé (entités requises)", () => {
+    const neg = buildPromptNegativeBlock(
+      makeSpec({
+        renderMode: "combat_aftermath",
+        panelPurpose: "combat_aftermath",
+        subjectFocus: "environment",
+        shotType: "wide",
+        visibleCharacters: [],
+        constraints: {
+          mustShow: ["creature corpse in foreground"],
+          mustNotShow: [],
+          forbiddenDrift: [],
+          noTextInsideImage: true,
+        },
+      }),
+    ).toLowerCase();
+    expect(neg).toContain("environment only");
+    expect(neg).toContain("empty battlefield");
   });
 });

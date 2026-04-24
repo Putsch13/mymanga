@@ -90,24 +90,27 @@ export function buildPromptSubjectBlock(spec: PanelRenderSpec): string {
     return buildAftermathDialogueSubject(chars);
   }
   if (chars.length === 0) {
-    return `SUBJECT: environment only, no identifiable character.`;
+    return `SUBJECT: atmospheric scene read without a dominant identifiable face; staging stays grounded in the established setting.`;
   }
   const primary = chars[0]!;
   const others = chars.slice(1, 3);
   const parts: string[] = [];
   parts.push(
-    `SUBJECT: ${describeCharacter(primary)} as primary subject${spec.subjectFocus === "reaction" ? ", facial reaction emphasized" : ""}.`,
+    `SUBJECT: ${describeCharacterWithCanon(primary)} as primary subject${spec.subjectFocus === "reaction" ? ", facial reaction emphasized" : ""}.`,
   );
   if (others.length > 0) {
     parts.push(
-      `Secondary: ${others.map(describeCharacter).join(", ")}.`,
+      `Secondary: ${others.map(describeCharacterWithCanon).join(", ")}.`,
     );
   }
   return parts.join(" ");
 }
 
 export function buildPromptEnvironmentBlock(spec: PanelRenderSpec): string {
-  const loc = spec.locationName?.trim() || "neutral setting";
+  const environmentAnchor =
+    spec.locationName?.trim()
+    || spec.continuityLocks.environmentLocks.map(normalizePromptClause).find(Boolean)
+    || "story-consistent interior/exterior";
   const density = spec.styleBible.backgroundDensity;
   const environmentLocks = spec.continuityLocks.environmentLocks
     .map(normalizePromptClause)
@@ -123,7 +126,7 @@ export function buildPromptEnvironmentBlock(spec: PanelRenderSpec): string {
     const lockLine = environmentLocks.length > 0
       ? ` Continuity cues: ${environmentLocks.join("; ")}.`
       : "";
-    return `ENVIRONMENT: blurred / simplified ${loc}, focus entirely on object.${lockLine}`;
+    return `ENVIRONMENT: blurred / simplified ${environmentAnchor}, focus entirely on object.${lockLine}`;
   }
   if (
     spec.renderMode === "reaction_closeup" ||
@@ -134,24 +137,24 @@ export function buildPromptEnvironmentBlock(spec: PanelRenderSpec): string {
     const lockLine = environmentLocks.length > 0
       ? ` Continuity cues remain readable: ${environmentLocks.join("; ")}.`
       : "";
-    return `ENVIRONMENT: ${loc}, shallow depth, ${densityHint} kept soft behind subject.${lockLine}`;
+    return `ENVIRONMENT: ${environmentAnchor}, shallow depth, ${densityHint} kept soft behind subject.${lockLine}`;
   }
   if (spec.renderMode === "threat_silhouette") {
     const lockLine = environmentLocks.length > 0
       ? ` Continuity cues: ${environmentLocks.join("; ")}.`
       : "";
-    return `ENVIRONMENT: ${loc}, backlit atmosphere, strong contre-jour, subject reduced to shape.${lockLine}`;
+    return `ENVIRONMENT: ${environmentAnchor}, backlit atmosphere, strong contre-jour, subject reduced to shape.${lockLine}`;
   }
   if (spec.renderMode === "aftermath_dialogue") {
     const lockLine = environmentLocks.length > 0
       ? ` Continuity cues: ${environmentLocks.join("; ")}.`
       : "";
-    return `ENVIRONMENT: ${loc}, subdued lighting post-event, debris or altered state visible in background.${lockLine}`;
+    return `ENVIRONMENT: ${environmentAnchor}, subdued lighting post-event, debris or altered state visible in background.${lockLine}`;
   }
   const lockLine = environmentLocks.length > 0
     ? ` Continuity cues: ${environmentLocks.join("; ")}.`
     : "";
-  return `ENVIRONMENT: ${loc}, ${densityHint}, consistent with chapter continuity.${lockLine}`;
+  return `ENVIRONMENT: ${environmentAnchor}, ${densityHint}, consistent with chapter continuity.${lockLine}`;
 }
 
 export function buildPromptShotBlock(spec: PanelRenderSpec): string {
@@ -160,14 +163,26 @@ export function buildPromptShotBlock(spec: PanelRenderSpec): string {
   return `SHOT: ${shot}, ${angle}, renderMode=${spec.renderMode}.`;
 }
 
+const MUST_SHOW_CAP_CRITICAL = 5;
+const MUST_SHOW_CAP_DEFAULT = 3;
+const RENDER_MODES_EXTRA_MUST_SHOW: ReadonlySet<PanelRenderSpec["renderMode"]> = new Set([
+  "creature_reveal",
+  "enemy_reveal",
+  "hero_closeup",
+  "reaction_closeup",
+]);
+
 export function buildPromptActionBlock(spec: PanelRenderSpec): string {
   const action = normalizePromptClause(spec.actionLine) || "static beat";
   const emotion = normalizePromptClause(spec.emotionLine);
   const dialogueIntent = normalizePromptClause(spec.dialogueIntent);
+  const mustShowCap = RENDER_MODES_EXTRA_MUST_SHOW.has(spec.renderMode)
+    ? MUST_SHOW_CAP_CRITICAL
+    : MUST_SHOW_CAP_DEFAULT;
   const mustShow = spec.constraints.mustShow
     .map(normalizePromptClause)
     .filter(Boolean)
-    .slice(0, 3);
+    .slice(0, mustShowCap);
   const parts = [`ACTION: ${action}.`];
   if (mustShow.length > 0) {
     parts.push(`Mandatory visible elements: ${mustShow.join("; ")}.`);
@@ -281,6 +296,7 @@ export const FORBIDDEN_BY_RENDER_MODE: Record<PanelRenderSpec["renderMode"], str
   combat_aftermath: [
     "active combat pose",
     "mid-swing weapon",
+    "environment only",
   ],
   enemy_reveal: [
     "characters small in frame",
@@ -293,6 +309,10 @@ export const FORBIDDEN_BY_RENDER_MODE: Record<PanelRenderSpec["renderMode"], str
     "face filling frame",
     "close-up portrait",
     "hero close-up",
+    "empty room",
+    "environment only",
+    "hero only close-up",
+    "no creature visible",
   ],
   threat_silhouette: [
     "clear facial features",
@@ -308,6 +328,12 @@ export const FORBIDDEN_BY_RENDER_MODE: Record<PanelRenderSpec["renderMode"], str
 };
 
 export function buildPromptNegativeBlock(spec: PanelRenderSpec): string {
+  const entityObligationHints = /creature|monster|beast|dragon|demon|enemy body|corpse|casualt/i;
+  const extraAftermathBans =
+    spec.renderMode === "combat_aftermath"
+    && spec.constraints.mustShow.some((m) => entityObligationHints.test(m))
+      ? (["characters absent from frame", "empty battlefield"] as const)
+      : [];
   const baseNegatives = [
     "3d render",
     "photorealistic",
@@ -326,7 +352,9 @@ export function buildPromptNegativeBlock(spec: PanelRenderSpec): string {
   const drift = spec.constraints.forbiddenDrift;
   const mustNot = spec.constraints.mustNotShow;
   const modeBans = FORBIDDEN_BY_RENDER_MODE[spec.renderMode] ?? [];
-  const full = Array.from(new Set([...baseNegatives, ...drift, ...mustNot, ...modeBans]));
+  const full = Array.from(
+    new Set([...baseNegatives, ...drift, ...mustNot, ...modeBans, ...extraAftermathBans]),
+  );
   return full.join(", ");
 }
 
@@ -432,17 +460,20 @@ export function buildMinimalPanelPromptStrict(
   return built;
 }
 
-function describeCharacter(c: PanelRenderVisibleCharacter): string {
-  const role = c.role === "hero" ? "protagonist" : c.role;
-  const traits = [
-    c.hairColor ? `${c.hairColor} hair` : null,
-    c.eyeColor ? `${c.eyeColor} eyes` : null,
-    c.canonSignatureText ? c.canonSignatureText : null,
-  ].filter((value): value is string => Boolean(value)).slice(0, 3);
-  const traitLine = traits.length > 0 ? `, canonical traits: ${traits.join(", ")}` : "";
-  const pose = c.poseIntent ? `, pose: ${c.poseIntent}` : "";
-  const expr = c.expressionIntent ? `, expression: ${c.expressionIntent}` : "";
-  return `${c.name} (${role}${traitLine})${pose}${expr}`;
+/** Description canon riche pour le bloc SUBJECT (ADN visuel + intention pose/expression). */
+export function describeCharacterWithCanon(character: PanelRenderVisibleCharacter): string {
+  const dna = character.visualDNA;
+  const eyeRaw = dna?.eyeColor ?? character.eyeColor;
+  const hairRaw = dna?.hairColor ?? character.hairColor;
+  const eyeColor = eyeRaw ? `, ${eyeRaw} eyes` : "";
+  const hairColor = hairRaw ? `, ${hairRaw} hair` : "";
+  const hairStyle = dna?.hairStyle ? `, ${dna.hairStyle}` : "";
+  const outfit = dna?.outfitSignature ? `, wearing ${dna.outfitSignature}` : "";
+  const roleLabel = character.role === "hero" ? "protagonist" : character.role;
+  const canon = character.canonSignatureText ? `, canonical detail: ${character.canonSignatureText}` : "";
+  const pose = character.poseIntent ? `, pose: ${character.poseIntent}` : "";
+  const expr = character.expressionIntent ? `, expression: ${character.expressionIntent}` : "";
+  return `${character.name} (${roleLabel})${eyeColor}${hairColor}${hairStyle}${outfit}${canon}${pose}${expr}`;
 }
 
 function buildDialogueTwoShotSubject(chars: PanelRenderVisibleCharacter[]): string {

@@ -164,26 +164,52 @@ describe("/launch — contrat premium", () => {
     expect(payload.error).toBeDefined();
   });
 
-  it("envoie le même job.input que /pipeline (source, panelBlueprints, premiumReadinessScore)", async () => {
+  async function postLaunchJobInput(): Promise<Record<string, unknown>> {
     prismaMock.chapter.findFirst.mockResolvedValue(buildPremiumChapter());
     prismaMock.job.create.mockResolvedValue({ id: "job-1" });
-
     const mod = await import("../app/api/projects/[id]/chapters/[chapterId]/launch/route");
     const response = await mod.POST(
       new Request("http://localhost", { method: "POST" }),
       ctx,
     );
-
     expect(response.status).toBe(200);
     const createCall = prismaMock.job.create.mock.calls[0]?.[0];
     const jobInput = createCall?.data?.input as Record<string, unknown> | undefined;
     expect(jobInput).toBeDefined();
-    expect(jobInput?.source).toBe("chapter_studio_launch");
-    expect(jobInput?.focusCharacterIds).toEqual(["hero-1", "support-1"]);
-    // premiumReadinessScore transmis
-    expect(typeof jobInput?.premiumReadinessScore).toBe("number");
-    expect(jobInput?.productionOutline).toBeDefined();
-    expect(jobInput?.productionPlan).toBeDefined();
+    return jobInput!;
+  }
+
+  it("envoie le payload chapitre complet au pipeline (hero, actifs, PNJ, créatures, lieux)", async () => {
+    const jobInput = await postLaunchJobInput();
+    expect(jobInput.source).toBe("chapter_studio_launch");
+    expect(jobInput.heroCharacterId).toBe("hero-1");
+    expect(jobInput.focusCharacterIds).toEqual(["hero-1", "support-1"]);
+    expect(jobInput.activeNpcIds).toEqual(["npc-1", "npc-2"]);
+    expect(jobInput.activeCreatureIds).toEqual(["creature-1"]);
+    expect(jobInput.locationIds).toEqual(["dojo", "rooftop"]);
+    expect(typeof jobInput.premiumReadinessScore).toBe("number");
+    expect(jobInput.productionOutline).toBeDefined();
+    expect(jobInput.productionPlan).toBeDefined();
+  });
+
+  it("propage heroCharacterId dans le job input", async () => {
+    const jobInput = await postLaunchJobInput();
+    expect(jobInput.heroCharacterId).toBe("hero-1");
+  });
+
+  it("propage locationIds dans le job input", async () => {
+    const jobInput = await postLaunchJobInput();
+    expect(jobInput.locationIds).toEqual(["dojo", "rooftop"]);
+  });
+
+  it("propage activeNpcIds dans le job input", async () => {
+    const jobInput = await postLaunchJobInput();
+    expect(jobInput.activeNpcIds).toEqual(["npc-1", "npc-2"]);
+  });
+
+  it("propage activeCreatureIds dans le job input", async () => {
+    const jobInput = await postLaunchJobInput();
+    expect(jobInput.activeCreatureIds).toEqual(["creature-1"]);
   });
 
   it("n'utilise jamais buildLegacyApprovedOutlineFromStudio", async () => {

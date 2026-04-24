@@ -49,9 +49,42 @@ export async function PATCH(req: Request, ctx: Ctx) {
     typeof characterSelection.heroCharacterId === "string" && characterSelection.heroCharacterId.length > 0
       ? characterSelection.heroCharacterId
       : null;
+
+  if (!snapshotHeroCharacterId) {
+    console.warn(`[approved-outline] missing chapter heroCharacterId chapterId=${chapterId}`);
+  }
+
+  const activeCharacterIds = Array.isArray(characterSelection.activeCharacterIds)
+    ? characterSelection.activeCharacterIds.filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      )
+    : [];
+
+  if (
+    snapshotHeroCharacterId
+    && activeCharacterIds.length > 0
+    && !activeCharacterIds.includes(snapshotHeroCharacterId)
+  ) {
+    console.error(
+      `[approved-outline] HERO_NOT_IN_ACTIVE_CAST chapterId=${chapterId} projectId=${projectId} ` +
+        `heroCharacterId=${snapshotHeroCharacterId} activeCharacterIds=${JSON.stringify(activeCharacterIds)} ` +
+        "— le snapshot chapitre désigne un héros absent du cast actif ; corrigez la sélection studio.",
+    );
+  }
+
   const fallbackHeroCharacterId =
     projectCharacters.find((c) => /hero|protagon|main/i.test(c.roleType ?? ""))?.id ?? null;
   const heroCharacterId = snapshotHeroCharacterId ?? fallbackHeroCharacterId;
+  const usedFallbackHeroCharacterId =
+    snapshotHeroCharacterId === null
+    && fallbackHeroCharacterId !== null
+    && heroCharacterId === fallbackHeroCharacterId;
+
+  const heroPremiumMeta: Record<string, unknown> = {
+    heroCharacterId,
+    snapshotHeroCharacterId,
+    usedFallbackHeroCharacterId,
+  };
 
   // Si productionOutline + productionPlan sont fournis (depuis generate/page.tsx), les persister tels quels
   // Sinon, reconstruire le contrat premium complet depuis l'approvedOutline
@@ -107,6 +140,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
         cutawayCoverage: reconciledPP.cutawayCoverage,
         dialogueAnchorCoverage: reconciledPP.dialogueAnchorCoverage,
         reconciled: true,
+        ...heroPremiumMeta,
       };
       console.info(
         `[approved-outline] reconciled chapterId=${chapterId} ` +
@@ -130,6 +164,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
         cutawayCoverage: rebuiltContract.coverage.cutawayCoverage,
         dialogueAnchorCoverage: rebuiltContract.coverage.dialogueAnchorCoverage,
         fallback: "server_rebuilt_invalid_client",
+        ...heroPremiumMeta,
       };
     }
   } else {
@@ -147,6 +182,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
       npcCoverage: rebuiltContract.coverage.npcCoverage,
       cutawayCoverage: rebuiltContract.coverage.cutawayCoverage,
       dialogueAnchorCoverage: rebuiltContract.coverage.dialogueAnchorCoverage,
+      ...heroPremiumMeta,
     };
   }
 

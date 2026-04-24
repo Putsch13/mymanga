@@ -20,6 +20,7 @@ import {
   resolvePanelReferences,
   type ChapterVisualMemory,
 } from "./chapter-visual-memory";
+import { inferStoryboardPanelLayoutMeta } from "./storyboard-panel-layout-meta";
 
 export interface CharacterInfo {
   id: string;
@@ -78,6 +79,13 @@ export function buildPanelRenderSpec(
     previousPanelAnchorId: panel.visualAnchors.previousPanelAnchorId ?? null,
   });
 
+  const inferredLayout = inferStoryboardPanelLayoutMeta(panel.renderMode);
+  const layoutMeta = {
+    layoutHint: panel.layoutHint ?? inferredLayout.layoutHint,
+    targetAspectRatio: panel.targetAspectRatio ?? inferredLayout.targetAspectRatio,
+    slotType: panel.slotType ?? inferredLayout.slotType,
+  };
+
   return {
     panelId: panel.panelId,
     pageNumber: panel.pageNumber,
@@ -123,6 +131,7 @@ export function buildPanelRenderSpec(
       ])),
       noTextInsideImage: styleBible.noTextInsideImage,
     },
+    layoutMeta,
   };
 }
 

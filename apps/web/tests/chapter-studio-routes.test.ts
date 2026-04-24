@@ -880,6 +880,14 @@ describe("routes Chapter Studio", () => {
     expect(buildPremiumChapterContractAsyncMock).toHaveBeenCalledWith(
       expect.objectContaining({ heroCharacterId: "hero-2" }),
     );
+    const payload = await response.json();
+    expect(payload.premiumMeta).toEqual(
+      expect.objectContaining({
+        heroCharacterId: "hero-2",
+        snapshotHeroCharacterId: "hero-2",
+        usedFallbackHeroCharacterId: false,
+      }),
+    );
   });
 
   it("studio PATCH ne détruit pas le contrat premium existant", async () => {

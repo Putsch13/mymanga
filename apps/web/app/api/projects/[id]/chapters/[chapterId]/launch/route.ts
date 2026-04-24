@@ -105,13 +105,34 @@ export async function POST(_req: Request, ctx: Ctx) {
     return validationError("Le chapitre n'est pas prêt pour la génération.", readiness);
   }
 
-  const focusCharacterIds = Array.isArray(snapshot.data.characterSelection?.activeCharacterIds)
-    ? snapshot.data.characterSelection.activeCharacterIds.filter(
+  const chapterCharacterSelection = asRecord(snapshot.data.characterSelection);
+  const snapshotDataRecord = snapshot.data as Record<string, unknown>;
+  const focusCharacterIds = Array.isArray(chapterCharacterSelection.activeCharacterIds)
+    ? chapterCharacterSelection.activeCharacterIds.filter(
         (id): id is string => typeof id === "string" && id.length > 0,
       )
     : [];
-  const lockedCharacterIds = Array.isArray(snapshot.data.characterSelection?.lockedCharacterIds)
-    ? snapshot.data.characterSelection.lockedCharacterIds.filter(
+  const lockedCharacterIds = Array.isArray(chapterCharacterSelection.lockedCharacterIds)
+    ? chapterCharacterSelection.lockedCharacterIds.filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      )
+    : [];
+  const heroCharacterId =
+    typeof chapterCharacterSelection.heroCharacterId === "string" && chapterCharacterSelection.heroCharacterId.length > 0
+      ? chapterCharacterSelection.heroCharacterId
+      : null;
+  const activeNpcIds = Array.isArray(snapshotDataRecord.activeNpcIds)
+    ? snapshotDataRecord.activeNpcIds.filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      )
+    : [];
+  const activeCreatureIds = Array.isArray(snapshotDataRecord.activeCreatureIds)
+    ? snapshotDataRecord.activeCreatureIds.filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      )
+    : [];
+  const locationIds = Array.isArray(snapshotDataRecord.locationIds)
+    ? snapshotDataRecord.locationIds.filter(
         (id): id is string => typeof id === "string" && id.length > 0,
       )
     : [];
@@ -393,7 +414,11 @@ export async function POST(_req: Request, ctx: Ctx) {
       approvedOutline,
       selectedPlotLabel: snapshot.data.selectedPlotLabel ?? "bold",
       creativityControls: snapshot.data.creativityControls as Record<string, unknown> | null ?? null,
+      heroCharacterId,
       focusCharacterIds,
+      activeNpcIds,
+      activeCreatureIds,
+      locationIds,
       estimateContext: estimateContext
         ? {
             targetChapterId: estimateContext.targetChapterId ?? null,

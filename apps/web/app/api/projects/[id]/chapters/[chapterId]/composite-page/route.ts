@@ -5,13 +5,17 @@ import { unauthorized, notFound } from "@/lib/api-response";
 import { signSupabaseUrlsIfNeeded } from "@/lib/images/sign-supabase-url";
 import {
   compositeMangaPage,
-  placeDialogueBubbles,
   extractSfxElements,
   parseSfxFromMetadata,
   PAGE_LAYOUT_CONFIGS,
   legacyLayoutToTemplate,
   type CompositePanel,
+  type InPanelTextBox,
 } from "@manga-ai-studio/ai";
+import {
+  composePanelTextLayout,
+  panelTextLayoutBoxesToPagePixels,
+} from "@/components/manga/panel/bubble-compositor";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -97,9 +101,10 @@ export async function GET(_req: Request, ctx: Ctx) {
     };
   });
 
-  // Extraire les bulles et SFX depuis les métadonnées de chaque image
-  const allBubbles = [];
-  const allSfx = [];
+  const allDialogueBoxes: InPanelTextBox[] = [];
+  const allCaptionBoxes: InPanelTextBox[] = [];
+  const allNarrationBoxes: InPanelTextBox[] = [];
+  const allSfx: ReturnType<typeof extractSfxElements> = [];
 
   for (let idx = 0; idx < scene.images.length && idx < areaCount; idx++) {
     const img = scene.images[idx];
@@ -107,7 +112,6 @@ export async function GET(_req: Request, ctx: Ctx) {
     const panel = panels[idx];
     if (!meta || !panel) continue;
 
-    // Bulles de dialogue
     const rawDialogue = meta.dialogue;
     const rawDialogues = Array.isArray(meta.dialogues) ? meta.dialogues as Array<{ speaker: string; text: string }> : null;
     const dialogues: Array<{ speaker: string; text: string }> = rawDialogues
@@ -115,19 +119,31 @@ export async function GET(_req: Request, ctx: Ctx) {
         ? [rawDialogue as { speaker: string; text: string }]
         : []);
 
-    if (dialogues.length > 0) {
-      const bubbles = placeDialogueBubbles(
-        null,
-        panel.x,
-        panel.y,
-        panel.width,
-        panel.height,
-        dialogues,
-      );
-      allBubbles.push(...bubbles);
-    }
+    const narration =
+      typeof meta.narration === "string" && meta.narration.trim().length > 0
+        ? meta.narration
+        : null;
 
-    // SFX
+    const layout = composePanelTextLayout({
+      panelId: img.id,
+      dialogues,
+      narration,
+      sfx: null,
+      panelWidth: panel.width,
+      panelHeight: panel.height,
+      maxBubbles: 8,
+    });
+
+    allDialogueBoxes.push(
+      ...panelTextLayoutBoxesToPagePixels(layout.dialogueBoxes, panel.x, panel.y, panel.width, panel.height),
+    );
+    allCaptionBoxes.push(
+      ...panelTextLayoutBoxesToPagePixels(layout.captionBoxes, panel.x, panel.y, panel.width, panel.height),
+    );
+    allNarrationBoxes.push(
+      ...panelTextLayoutBoxesToPagePixels(layout.narrationBoxes, panel.x, panel.y, panel.width, panel.height),
+    );
+
     const sfxTexts = parseSfxFromMetadata(meta.sfx);
     if (sfxTexts.length > 0) {
       const sfxElements = extractSfxElements(sfxTexts, panel.x, panel.y, panel.width, panel.height);
@@ -141,7 +157,9 @@ export async function GET(_req: Request, ctx: Ctx) {
       pageHeight: PAGE_H,
       backgroundColor: "#FFFFFF",
       panels,
-      bubbles: allBubbles,
+      dialogueBoxes: allDialogueBoxes.length > 0 ? allDialogueBoxes : undefined,
+      captionBoxes: allCaptionBoxes.length > 0 ? allCaptionBoxes : undefined,
+      narrationBoxes: allNarrationBoxes.length > 0 ? allNarrationBoxes : undefined,
       sfxElements: allSfx,
       gutterWidth: 3,
       gutterColor: "#000000",

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultChapterStyleBible } from "@manga-ai-studio/ai";
 import type { PanelRenderSpec } from "@manga-ai-studio/ai/contracts";
-import { createDefaultPanelImageGenerator } from "./default-panel-image-generator";
+import {
+  createDefaultPanelImageGenerator,
+  resolveDimensionsFromAspectRatio,
+} from "./default-panel-image-generator";
 
 function makeSpec(): PanelRenderSpec {
   return {
@@ -32,6 +35,23 @@ function makeSpec(): PanelRenderSpec {
     constraints: { mustShow: [], mustNotShow: [], forbiddenDrift: [], noTextInsideImage: true },
   };
 }
+
+describe("resolveDimensionsFromAspectRatio", () => {
+  it("portrait → 896×1152", () => {
+    expect(resolveDimensionsFromAspectRatio("portrait")).toEqual({ width: 896, height: 1152 });
+    expect(resolveDimensionsFromAspectRatio("2:3")).toEqual({ width: 896, height: 1152 });
+  });
+  it("landscape → 1152×768", () => {
+    expect(resolveDimensionsFromAspectRatio("landscape")).toEqual({ width: 1152, height: 768 });
+    expect(resolveDimensionsFromAspectRatio("3:2")).toEqual({ width: 1152, height: 768 });
+  });
+  it("square / défaut → 1024×1024", () => {
+    expect(resolveDimensionsFromAspectRatio("square")).toEqual({ width: 1024, height: 1024 });
+    expect(resolveDimensionsFromAspectRatio("1:1")).toEqual({ width: 1024, height: 1024 });
+    expect(resolveDimensionsFromAspectRatio(null)).toEqual({ width: 1024, height: 1024 });
+    expect(resolveDimensionsFromAspectRatio("unknown")).toEqual({ width: 1024, height: 1024 });
+  });
+});
 
 describe("createDefaultPanelImageGenerator", () => {
   it("sans FAL_KEY, utilise le mock adapter et retourne ok=true avec une URL mock", async () => {

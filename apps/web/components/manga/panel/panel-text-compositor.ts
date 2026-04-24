@@ -2,7 +2,9 @@ import type { TextOverflowStrategy } from "@manga-ai-studio/core";
 
 import {
   composePanelTextLayer,
+  composePanelTextLayoutFromLayer,
   type BubbleCompositorInput,
+  type ComposedPanelTextLayout,
   type DialogueInput,
 } from "./bubble-compositor";
 import {
@@ -28,6 +30,8 @@ export interface PanelTextCompositorInput {
 
 export interface PanelTextCompositorResult {
   layer: PanelTextLayer;
+  /** Layout in-panel (PATCH 10) — coordonnées 0–100 % pour {@link PanelTextOverlay}. */
+  textLayout: ComposedPanelTextLayout;
   overflowDialogues: DialogueInput[];
   overflowStrategy: TextOverflowStrategy;
 }
@@ -92,8 +96,11 @@ export function composePanelTextPresentation(
     overrides: buildPreferredOverrides(input),
   });
 
+  const textLayout = composePanelTextLayoutFromLayer(layer, 100, 100);
+
   return {
     layer,
+    textLayout,
     overflowDialogues:
       overflowStrategy === "caption_strip" ? input.dialogues.slice(maxBubbles) : [],
     overflowStrategy,

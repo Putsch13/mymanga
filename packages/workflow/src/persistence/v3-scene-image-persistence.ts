@@ -38,6 +38,7 @@ export interface V3RenderedPanelRecord {
   model?: string | null;
   seed?: number | null;
   error?: string | null;
+  renderFailure?: unknown;
 }
 
 export interface V3SceneImagePersistInput {

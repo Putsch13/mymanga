@@ -1,6 +1,7 @@
 import {
   extractRequiredVisualCoverage,
   validateVisualCoverage,
+  type StoryArc,
 } from "@manga-ai-studio/ai";
 import { PREMIUM_PANEL_RANGE, type PanelBlueprintPremium } from "@manga-ai-studio/core";
 import { createDefaultPanelImageGenerator } from "./passes/default-panel-image-generator";
@@ -8,10 +9,14 @@ import { loadChapterVisualMemory } from "./passes/load-chapter-visual-memory";
 import { runPageQaPass } from "./passes/page-qa-pass";
 import { runRenderPass } from "./passes/render-pass";
 import { runStoryPass } from "./passes/story-pass";
+import { buildStoryboardPlanFromApprovedProductionPlan } from "./build-storyboard-plan-from-approved-production-plan";
 import { buildStoryboardPlanFromPremiumBlueprints } from "./passes/storyboard-from-premium-plan";
 import { runStoryboardPass } from "./passes/storyboard-pass";
 import { buildStyleBibleFromUserProject } from "./chapter-style-bible-resolver";
 import { isPipelineV3RenderFalEnabled } from "./pipeline-feature-flags";
+import { loadLocationsForV3StoryPass, type PremiumV3PipelineLocation } from "./load-locations-for-v3-story-pass";
+
+export type { PremiumV3PipelineLocation } from "./load-locations-for-v3-story-pass";
 
 export interface PremiumV3PipelineCharacter {
   id: string;
@@ -33,7 +38,17 @@ export interface RunPremiumV3PipelineInput {
   project: Record<string, unknown> | null;
   stylePacks: Array<Record<string, unknown>>;
   rawCharacters: PremiumV3PipelineCharacter[];
+  /** Outline approuvé (traçabilité / futurs garde-fous) — le storyboard vient du productionPlan. */
+  approvedOutline?: Record<string, unknown> | null;
+  /** Plan premium persisté : source de vérité en mode approved_plan_driven. */
+  productionPlan?: Record<string, unknown> | null;
+  heroCharacterId?: string | null;
   focusCharacterIds: string[];
+  activeNpcIds?: string[];
+  activeCreatureIds?: string[];
+  locationIds?: string[];
+  /** Lieux résolus (fiche projet). Sinon on résout `locationIds` en base avant le story-pass. */
+  locations?: PremiumV3PipelineLocation[];
   pipelineV3Enabled: boolean;
   premiumV3OnlyEnabled: boolean;
   productionPlanPages?: Array<{ pageNumber: number; panelCount: number; beatIds?: string[] | null }>;
@@ -71,6 +86,50 @@ function resolveProjectFormat(project: Record<string, unknown> | null, projectId
   return projectFormat;
 }
 
+async function resolveLocationsForStoryPass(
+  input: RunPremiumV3PipelineInput,
+): Promise<PremiumV3PipelineLocation[]> {
+  let resolved = Array.isArray(input.locations) && input.locations.length > 0 ? [...input.locations] : [];
+  if (resolved.length === 0 && Array.isArray(input.locationIds) && input.locationIds.length > 0) {
+    resolved = await loadLocationsForV3StoryPass({
+      projectId: input.projectId,
+      locationIds: input.locationIds,
+    });
+  }
+  if (
+    resolved.length === 0
+    && typeof input.chapterLocationName === "string"
+    && input.chapterLocationName.trim().length > 0
+  ) {
+    resolved = [
+      {
+        id: `chapter-primary:${input.chapterId}`,
+        name: input.chapterLocationName.trim(),
+        visualDNA: { source: "chapter_location_field" },
+      },
+    ];
+  }
+  if (resolved.length > 0) {
+    const locationSource =
+      input.locations?.length ? "input"
+      : input.locationIds?.length ? "locationIds"
+      : "chapterLocationName";
+    console.info(
+      `[pipeline:v3:locations] chapterId=${input.chapterId} count=${resolved.length} source=${locationSource}`,
+    );
+  }
+  return resolved;
+}
+
+export function hasApprovedPlanDrivenInput(input: RunPremiumV3PipelineInput): boolean {
+  const plan = input.productionPlan as Record<string, unknown> | null | undefined;
+  return Boolean(
+    plan
+    && Array.isArray(plan.panelBlueprints)
+    && plan.panelBlueprints.length > 0,
+  );
+}
+
 export async function runPremiumV3Pipeline(
   input: RunPremiumV3PipelineInput,
 ): Promise<RunPremiumV3PipelineResult> {
@@ -82,44 +141,67 @@ export async function runPremiumV3Pipeline(
   }
 
   try {
-    const storyPassResult = await runStoryPass({
-      chapterId: input.chapterId,
-      chapterNumber: input.chapterNumber,
-      title: input.chapterTitle,
-      userIntent: input.chapterUserIntent,
-      summary: input.chapterSummary,
-      mainCharacters: input.rawCharacters.map((c) => ({
-        id: c.id,
-        name: c.name,
-        roleType: c.roleType ?? null,
-      })),
-      locations: [],
-    });
-    if (storyPassResult.warnings.length > 0) {
-      console.warn(
-        `[pipeline:v3:story] warnings=${storyPassResult.warnings.join(" | ")}`,
-      );
-    }
+    const approvedPlanDriven = hasApprovedPlanDrivenInput(input);
+    let storyArc: StoryArc | null = null;
 
-    const storyboardPassResult =
-      Array.isArray(input.panelBlueprints) && input.panelBlueprints.length > 0
-        ? {
-            storyboardPlan: buildStoryboardPlanFromPremiumBlueprints({
-              chapterId: input.chapterId,
+    let storyboardPassResult: Awaited<ReturnType<typeof runStoryboardPass>>;
+
+    if (approvedPlanDriven) {
+      storyboardPassResult = {
+        storyboardPlan: buildStoryboardPlanFromApprovedProductionPlan({
+          chapterId: input.chapterId,
+          projectId: input.projectId,
+          chapterNumber: input.chapterNumber,
+          productionPlan: input.productionPlan!,
+          projectFormat: resolveProjectFormat(input.project, input.projectId),
+          chapterLocationName: input.chapterLocationName,
+          productionPlanPages: input.productionPlanPages,
+        }),
+        warnings: ["storyboard_plan.source=approved_production_plan"],
+        blockers: [],
+      };
+    } else {
+      const locationsForStory = await resolveLocationsForStoryPass(input);
+      const storyPassResult = await runStoryPass({
+        chapterId: input.chapterId,
+        chapterNumber: input.chapterNumber,
+        title: input.chapterTitle,
+        userIntent: input.chapterUserIntent,
+        summary: input.chapterSummary,
+        mainCharacters: input.rawCharacters.map((c) => ({
+          id: c.id,
+          name: c.name,
+          roleType: c.roleType ?? null,
+        })),
+        locations: locationsForStory.map((l) => ({ id: l.id, name: l.name })),
+      });
+      storyArc = storyPassResult.storyArc;
+      if (storyPassResult.warnings.length > 0) {
+        console.warn(
+          `[pipeline:v3:story] warnings=${storyPassResult.warnings.join(" | ")}`,
+        );
+      }
+
+      storyboardPassResult =
+        Array.isArray(input.panelBlueprints) && input.panelBlueprints.length > 0
+          ? {
+              storyboardPlan: buildStoryboardPlanFromPremiumBlueprints({
+                chapterId: input.chapterId,
+                projectFormat: resolveProjectFormat(input.project, input.projectId),
+                panelBlueprints: input.panelBlueprints,
+                pages: input.productionPlanPages,
+                chapterLocationName: input.chapterLocationName ?? null,
+              }),
+              warnings: ["storyboard_plan.source=premium_production_plan"],
+              blockers: [],
+            }
+          : await runStoryboardPass({
+              storyArc: storyPassResult.storyArc,
+              heroCharacterIds: input.focusCharacterIds,
               projectFormat: resolveProjectFormat(input.project, input.projectId),
-              panelBlueprints: input.panelBlueprints,
-              pages: input.productionPlanPages,
-              chapterLocationName: input.chapterLocationName ?? null,
-            }),
-            warnings: ["storyboard_plan.source=premium_production_plan"],
-            blockers: [],
-          }
-        : await runStoryboardPass({
-            storyArc: storyPassResult.storyArc,
-            heroCharacterIds: input.focusCharacterIds,
-            projectFormat: resolveProjectFormat(input.project, input.projectId),
-            targetPanelCount: PREMIUM_PANEL_RANGE.target,
-          });
+              targetPanelCount: PREMIUM_PANEL_RANGE.target,
+            });
+    }
     if (storyboardPassResult.blockers.length > 0) {
       console.error(
         `[pipeline:v3:storyboard] blockers=${storyboardPassResult.blockers.join(" | ")}`,
@@ -141,7 +223,9 @@ export async function runPremiumV3Pipeline(
       `[pipeline:v3:page-qa] ok=${pageQa.okCount} fail=${pageQa.failCount}`,
     );
 
-    const requiredCoverage = extractRequiredVisualCoverage(storyPassResult.storyArc);
+    const requiredCoverage = storyArc
+      ? extractRequiredVisualCoverage(storyArc)
+      : [];
     const coverageReport = validateVisualCoverage(
       requiredCoverage,
       storyboardPassResult.storyboardPlan,

@@ -4,6 +4,7 @@ import {
   addEnvironmentEntry,
   createDefaultChapterStyleBible,
   createEmptyChapterVisualMemory,
+  pushRecentPanel,
   type ChapterVisualMemory,
 } from "@manga-ai-studio/ai";
 import type {
@@ -124,8 +125,12 @@ describe("runRenderPass", () => {
       generatePanelImage: gen,
     });
     expect(gen).toHaveBeenCalledOnce();
-    const callArg = gen.mock.calls[0]![0] as { route: { modelId: string } };
+    const callArg = gen.mock.calls[0]![0] as {
+      route: { modelId: string };
+      spec: { layoutMeta?: { targetAspectRatio?: string | null } };
+    };
     expect(callArg.route.modelId).toBeDefined();
+    expect(callArg.spec.layoutMeta?.targetAspectRatio).toBe("portrait");
     expect(res.summary.renderedCount).toBe(1);
   });
 
@@ -170,5 +175,128 @@ describe("runRenderPass", () => {
     expect(res.summary.totalPanels).toBe(1);
     expect(res.panelQa).toBeDefined();
     expect(res.pageQa).toBeDefined();
+  });
+
+  it("enrichit chaque spec (layoutMeta, heroCharacterId, panelTextPayload, visualDNA)", async () => {
+    const plan = makePlan([
+      makePanel({
+        panelId: "p1",
+        dialogue: [{ speaker: "Hero", text: "Stay back." }],
+        narration: "Wind rises.",
+        sfx: ["whoosh"],
+        characters: ["hero-1"],
+        visualAnchors: { characterIds: ["hero-1"], environmentAnchorId: "env-street", previousPanelAnchorId: null },
+      }),
+    ]);
+    const res = await runRenderPass({
+      chapterId: "ch-1",
+      storyboardPlan: plan,
+      styleBible: createDefaultChapterStyleBible(),
+      visualMemory: makeMemoryWithHero(),
+      characters: [
+        { id: "hero-1", name: "Hero", roleType: "main", hairColor: "black", eyeColor: "green" },
+      ],
+      mainCharacterIds: ["hero-1"],
+    });
+    const s = res.specs[0]!;
+    expect(s.layoutMeta?.targetAspectRatio).toBe("portrait");
+    expect(s.layoutMeta?.slotType).toBe("hero_closeup");
+    expect(s.heroCharacterId).toBe("hero-1");
+    expect(s.mandatoryVisibleEntities).toContain("hero-1");
+    expect(s.environmentDNA).toMatchObject({ anchorId: "env-street", locationName: "Street" });
+    expect(s.panelTextPayload?.dialogue?.[0]?.text).toBe("Stay back.");
+    expect(s.panelTextPayload?.narration).toBe("Wind rises.");
+    expect(s.panelTextPayload?.sfx).toEqual(["whoosh"]);
+    expect(s.visibleCharacters[0]?.visualDNA).toMatchObject({ hairColor: "black", eyeColor: "green" });
+  });
+
+  it("remplit previousPanelRef pour le panel suivant", async () => {
+    const mem = makeMemoryWithHero();
+    pushRecentPanel(mem, { panelId: "p-first", refUrl: "https://ref/prev.png", defaultWeight: 0.5 });
+    const plan = makePlan([
+      makePanel({
+        panelId: "p-first",
+        panelNumberInPage: 1,
+        globalPanelIndex: 0,
+        visualAnchors: { characterIds: ["hero-1"], environmentAnchorId: null, previousPanelAnchorId: null },
+      }),
+      makePanel({
+        panelId: "p-second",
+        panelNumberInPage: 2,
+        globalPanelIndex: 1,
+        visualAnchors: { characterIds: ["hero-1"], environmentAnchorId: null, previousPanelAnchorId: "p-first" },
+      }),
+    ]);
+    const res = await runRenderPass({
+      chapterId: "ch-1",
+      storyboardPlan: plan,
+      styleBible: createDefaultChapterStyleBible(),
+      visualMemory: mem,
+      characters: [{ id: "hero-1", name: "Hero", roleType: "main" }],
+      mainCharacterIds: ["hero-1"],
+    });
+    const second = res.specs.find((s) => s.panelId === "p-second");
+    expect(second?.previousPanelRef?.panelId).toBe("p-first");
+    expect(second?.previousPanelRef?.url).toBe("https://ref/prev.png");
+  });
+
+  it("remonte une erreur riche quand generatePanelImage échoue", async () => {
+    const plan = makePlan([
+      makePanel({
+        panelId: "p-fail",
+        mustShow: ["blade glint", "dojo floor"],
+      }),
+    ]);
+    const gen = vi.fn().mockResolvedValue({
+      ok: false,
+      error: "upstream timeout",
+      errorCode: "FAL_TIMEOUT",
+    });
+    const res = await runRenderPass({
+      chapterId: "ch-1",
+      storyboardPlan: plan,
+      styleBible: createDefaultChapterStyleBible(),
+      visualMemory: makeMemoryWithHero(),
+      characters: [{ id: "hero-1", name: "Hero", roleType: "main" }],
+      mainCharacterIds: ["hero-1"],
+      generatePanelImage: gen,
+    });
+    expect(res.summary.failedCount).toBe(1);
+    const errLine = res.summary.errors[0]!.error;
+    expect(errLine.startsWith("render_failed:")).toBe(true);
+    const payload = JSON.parse(errLine.slice("render_failed:".length)) as Record<string, unknown>;
+    expect(payload.panelId).toBe("p-fail");
+    expect(payload.renderMode).toBe("hero_closeup");
+    expect(payload.locationName).toBe("Street");
+    expect(payload.errorCode).toBe("FAL_TIMEOUT");
+    expect(payload.errorMessage).toBe("upstream timeout");
+    expect(Array.isArray(payload.mustShow)).toBe(true);
+    expect(payload.mustShow).toEqual(expect.arrayContaining(["blade glint", "dojo floor"]));
+    const desc = res.rendered.find((r) => r.spec.panelId === "p-fail");
+    expect(desc?.renderFailure?.errorCode).toBe("FAL_TIMEOUT");
+    expect(desc?.renderFailure?.panelId).toBe("p-fail");
+    expect(desc?.renderFailure?.renderMode).toBe("hero_closeup");
+    expect(desc?.renderFailure?.mustShow).toEqual(expect.arrayContaining(["blade glint", "dojo floor"]));
+  });
+
+  it("transmet targetAspectRatio au spec enrichi pour un renderMode paysage", async () => {
+    const plan = makePlan([
+      makePanel({
+        panelId: "p-wide",
+        renderMode: "creature_reveal",
+        subjectFocus: "creature",
+        panelPurpose: "creature_reveal",
+      }),
+    ]);
+    const res = await runRenderPass({
+      chapterId: "ch-1",
+      storyboardPlan: plan,
+      styleBible: createDefaultChapterStyleBible(),
+      visualMemory: makeMemoryWithHero(),
+      characters: [{ id: "hero-1", name: "Hero", roleType: "main" }],
+      mainCharacterIds: ["hero-1"],
+    });
+    const s = res.specs.find((x) => x.panelId === "p-wide");
+    expect(s?.layoutMeta?.targetAspectRatio).toBe("landscape");
   });
 });

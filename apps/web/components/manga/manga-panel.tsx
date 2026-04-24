@@ -99,9 +99,14 @@ type Props = {
     reservedTextZones?: Array<ReservedZone>;
   };
   layoutMeta?: {
-    slotType?: "wide" | "tall" | "square" | "closeup" | "dialogue";
-    targetAspectRatio?: string;
-    layoutTemplate?: string;
+    slotType?: string | null;
+    targetAspectRatio?: string | null;
+    layoutTemplate?: string | null;
+    layoutHint?: string | null;
+    textPlacementPreference?: string | null;
+    safeTextZones?: Array<{ x: number; y: number; width: number; height: number }> | null;
+    isSplashPage?: boolean;
+    isDoublePage?: boolean;
   };
   textMeta?: {
     preferredAnchorZones?: TextAnchorZone[];
@@ -180,7 +185,7 @@ export function MangaPanel(props: Props) {
       reservedTextZones={renderMeta?.reservedTextZones}
       preferredAnchorZones={textMeta?.preferredAnchorZones}
       overflowStrategy={textMeta?.overflowStrategy}
-      targetAspectRatio={layoutMeta?.targetAspectRatio}
+      targetAspectRatio={layoutMeta?.targetAspectRatio ?? undefined}
       renderMode={renderMode}
       editable={editable}
       className={className}

@@ -59,7 +59,11 @@ export function createDefaultPanelImageGenerator(
   return async ({ spec, prompt, negative, route }) => {
     try {
       const refs = flattenReferenceUrls(spec);
-      const dims = mapSizePresetToDimensions(route.sizePreset);
+      const fromLayout = normalizeAspectRatioToSemantic(spec.layoutMeta?.targetAspectRatio);
+      const dims =
+        fromLayout != null
+          ? resolveDimensionsFromAspectRatio(fromLayout)
+          : mapSizePresetToDimensions(route.sizePreset);
       const result = await adapter.generateImage({
         mode: "PANEL_FINAL",
         positivePrompt: prompt,
@@ -116,6 +120,31 @@ function mapSizePresetToDimensions(preset: FalRenderRoute["sizePreset"]): {
   height: number;
 } {
   switch (preset) {
+    case "portrait":
+      return resolveDimensionsFromAspectRatio("portrait");
+    case "landscape":
+      return resolveDimensionsFromAspectRatio("landscape");
+    case "square":
+    default:
+      return resolveDimensionsFromAspectRatio("square");
+  }
+}
+
+/** Legacy `2:3` / `3:2` / `1:1` → sémantique pour FAL. */
+function normalizeAspectRatioToSemantic(
+  ratio?: string | null,
+): "portrait" | "landscape" | "square" | null {
+  if (ratio == null || ratio === "") return null;
+  const n = ratio.trim().toLowerCase();
+  if (n === "portrait" || n === "2:3" || n === "2/3") return "portrait";
+  if (n === "landscape" || n === "3:2" || n === "3/2") return "landscape";
+  if (n === "square" || n === "1:1" || n === "1/1") return "square";
+  return null;
+}
+
+export function resolveDimensionsFromAspectRatio(ratio?: string | null): { width: number; height: number } {
+  const semantic = normalizeAspectRatioToSemantic(ratio) ?? "square";
+  switch (semantic) {
     case "portrait":
       return { width: 896, height: 1152 };
     case "landscape":

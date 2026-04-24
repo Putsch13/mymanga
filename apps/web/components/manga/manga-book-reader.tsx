@@ -33,7 +33,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { MangaPageGrid } from "./manga-page-grid";
 import { WebtoonLazyScroll } from "./webtoon-lazy-scroll";
 import { SplashPageRenderer } from "./splash-page-renderer";
-import { MangaCanvasRenderer, computePanelPositions } from "./manga-canvas-renderer";
+import { MangaCanvasRenderer } from "./manga-canvas-renderer";
 // P5.2 — extractions pour alléger ce composant monolithique. Les shapes
 // sont strictement identiques à celles précédemment inline : la typo a été
 // déplacée, pas modifiée.
@@ -43,6 +43,7 @@ import type {
   ReaderResponse,
 } from "./reader/reader-types";
 import { buildPagesFromChapter, flattenPagesToPanels } from "./reader/build-reader-pages";
+import { computeCanvasPanelsFromReaderPage } from "./reader/page-template-registry";
 import { READER_QUICK_TAGS, READER_SUGGESTIONS } from "./reader/reader-constants";
 import { computeReaderDegradedWarning } from "./reader/compute-degraded-warning";
 import { useReaderTts } from "./reader/use-reader-tts";
@@ -574,17 +575,7 @@ export function MangaBookReader({
                         />
                         <div style={{ display: "none" }} className="h-full">
                           <MangaCanvasRenderer
-                            panels={computePanelPositions(
-                              leftPage.panels.map((p) => ({
-                                id: p.id ?? "",
-                                imageUrl: p.imageUrl ?? null,
-                                persistedUrl: null,
-                                metadata: null,
-                              })),
-                              800,
-                              1130,
-                              2,
-                            )}
+                            panels={computeCanvasPanelsFromReaderPage(leftPage, 800, 1130)}
                             pageWidth={800}
                             pageHeight={1130}
                             darkMode={false}
@@ -938,11 +929,11 @@ export function MangaBookReader({
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">Debug rendu</CardTitle>
                 <CardDescription className="text-xs">
-                  Diagnostic des {Math.min(6, generationDiagnostics.panelDebug.length)} premiers panels.
+                  Diagnostic de tous les panels ({generationDiagnostics.panelDebug.length}).
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-2">
-                {generationDiagnostics.panelDebug.slice(0, 6).map((panel) => (
+              <CardContent className="max-h-96 space-y-2 overflow-y-auto">
+                {generationDiagnostics.panelDebug.map((panel) => (
                   <div key={panel.panelId} className="rounded border border-stone-800/80 bg-black/20 p-2 text-[11px]">
                     <p className="font-medium text-stone-100">
                       Panel {panel.panelNumber} · {panel.status ?? "?"} · {panel.provider ?? "?"}

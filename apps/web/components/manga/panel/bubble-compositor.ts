@@ -18,6 +18,8 @@
  *   - l'ordre des bulles suit l'ordre des dialogues
  */
 
+import type { InPanelTextBox } from "@manga-ai-studio/ai";
+
 import {
   bubbleOverlapArea,
   clampBoundsToPanel,
@@ -32,10 +34,55 @@ import {
   type ReservedZone,
 } from "./bubble-layout-model";
 
+/** Bloc texte logique (remplace progressivement la notion de « bulle »). */
+export type PanelTextBlockKind = "dialogue" | "caption" | "narration" | "sfx";
+
+export type TextPlacementPreference =
+  | "top"
+  | "bottom"
+  | "left"
+  | "right"
+  | "center"
+  | "safe-zone";
+
+export interface PanelTextBlock {
+  kind: PanelTextBlockKind;
+  text: string;
+  speaker?: string | null;
+  placementPreference?: TextPlacementPreference;
+  safeZoneIndex?: number | null;
+}
+
+/** @deprecated Préférer {@link PanelTextBlock} côté API métier ; conservé pour le compositeur existant. */
 export interface DialogueInput {
   speaker: string;
   text: string;
   kind?: BubbleKind;
+}
+
+export type PanelTextVisualVariant = "cartouche" | "bandeau" | "embedded" | "narration_box";
+
+/**
+ * Boîte de texte positionnée en coordonnées normalisées 0–100
+ * (identique au modèle {@link BubbleLayout.bounds}) pour overlays client.
+ */
+export interface PanelTextLayoutBox {
+  kind: PanelTextBlockKind;
+  text: string;
+  speaker?: string | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  visualVariant: PanelTextVisualVariant;
+  placementPreference?: TextPlacementPreference;
+  safeZoneIndex?: number | null;
+}
+
+export interface ComposedPanelTextLayout {
+  dialogueBoxes: PanelTextLayoutBox[];
+  captionBoxes: PanelTextLayoutBox[];
+  narrationBoxes: PanelTextLayoutBox[];
 }
 
 export interface BubbleCompositorInput {
@@ -273,6 +320,104 @@ export function composePanelTextLayer(input: BubbleCompositorInput): PanelTextLa
     sfx: sfxLayers,
     forbiddenZones: [...forbiddenZones],
   };
+}
+
+function bubbleKindToVisualVariant(kind: BubbleKind): PanelTextVisualVariant {
+  if (kind === "thought") return "embedded";
+  if (kind === "sfx") return "embedded";
+  return "cartouche";
+}
+
+function boundsPercentToLayoutBox(
+  kind: PanelTextBlockKind,
+  text: string,
+  speaker: string | null | undefined,
+  bounds: BubbleBounds,
+  visualVariant: PanelTextVisualVariant,
+): PanelTextLayoutBox {
+  return {
+    kind,
+    text,
+    speaker: speaker ?? null,
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    visualVariant,
+    placementPreference: undefined,
+    safeZoneIndex: null,
+  };
+}
+
+/**
+ * Convertit un {@link PanelTextLayer} déjà calculé en boîtes in-panel
+ * (dialogue / légendes / narration). Les SFX restent dans `layer.sfx` pour
+ * {@link PanelSfxOverlay} — ne pas les dupliquer ici.
+ */
+export function composePanelTextLayoutFromLayer(
+  layer: PanelTextLayer,
+  _panelWidth: number,
+  _panelHeight: number,
+): ComposedPanelTextLayout {
+  void _panelWidth;
+  void _panelHeight;
+  const dialogueBoxes: PanelTextLayoutBox[] = [];
+  const captionBoxes: PanelTextLayoutBox[] = [];
+  for (const b of layer.bubbles) {
+    if (b.kind === "caption") {
+      captionBoxes.push(
+        boundsPercentToLayoutBox("caption", b.text, b.speakerId, b.bounds, "bandeau"),
+      );
+    } else {
+      dialogueBoxes.push(
+        boundsPercentToLayoutBox(
+          "dialogue",
+          b.text,
+          b.speakerId,
+          b.bounds,
+          bubbleKindToVisualVariant(b.kind),
+        ),
+      );
+    }
+  }
+  const narrationBoxes = layer.captions.map((c) =>
+    boundsPercentToLayoutBox("narration", c.text, null, c.bounds, "narration_box"),
+  );
+  return {
+    dialogueBoxes,
+    captionBoxes,
+    narrationBoxes,
+  };
+}
+
+/**
+ * Pipeline texte in-panel : même placement que {@link composePanelTextLayer},
+ * mais sortie structurée pour overlay neutre + composite Sharp (PATCH 10).
+ */
+export function composePanelTextLayout(
+  input: BubbleCompositorInput & { panelWidth: number; panelHeight: number },
+): ComposedPanelTextLayout {
+  const layer = composePanelTextLayer(input);
+  return composePanelTextLayoutFromLayer(layer, input.panelWidth, input.panelHeight);
+}
+
+/** Convertit des boîtes 0–100% en coordonnées page (px) pour le compositor. */
+export function panelTextLayoutBoxesToPagePixels(
+  boxes: ReadonlyArray<PanelTextLayoutBox>,
+  panelX: number,
+  panelY: number,
+  panelW: number,
+  panelH: number,
+): InPanelTextBox[] {
+  return boxes.map((b) => ({
+    text: b.text,
+    speaker: b.speaker ?? undefined,
+    x: panelX + (b.x / 100) * panelW,
+    y: panelY + (b.y / 100) * panelH,
+    width: (b.width / 100) * panelW,
+    height: (b.height / 100) * panelH,
+    variant: b.visualVariant,
+  }));
 }
 
 /**

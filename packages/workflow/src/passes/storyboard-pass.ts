@@ -24,26 +24,13 @@ import {
   isPipelineV3MangaEditorLlmEnabled,
   isPipelineV3PremiumOnlyEnabled,
 } from "../pipeline-feature-flags";
+import { pickLayoutTemplateForPage as pickLayoutTemplateFromPremiumBlueprints } from "./storyboard-from-premium-plan";
 
 function pickLayoutTemplateForPage(args: {
   projectFormat: "manga" | "webtoon";
   panelCount: number;
 }): StoryboardLayoutTemplate {
-  const n = args.panelCount;
-  if (args.projectFormat === "webtoon") {
-    if (n <= 1) return "splash";
-    if (n === 2) return "vertical_strip";
-    if (n === 3) return "vertical_strip";
-    if (n === 4) return "vertical_hero_4";
-    return "vertical_strip";
-  }
-  // manga
-  if (n <= 1) return "splash";
-  if (n === 2) return "cinematic_bar";
-  if (n === 3) return "action_strip";
-  if (n === 4) return "grid_2x2";
-  if (n === 5) return "staggered_5";
-  return "grid_2x3";
+  return pickLayoutTemplateFromPremiumBlueprints(args.panelCount, args.projectFormat);
 }
 
 function computeEditorialDiagnostics(pages: StoryboardPage[]): StoryboardPlan["editorialDiagnostics"] {

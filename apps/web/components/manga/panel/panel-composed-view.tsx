@@ -8,8 +8,8 @@
  * Architecture :
  *   +------------------------------------+
  *   | PanelImage (image + états)         |
- *   |   + PanelCaptionOverlay            |
- *   |   + PanelBubbleOverlay             |
+ *   |   + PanelTextOverlay (dialogue /   |
+ *   |     caption / narration in-panel)|
  *   |   + PanelSfxOverlay                |
  *   |   + PanelEditControls (si edit)    |
  *   +------------------------------------+
@@ -27,12 +27,21 @@ import type { TextAnchorZone, TextOverflowStrategy } from "@manga-ai-studio/core
 
 import type { DialogueInput } from "./bubble-compositor";
 import type { ForbiddenZone, ReservedZone } from "./bubble-layout-model";
-import { PanelBubbleOverlay } from "./panel-bubble-overlay";
-import { PanelCaptionOverlay } from "./panel-caption-overlay";
+import { PanelTextOverlay } from "./panel-text-overlay";
 import { PanelEditControls } from "./panel-edit-controls";
 import { PanelImage } from "./panel-image";
 import { PanelSfxOverlay } from "./panel-sfx-overlay";
 import { composePanelTextPresentation } from "./panel-text-compositor";
+
+/** `layoutMeta.targetAspectRatio` sémantique (PATCH 8) ou legacy `2:3`. */
+function layoutTargetAspectToCssAspectRatio(raw: string | undefined | null): string {
+  if (raw == null || raw === "") return "4 / 5";
+  const r = raw.trim().toLowerCase();
+  if (r === "portrait" || r === "2:3" || r === "2/3") return "2 / 3";
+  if (r === "landscape" || r === "3:2" || r === "3/2") return "3 / 2";
+  if (r === "square" || r === "1:1" || r === "1/1") return "1 / 1";
+  return r.replace(":", " / ");
+}
 
 export interface PanelComposedViewProps {
   panelId: string;
@@ -124,10 +133,16 @@ export function PanelComposedView(props: PanelComposedViewProps) {
     ],
   );
   const textLayer = textComposition.layer;
+  const textLayout = textComposition.textLayout;
 
   const hasImage = Boolean(imageUrl);
   const hasAnyText =
-    textLayer.bubbles.length > 0 || textLayer.captions.length > 0 || textLayer.sfx.length > 0;
+    textLayer.bubbles.length > 0 ||
+    textLayer.captions.length > 0 ||
+    textLayer.sfx.length > 0 ||
+    textLayout.dialogueBoxes.length > 0 ||
+    textLayout.captionBoxes.length > 0 ||
+    textLayout.narrationBoxes.length > 0;
 
   return (
     <div
@@ -147,7 +162,7 @@ export function PanelComposedView(props: PanelComposedViewProps) {
         style={
           isWebtoon
             ? {
-                aspectRatio: targetAspectRatio?.replace(":", " / ") ?? "4 / 5",
+                aspectRatio: layoutTargetAspectToCssAspectRatio(targetAspectRatio),
                 minHeight: "20rem",
               }
             : undefined
@@ -168,13 +183,14 @@ export function PanelComposedView(props: PanelComposedViewProps) {
 
         {hasImage && (
           <>
-            <PanelCaptionOverlay captions={textLayer.captions} isWebtoon={isWebtoon} />
-            <PanelSfxOverlay sfx={textLayer.sfx} seed={panelIndex ?? 0} isWebtoon={isWebtoon} />
-            <PanelBubbleOverlay
-              bubbles={textLayer.bubbles}
+            <PanelTextOverlay
+              dialogueBoxes={textLayout.dialogueBoxes}
+              captionBoxes={textLayout.captionBoxes}
+              narrationBoxes={textLayout.narrationBoxes}
               hidden={bubblesHidden}
               isWebtoon={isWebtoon}
             />
+            <PanelSfxOverlay sfx={textLayer.sfx} seed={panelIndex ?? 0} isWebtoon={isWebtoon} />
           </>
         )}
 

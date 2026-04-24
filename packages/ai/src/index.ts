@@ -31,6 +31,7 @@ export type {
   StoryboardPlan,
   // panel-render-spec
   PanelRenderCharacterRole,
+  PanelRenderCharacterVisualDna,
   PanelRenderVisibleCharacter,
   PanelRenderContinuityLocks,
   PanelRenderCharacterRef,
@@ -39,6 +40,9 @@ export type {
   PanelRenderStyleRef,
   PanelRenderImageReferences,
   PanelRenderConstraints,
+  PanelRenderLayoutMeta,
+  PanelRenderPanelTextPayload,
+  PanelRenderPreviousPanelRef,
   PanelRenderSpec,
   FalReferencePolicy,
   FalRetryPolicy,
@@ -151,6 +155,7 @@ export * from "./agents/manga-editor-agent";
 export * from "./agents/manga-editor-agent-llm";
 export * from "./services/chapter-visual-memory";
 export * from "./services/render-spec-builder";
+export * from "./services/storyboard-panel-layout-meta";
 export * from "./services/minimal-panel-prompt-builder";
 export * from "./services/fal-render-route-v3";
 export * from "./services/required-visual-coverage";

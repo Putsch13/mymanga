@@ -105,6 +105,9 @@ export function buildPremiumStudioData(beatCount = 10) {
       activeCharacterIds: ["hero-1", "support-1"],
       lockedCharacterIds: ["hero-1"],
     },
+    activeNpcIds: ["npc-1", "npc-2"],
+    activeCreatureIds: ["creature-1"],
+    locationIds: ["dojo", "rooftop"],
     productionOutline: buildProductionOutline(beatCount),
     productionPlan: buildProductionPlan(beatCount),
     readinessReport: {

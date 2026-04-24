@@ -1,4 +1,5 @@
 import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
+import { inferStoryboardPanelLayoutMeta } from "@manga-ai-studio/ai";
 import type {
   PanelPurpose,
   StoryboardCameraAngle,
@@ -12,7 +13,7 @@ import type {
   StoryboardSubjectFocus,
 } from "@manga-ai-studio/ai";
 
-function toShotType(raw: string): StoryboardShotType {
+export function toShotType(raw: string): StoryboardShotType {
   const v = raw.toLowerCase();
   if (v === "wide" || v === "establishing") return "wide";
   if (v === "close_up" || v === "closeup") return "closeup";
@@ -21,7 +22,7 @@ function toShotType(raw: string): StoryboardShotType {
   return "medium";
 }
 
-function toCameraAngle(raw: string): StoryboardCameraAngle {
+export function toCameraAngle(raw: string): StoryboardCameraAngle {
   const v = raw.toLowerCase();
   if (v === "low" || v === "low_angle") return "low";
   if (v === "high" || v === "high_angle") return "high";
@@ -31,7 +32,7 @@ function toCameraAngle(raw: string): StoryboardCameraAngle {
   return "eye_level";
 }
 
-function toSubjectFocus(raw: string): StoryboardSubjectFocus {
+export function toSubjectFocus(raw: string): StoryboardSubjectFocus {
   const v = raw.toLowerCase();
   if (v.includes("environment")) return "environment";
   if (v.includes("prop")) return "prop";
@@ -43,7 +44,7 @@ function toSubjectFocus(raw: string): StoryboardSubjectFocus {
   return "hero";
 }
 
-function toCutawayType(raw: string | null | undefined): StoryboardCutawayType {
+export function toCutawayType(raw: string | null | undefined): StoryboardCutawayType {
   const v = (raw ?? "none").toLowerCase();
   if (v.includes("environment")) return "environment";
   if (v.includes("prop") || v.includes("object")) return "prop_insert";
@@ -54,7 +55,7 @@ function toCutawayType(raw: string | null | undefined): StoryboardCutawayType {
   return "none";
 }
 
-function deriveRenderMode(bp: PanelBlueprintPremium): StoryboardRenderMode {
+export function deriveRenderMode(bp: PanelBlueprintPremium): StoryboardRenderMode {
   const cutaway = toCutawayType(bp.cutawayType);
   const focus = toSubjectFocus(bp.subjectFocus);
   const shot = toShotType(bp.shotType);
@@ -71,7 +72,7 @@ function deriveRenderMode(bp: PanelBlueprintPremium): StoryboardRenderMode {
   return shot === "closeup" || shot === "extreme_closeup" ? "hero_closeup" : "dialogue_two_shot";
 }
 
-function derivePanelPurpose(bp: PanelBlueprintPremium): PanelPurpose {
+export function derivePanelPurpose(bp: PanelBlueprintPremium): PanelPurpose {
   const cutaway = toCutawayType(bp.cutawayType);
   const focus = toSubjectFocus(bp.subjectFocus);
   if (cutaway === "environment") return "location_establishing";
@@ -85,7 +86,7 @@ function derivePanelPurpose(bp: PanelBlueprintPremium): PanelPurpose {
   return "hero_focus";
 }
 
-function pickLayoutTemplateForPage(panelCount: number, projectFormat: "manga" | "webtoon"): StoryboardLayoutTemplate {
+export function pickLayoutTemplateForPage(panelCount: number, projectFormat: "manga" | "webtoon"): StoryboardLayoutTemplate {
   if (projectFormat === "webtoon") {
     if (panelCount <= 1) return "splash";
     if (panelCount <= 3) return "vertical_strip";
@@ -99,11 +100,11 @@ function pickLayoutTemplateForPage(panelCount: number, projectFormat: "manga" | 
   return "grid_2x3";
 }
 
-function resolveCharacters(bp: PanelBlueprintPremium): string[] {
+export function resolveCharacters(bp: PanelBlueprintPremium): string[] {
   return bp.mustShowCharacterIds ?? bp.requiredCharacterIds ?? bp.requiredCharacters ?? [];
 }
 
-function buildEditorialDiagnostics(pages: StoryboardPage[]): StoryboardPlan["editorialDiagnostics"] {
+export function buildEditorialDiagnostics(pages: StoryboardPage[]): StoryboardPlan["editorialDiagnostics"] {
   const panels = pages.flatMap((page) => page.panels);
   const total = panels.length || 1;
   return {
@@ -146,46 +147,53 @@ export function buildStoryboardPlanFromPremiumBlueprints(args: {
   const pages: StoryboardPage[] = pageNumbers.map((pageNumber) => {
     const rawPanels = (panelsByPage.get(pageNumber) ?? []).sort((a, b) => a.panelNumber - b.panelNumber);
     const explicitPage = explicitPagesByNumber.get(pageNumber);
-    const panels: StoryboardPanel[] = rawPanels.map((bp, idx) => ({
-      panelId: bp.panelId,
-      pageNumber,
-      panelNumberInPage: idx + 1,
-      globalPanelIndex: bp.panelNumber - 1,
-      sourceBeatId: bp.beatId,
-      panelPurpose: derivePanelPurpose(bp),
-      renderMode: deriveRenderMode(bp),
-      shotType: toShotType(bp.shotType),
-      cameraAngle: toCameraAngle(bp.cameraAngle),
-      subjectFocus: toSubjectFocus(bp.subjectFocus),
-      cutawayType: toCutawayType(bp.cutawayType),
-      characters: resolveCharacters(bp),
-      locationId: null,
-      locationName: args.chapterLocationName ?? "unknown",
-      actionLine: bp.purpose,
-      emotionLine: "",
-      dialogue: bp.dialogueLines ?? [],
-      narration: bp.narrationText ?? null,
-      sfx: bp.sfxCues ?? [],
-      mustShow: [
-        ...bp.requiredProps.map((prop) => prop.canonicalName),
-        ...bp.requiredLocationSignals,
-      ],
-      mustNotShow: [],
-      continuityNotes: bp.notes ?? [],
-      visualAnchors: {
-        characterIds: resolveCharacters(bp),
-        environmentAnchorId: null,
-        previousPanelAnchorId: idx > 0 ? rawPanels[idx - 1]!.panelId : null,
-      },
-      sceneContextLabel: bp.sceneContextLabel ?? null,
-      readerTemplateId: bp.readerTemplateId ?? null,
-      textPlacementHint: bp.textPlacementHint ?? null,
-      sceneRoster: bp.sceneRoster ?? [],
-      continuityState: bp.continuityState ?? null,
-      characterVisualDna: bp.characterVisualDna ?? [],
-      npcVisualDna: bp.npcVisualDna ?? [],
-      environmentVisualDna: bp.environmentVisualDna ?? null,
-    }));
+    const panels: StoryboardPanel[] = rawPanels.map((bp, idx) => {
+      const renderMode = deriveRenderMode(bp);
+      const layout = inferStoryboardPanelLayoutMeta(renderMode);
+      return {
+        panelId: bp.panelId,
+        pageNumber,
+        panelNumberInPage: idx + 1,
+        globalPanelIndex: bp.panelNumber - 1,
+        sourceBeatId: bp.beatId,
+        panelPurpose: derivePanelPurpose(bp),
+        renderMode,
+        layoutHint: layout.layoutHint,
+        targetAspectRatio: layout.targetAspectRatio,
+        slotType: layout.slotType,
+        shotType: toShotType(bp.shotType),
+        cameraAngle: toCameraAngle(bp.cameraAngle),
+        subjectFocus: toSubjectFocus(bp.subjectFocus),
+        cutawayType: toCutawayType(bp.cutawayType),
+        characters: resolveCharacters(bp),
+        locationId: null,
+        locationName: args.chapterLocationName ?? "unknown",
+        actionLine: bp.purpose,
+        emotionLine: "",
+        dialogue: bp.dialogueLines ?? [],
+        narration: bp.narrationText ?? null,
+        sfx: bp.sfxCues ?? [],
+        mustShow: [
+          ...bp.requiredProps.map((prop) => prop.canonicalName),
+          ...bp.requiredLocationSignals,
+        ],
+        mustNotShow: [],
+        continuityNotes: bp.notes ?? [],
+        visualAnchors: {
+          characterIds: resolveCharacters(bp),
+          environmentAnchorId: null,
+          previousPanelAnchorId: idx > 0 ? rawPanels[idx - 1]!.panelId : null,
+        },
+        sceneContextLabel: bp.sceneContextLabel ?? null,
+        readerTemplateId: bp.readerTemplateId ?? null,
+        textPlacementHint: bp.textPlacementHint ?? null,
+        sceneRoster: bp.sceneRoster ?? [],
+        continuityState: bp.continuityState ?? null,
+        characterVisualDna: bp.characterVisualDna ?? [],
+        npcVisualDna: bp.npcVisualDna ?? [],
+        environmentVisualDna: bp.environmentVisualDna ?? null,
+      };
+    });
 
     return {
       pageNumber,

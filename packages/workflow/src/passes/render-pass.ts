@@ -49,6 +49,21 @@ import {
 } from "../persistence/v3-scene-image-persistence";
 import { runPanelQaPass, type PanelQaPassOutput } from "./panel-qa-pass";
 import { runPageQaPass, type PageQaPassOutput } from "./page-qa-pass";
+import { enrichPanelRenderSpecForRenderPass } from "./enrich-panel-render-spec";
+import {
+  buildProviderPayloadPreview,
+  dumpPanelDebugArtifacts,
+} from "../debug/panel-debug-dump";
+
+/** Détail structuré d’un échec image (logs / persistance / debug). */
+export interface RenderPassImageFailureDetail {
+  panelId: string;
+  renderMode: PanelRenderSpec["renderMode"];
+  locationName: string;
+  mustShow: string[];
+  errorCode: string;
+  errorMessage: string;
+}
 
 export interface RenderedPanelDescriptor {
   spec: PanelRenderSpec;
@@ -59,15 +74,22 @@ export interface RenderedPanelDescriptor {
   model?: string | null;
   seed?: number | null;
   error?: string | null;
+  renderFailure?: RenderPassImageFailureDetail | null;
 }
 
 export interface GeneratePanelImageResult {
   ok: boolean;
   error?: string;
+  /** Code machine stable (ex. FAL_TIMEOUT) quand l’adapter le fournit. */
+  errorCode?: string;
   imageUrl?: string;
   provider?: string;
   model?: string;
   seed?: number | null;
+}
+
+function formatRenderFailure(detail: RenderPassImageFailureDetail): string {
+  return `render_failed:${JSON.stringify(detail)}`;
 }
 
 export interface RunRenderPassInput {
@@ -113,6 +135,7 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
   let skippedCount = 0;
 
   const allPanels: StoryboardPanel[] = input.storyboardPlan.pages.flatMap((p) => p.panels);
+  let previousPanel: StoryboardPanel | null = null;
 
   for (const panel of allPanels) {
     let spec: PanelRenderSpec;
@@ -128,11 +151,13 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
       if (err instanceof MissingMainCharacterRefError) {
         errors.push({ panelId: panel.panelId, error: err.message });
         failedCount += 1;
+        previousPanel = panel;
         continue;
       }
       const msg = err instanceof Error ? err.message : String(err);
       errors.push({ panelId: panel.panelId, error: `spec_build_failed: ${msg}` });
       failedCount += 1;
+      previousPanel = panel;
       continue;
     }
 
@@ -142,6 +167,7 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
       const msg = err instanceof Error ? err.message : String(err);
       errors.push({ panelId: panel.panelId, error: `spec_invalid: ${msg}` });
       failedCount += 1;
+      previousPanel = panel;
       continue;
     }
 
@@ -166,22 +192,7 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
       if (err instanceof MissingDedicatedFaceCloseupRefError) {
         errors.push({ panelId: panel.panelId, error: `missing_face_closeup_ref: ${err.message}` });
         failedCount += 1;
-        continue;
-      }
-      throw err;
-    }
-
-    specs.push(spec);
-    let prompt;
-    try {
-      prompt = buildMinimalPanelPromptStrict(spec);
-    } catch (err) {
-      if (err instanceof ContradictoryPanelPromptError) {
-        errors.push({
-          panelId: panel.panelId,
-          error: `contradictory_prompt:${err.renderMode}:${err.violations.join("|")}`,
-        });
-        failedCount += 1;
+        previousPanel = panel;
         continue;
       }
       throw err;
@@ -200,6 +211,7 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
           error: `route_unknown_render_mode:${err.renderMode}`,
         });
         failedCount += 1;
+        previousPanel = panel;
         continue;
       }
       if (err instanceof HeroWithoutReferencesError) {
@@ -208,22 +220,61 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
           error: `route_hero_without_references:${err.renderMode}`,
         });
         failedCount += 1;
+        previousPanel = panel;
         continue;
       }
       throw err;
     }
 
-    const descriptor: RenderedPanelDescriptor = { spec, prompt, route };
+    const enrichedSpec = enrichPanelRenderSpecForRenderPass({
+      spec,
+      panel,
+      visualMemory: input.visualMemory,
+      mainCharacterIds: input.mainCharacterIds,
+      route,
+      previousPanel,
+    });
+
+    let prompt;
+    try {
+      prompt = buildMinimalPanelPromptStrict(enrichedSpec);
+    } catch (err) {
+      if (err instanceof ContradictoryPanelPromptError) {
+        errors.push({
+          panelId: panel.panelId,
+          error: `contradictory_prompt:${err.renderMode}:${err.violations.join("|")}`,
+        });
+        failedCount += 1;
+        previousPanel = panel;
+        continue;
+      }
+      throw err;
+    }
+
+    specs.push(enrichedSpec);
+    const descriptor: RenderedPanelDescriptor = { spec: enrichedSpec, prompt, route };
     rendered.push(descriptor);
 
     if (!input.generatePanelImage) {
       skippedCount += 1;
+      previousPanel = panel;
       continue;
     }
 
+    const providerPreview = buildProviderPayloadPreview(enrichedSpec, route);
+    await dumpPanelDebugArtifacts({
+      chapterId: input.chapterId,
+      panelId: enrichedSpec.panelId,
+      phase: "pre_generate",
+      blueprint: panel,
+      renderSpec: enrichedSpec,
+      prompt: { positive: prompt.positive, negative: prompt.negative },
+      providerPayload: providerPreview,
+    });
+
     try {
       const res = await input.generatePanelImage({
-        spec,
+        spec: enrichedSpec,
         prompt: prompt.positive,
         negative: prompt.negative,
         route,
@@ -235,18 +286,71 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
         descriptor.model = res.model ?? null;
         descriptor.seed = res.seed ?? null;
         descriptor.error = null;
+        descriptor.renderFailure = null;
+        await dumpPanelDebugArtifacts({
+          chapterId: input.chapterId,
+          panelId: enrichedSpec.panelId,
+          phase: "post_success",
+          blueprint: panel,
+          renderSpec: enrichedSpec,
+          prompt: { positive: prompt.positive, negative: prompt.negative },
+          providerPayload: providerPreview,
+          outputUrl: res.imageUrl ?? null,
+        });
       } else {
         failedCount += 1;
-        const failure = res.error ?? "render_failed";
-        descriptor.error = failure;
-        errors.push({ panelId: panel.panelId, error: failure });
+        const errorMessage = res.error ?? "render_failed";
+        const errorCode = res.errorCode ?? "GENERATE_PANEL_IMAGE_FAILED";
+        const detail: RenderPassImageFailureDetail = {
+          panelId: enrichedSpec.panelId,
+          renderMode: enrichedSpec.renderMode,
+          locationName: enrichedSpec.locationName,
+          mustShow: [...enrichedSpec.constraints.mustShow],
+          errorCode,
+          errorMessage,
+        };
+        descriptor.renderFailure = detail;
+        descriptor.error = errorMessage;
+        errors.push({ panelId: panel.panelId, error: formatRenderFailure(detail) });
+        await dumpPanelDebugArtifacts({
+          chapterId: input.chapterId,
+          panelId: enrichedSpec.panelId,
+          phase: "post_failure",
+          blueprint: panel,
+          renderSpec: enrichedSpec,
+          prompt: { positive: prompt.positive, negative: prompt.negative },
+          providerPayload: providerPreview,
+          outputUrl: res.imageUrl ?? null,
+          error: { errorMessage, errorCode, raw: res.error ?? null },
+        });
       }
     } catch (err) {
       failedCount += 1;
       const msg = err instanceof Error ? err.message : String(err);
+      const detail: RenderPassImageFailureDetail = {
+        panelId: enrichedSpec.panelId,
+        renderMode: enrichedSpec.renderMode,
+        locationName: enrichedSpec.locationName,
+        mustShow: [...enrichedSpec.constraints.mustShow],
+        errorCode: "GENERATE_PANEL_IMAGE_THREW",
+        errorMessage: msg,
+      };
+      descriptor.renderFailure = detail;
       descriptor.error = `render_threw: ${msg}`;
-      errors.push({ panelId: panel.panelId, error: `render_threw: ${msg}` });
+      errors.push({ panelId: panel.panelId, error: formatRenderFailure(detail) });
+      await dumpPanelDebugArtifacts({
+        chapterId: input.chapterId,
+        panelId: enrichedSpec.panelId,
+        phase: "post_failure",
+        blueprint: panel,
+        renderSpec: enrichedSpec,
+        prompt: { positive: prompt.positive, negative: prompt.negative },
+        providerPayload: providerPreview,
+        error: err,
+      });
     }
+
+    previousPanel = panel;
   }
 
   const panelQa = await runPanelQaPass({

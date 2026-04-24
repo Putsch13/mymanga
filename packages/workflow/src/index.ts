@@ -17,6 +17,14 @@ export type {
   RunStoryboardPassResult,
 } from "./passes/storyboard-pass";
 export { runRenderPass } from "./passes/render-pass";
+export {
+  buildProviderPayloadPreview,
+  dumpPanelDebugArtifacts,
+} from "./debug/panel-debug-dump";
+export type {
+  DumpPanelDebugArtifactsInput,
+  PanelDebugDumpPhase,
+} from "./debug/panel-debug-dump";
 export type { RunRenderPassInput, RunRenderPassResult } from "./passes/render-pass";
 export { runPanelQaPass } from "./passes/panel-qa-pass";
 export type {

@@ -17,11 +17,11 @@
  */
 
 import { flattenPagesToPanels, type PipelinePanel, type UniversalMangaPage, type UniversalPanel } from "../manga-page-grid";
+import { buildReaderPanelSlots, type PageLayoutTemplate, type ReaderTextPlacementHint } from "@manga-ai-studio/core";
 import {
-  buildReaderPanelSlots,
-  type PageLayoutTemplate,
-  type ReaderTextPlacementHint,
-} from "@manga-ai-studio/core";
+  buildPersistedReaderPanelSlots,
+  mergePlanLayoutIntoUniversalPanel,
+} from "./page-template-registry";
 import {
   buildMangaPagesFromPanels,
   type MangaPaginatorPanel,
@@ -58,6 +58,11 @@ interface PersistedStoryboardPanel {
   narration?: string | null;
   sfx?: string[] | null;
   textPlacementHint?: ReaderTextPlacementHint | null;
+  layoutHint?: string | null;
+  targetAspectRatio?: string | null;
+  slotType?: string | null;
+  textPlacementPreference?: string | null;
+  safeTextZones?: Array<{ x: number; y: number; width: number; height: number }> | null;
 }
 
 interface PersistedStoryboardPage {
@@ -132,9 +137,7 @@ function sceneImageToUniversalPanel(img: SceneImage, sceneId: string): Universal
     ? img.metadata.dialogue[0]
     : img.metadata?.dialogue;
 
-  const layoutMeta = img.metadata?.layoutMeta as
-    | { slotType?: string | null; targetAspectRatio?: string; layoutTemplate?: string }
-    | undefined;
+  const layoutMeta = img.metadata?.layoutMeta as UniversalPanel["layoutMeta"] | undefined;
   const textMeta = img.metadata?.textMeta;
   const rawMetadata = img.metadata as Record<string, unknown> | undefined;
   const shotType = (rawMetadata?.shotType as string | undefined) ?? null;
@@ -166,6 +169,20 @@ function sceneImageToUniversalPanel(img: SceneImage, sceneId: string): Universal
     cutawayType,
     panelRole,
     slotType: layoutMeta?.slotType ?? null,
+  };
+}
+
+function planPanelToLayoutMergeArgs(
+  planPanel: PersistedStoryboardPanel,
+  pageLayoutTemplate: string,
+): Parameters<typeof mergePlanLayoutIntoUniversalPanel>[1] {
+  return {
+    layoutHint: planPanel.layoutHint ?? null,
+    targetAspectRatio: planPanel.targetAspectRatio ?? null,
+    slotType: planPanel.slotType ?? null,
+    textPlacementPreference: planPanel.textPlacementPreference ?? null,
+    safeTextZones: planPanel.safeTextZones ?? null,
+    layoutTemplate: pageLayoutTemplate,
   };
 }
 
@@ -226,7 +243,9 @@ function buildPagesFromPersistedStoryboard(
     .map((page) => {
       const universalPanels: UniversalPanel[] = page.panels.map((planPanel) => {
         const matched = panelsByIdentifier.get(planPanel.panelId);
-        if (matched) return matched as UniversalPanel;
+        if (matched) {
+          return mergePlanLayoutIntoUniversalPanel(matched as UniversalPanel, planPanelToLayoutMergeArgs(planPanel, page.layoutTemplate));
+        }
         const firstDialogue = planPanel.dialogue?.[0];
         return {
           id: planPanel.panelId,
@@ -247,21 +266,28 @@ function buildPagesFromPersistedStoryboard(
                 overflowStrategy: planPanel.textPlacementHint.overflowStrategy,
               }
             : undefined,
-        } as UniversalPanel;
+          layoutMeta: {
+            layoutHint: planPanel.layoutHint ?? null,
+            targetAspectRatio: planPanel.targetAspectRatio ?? null,
+            slotType: planPanel.slotType ?? null,
+            textPlacementPreference: planPanel.textPlacementPreference ?? null,
+            safeTextZones: planPanel.safeTextZones ?? null,
+            layoutTemplate: page.layoutTemplate,
+          },
+        } satisfies UniversalPanel;
       });
       return {
         id: `page-${page.pageNumber}`,
         layout: mapPaginatorLayoutToLegacy(page.layoutTemplate),
         layoutTemplate: page.layoutTemplate as UniversalMangaPage["layoutTemplate"],
         readingDirection: "rtl",
-        panelSlots: buildReaderPanelSlots({
-          template: page.layoutTemplate as PageLayoutTemplate,
-          readingDirection: "rtl",
-          panelIds: page.panels.map((planPanel) => planPanel.panelId),
-        }),
+        panelSlots: buildPersistedReaderPanelSlots(
+          page.layoutTemplate,
+          page.panels.map((planPanel) => planPanel.panelId),
+        ),
         isSplashPage: page.layoutTemplate === "splash",
         isDoublePage: page.layoutTemplate === "double_spread",
-        title: page.dramaticRole ?? null,
+        title: page.dramaticRole ?? undefined,
         panels: universalPanels,
       } satisfies UniversalMangaPage;
     });

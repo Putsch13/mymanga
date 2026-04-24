@@ -30,6 +30,14 @@ import type {
 
 export type PanelRenderCharacterRole = "hero" | "support" | "enemy" | "npc";
 
+/** ADN visuel structuré (studio / mémoire) — préféré aux champs plats quand présent. */
+export interface PanelRenderCharacterVisualDna {
+  eyeColor?: string | null;
+  hairColor?: string | null;
+  hairStyle?: string | null;
+  outfitSignature?: string | null;
+}
+
 export interface PanelRenderVisibleCharacter {
   characterId: string;
   name: string;
@@ -40,6 +48,7 @@ export interface PanelRenderVisibleCharacter {
   eyeColor?: string | null;
   canonSignatureText?: string | null;
   forbiddenDrift?: string[];
+  visualDNA?: PanelRenderCharacterVisualDna | null;
 }
 
 export interface PanelRenderContinuityLocks {
@@ -86,6 +95,29 @@ export interface PanelRenderConstraints {
   noTextInsideImage: boolean;
 }
 
+/** Métadonnées de cadrage / slot pour l’orchestrateur image (FAL, QA). */
+export interface PanelRenderLayoutMeta {
+  /** Indice de mise en page reader (ex. `wide_stage`, `vertical_hero_focus`). */
+  layoutHint?: string | null;
+  /** `portrait` | `landscape` | `square` (ou legacy `2:3` / `3:2` / `1:1`). */
+  targetAspectRatio?: string | null;
+  slotType?: string | null;
+}
+
+/** Référence explicite au panel précédent pour continuité visuelle. */
+export interface PanelRenderPreviousPanelRef {
+  panelId: string;
+  url?: string | null;
+  weight?: number;
+}
+
+/** Texte éditorial du panel (hors image) pour traçabilité / adapters. */
+export interface PanelRenderPanelTextPayload {
+  dialogue?: Array<{ speaker: string; text: string }>;
+  narration?: string | null;
+  sfx?: string[];
+}
+
 export interface PanelRenderSpec {
   panelId: string;
   pageNumber: number;
@@ -118,6 +150,18 @@ export interface PanelRenderSpec {
   continuityLocks: PanelRenderContinuityLocks;
   imageReferences: PanelRenderImageReferences;
   constraints: PanelRenderConstraints;
+  /** Cadrage cible aligné sur la route FAL (après enrichissement render-pass). */
+  layoutMeta?: PanelRenderLayoutMeta | null;
+  /** Héros / focus principal du chapitre quand identifiable sur le panel. */
+  heroCharacterId?: string | null;
+  /** Entités devant rester lisibles (mustShow + cast du panel). */
+  mandatoryVisibleEntities?: string[];
+  /** ADN décor / lieu résolu depuis la mémoire visuelle. */
+  environmentDNA?: Record<string, unknown> | null;
+  /** Lien explicite vers le rendu du panel précédent. */
+  previousPanelRef?: PanelRenderPreviousPanelRef | null;
+  /** Dialogue, narration, SFX du storyboard pour le rendu / logs. */
+  panelTextPayload?: PanelRenderPanelTextPayload | null;
 }
 
 /**

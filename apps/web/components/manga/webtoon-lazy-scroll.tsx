@@ -29,9 +29,12 @@ interface WebtoonPanel {
     reservedTextZones?: Array<"top-left" | "top-right" | "bottom-left" | "bottom-right" | "center">;
   };
   layoutMeta?: {
-    slotType?: "wide" | "tall" | "square" | "closeup" | "dialogue";
-    targetAspectRatio?: string;
-    layoutTemplate?: string;
+    slotType?: string | null;
+    targetAspectRatio?: string | null;
+    layoutTemplate?: string | null;
+    layoutHint?: string | null;
+    textPlacementPreference?: string | null;
+    safeTextZones?: Array<{ x: number; y: number; width: number; height: number }> | null;
     isSplashPage?: boolean;
     isDoublePage?: boolean;
   };
@@ -57,6 +60,18 @@ interface WebtoonLazyScrollProps {
 // panels préchargés + marge de 600px.
 const PRELOAD_COUNT = 12;
 const ROOT_MARGIN = "600px 0px";
+
+/** Ratio CSS pour `PanelSkeleton` (sémantique PATCH 8 ou legacy `2:3`). */
+function layoutTargetAspectToSkeletonRatio(raw: string): string {
+  const fallback = "3/4";
+  if (raw == null || raw === "") return fallback;
+  const r = raw.trim().toLowerCase();
+  if (r === "portrait" || r === "2:3" || r === "2/3") return "2/3";
+  if (r === "landscape" || r === "3:2" || r === "3/2") return "3/2";
+  if (r === "square" || r === "1:1" || r === "1/1") return "1/1";
+  const [w, h] = r.split(/[:/]/).map(Number);
+  return w && h ? `${w}/${h}` : fallback;
+}
 
 function isSplash(panel: WebtoonPanel): boolean {
   return !!(panel.layoutMeta?.isSplashPage || panel.layoutMeta?.isDoublePage);
@@ -180,8 +195,7 @@ export default function WebtoonLazyScroll({ pages }: WebtoonLazyScrollProps) {
                 const splash = isSplash(panel);
 
                 const raw = panel.layoutMeta?.targetAspectRatio ?? "3/4";
-                const [w, h] = raw.split(/[:/]/).map(Number);
-                const aspectNum = w && h ? `${w}/${h}` : "3/4";
+                const aspectNum = layoutTargetAspectToSkeletonRatio(raw);
 
                 return (
                   <div

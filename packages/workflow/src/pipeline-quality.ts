@@ -9,7 +9,11 @@ import {
 } from "./chapter-runtime-helpers";
 
 export type PipelineJobInput = {
+  heroCharacterId?: string | null;
   focusCharacterIds?: string[];
+  activeNpcIds?: string[];
+  activeCreatureIds?: string[];
+  locationIds?: string[];
   selectedPlotLabel?: "safe" | "bold" | "shock";
   creativityControls?: Partial<CreativityControls>;
   panelBlueprints?: unknown[];

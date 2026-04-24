@@ -12,6 +12,8 @@ describe("panel-text-compositor", () => {
 
     expect(result.layer.bubbles[0]?.reservedZone).toBe("top-right");
     expect((result.layer.bubbles[0]?.bounds.x ?? 0) > 50).toBe(true);
+    expect(result.textLayout.dialogueBoxes).toHaveLength(1);
+    expect(result.textLayout.dialogueBoxes[0]?.text).toBe("Salut");
   });
 
   it("remonte les dialogues en overflow pour un caption strip", () => {
@@ -25,6 +27,7 @@ describe("panel-text-compositor", () => {
     });
 
     expect(result.layer.bubbles).toHaveLength(6);
+    expect(result.textLayout.dialogueBoxes).toHaveLength(6);
     expect(result.overflowDialogues).toHaveLength(2);
   });
 });

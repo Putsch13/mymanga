@@ -244,9 +244,13 @@ export interface GenerationJobInputOptions {
   source: string;
   snapshot: ChapterStudioSnapshot;
   approvedOutline: ApprovedChapterOutline;
+  heroCharacterId?: string | null;
   selectedPlotLabel?: string | null;
   creativityControls?: Record<string, unknown> | null;
   focusCharacterIds?: string[];
+  activeNpcIds?: string[];
+  activeCreatureIds?: string[];
+  locationIds?: string[];
   estimateContext?: Record<string, unknown> | null;
 }
 
@@ -731,7 +735,11 @@ export function buildGenerationJobInputFromSnapshot(opts: GenerationJobInputOpti
   const input: Record<string, unknown> = {
     source: opts.source,
     chapterId: opts.chapterId,
+    heroCharacterId: opts.heroCharacterId ?? null,
     focusCharacterIds: opts.focusCharacterIds ?? [],
+    activeNpcIds: opts.activeNpcIds ?? [],
+    activeCreatureIds: opts.activeCreatureIds ?? [],
+    locationIds: opts.locationIds ?? [],
     selectedPlotLabel: opts.selectedPlotLabel ?? "bold",
     creativityControls: opts.creativityControls ?? undefined,
     approvedOutlineVersion: approvedOutline.approvalVersion,
