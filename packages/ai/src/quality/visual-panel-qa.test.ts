@@ -1,6 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   runVisualPanelQa,
+  runVisualPanelQaWithOptionalVision,
   buildRetryPrompt,
   createRetryRecord,
   checkNarrativeFidelity,
@@ -35,6 +36,17 @@ function createMockInput(overrides: Partial<VisualQaInput> = {}): VisualQaInput 
 }
 
 describe("visual-panel-qa", () => {
+  describe("runVisualPanelQaWithOptionalVision", () => {
+    it("sans VISUAL_PANEL_QA_VISION, retombe sur la QA heuristique uniquement", async () => {
+      vi.stubEnv("VISUAL_PANEL_QA_VISION", "");
+      const input = createMockInput();
+      const result = await runVisualPanelQaWithOptionalVision(input);
+      expect(result.visionAnalysis).toBeUndefined();
+      expect(result.passed).toBe(runVisualPanelQa(input).passed);
+      vi.unstubAllEnvs();
+    });
+  });
+
   describe("runVisualPanelQa", () => {
     it("should pass when all checks succeed", () => {
       const input = createMockInput();

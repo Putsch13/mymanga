@@ -36,7 +36,8 @@ import type {
   StoryboardPanelV3 as StoryboardPanel,
 } from "@manga-ai-studio/ai";
 import { persistImageIfNeeded, type PersistedImageResult } from "../pipeline-image-persistence";
-import { runVisualPanelQa } from "@manga-ai-studio/ai";
+import { buildVisualQaInputFromRenderSpec, runVisualPanelQaWithOptionalVision } from "@manga-ai-studio/ai";
+import type { VisualQaResult } from "@manga-ai-studio/ai";
 
 export interface V3RenderedPanelRecord {
   spec: PanelRenderSpec;
@@ -48,6 +49,8 @@ export interface V3RenderedPanelRecord {
   seed?: number | null;
   error?: string | null;
   renderFailure?: unknown;
+  /** Renseigné par le render-pass v3 après QA (évite un second passage vision en persistance). */
+  visualQa?: VisualQaResult | null;
 }
 
 export interface V3SceneImagePersistInput {
@@ -230,30 +233,31 @@ async function preparePanelData(
     || Boolean(record.spec.panelTextPayload?.dialogue?.length)
     || Boolean(record.spec.panelTextPayload?.narration?.trim());
 
-  const visualQa =
-    durableImageUrl && !record.error
-      ? runVisualPanelQa({
-          panelId: panel.panelId,
-          imageUrl: durableImageUrl,
-          panelMetadata: {
-            role: String(record.spec.panelPurpose),
-            purpose: String(record.spec.actionLine ?? panel.actionLine ?? ""),
-            shotType: String(record.spec.shotType),
-            subjectFocus: String(record.spec.subjectFocus),
-            isCutaway: record.spec.cutawayType !== "none",
-            mustShowCharacterIds: [...record.spec.constraints.mustShow],
-            reserveTextArea,
-            textMode: panel.textPlacementHint?.overflowStrategy ?? "overlay",
-          },
-          promptUsed: record.prompt.positive,
-          expectedCharacters: record.spec.visibleCharacters.map((vc) => ({
-            characterId: vc.characterId,
-            name: vc.name,
-            isProtagonist: vc.characterId === record.spec.heroCharacterId,
-          })),
-          attemptNumber: 1,
-        })
-      : null;
+  let visualQa: VisualQaResult | null = null;
+  if (record.visualQa != null) {
+    visualQa = record.visualQa;
+  } else if (durableImageUrl && !record.error) {
+    const qaInput = buildVisualQaInputFromRenderSpec({
+      panelId: panel.panelId,
+      imageUrl: durableImageUrl,
+      promptUsed: record.prompt.positive,
+      attemptNumber: 1,
+      panelPurpose: String(record.spec.panelPurpose),
+      actionLine: record.spec.actionLine,
+      shotType: String(record.spec.shotType),
+      subjectFocus: String(record.spec.subjectFocus),
+      cutawayType: String(record.spec.cutawayType),
+      mustShowCharacterIds: [...record.spec.constraints.mustShow],
+      reserveTextArea,
+      textOverflowStrategy: panel.textPlacementHint?.overflowStrategy ?? null,
+      visibleCharacters: record.spec.visibleCharacters.map((vc) => ({
+        characterId: vc.characterId,
+        name: vc.name,
+        isProtagonist: vc.characterId === record.spec.heroCharacterId,
+      })),
+    });
+    visualQa = await runVisualPanelQaWithOptionalVision(qaInput);
+  }
 
   const metadata = {
     v3: true,

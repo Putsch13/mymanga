@@ -11,7 +11,9 @@
  * `analyzePanelWithVision` (panel-vision-analyzer) et fusionner les scores avant persistance.
  */
 
+import type { CharacterFingerprint } from "@manga-ai-studio/core";
 import { PRODUCTION_RULES } from "@manga-ai-studio/core";
+import { analyzePanelWithVision, type PanelVisionQaScore } from "../services/panel-vision-analyzer";
 
 export type RetryStrategy =
   | "same_prompt"
@@ -67,6 +69,11 @@ export interface VisualQaResult {
   attemptNumber: number;
   maxAttempts: number;
   shouldMarkManualReview: boolean;
+  /** Présent si `VISUAL_PANEL_QA_VISION=true` et l’appel vision a réussi. */
+  visionAnalysis?: Pick<
+    PanelVisionQaScore,
+    "releaseScore" | "findings" | "model" | "characterConsistencyScore"
+  > | null;
 }
 
 export interface VisualQaScoreWeights {
@@ -438,6 +445,144 @@ export function runVisualPanelQa(
     attemptNumber: input.attemptNumber,
     maxAttempts,
     shouldMarkManualReview,
+  };
+}
+
+function minimalFingerprintForVision(name: string): CharacterFingerprint {
+  return {
+    identity: { name, gender: "non_applicable", perceivedAge: "adult", role: "character" },
+    face: { faceShape: "unspecified", eyeShape: "unspecified", eyeColor: "unspecified", eyebrowStyle: "unspecified" },
+    hair: { color: "unspecified", style: "unspecified", length: "unspecified", texture: "unspecified", silhouette: "unspecified" },
+    body: { build: "unspecified", height: "unspecified", posture: "neutral", silhouette: "unspecified" },
+    permanentMarkers: [],
+    defaultOutfit: [],
+    forbiddenDrift: [],
+    primaryRefs: [],
+  };
+}
+
+/**
+ * Construit l’entrée QA visuelle à partir du render-spec / storyboard (pipeline v3).
+ */
+export function buildVisualQaInputFromRenderSpec(input: {
+  panelId: string;
+  imageUrl: string;
+  promptUsed: string;
+  attemptNumber: number;
+  panelPurpose: string;
+  actionLine: string;
+  shotType: string;
+  subjectFocus: string;
+  cutawayType: string;
+  mustShowCharacterIds: string[];
+  reserveTextArea: boolean;
+  textOverflowStrategy?: string | null;
+  visibleCharacters: Array<{ characterId: string; name: string; isProtagonist: boolean }>;
+}): VisualQaInput {
+  return {
+    panelId: input.panelId,
+    imageUrl: input.imageUrl,
+    panelMetadata: {
+      role: input.panelPurpose,
+      purpose: input.actionLine.slice(0, 240),
+      shotType: input.shotType,
+      subjectFocus: input.subjectFocus,
+      isCutaway: input.cutawayType !== "none",
+      mustShowCharacterIds: input.mustShowCharacterIds,
+      reserveTextArea: input.reserveTextArea,
+      textMode: input.textOverflowStrategy ?? "overlay",
+    },
+    promptUsed: input.promptUsed,
+    expectedCharacters: input.visibleCharacters,
+    attemptNumber: input.attemptNumber,
+  };
+}
+
+/**
+ * QA heuristique + optionnellement vision OpenAI (`VISUAL_PANEL_QA_VISION=true` + `OPENAI_API_KEY`).
+ * Fusionne les scores ; peut recommander un retry aligné sur {@link PRODUCTION_RULES.retry}.
+ */
+export async function runVisualPanelQaWithOptionalVision(
+  input: VisualQaInput,
+  weights: VisualQaScoreWeights = DEFAULT_WEIGHTS,
+): Promise<VisualQaResult> {
+  const base = runVisualPanelQa(input, weights);
+  const passThreshold = PRODUCTION_RULES.retry.visualQaPassScore;
+  const maxAttempts = PRODUCTION_RULES.retry.maxImageAttempts;
+
+  if (process.env.VISUAL_PANEL_QA_VISION !== "true" || !input.imageUrl?.trim()) {
+    return base;
+  }
+
+  const requiredCharacters = input.expectedCharacters.map((c) => ({
+    characterName: c.name,
+    fingerprint: minimalFingerprintForVision(c.name),
+  }));
+
+  let vision: PanelVisionQaScore | null = null;
+  try {
+    vision = await analyzePanelWithVision({
+      imageUrl: input.imageUrl,
+      heuristicReleaseScore: base.score,
+      requiredCharacters,
+      panelContract: {
+        shotType: input.panelMetadata.shotType,
+        purpose: input.panelMetadata.purpose,
+        mustShow: input.panelMetadata.mustShowCharacterIds,
+      },
+      criticality: {
+        sceneComplexityScore: base.score < 0.82 ? 0.82 : 0.35,
+      },
+    });
+  } catch {
+    vision = null;
+  }
+
+  if (!vision) {
+    return base;
+  }
+
+  const visionAnalysis = {
+    releaseScore: vision.releaseScore,
+    findings: vision.findings,
+    model: vision.model,
+    characterConsistencyScore: vision.characterConsistencyScore,
+  };
+
+  const blendedScore = Math.min(base.score, base.score * 0.35 + vision.releaseScore * 0.65);
+  const visionGate = vision.releaseScore >= 0.42;
+
+  const failures = [...base.failures];
+  if (!visionGate) {
+    failures.push({
+      reason: `Vision QA (${vision.model}): release=${vision.releaseScore.toFixed(2)} — ${vision.findings.slice(0, 2).join("; ") || "score bas"}`,
+      category: "technical",
+      severity: vision.releaseScore < 0.32 ? "critical" : "high",
+      suggestedStrategy: vision.releaseScore < 0.32 ? "simpler_scene" : "refined_prompt",
+    });
+  }
+
+  const passed = blendedScore >= passThreshold && visionGate;
+  const retryRecommended = !passed && input.attemptNumber < maxAttempts;
+  const retryStrategy = retryRecommended
+    ? selectRetryStrategy(failures, input.attemptNumber)
+    : undefined;
+  const shouldMarkManualReview = !passed && input.attemptNumber >= maxAttempts;
+
+  return {
+    passed,
+    score: blendedScore,
+    reasons: [
+      ...base.reasons,
+      ...(!visionGate ? [`vision_release=${vision.releaseScore.toFixed(2)}`] : []),
+    ],
+    failures,
+    retryRecommended,
+    retryStrategy,
+    attemptNumber: input.attemptNumber,
+    maxAttempts,
+    shouldMarkManualReview,
+    visionAnalysis,
   };
 }
 

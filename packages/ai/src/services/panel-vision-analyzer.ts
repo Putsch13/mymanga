@@ -1,7 +1,7 @@
 import type { CharacterFingerprint } from "@manga-ai-studio/core";
 import type { SceneBlueprint } from "@manga-ai-studio/world";
 
-type VisionPanelScore = {
+export type PanelVisionQaScore = {
   characterConsistencyScore: number;
   backgroundPresenceScore: number;
   environmentReadabilityScore: number;
@@ -13,6 +13,9 @@ type VisionPanelScore = {
   findings: string[];
   model: string;
 };
+
+/** @deprecated alias interne — préférer `PanelVisionQaScore`. */
+type VisionPanelScore = PanelVisionQaScore;
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -92,10 +95,11 @@ export async function analyzePanelWithVision(input: {
     continuityCritical?: boolean;
     sceneComplexityScore?: number;
   };
-}): Promise<VisionPanelScore | null> {
+}): Promise<PanelVisionQaScore | null> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   const model = process.env.OPENAI_VISION_MODEL?.trim() || "gpt-4o-mini";
   const envFlag = process.env.ENABLE_PREMIUM_VISION_QA;
+  const forcePremiumVisualQa = process.env.VISUAL_PANEL_QA_VISION === "true";
 
   const isCriticalPanel =
     input.criticality?.environmentCritical === true
@@ -103,7 +107,12 @@ export async function analyzePanelWithVision(input: {
     || (input.criticality?.sceneComplexityScore ?? 0) >= 0.8
     || input.heuristicReleaseScore < 0.70;
 
-  const visionEnabled = envFlag !== "false" || isCriticalPanel;
+  if (process.env.VISUAL_PANEL_QA_VISION === "false") {
+    return null;
+  }
+
+  const legacyVisionOn = envFlag !== "false";
+  const visionEnabled = forcePremiumVisualQa || legacyVisionOn || isCriticalPanel;
   if (!apiKey || !visionEnabled) return null;
   if (!/^https?:\/\//i.test(input.imageUrl)) return null;
   // P4.1 — Reject likely-expired temporary URLs
@@ -118,7 +127,7 @@ export async function analyzePanelWithVision(input: {
     || shotType === "over_shoulder"
     || input.heuristicReleaseScore < 0.86
     || input.requiredCharacters.length > 0;
-  if (!shouldRun) return null;
+  if (!shouldRun && !forcePremiumVisualQa) return null;
 
   const expectedCharacters = input.requiredCharacters.map((character) => ({
     name: character.characterName,

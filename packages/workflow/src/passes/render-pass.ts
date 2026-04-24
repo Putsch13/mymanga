@@ -40,6 +40,13 @@ import {
   type StoryboardPlan,
 } from "@manga-ai-studio/ai";
 import type { StoryboardPanel } from "@manga-ai-studio/ai/contracts";
+import { PRODUCTION_RULES } from "@manga-ai-studio/core";
+import {
+  buildRetryPrompt,
+  buildVisualQaInputFromRenderSpec,
+  runVisualPanelQaWithOptionalVision,
+  type VisualQaResult,
+} from "@manga-ai-studio/ai";
 import {
   saveRenderPassResult,
   type RenderPassResultSummary,
@@ -77,6 +84,8 @@ export interface RenderedPanelDescriptor {
   seed?: number | null;
   error?: string | null;
   renderFailure?: RenderPassImageFailureDetail | null;
+  /** QA visuelle (heuristique + vision si `VISUAL_PANEL_QA_VISION`) après rendu. */
+  visualQa?: VisualQaResult | null;
 }
 
 export interface GeneratePanelImageResult {
@@ -392,12 +401,83 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
       });
       if (res.ok) {
         renderedCount += 1;
-        descriptor.imageUrl = res.imageUrl ?? null;
-        descriptor.provider = res.provider ?? null;
-        descriptor.model = res.model ?? null;
-        descriptor.seed = res.seed ?? null;
+        let imageUrl: string | null = res.imageUrl ?? null;
+        let providerOut: string | null = res.provider ?? null;
+        let modelOut: string | null = res.model ?? null;
+        let seedOut: number | null = res.seed ?? null;
         descriptor.error = null;
         descriptor.renderFailure = null;
+
+        const visualRetryEnabled =
+          process.env.RENDER_PASS_VISUAL_QA_RETRY === "true"
+          || process.env.VISUAL_PANEL_QA_VISION === "true";
+
+        const reserveTextArea =
+          (Array.isArray(panel.dialogue) && panel.dialogue.length > 0)
+          || Boolean(panel.narration?.trim())
+          || (Array.isArray(panel.sfx) && panel.sfx.length > 0)
+          || Boolean(enrichedSpec.panelTextPayload?.dialogue?.length)
+          || Boolean(enrichedSpec.panelTextPayload?.narration?.trim());
+
+        let positivePrompt = prompt.positive;
+        const qaHistory: VisualQaResult[] = [];
+        let lastQa: VisualQaResult | null = null;
+
+        if (imageUrl) {
+          let attempt = 1;
+          while (attempt <= PRODUCTION_RULES.retry.maxImageAttempts) {
+            const qaInput = buildVisualQaInputFromRenderSpec({
+              panelId: enrichedSpec.panelId,
+              imageUrl,
+              promptUsed: positivePrompt,
+              attemptNumber: attempt,
+              panelPurpose: String(enrichedSpec.panelPurpose),
+              actionLine: enrichedSpec.actionLine,
+              shotType: String(enrichedSpec.shotType),
+              subjectFocus: String(enrichedSpec.subjectFocus),
+              cutawayType: String(enrichedSpec.cutawayType),
+              mustShowCharacterIds: [...enrichedSpec.constraints.mustShow],
+              reserveTextArea,
+              textOverflowStrategy: panel.textPlacementHint?.overflowStrategy ?? null,
+              visibleCharacters: enrichedSpec.visibleCharacters.map((c) => ({
+                characterId: c.characterId,
+                name: c.name,
+                isProtagonist: c.characterId === (enrichedSpec.heroCharacterId ?? null),
+              })),
+            });
+            lastQa = await runVisualPanelQaWithOptionalVision(qaInput);
+            qaHistory.push(lastQa);
+            if (lastQa.passed) break;
+            if (!visualRetryEnabled || !lastQa.retryRecommended) break;
+            if (attempt >= lastQa.maxAttempts) break;
+            attempt += 1;
+            const retry = buildRetryPrompt({
+              panelId: enrichedSpec.panelId,
+              originalPrompt: prompt.positive,
+              previousResults: qaHistory,
+              currentStrategy: lastQa.retryStrategy ?? "refined_prompt",
+            });
+            positivePrompt = retry.prompt;
+            const resRetry = await input.generatePanelImage({
+              spec: enrichedSpec,
+              prompt: positivePrompt,
+              negative: prompt.negative,
+              route,
+            });
+            if (!resRetry.ok || !resRetry.imageUrl) break;
+            imageUrl = resRetry.imageUrl;
+            providerOut = resRetry.provider ?? providerOut;
+            modelOut = resRetry.model ?? modelOut;
+            seedOut = resRetry.seed ?? seedOut;
+          }
+        }
+
+        descriptor.imageUrl = imageUrl;
+        descriptor.provider = providerOut;
+        descriptor.model = modelOut;
+        descriptor.seed = seedOut;
+        descriptor.visualQa = lastQa;
+
         await dumpPanelDebugArtifacts({
           chapterId: input.chapterId,
           panelId: enrichedSpec.panelId,
@@ -406,7 +486,7 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
           renderSpec: enrichedSpec,
           prompt: { positive: prompt.positive, negative: prompt.negative },
           providerPayload: providerPreview,
-          outputUrl: res.imageUrl ?? null,
+          outputUrl: imageUrl,
         });
       } else {
         failedCount += 1;
