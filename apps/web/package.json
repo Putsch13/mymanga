@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
+    "build:render": "NEXT_DEPLOY_SKIP_LINT=1 NEXT_DEPLOY_SKIP_TYPECHECK=1 NODE_OPTIONS=--max-old-space-size=1536 next build",
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",

@@ -1,6 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Render starter/low-memory instances can OOM during Next's post-compile
+  // lint/typecheck phase. Keep local/CI checks strict, but allow deploy builds
+  // to skip them via explicit env flags.
+  eslint: {
+    ignoreDuringBuilds: process.env.NEXT_DEPLOY_SKIP_LINT === "1",
+  },
+  typescript: {
+    ignoreBuildErrors: process.env.NEXT_DEPLOY_SKIP_TYPECHECK === "1",
+  },
   transpilePackages: [
     "@manga-ai-studio/ui",
     "@manga-ai-studio/db",
