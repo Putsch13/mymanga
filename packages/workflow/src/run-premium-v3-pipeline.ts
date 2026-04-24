@@ -17,6 +17,12 @@ import { buildStyleBibleFromUserProject } from "./chapter-style-bible-resolver";
 import { isPipelineV3RenderFalEnabled } from "./pipeline-feature-flags";
 import { loadLocationsForV3StoryPass, type PremiumV3PipelineLocation } from "./load-locations-for-v3-story-pass";
 import { saveStoryboardPlan } from "./persistence/storyboard-persistence";
+import { buildVisualEntitiesFromPremiumV3Input } from "./passes/visual-entity-registry";
+import {
+  isPremiumMangaCutawayBlueprint,
+  rebalancePremiumBlueprintsForManga,
+} from "./passes/premium-manga-rebalance";
+import { runMangaStructureQaOnBlueprints } from "./passes/manga-structure-qa";
 
 export type { PremiumV3PipelineLocation } from "./load-locations-for-v3-story-pass";
 
@@ -147,9 +153,106 @@ export async function runPremiumV3Pipeline(
 
   try {
     const approvedPlanDriven = hasApprovedPlanDrivenInput(input);
+    const projectFormat = resolveProjectFormat(input.project, input.projectId);
     let storyArc: StoryArc | null = null;
 
     let storyboardPassResult: Awaited<ReturnType<typeof runStoryboardPass>>;
+
+    let productionPlanForStoryboard: Record<string, unknown> | null = approvedPlanDriven
+      ? ({ ...(input.productionPlan as Record<string, unknown>) } as Record<string, unknown>)
+      : null;
+    let panelBlueprintsForPremiumPath: PanelBlueprintPremium[] | null =
+      Array.isArray(input.panelBlueprints) && input.panelBlueprints.length > 0
+        ? input.panelBlueprints.map((b) => structuredClone(b))
+        : null;
+
+    if (projectFormat === "manga") {
+      const densifyBalanceStart = Date.now();
+      let workingBlueprints: PanelBlueprintPremium[] | null = null;
+      if (approvedPlanDriven && productionPlanForStoryboard) {
+        const raw = productionPlanForStoryboard.panelBlueprints;
+        if (Array.isArray(raw) && raw.length > 0) {
+          workingBlueprints = raw.map((b) => structuredClone(b)) as PanelBlueprintPremium[];
+        }
+      } else if (panelBlueprintsForPremiumPath?.length) {
+        workingBlueprints = panelBlueprintsForPremiumPath.map((b) => structuredClone(b));
+      }
+
+      if (workingBlueprints && workingBlueprints.length > 0) {
+        const total = workingBlueprints.length;
+        const beforeCut = workingBlueprints.filter(isPremiumMangaCutawayBlueprint).length;
+        const beforeRatio = total > 0 ? beforeCut / total : 0;
+
+        const visualEntities = buildVisualEntitiesFromPremiumV3Input({
+          rawCharacters: input.rawCharacters,
+          focusCharacterIds: input.focusCharacterIds,
+          heroCharacterId: input.heroCharacterId ?? null,
+          activeCreatureIds: input.activeCreatureIds,
+        });
+
+        const rebal = rebalancePremiumBlueprintsForManga({
+          blueprints: workingBlueprints,
+          visualEntities,
+          projectFormat: "manga",
+          maxCutawayRatio: 0.35,
+          minActorDrivenRatio: 0.55,
+          fallbackHeroId: input.heroCharacterId ?? input.focusCharacterIds[0] ?? null,
+        });
+
+        const afterCut = rebal.blueprints.filter(isPremiumMangaCutawayBlueprint).length;
+        const afterActor = rebal.afterActorDrivenCount;
+        const afterRatio = total > 0 ? afterCut / total : 0;
+        const actorRatio = total > 0 ? afterActor / total : 0;
+
+        console.info(
+          `[pipeline:v3:densify-balance] before cutaways=${beforeCut}/${total} ratio=${(beforeRatio * 100).toFixed(1)}%`,
+        );
+        console.info(
+          `[pipeline:v3:densify-balance] converted=${rebal.convertedCount} keptCritical=${rebal.keptCriticalCount}`,
+        );
+        console.info(
+          `[pipeline:v3:densify-balance] actorDriven=${afterActor}/${total} ratio=${(actorRatio * 100).toFixed(1)}%`,
+        );
+
+        const blobSoldiers = rebal.blueprints.filter((bp) =>
+          /soldier|soldats|army|armée|squad|escadron|garde/i.test(bp.purpose),
+        ).length;
+        const blobCreatures = rebal.blueprints.filter((bp) =>
+          /creature|monstre|bête|beast|demon|démon|wraith|spirit/i.test(bp.purpose),
+        ).length;
+        const blobRobots = rebal.blueprints.filter((bp) =>
+          /robot|drone|mecha|android|machine/i.test(bp.purpose),
+        ).length;
+        console.info(
+          `[pipeline:v3:entity-coverage] soldiers=${blobSoldiers} panels, creatures=${blobCreatures} panels, robots=${blobRobots} panels`,
+        );
+
+        timings.densify_balance_ms = Date.now() - densifyBalanceStart;
+
+        if (approvedPlanDriven && productionPlanForStoryboard) {
+          productionPlanForStoryboard.panelBlueprints = rebal.blueprints;
+        }
+        if (panelBlueprintsForPremiumPath?.length) {
+          panelBlueprintsForPremiumPath = rebal.blueprints;
+        }
+
+        const mangaQa = runMangaStructureQaOnBlueprints({
+          blueprints: rebal.blueprints,
+          maxCutawayRatio: 0.35,
+          minActorDrivenRatio: 0.55,
+        });
+        console.info(
+          `[pipeline:v3:manga-structure-qa] ok=${mangaQa.ok} cutawayRatio=${(mangaQa.cutawayRatio * 100).toFixed(1)}% ` +
+            `actorDrivenRatio=${(mangaQa.actorDrivenRatio * 100).toFixed(1)}% maxConsecutiveCutaways=${mangaQa.maxConsecutiveCutaways}`,
+        );
+        if (!mangaQa.ok) {
+          console.error(`[pipeline:v3:manga-structure-qa] failed reason=${mangaQa.summary}`);
+          if (input.premiumV3OnlyEnabled) {
+            throw new Error(`premium_v3_only_manga_structure_failed: ${mangaQa.summary}`);
+          }
+        }
+      }
+    }
 
     if (approvedPlanDriven) {
       const storyboardBuildStart = Date.now();
@@ -158,8 +261,8 @@ export async function runPremiumV3Pipeline(
           chapterId: input.chapterId,
           projectId: input.projectId,
           chapterNumber: input.chapterNumber,
-          productionPlan: input.productionPlan!,
-          projectFormat: resolveProjectFormat(input.project, input.projectId),
+          productionPlan: (productionPlanForStoryboard ?? input.productionPlan) as Record<string, unknown>,
+          projectFormat,
           chapterLocationName: input.chapterLocationName,
           productionPlanPages: input.productionPlanPages,
         }),
@@ -193,12 +296,12 @@ export async function runPremiumV3Pipeline(
 
       const storyboardStart = Date.now();
       storyboardPassResult =
-        Array.isArray(input.panelBlueprints) && input.panelBlueprints.length > 0
+        panelBlueprintsForPremiumPath && panelBlueprintsForPremiumPath.length > 0
           ? {
               storyboardPlan: buildStoryboardPlanFromPremiumBlueprints({
                 chapterId: input.chapterId,
-                projectFormat: resolveProjectFormat(input.project, input.projectId),
-                panelBlueprints: input.panelBlueprints,
+                projectFormat,
+                panelBlueprints: panelBlueprintsForPremiumPath,
                 pages: input.productionPlanPages,
                 chapterLocationName: input.chapterLocationName ?? null,
               }),
@@ -208,7 +311,7 @@ export async function runPremiumV3Pipeline(
           : await runStoryboardPass({
               storyArc: storyPassResult.storyArc,
               heroCharacterIds: input.focusCharacterIds,
-              projectFormat: resolveProjectFormat(input.project, input.projectId),
+              projectFormat,
               targetPanelCount: PREMIUM_PANEL_RANGE.target,
             });
       timings.storyboard_pass_ms = Date.now() - storyboardStart;
