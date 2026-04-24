@@ -8,6 +8,8 @@ import {
 import { buildReadingOrderIndexMap } from "./premium-manga-cutaway";
 import { runMangaStructureQaOnBlueprints } from "./manga-structure-qa";
 import type { VisualEntity } from "./visual-entity-registry";
+import { isConflictHeavyBeatPanel } from "./premium-manga-cutaway";
+import { beatRequiresResolvedOpponent } from "./auto-canonize-opponent";
 
 function bp(overrides: Partial<PanelBlueprintPremium> & { panelId: string; panelNumber: number }): PanelBlueprintPremium {
   return {
@@ -83,6 +85,7 @@ describe("premium-manga-rebalance", () => {
       maxCutawayRatio: 0.35,
       minActorDrivenRatio: 0.58,
       fallbackHeroId: "h1",
+      projectId: "test-proj",
     });
 
     const ratio = out.blueprints.filter(isPremiumMangaCutawayBlueprint).length / out.blueprints.length;
@@ -155,6 +158,7 @@ describe("premium-manga-rebalance", () => {
       maxCutawayRatio: 0.35,
       minActorDrivenRatio: 0.58,
       fallbackHeroId: "h1",
+      projectId: "test-proj",
     });
 
     const qa = runMangaStructureQaOnBlueprints({
@@ -165,5 +169,76 @@ describe("premium-manga-rebalance", () => {
     });
     expect(qa.ok).toBe(true);
     expect(out.blueprints[0]?.subjectFocus).toBe("visual_entity");
+  });
+
+  it("auto-canonise un opposant si beat de conflit sans entité existante", () => {
+    const blueprints: PanelBlueprintPremium[] = [
+      bp({
+        panelId: "p1",
+        panelNumber: 1,
+        beatId: "beat_fight_no_villain",
+        subjectFocus: "environment",
+        cutawayType: "environment",
+        purpose: "combat enemy attacks the hero",
+        mustShowEnemy: true,
+      }),
+    ];
+
+    const out = rebalancePremiumBlueprintsForManga({
+      blueprints,
+      visualEntities: [heroEntity],
+      projectFormat: "manga",
+      maxCutawayRatio: 0.35,
+      minActorDrivenRatio: 0.58,
+      fallbackHeroId: "h1",
+      projectId: "test-proj",
+    });
+
+    expect(out.autoCreatedOpponents).toBe(1);
+    expect(out.blueprints[0]?.requiredEntityIds).toContain("auto_opponent_beat_fight_no_villain");
+  });
+
+  it("beatRequiresResolvedOpponent renvoie false pour un beat de suspense", () => {
+    const blueprints: PanelBlueprintPremium[] = [
+      bp({
+        panelId: "p1",
+        panelNumber: 1,
+        beatId: "beat_suspense",
+        subjectFocus: "environment",
+        cutawayType: "environment",
+        purpose: "combat looming — atmospheric suspense foreshadowing indirect threat",
+        mustShowEnemy: false,
+      }),
+    ];
+
+    expect(isConflictHeavyBeatPanel(blueprints[0]!)).toBe(true);
+    expect(beatRequiresResolvedOpponent(blueprints)).toBe(false);
+  });
+
+  it("skip les beats de suspense dans ensureConflictBeatsHaveOpponents (héros seul)", () => {
+    const blueprints: PanelBlueprintPremium[] = [
+      bp({
+        panelId: "p1",
+        panelNumber: 1,
+        beatId: "beat_suspense",
+        subjectFocus: "hero",
+        cutawayType: "none",
+        purpose: "combat looming — atmospheric suspense foreshadowing indirect threat",
+        mustShowEnemy: false,
+      }),
+    ];
+
+    const out = rebalancePremiumBlueprintsForManga({
+      blueprints,
+      visualEntities: [heroEntity],
+      projectFormat: "manga",
+      maxCutawayRatio: 0.35,
+      minActorDrivenRatio: 0.58,
+      fallbackHeroId: "h1",
+      projectId: "test-proj",
+    });
+
+    expect(out.skippedSuspenseBeats).toContain("beat_suspense");
+    expect(out.autoCreatedOpponents).toBe(0);
   });
 });

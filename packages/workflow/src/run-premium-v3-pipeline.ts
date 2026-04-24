@@ -202,6 +202,7 @@ export async function runPremiumV3Pipeline(
           maxCutawayRatio: mangaMaxCutawayRatio,
           minActorDrivenRatio: mangaMinActorDrivenRatio,
           fallbackHeroId: input.heroCharacterId ?? input.focusCharacterIds[0] ?? null,
+          projectId: input.projectId,
         });
 
         const afterCut = rebal.blueprints.filter(isPremiumMangaCutawayBlueprint).length;
@@ -215,6 +216,11 @@ export async function runPremiumV3Pipeline(
         console.info(
           `[pipeline:v3:densify-balance] converted=${rebal.convertedCount} keptHardCritical=${rebal.keptHardCriticalCount} keptSoftCritical=${rebal.keptSoftCriticalCount} structureIterations=${rebal.structureIterations}`,
         );
+        if (rebal.autoCreatedOpponents > 0 || rebal.skippedSuspenseBeats.length > 0) {
+          console.info(
+            `[pipeline:v3:opponent-auto-canon] autoCreated=${rebal.autoCreatedOpponents} skippedSuspenseBeats=${rebal.skippedSuspenseBeats.length > 0 ? rebal.skippedSuspenseBeats.join(",") : "none"}`,
+          );
+        }
         console.info(
           `[pipeline:v3:densify-balance] after cutaways=${afterCut}/${total} ratio=${(afterRatio * 100).toFixed(1)}%`,
         );

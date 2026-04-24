@@ -23,6 +23,10 @@ import {
 } from "./visual-entity-registry";
 import { getRequiredVisualEntityIds } from "./visual-entity-ids";
 import {
+  beatRequiresResolvedOpponent,
+  ensureOpponentEntityForBeat,
+} from "./auto-canonize-opponent";
+import {
   buildEntityActionLine,
   resolveBlueprintReferencePolicyForEntity,
   resolveRenderModeForEntity,
@@ -337,28 +341,58 @@ function breakConsecutiveCutaways(
   return converted;
 }
 
-function ensureConflictBeatsHaveOpponents(args: {
+export interface EnsureConflictOpponentsArgs {
   blueprints: PanelBlueprintPremium[];
   visualEntities: VisualEntity[];
   fallbackHeroId: string | null;
   orderMap: Map<string, number>;
-}): number {
+  projectId: string;
+}
+
+export interface EnsureConflictOpponentsResult {
+  fixes: number;
+  autoCreatedEntities: number;
+  skippedSuspenseBeats: string[];
+}
+
+function ensureConflictBeatsHaveOpponents(args: EnsureConflictOpponentsArgs): EnsureConflictOpponentsResult {
   let fixes = 0;
+  let autoCreatedEntities = 0;
+  const skippedSuspenseBeats: string[] = [];
+
   const conflictBeatIds = new Set(
     args.blueprints.filter(isConflictHeavyBeatPanel).map((bp) => bp.beatId),
   );
 
   for (const beatId of conflictBeatIds) {
     const beatPanels = args.blueprints.filter((bp) => bp.beatId === beatId);
-    if (beatAlreadyShowsOpponentEntity(beatPanels, args.visualEntities)) continue;
 
-    const opponent = pickRequiredOpponentForBeat({
+    if (!beatRequiresResolvedOpponent(beatPanels)) {
+      console.info(
+        `[pipeline:v3:opponent-coverage] beat=${beatId} skipped reason=suspense_without_visible_opponent`,
+      );
+      skippedSuspenseBeats.push(beatId);
+      continue;
+    }
+
+    if (beatAlreadyShowsOpponentEntity(beatPanels, args.visualEntities)) {
+      console.info(`[pipeline:v3:opponent-coverage] beat=${beatId} ok=true reason=already_covered`);
+      continue;
+    }
+
+    const { entity: opponent, autoCreated } = ensureOpponentEntityForBeat({
       beatId,
       beatPanels,
       visualEntities: args.visualEntities,
+      projectId: args.projectId,
     });
+
     if (!opponent) {
       throw new Error(`conflict_beat_without_resolved_opponent_entity beat=${beatId}`);
+    }
+
+    if (autoCreated) {
+      autoCreatedEntities += 1;
     }
 
     const target =
@@ -374,10 +408,14 @@ function ensureConflictBeatsHaveOpponents(args: {
     convertPanelToEntityDrivenPanel(target, opponent, {
       reason: "forced_opponent_panel_for_conflict_beat",
     });
+
+    console.info(
+      `[pipeline:v3:opponent-coverage] beat=${beatId} opponent=${opponent.id} ok=true`,
+    );
     fixes += 1;
   }
 
-  return fixes;
+  return { fixes, autoCreatedEntities, skippedSuspenseBeats };
 }
 
 export interface RebalancePremiumBlueprintsArgs {
@@ -387,6 +425,7 @@ export interface RebalancePremiumBlueprintsArgs {
   maxCutawayRatio: number;
   minActorDrivenRatio: number;
   fallbackHeroId: string | null;
+  projectId: string;
 }
 
 export interface RebalancePremiumBlueprintsResult {
@@ -401,6 +440,8 @@ export interface RebalancePremiumBlueprintsResult {
   beforeActorDrivenCount: number;
   afterActorDrivenCount: number;
   structureIterations: number;
+  autoCreatedOpponents: number;
+  skippedSuspenseBeats: string[];
 }
 
 export function rebalancePremiumBlueprintsForManga(
@@ -421,6 +462,8 @@ export function rebalancePremiumBlueprintsForManga(
       beforeActorDrivenCount: act,
       afterActorDrivenCount: act,
       structureIterations: 0,
+      autoCreatedOpponents: 0,
+      skippedSuspenseBeats: [],
     };
   }
 
@@ -435,17 +478,22 @@ export function rebalancePremiumBlueprintsForManga(
 
   let orderMap = buildReadingOrderIndexMap(blueprints);
   let structureIterations = 0;
+  let totalAutoCreatedOpponents = 0;
+  let allSkippedSuspenseBeats: string[] = [];
   const maxStructureIterations = 6;
 
   for (; structureIterations < maxStructureIterations; structureIterations += 1) {
     rebalanceCutawaysToBudgetOnce(blueprints, args, orderMap);
     breakConsecutiveCutaways(blueprints, 2, orderMap, args.visualEntities, args.fallbackHeroId);
-    ensureConflictBeatsHaveOpponents({
+    const conflictResult = ensureConflictBeatsHaveOpponents({
       blueprints,
       visualEntities: args.visualEntities,
       fallbackHeroId: args.fallbackHeroId,
       orderMap,
+      projectId: args.projectId,
     });
+    totalAutoCreatedOpponents += conflictResult.autoCreatedEntities;
+    allSkippedSuspenseBeats = [...new Set([...allSkippedSuspenseBeats, ...conflictResult.skippedSuspenseBeats])];
     rebalanceCutawaysToBudgetOnce(blueprints, args, orderMap);
 
     orderMap = buildReadingOrderIndexMap(blueprints);
@@ -479,6 +527,8 @@ export function rebalancePremiumBlueprintsForManga(
     beforeActorDrivenCount,
     afterActorDrivenCount,
     structureIterations,
+    autoCreatedOpponents: totalAutoCreatedOpponents,
+    skippedSuspenseBeats: allSkippedSuspenseBeats,
   };
 }
 
