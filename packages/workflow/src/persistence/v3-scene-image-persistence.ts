@@ -279,7 +279,7 @@ export async function persistV3RenderedPanels(
               overflowStrategy: panel.textPlacementHint.overflowStrategy ?? "caption_strip",
               overlayReadingDirection: "rtl",
             }
-          : undefined,
+          : null,
         readerLayout: generationDebugSnapshot.readerLayout,
         generationDebugSnapshot,
       } as unknown as Prisma.InputJsonValue;
@@ -301,8 +301,6 @@ export async function persistV3RenderedPanels(
         status,
         imageUrl: durableImageUrl,
         persistedUrl: durableImageUrl,
-        storageBucket: storageMeta.bucket,
-        storageKey: storageMeta.storageKey,
         routingDecision,
         metadata,
         failureReason: record.error ?? null,
