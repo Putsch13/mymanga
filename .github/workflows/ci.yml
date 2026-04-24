@@ -1,49 +1,43 @@
 name: CI
+
 on:
+  pull_request:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+
 jobs:
-  check:
-    name: Lint · Types · Tests
+  verify:
+    name: Verify (install, generate, typecheck, test, build)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10.33.0
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @manga-ai-studio/db exec prisma generate
-      - run: pnpm --filter @manga-ai-studio/web exec tsc --noEmit
-      - run: pnpm --filter @manga-ai-studio/ai test --run
-      - run: pnpm --filter @manga-ai-studio/core test --run
-      - run: pnpm --filter @manga-ai-studio/workflow test --run
-      - run: pnpm --filter @manga-ai-studio/web test --run
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test all packages
+        run: pnpm test
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/test
-  build:
-    name: Build prod
-    runs-on: ubuntu-latest
-    needs: check
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.33.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @manga-ai-studio/db exec prisma generate
-      - run: pnpm --filter @manga-ai-studio/web build
+
+      - name: Build production
+        run: pnpm build
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder

@@ -85,6 +85,24 @@ export function isPipelineV3PremiumOnlyEnabled(): boolean {
 }
 
 /**
+ * P0.5 — Quand `false` (défaut), le pipeline legacy (narrative-pass +
+ * image-generation-pass) est INTERDIT. Il throw si on essaie de l'exécuter.
+ *
+ * Le legacy a été remplacé par la pipeline v3 qui corrige :
+ * - padding 40→75 panels
+ * - routing aveugle
+ * - prompts contradictoires
+ * - referencePolicy NONE sur héros
+ * - coverage mensongère
+ *
+ * Ce flag existe uniquement pour permettre un rollback d'urgence en cas
+ * d'incident prod critique. Aucun nouveau job ne devrait passer par legacy.
+ */
+export function isLegacyPipelineEnabled(): boolean {
+  return parseBoolEnv("ENABLE_LEGACY_PIPELINE", false);
+}
+
+/**
  * Expose de manière structurée tous les flags connus.
  * Utile pour logs de diagnostic au démarrage du pipeline.
  */
@@ -95,5 +113,6 @@ export function getPipelineFeatureFlags() {
     pipelineV3MangaEditorLlm: isPipelineV3MangaEditorLlmEnabled(),
     pipelineV3StoryArchitectLlm: isPipelineV3StoryArchitectLlmEnabled(),
     pipelineV3PremiumOnly: isPipelineV3PremiumOnlyEnabled(),
+    legacyPipelineEnabled: isLegacyPipelineEnabled(),
   } as const;
 }

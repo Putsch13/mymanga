@@ -93,6 +93,38 @@ function formatRenderFailure(detail: RenderPassImageFailureDetail): string {
 }
 
 /**
+ * P0.2 — Erreur bloquante quand la persistance V3 échoue.
+ * Un job ne peut être completed que si toutes les images sont persistées.
+ */
+export class V3ImagePersistenceError extends Error {
+  readonly chapterId: string;
+  readonly expectedPanels: number;
+  readonly persistedPanels: number;
+  readonly missingPanels: string[];
+  readonly cause?: Error;
+
+  constructor(args: {
+    chapterId: string;
+    expectedPanels: number;
+    persistedPanels: number;
+    missingPanels: string[];
+    cause?: Error;
+  }) {
+    const msg =
+      `V3_IMAGE_PERSISTENCE_FAILED chapterId=${args.chapterId} ` +
+      `expected=${args.expectedPanels} persisted=${args.persistedPanels} ` +
+      `missing=[${args.missingPanels.slice(0, 5).join(", ")}${args.missingPanels.length > 5 ? "..." : ""}]`;
+    super(msg);
+    this.name = "V3ImagePersistenceError";
+    this.chapterId = args.chapterId;
+    this.expectedPanels = args.expectedPanels;
+    this.persistedPanels = args.persistedPanels;
+    this.missingPanels = args.missingPanels;
+    this.cause = args.cause;
+  }
+}
+
+/**
  * Indique si ce renderMode nécessite une face ref dédiée closeup.
  * Les modes où le visage doit être reconnaissable requièrent la ref.
  * Les modes environnement/creature/aftermath/silhouette peuvent s'en passer.
@@ -405,17 +437,16 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
   };
   await saveRenderPassResult(input.chapterId, summary);
 
-  // COMMIT B — persistance SceneImage en DB.
+  // P0.2 — Persistance SceneImage FAIL-HARD.
   //
-  // Quand `persistToDb` est `true` (défaut à l'appel depuis le pipeline
-  // mais `false` par défaut ici pour ne pas casser les tests unitaires
-  // qui ne mockent pas Prisma), on écrit les panels rendus comme
-  // `SceneImage` consommables par le reader. Ça ferme le shadow mode :
-  // le premium peut désormais livrer un chapitre complet sans que
-  // `image-generation-pass` legacy tourne.
+  // Un job ne peut être completed que si TOUTES les images attendues sont
+  // persistées durablement en DB. Une erreur de persistance = job failed.
   if (input.persistToDb && rendered.length > 0) {
+    const expectedPanelIds = rendered.map((r) => r.spec.panelId);
+    let persistResult;
+
     try {
-      const persistResult = await persistV3RenderedPanels({
+      persistResult = await persistV3RenderedPanels({
         chapterId: input.chapterId,
         storyboardPlan: input.storyboardPlan,
         rendered: rendered as V3RenderedPanelRecord[],
@@ -423,19 +454,45 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
       console.log(
         `[render-pass:persist] chapterId=${input.chapterId} scenesCreated=${persistResult.scenesCreated} scenesReused=${persistResult.scenesReused} imagesUpserted=${persistResult.imagesUpserted} imagesSkipped=${persistResult.imagesSkipped}`,
       );
-      if (persistResult.warnings.length > 0) {
-        console.warn(
-          `[render-pass:persist] warnings=${persistResult.warnings.slice(0, 5).join(" | ")}`,
-        );
-      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(
         `[render-pass:persist] persist_failed chapterId=${input.chapterId} error=${msg}`,
       );
-      // On ne throw pas : la persistance est orthogonale au succès du
-      // render, mais on marque un warning pour l'audit.
-      summary.warnings.push(`persist_scene_image_failed: ${msg}`);
+      throw new V3ImagePersistenceError({
+        chapterId: input.chapterId,
+        expectedPanels: expectedPanelIds.length,
+        persistedPanels: 0,
+        missingPanels: expectedPanelIds,
+        cause: err instanceof Error ? err : undefined,
+      });
+    }
+
+    // Vérification stricte : tous les panels attendus doivent être persistés
+    if (persistResult.imagesSkipped > 0) {
+      const missingPanels = persistResult.warnings
+        .filter((w) => w.startsWith("panel_not_rendered"))
+        .map((w) => w.match(/panelId=([^\s]+)/)?.[1] ?? "unknown");
+
+      console.error(
+        `[render-pass:persist] incomplete chapterId=${input.chapterId} ` +
+          `expected=${expectedPanelIds.length} persisted=${persistResult.imagesUpserted} ` +
+          `skipped=${persistResult.imagesSkipped}`,
+      );
+
+      throw new V3ImagePersistenceError({
+        chapterId: input.chapterId,
+        expectedPanels: expectedPanelIds.length,
+        persistedPanels: persistResult.imagesUpserted,
+        missingPanels,
+      });
+    }
+
+    if (persistResult.warnings.length > 0) {
+      console.warn(
+        `[render-pass:persist] warnings=${persistResult.warnings.slice(0, 5).join(" | ")}`,
+      );
+      summary.warnings.push(...persistResult.warnings);
     }
   }
 

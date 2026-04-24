@@ -127,6 +127,7 @@ export * from "./services/story-spine";
 export * from "./services/genre-director";
 export * from "./services/romance-drama-director";
 export * from "./services/story-quality-gate";
+export * from "./services/llm-story-judge";
 export * from "./services/panel-intent-card";
 export * from "./services/scene-anchor";
 export * from "./services/narrative-fact-extractor";

@@ -7,6 +7,22 @@ import {
   deriveContentRatingFromProject,
   deriveMangaStyleProfileFromStylePack,
 } from "./chapter-image-plan-from-narrative";
+import { isLegacyPipelineEnabled } from "./pipeline-feature-flags";
+
+/**
+ * P0.5 — Erreur quand le legacy pipeline est désactivé.
+ */
+export class LegacyPipelineDisabledError extends Error {
+  constructor(chapterId: string) {
+    super(
+      `LEGACY_PIPELINE_DISABLED chapterId=${chapterId} — ` +
+      "Le pipeline legacy (narrative-pass + image-generation-pass) est désactivé. " +
+      "Utilisez le pipeline V3 premium. Si vous avez besoin du legacy en urgence, " +
+      "définissez ENABLE_LEGACY_PIPELINE=true."
+    );
+    this.name = "LegacyPipelineDisabledError";
+  }
+}
 
 export interface RunLegacyCompatibleChapterPipelineInput {
   jobId: string;
@@ -34,6 +50,20 @@ export interface RunLegacyCompatibleChapterPipelineInput {
 export async function runLegacyCompatibleChapterPipeline(
   input: RunLegacyCompatibleChapterPipelineInput,
 ): Promise<void> {
+  // P0.5 — Refuser le legacy si désactivé
+  if (!isLegacyPipelineEnabled()) {
+    console.error(
+      `[legacy-pipeline] BLOCKED chapterId=${input.chapterId} — legacy is disabled, use V3 premium`,
+    );
+    throw new LegacyPipelineDisabledError(input.chapterId);
+  }
+
+  console.warn(
+    `[legacy-pipeline] DEPRECATED chapterId=${input.chapterId} — ` +
+    "using legacy pipeline (narrative-pass + image-generation-pass). " +
+    "Consider migrating to V3 premium.",
+  );
+
   const narrativeResult = await runNarrativePass(
     {
       jobId: input.jobId,

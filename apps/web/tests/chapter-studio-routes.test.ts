@@ -240,6 +240,10 @@ beforeEach(() => {
   checkRateLimitMock.mockResolvedValue({ ok: true });
   getGenerationStackStatusMock.mockReturnValue({
     canGenerateChapters: true,
+    canRunV3Premium: true,
+    hasFal: true,
+    hasStoragePersistence: true,
+    hasOpenAI: true,
     operationalStatus: "FULLY_OPERATIONAL",
     degradedModes: [],
     warnings: [],

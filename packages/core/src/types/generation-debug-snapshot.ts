@@ -88,6 +88,12 @@ export interface GenerationDebugSnapshot {
   result: {
     status: "completed" | "failed" | "pending";
     imageUrl?: string | null;
+    /** P0.3 — URL provider originale (FAL, etc.) pour debug */
+    providerImageUrl?: string | null;
+    /** P0.3 — Bucket de stockage durable */
+    storageBucket?: string | null;
+    /** P0.3 — Clef de stockage durable */
+    storageKey?: string | null;
     error?: string | null;
   };
 }

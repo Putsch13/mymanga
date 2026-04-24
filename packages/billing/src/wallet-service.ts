@@ -1,7 +1,16 @@
-import type { PrismaClient, WalletTransactionType } from "@manga-ai-studio/db";
+import type { PrismaClient, WalletTransactionType, Prisma } from "@manga-ai-studio/db";
+
+/**
+ * P0.6 — Wallet transactionnel avec reserve/capture/release.
+ *
+ * Flow:
+ * 1. reserveTokens() → crée une réservation (balance - amount, reservedBalance + amount)
+ * 2. Au succès: captureReservation() → confirme la dépense (reservedBalance - amount)
+ * 3. À l'échec: releaseReservation() → libère la réservation (balance + amount, reservedBalance - amount)
+ */
 
 export type ReserveResult =
-  | { ok: true; balanceAfter: number; reservationId: string }
+  | { ok: true; balanceAfter: number; reservedBalance: number; reservationId: string }
   | { ok: false; reason: "insufficient_balance" };
 
 // Emails qui bypassent le wallet (liste hardcodée + env var)
@@ -49,6 +58,11 @@ export async function ensureWallet(prisma: PrismaClient, userId: string) {
   return wallet;
 }
 
+/**
+ * P0.6 — Réserve des tokens pour un job.
+ * La balance est décrémentée, reservedBalance est incrémenté.
+ * Les tokens restent "bloqués" jusqu'à capture ou release.
+ */
 export async function reserveTokens(
   prisma: PrismaClient,
   userId: string,
@@ -56,32 +70,46 @@ export async function reserveTokens(
   reference?: { reason?: string; referenceType?: string; referenceId?: string; metadata?: Record<string, unknown> },
 ): Promise<ReserveResult> {
   if (await shouldBypassWallet(prisma, userId)) {
-    return { ok: true, balanceAfter: Number.MAX_SAFE_INTEGER, reservationId: `admin_unlimited:${userId}:${Date.now()}` };
+    return {
+      ok: true,
+      balanceAfter: Number.MAX_SAFE_INTEGER,
+      reservedBalance: 0,
+      reservationId: `admin_unlimited:${userId}:${Date.now()}`,
+    };
   }
   return prisma.$transaction(async (tx) => {
     const w = await ensureWallet(tx as PrismaClient, userId);
     if (w.balance < amount) return { ok: false, reason: "insufficient_balance" };
+
     const balanceAfter = w.balance - amount;
+    const reservedAfter = (w.reservedBalance ?? 0) + amount;
 
     const txEntry = await tx.walletTransaction.create({
       data: {
         walletId: w.id,
-        type: "debit" as WalletTransactionType,
+        type: "reserve" as WalletTransactionType,
         amount,
         balanceBefore: w.balance,
         balanceAfter,
+        reservedBefore: w.reservedBalance ?? 0,
+        reservedAfter,
         reason: reference?.reason ?? "job_reservation",
         referenceType: reference?.referenceType,
         referenceId: reference?.referenceId,
-        metadata: { status: "reserved", ...(reference?.metadata ?? {}) },
+        status: "pending",
+        metadata: (reference?.metadata ?? {}) as Prisma.InputJsonValue,
       },
     });
 
     await tx.wallet.update({
       where: { userId },
-      data: { balance: balanceAfter, lifetimeSpent: { increment: amount } },
+      data: {
+        balance: balanceAfter,
+        reservedBalance: reservedAfter,
+      },
     });
-    return { ok: true, balanceAfter, reservationId: txEntry.id };
+
+    return { ok: true, balanceAfter, reservedBalance: reservedAfter, reservationId: txEntry.id };
   });
 }
 
@@ -122,14 +150,20 @@ export async function creditPurchase(
   });
 }
 
-export async function settleReservedTokens(
+/**
+ * P0.6 — Capture une réservation (job réussi).
+ * La reservedBalance est décrémentée, lifetimeSpent est incrémenté.
+ * Si actualAmount < reservedAmount, le surplus est remboursé.
+ * Si actualAmount > reservedAmount, on prélève le delta sur balance.
+ */
+export async function captureReservation(
   prisma: PrismaClient,
   userId: string,
   reservationId: string,
   actualAmount: number,
 ) {
   if (reservationId.startsWith("admin_unlimited:")) {
-    return { ok: true as const, actualAmount };
+    return { ok: true as const, actualAmount, refunded: 0 };
   }
   return prisma.$transaction(async (tx) => {
     const wallet = await ensureWallet(tx as PrismaClient, userId);
@@ -140,73 +174,116 @@ export async function settleReservedTokens(
     if (!reservation || reservation.walletId !== wallet.id) {
       throw new Error("reservation_not_found");
     }
+    if (reservation.status !== "pending") {
+      throw new Error(`reservation_already_${reservation.status}`);
+    }
 
     const reservedAmount = reservation.amount;
+    let refundedAmount = 0;
+
+    // Marquer la réservation comme captured
+    await tx.walletTransaction.update({
+      where: { id: reservationId },
+      data: { status: "captured" },
+    });
+
+    // Libérer la reservedBalance
+    const reservedAfter = Math.max(0, (wallet.reservedBalance ?? 0) - reservedAmount);
 
     if (actualAmount < reservedAmount) {
-      const refundAmount = reservedAmount - actualAmount;
-      const balanceAfter = wallet.balance + refundAmount;
+      // Remboursement partiel
+      refundedAmount = reservedAmount - actualAmount;
+      const balanceAfter = wallet.balance + refundedAmount;
+
       await tx.wallet.update({
         where: { id: wallet.id },
         data: {
           balance: balanceAfter,
-          lifetimeSpent: { decrement: refundAmount },
-          lifetimeRefunded: { increment: refundAmount },
+          reservedBalance: reservedAfter,
+          lifetimeSpent: { increment: actualAmount },
+          lifetimeRefunded: { increment: refundedAmount },
         },
       });
+
       await tx.walletTransaction.create({
         data: {
           walletId: wallet.id,
-          type: "refund" as WalletTransactionType,
-          amount: refundAmount,
+          type: "release" as WalletTransactionType,
+          amount: refundedAmount,
           balanceBefore: wallet.balance,
           balanceAfter,
+          reservedBefore: wallet.reservedBalance ?? 0,
+          reservedAfter,
           reason: "job_partial_refund",
           referenceType: "wallet_reservation",
           referenceId: reservationId,
-          metadata: { status: "settled", actualAmount, reservedAmount },
+          status: "completed",
+          metadata: { actualAmount, reservedAmount },
         },
       });
     } else if (actualAmount > reservedAmount) {
+      // Coût supplémentaire
       const delta = actualAmount - reservedAmount;
       if (wallet.balance < delta) {
         throw new Error("insufficient_balance_for_capture");
       }
       const balanceAfter = wallet.balance - delta;
+
       await tx.wallet.update({
         where: { id: wallet.id },
         data: {
           balance: balanceAfter,
-          lifetimeSpent: { increment: delta },
+          reservedBalance: reservedAfter,
+          lifetimeSpent: { increment: actualAmount },
         },
       });
+
       await tx.walletTransaction.create({
         data: {
           walletId: wallet.id,
-          type: "debit" as WalletTransactionType,
+          type: "capture" as WalletTransactionType,
           amount: delta,
           balanceBefore: wallet.balance,
           balanceAfter,
-          reason: "job_capture_delta",
+          reservedBefore: wallet.reservedBalance ?? 0,
+          reservedAfter,
+          reason: "job_additional_cost",
           referenceType: "wallet_reservation",
           referenceId: reservationId,
-          metadata: { status: "settled", actualAmount, reservedAmount },
+          status: "completed",
+          metadata: { actualAmount, reservedAmount },
+        },
+      });
+    } else {
+      // Exactement le montant réservé
+      await tx.wallet.update({
+        where: { id: wallet.id },
+        data: {
+          reservedBalance: reservedAfter,
+          lifetimeSpent: { increment: actualAmount },
         },
       });
     }
 
-    return { ok: true as const, actualAmount };
+    return { ok: true as const, actualAmount, refunded: refundedAmount };
   });
 }
 
-export async function refundReservation(
+// Alias pour compatibilité
+export const settleReservedTokens = captureReservation;
+
+/**
+ * P0.6 — Libère une réservation (job échoué).
+ * Les tokens réservés sont remis dans balance.
+ */
+export async function releaseReservation(
   prisma: PrismaClient,
   userId: string,
   reservationId: string,
-  reason = "job_failed_refund",
+  reason = "job_failed",
 ) {
   if (reservationId.startsWith("admin_unlimited:")) {
-    return { ok: true as const, refundedAmount: 0 };
+    return { ok: true as const, releasedAmount: 0 };
   }
   return prisma.$transaction(async (tx) => {
     const wallet = await ensureWallet(tx as PrismaClient, userId);
@@ -217,33 +294,52 @@ export async function refundReservation(
     if (!reservation || reservation.walletId !== wallet.id) {
       throw new Error("reservation_not_found");
     }
+    if (reservation.status !== "pending") {
+      throw new Error(`reservation_already_${reservation.status}`);
+    }
 
-    const balanceAfter = wallet.balance + reservation.amount;
+    const releasedAmount = reservation.amount;
+    const balanceAfter = wallet.balance + releasedAmount;
+    const reservedAfter = Math.max(0, (wallet.reservedBalance ?? 0) - releasedAmount);
+
+    // Marquer la réservation comme released
+    await tx.walletTransaction.update({
+      where: { id: reservationId },
+      data: { status: "released" },
+    });
+
     await tx.wallet.update({
       where: { id: wallet.id },
       data: {
         balance: balanceAfter,
-        lifetimeSpent: { decrement: reservation.amount },
-        lifetimeRefunded: { increment: reservation.amount },
-      },
-    });
-    await tx.walletTransaction.create({
-      data: {
-        walletId: wallet.id,
-        type: "refund" as WalletTransactionType,
-        amount: reservation.amount,
-        balanceBefore: wallet.balance,
-        balanceAfter,
-        reason,
-        referenceType: "wallet_reservation",
-        referenceId: reservationId,
-        metadata: { status: "refunded" },
+        reservedBalance: reservedAfter,
+        lifetimeRefunded: { increment: releasedAmount },
       },
     });
 
-    return { ok: true as const, refundedAmount: reservation.amount };
+    await tx.walletTransaction.create({
+      data: {
+        walletId: wallet.id,
+        type: "release" as WalletTransactionType,
+        amount: releasedAmount,
+        balanceBefore: wallet.balance,
+        balanceAfter,
+        reservedBefore: wallet.reservedBalance ?? 0,
+        reservedAfter,
+        reason,
+        referenceType: "wallet_reservation",
+        referenceId: reservationId,
+        status: "completed",
+        metadata: {},
+      },
+    });
+
+    return { ok: true as const, releasedAmount };
   });
 }
+
+// Alias pour compatibilité
+export const refundReservation = releaseReservation;
 
 export async function getWalletSummary(prisma: PrismaClient, userId: string) {
   const wallet = await ensureWallet(prisma, userId);

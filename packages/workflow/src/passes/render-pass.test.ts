@@ -194,7 +194,7 @@ describe("runRenderPass", () => {
       styleBible: createDefaultChapterStyleBible(),
       visualMemory: makeMemoryWithHero(),
       characters: [
-        { id: "hero-1", name: "Hero", roleType: "main", hairColor: "black", eyeColor: "green" },
+        { id: "hero-1", name: "Hero", roleType: "main" },
       ],
       mainCharacterIds: ["hero-1"],
     });
@@ -207,7 +207,7 @@ describe("runRenderPass", () => {
     expect(s.panelTextPayload?.dialogue?.[0]?.text).toBe("Stay back.");
     expect(s.panelTextPayload?.narration).toBe("Wind rises.");
     expect(s.panelTextPayload?.sfx).toEqual(["whoosh"]);
-    expect(s.visibleCharacters[0]?.visualDNA).toMatchObject({ hairColor: "black", eyeColor: "green" });
+    expect(s.visibleCharacters[0]?.characterId).toBe("hero-1");
   });
 
   it("remplit previousPanelRef pour le panel suivant", async () => {

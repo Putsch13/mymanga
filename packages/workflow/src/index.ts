@@ -7,8 +7,10 @@ export {
   isPipelineV3StoryboardEnabled,
   isPipelineV3RenderFalEnabled,
   isPipelineV3MangaEditorLlmEnabled,
+  isLegacyPipelineEnabled,
   getPipelineFeatureFlags,
 } from "./pipeline-feature-flags";
+export { LegacyPipelineDisabledError } from "./run-legacy-compatible-chapter-pipeline";
 export { runStoryPass } from "./passes/story-pass";
 export type { RunStoryPassInput, RunStoryPassResult } from "./passes/story-pass";
 export { runStoryboardPass } from "./passes/storyboard-pass";

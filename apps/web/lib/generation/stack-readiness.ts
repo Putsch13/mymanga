@@ -38,10 +38,13 @@ export type GenerationStackStatus = {
   degradedModes: GenerationOperationalStatus[];
   isDegraded: boolean;
   hasOpenAI: boolean;
+  hasFal: boolean;
   hasStoragePersistence: boolean;
   allowMockImageProvider: boolean;
   canGenerateImages: boolean;
   canGenerateChapters: boolean;
+  /** P0.4 — V3 premium pipeline nécessite FAL + storage */
+  canRunV3Premium: boolean;
   blockers: string[];
   warnings: string[];
 };
@@ -50,6 +53,7 @@ export function getGenerationStackStatus(): GenerationStackStatus {
   const providers = configuredProviders();
   const preferred = preferredProvider(providers);
   const storageReady = hasStoragePersistence();
+  const hasFal = providers.includes("fal");
   const blockers: string[] = [];
   const warnings: string[] = [];
 
@@ -79,6 +83,9 @@ export function getGenerationStackStatus(): GenerationStackStatus {
     providerNeedsStorage(preferred) && !storageReady ? "DEGRADED_STORAGE_MISSING" : "FULLY_OPERATIONAL",
   ]);
 
+  // P0.4 — V3 premium pipeline nécessite FAL + storage durable
+  const canRunV3Premium = hasFal && storageReady && Boolean(process.env.OPENAI_API_KEY);
+
   return {
     configuredProviders: providers,
     preferredImageProvider: preferred,
@@ -86,6 +93,7 @@ export function getGenerationStackStatus(): GenerationStackStatus {
     degradedModes: operational.degradedModes,
     isDegraded: operational.isDegraded,
     hasOpenAI: Boolean(process.env.OPENAI_API_KEY),
+    hasFal,
     hasStoragePersistence: storageReady,
     allowMockImageProvider:
       process.env.ALLOW_MOCK_IMAGE_PROVIDER === "true" || process.env.NODE_ENV !== "production",
@@ -95,6 +103,7 @@ export function getGenerationStackStatus(): GenerationStackStatus {
       Boolean(process.env.OPENAI_API_KEY) &&
       providers.length > 0 &&
       (!preferred || !providerNeedsStorage(preferred) || storageReady),
+    canRunV3Premium,
     blockers,
     warnings,
   };

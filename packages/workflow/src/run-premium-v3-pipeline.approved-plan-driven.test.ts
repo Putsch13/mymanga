@@ -60,9 +60,8 @@ function minimalBlueprint(overrides: Record<string, unknown> = {}): PanelBluepri
 }
 
 describe("runPremiumV3Pipeline — approved_plan_driven", () => {
-  let buildApprovedPlanSpy: ReturnType<
-    typeof vi.spyOn<typeof approvedProductionPlan, "buildStoryboardPlanFromApprovedProductionPlan">
-  >;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let buildApprovedPlanSpy: any;
 
   beforeEach(() => {
     vi.clearAllMocks();

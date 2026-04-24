@@ -141,6 +141,9 @@ export async function runPremiumV3Pipeline(
     return { v3RenderSucceeded };
   }
 
+  const pipelineStartMs = Date.now();
+  const timings: Record<string, number> = {};
+
   try {
     const approvedPlanDriven = hasApprovedPlanDrivenInput(input);
     let storyArc: StoryArc | null = null;
@@ -148,6 +151,7 @@ export async function runPremiumV3Pipeline(
     let storyboardPassResult: Awaited<ReturnType<typeof runStoryboardPass>>;
 
     if (approvedPlanDriven) {
+      const storyboardBuildStart = Date.now();
       storyboardPassResult = {
         storyboardPlan: buildStoryboardPlanFromApprovedProductionPlan({
           chapterId: input.chapterId,
@@ -161,7 +165,9 @@ export async function runPremiumV3Pipeline(
         warnings: ["storyboard_plan.source=approved_production_plan"],
         blockers: [],
       };
+      timings.storyboard_build_ms = Date.now() - storyboardBuildStart;
     } else {
+      const storyStart = Date.now();
       const locationsForStory = await resolveLocationsForStoryPass(input);
       const storyPassResult = await runStoryPass({
         chapterId: input.chapterId,
@@ -176,6 +182,7 @@ export async function runPremiumV3Pipeline(
         })),
         locations: locationsForStory.map((l) => ({ id: l.id, name: l.name })),
       });
+      timings.story_pass_ms = Date.now() - storyStart;
       storyArc = storyPassResult.storyArc;
       if (storyPassResult.warnings.length > 0) {
         console.warn(
@@ -183,6 +190,7 @@ export async function runPremiumV3Pipeline(
         );
       }
 
+      const storyboardStart = Date.now();
       storyboardPassResult =
         Array.isArray(input.panelBlueprints) && input.panelBlueprints.length > 0
           ? {
@@ -202,6 +210,7 @@ export async function runPremiumV3Pipeline(
               projectFormat: resolveProjectFormat(input.project, input.projectId),
               targetPanelCount: PREMIUM_PANEL_RANGE.target,
             });
+      timings.storyboard_pass_ms = Date.now() - storyboardStart;
     }
     await saveStoryboardPlan(input.chapterId, storyboardPassResult.storyboardPlan);
     console.info(
@@ -255,11 +264,13 @@ export async function runPremiumV3Pipeline(
     }
 
     try {
+      const memoryStart = Date.now();
       const visualMemoryResult = await loadChapterVisualMemory({
         chapterId: input.chapterId,
         projectId: input.projectId,
         mainCharacterIds: input.focusCharacterIds,
       });
+      timings.visual_memory_ms = Date.now() - memoryStart;
       if (visualMemoryResult.warnings.length > 0) {
         console.warn(
           `[pipeline:v3:visual-memory] warnings=${visualMemoryResult.warnings.slice(0, 5).join(" | ")}`,
@@ -273,6 +284,7 @@ export async function runPremiumV3Pipeline(
       console.log(
         `[pipeline:v3:render] fal_real_enabled=${renderFalEnabled} (flag PIPELINE_V3_RENDER_FAL)`,
       );
+      const renderStart = Date.now();
       const renderPassResult = await runRenderPass({
         chapterId: input.chapterId,
         storyboardPlan: storyboardPassResult.storyboardPlan,
@@ -296,6 +308,7 @@ export async function runPremiumV3Pipeline(
           : undefined,
         persistToDb: renderFalEnabled,
       });
+      timings.render_pass_ms = Date.now() - renderStart;
       console.log(
         `[pipeline:v3:render] total=${renderPassResult.summary.totalPanels} specs=${renderPassResult.specs.length} failed=${renderPassResult.summary.failedCount} panel_qa_ok=${renderPassResult.panelQa.okCount}/${renderPassResult.panelQa.okCount + renderPassResult.panelQa.failCount}`,
       );
@@ -341,6 +354,14 @@ export async function runPremiumV3Pipeline(
       throw new Error(`premium_v3_only_failed: ${v3Msg}`);
     }
   }
+
+  timings.total_ms = Date.now() - pipelineStartMs;
+  const timingReport = Object.entries(timings)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(" ");
+  console.info(
+    `[pipeline:v3:report] chapterId=${input.chapterId} v3RenderSucceeded=${v3RenderSucceeded} ${timingReport}`,
+  );
 
   return { v3RenderSucceeded };
 }

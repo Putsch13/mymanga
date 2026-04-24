@@ -68,6 +68,27 @@ export async function POST(_req: Request, ctx: Ctx) {
     );
   }
 
+  // P0.4 — V3 premium nécessite FAL + storage durable
+  if (!stack.canRunV3Premium) {
+    const missingComponents: string[] = [];
+    if (!stack.hasFal) missingComponents.push("FAL_KEY");
+    if (!stack.hasStoragePersistence) missingComponents.push("SUPABASE storage (SUPABASE_SERVICE_ROLE_KEY + STORAGE_BUCKET)");
+    if (!stack.hasOpenAI) missingComponents.push("OPENAI_API_KEY");
+
+    console.warn(
+      `[launch] v3_premium_stack_incomplete chapterId=${chapterId} missing=[${missingComponents.join(", ")}]`,
+    );
+    return NextResponse.json(
+      {
+        error: "v3_premium_stack_incomplete",
+        code: "V3_PREMIUM_STACK_INCOMPLETE",
+        message: `Le pipeline V3 premium nécessite: ${missingComponents.join(", ")}`,
+        missingComponents,
+      },
+      { status: 409 },
+    );
+  }
+
   const chapter = await prisma.chapter.findFirst({
     where: { id: chapterId, projectId, project: { userId: user.id } },
     include: { project: { include: { user: { include: { preferences: true } } } } },

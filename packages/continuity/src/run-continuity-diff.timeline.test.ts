@@ -154,10 +154,23 @@ describe("detectCausalityBreaks (P1.3)", () => {
   }): CharacterState {
     return {
       characterId: overrides.characterId ?? "char-1",
-      identity: {},
-      appearanceLocked: {},
-      psychologicalCanon: {},
-      physicalCanon: {},
+      identity: {} as CharacterState["identity"],
+      appearanceLocked: {
+        forbiddenVisualDrift: [],
+        scars: [],
+        tattoos: [],
+        fixedAccessories: [],
+      },
+      psychologicalCanon: {
+        coreTraits: [],
+        fears: [],
+        motivations: [],
+        speechRules: [],
+      },
+      physicalCanon: {
+        allowedOutfitVariations: [],
+        bodyMarkers: [],
+      },
       currentState: {
         injuries: overrides.injuries ?? [],
         possessions: [],

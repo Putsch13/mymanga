@@ -28,6 +28,7 @@ import type {
   PanelRenderSpec,
   StoryboardPlan,
 } from "@manga-ai-studio/ai";
+import { persistImageIfNeeded, type PersistedImageResult } from "../pipeline-image-persistence";
 
 export interface V3RenderedPanelRecord {
   spec: PanelRenderSpec;
@@ -52,6 +53,9 @@ export interface V3SceneImagePersistResult {
   scenesReused: number;
   imagesUpserted: number;
   imagesSkipped: number;
+  imagesPersisted: number;
+  imagesAlreadyStable: number;
+  imagesStorageFailed: number;
   warnings: string[];
 }
 
@@ -69,7 +73,16 @@ export async function persistV3RenderedPanels(
   let scenesReused = 0;
   let imagesUpserted = 0;
   let imagesSkipped = 0;
+  let imagesPersisted = 0;
+  let imagesAlreadyStable = 0;
+  let imagesStorageFailed = 0;
   const warnings: string[] = [];
+
+  const chapter = await prisma.chapter.findUnique({
+    where: { id: chapterId },
+    select: { projectId: true },
+  });
+  const projectId = chapter?.projectId ?? "unknown";
 
   const renderedByPanelId = new Map<string, V3RenderedPanelRecord>();
   for (const r of rendered) {
@@ -118,8 +131,48 @@ export async function persistV3RenderedPanels(
       }
 
       const panelNumber = panel.panelNumberInPage;
-      const imageUrl = record.imageUrl ?? null;
-      const hasImage = !!imageUrl;
+      const providerImageUrl = record.imageUrl ?? null;
+
+      // P0.3 — Ne jamais persister d'URL provider temporaire
+      // On copie vers Supabase avant de stocker en DB
+      let durableImageUrl: string | null = null;
+      let storageMeta: { bucket: string | null; storageKey: string | null; mimeType: string | null } = {
+        bucket: null,
+        storageKey: null,
+        mimeType: null,
+      };
+
+      if (providerImageUrl) {
+        const persistResult: PersistedImageResult = await persistImageIfNeeded({
+          imageUrl: providerImageUrl,
+          projectId,
+          chapterId,
+          sceneImageId: panel.panelId,
+          logContext: `v3-persist:${panel.panelId}`,
+        });
+
+        if (persistResult.ok && persistResult.persisted) {
+          durableImageUrl = persistResult.url;
+          storageMeta = {
+            bucket: persistResult.bucket,
+            storageKey: persistResult.storageKey,
+            mimeType: persistResult.mimeType,
+          };
+          imagesPersisted += 1;
+        } else if (persistResult.ok && !persistResult.persisted) {
+          // URL déjà stable (Supabase), pas besoin de copier
+          durableImageUrl = persistResult.url;
+          imagesAlreadyStable += 1;
+        } else {
+          // Échec de persistance — on refuse de stocker l'URL provider
+          warnings.push(
+            `storage_failed panelId=${panel.panelId} reason=${persistResult.reason} — URL provider NON persistée`,
+          );
+          imagesStorageFailed += 1;
+        }
+      }
+
+      const hasImage = !!durableImageUrl;
       const pageSlots = buildReaderPanelSlots({
         template: page.layoutTemplate,
         readingDirection: "rtl",
@@ -196,7 +249,10 @@ export async function persistV3RenderedPanels(
         },
         result: {
           status: status as "completed" | "failed" | "pending",
-          imageUrl,
+          imageUrl: durableImageUrl,
+          providerImageUrl,
+          storageBucket: storageMeta.bucket,
+          storageKey: storageMeta.storageKey,
           error: record.error ?? null,
         },
       };
@@ -243,8 +299,10 @@ export async function persistV3RenderedPanels(
         provider: record.provider ?? null,
         model: record.model ?? null,
         status,
-        imageUrl,
-        persistedUrl: imageUrl,
+        imageUrl: durableImageUrl,
+        persistedUrl: durableImageUrl,
+        storageBucket: storageMeta.bucket,
+        storageKey: storageMeta.storageKey,
         routingDecision,
         metadata,
         failureReason: record.error ?? null,
@@ -275,5 +333,14 @@ export async function persistV3RenderedPanels(
     }
   }
 
-  return { scenesCreated, scenesReused, imagesUpserted, imagesSkipped, warnings };
+  return {
+    scenesCreated,
+    scenesReused,
+    imagesUpserted,
+    imagesSkipped,
+    imagesPersisted,
+    imagesAlreadyStable,
+    imagesStorageFailed,
+    warnings,
+  };
 }

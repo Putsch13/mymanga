@@ -156,6 +156,10 @@ enum WalletTransactionType {
   debit
   refund
   adjustment
+  /// P0.6 — Types transactionnels pour reserve/capture/release
+  reserve
+  capture
+  release
 }
 
 enum MediaAssetType {
@@ -988,6 +992,8 @@ model Wallet {
   userId             String   @unique
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   balance            Int      @default(0)
+  /// P0.6 — Balance réservée pour les jobs en cours (bloquée mais non dépensée)
+  reservedBalance    Int      @default(0)
   lifetimePurchased  Int      @default(0)
   lifetimeSpent      Int      @default(0)
   lifetimeRefunded   Int      @default(0)
@@ -1004,11 +1010,19 @@ model WalletTransaction {
   amount         Int
   balanceBefore  Int
   balanceAfter   Int
+  /// P0.6 — Balance réservée avant/après pour transactions de type reserve
+  reservedBefore Int?
+  reservedAfter  Int?
   reason         String
   referenceType  String?
   referenceId    String?
+  /// P0.6 — Pour les réservations: pending → captured/released
+  status         String                @default("completed")
   metadata       Json                  @default("{}")
   createdAt      DateTime              @default(now())
+
+  @@index([walletId, status])
+  @@index([referenceType, referenceId])
 }
 
 model TokenPricingRule {
