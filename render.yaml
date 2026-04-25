@@ -30,6 +30,12 @@ services:
         sync: false
       - key: ENABLE_PREMIUM_VISION_QA
         sync: false
+      - key: PREMIUM_VISUAL_QA_REQUIRED
+        sync: false
+      - key: ENABLE_IMAGE_MOCKS
+        sync: false
+      - key: PIPELINE_V3_PREMIUM_ONLY
+        sync: false
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET

@@ -2,6 +2,10 @@ import {
   summarizeGenerationStatuses,
   type GenerationOperationalStatus,
 } from "@manga-ai-studio/ai";
+import {
+  getPremiumVisualQaConfigStatus,
+  isPremiumVisualQaStrictlyRequired,
+} from "@manga-ai-studio/workflow";
 
 type ImageProviderId = "fal" | "runware" | "stability" | "bfl";
 
@@ -47,6 +51,14 @@ export type GenerationStackStatus = {
   canRunV3Premium: boolean;
   /** Prod premium-only : `VISUAL_PANEL_QA_VISION` + `ENABLE_PREMIUM_VISION_QA` à true (voir assertPremiumVisualQaConfig). */
   visionPremiumQaEnvReady: boolean;
+  /** Préflight aligné sur le worker `assertPremiumVisualQaConfig` (prod + PIPELINE_V3_PREMIUM_ONLY). */
+  premiumVisualQaPreflight: {
+    ok: boolean;
+    missing: string[];
+    strictlyRequired: boolean;
+    /** Si true, la route launch/pipeline renverra 400 avant création de job. */
+    launchBlocked: boolean;
+  };
   blockers: string[];
   warnings: string[];
 };
@@ -94,12 +106,28 @@ export function getGenerationStackStatus(): GenerationStackStatus {
     );
   }
 
-  // P0.4 — V3 premium + prod : QA vision explicitement activée
+  const premiumVisualQaConfig = getPremiumVisualQaConfigStatus();
+  const productionPremiumOnlyPipeline =
+    process.env.NODE_ENV === "production" && process.env.PIPELINE_V3_PREMIUM_ONLY === "true";
+  const premiumVisualQaLaunchBlocked =
+    productionPremiumOnlyPipeline
+    && isPremiumVisualQaStrictlyRequired()
+    && !premiumVisualQaConfig.ok;
+
+  if (premiumVisualQaLaunchBlocked) {
+    blockers.push(
+      "QA visuelle premium (production) : variables manquantes — " +
+        `configure ${premiumVisualQaConfig.missing.join(", ")} (ou PREMIUM_VISUAL_QA_REQUIRED=false pour un mode dégradé).`,
+    );
+  }
+
+  // P0.4 — V3 premium + prod : QA vision explicitement activée + préflight complet premium-only
   const canRunV3Premium =
     hasFal
     && storageReady
     && Boolean(process.env.OPENAI_API_KEY)
-    && (process.env.NODE_ENV !== "production" || visionPremiumQaEnvReady);
+    && (process.env.NODE_ENV !== "production" || visionPremiumQaEnvReady)
+    && !premiumVisualQaLaunchBlocked;
 
   return {
     configuredProviders: providers,
@@ -120,6 +148,12 @@ export function getGenerationStackStatus(): GenerationStackStatus {
       (!preferred || !providerNeedsStorage(preferred) || storageReady),
     canRunV3Premium,
     visionPremiumQaEnvReady,
+    premiumVisualQaPreflight: {
+      ok: premiumVisualQaConfig.ok,
+      missing: premiumVisualQaConfig.missing,
+      strictlyRequired: isPremiumVisualQaStrictlyRequired(),
+      launchBlocked: premiumVisualQaLaunchBlocked,
+    },
     blockers,
     warnings,
   };

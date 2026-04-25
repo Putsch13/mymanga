@@ -26,6 +26,13 @@ export type StudioResponse = {
     stack: {
       canGenerateChapters: boolean;
       blockers: string[];
+      canRunV3Premium?: boolean;
+      premiumVisualQaPreflight?: {
+        ok: boolean;
+        missing: string[];
+        strictlyRequired: boolean;
+        launchBlocked: boolean;
+      };
     };
     imageStats: {
       total: number;

@@ -328,3 +328,14 @@ export type {
   ChapterBeatPlanInput,
   ChapterPanelPlanInput,
 } from "./chapter-image-plan-builder";
+// Préflight QA visuelle premium (prod + PIPELINE_V3_PREMIUM_ONLY)
+export {
+  assertPremiumVisualQaConfig,
+  getPremiumVisualQaConfigStatus,
+  isPremiumVisualQaStrictlyRequired,
+  isProductionPremiumOnlyPipeline,
+} from "./passes/assert-premium-visual-qa-config";
+export type {
+  PremiumVisualQaConfigStatus,
+  PremiumVisualQaConfigMissingKey,
+} from "./passes/assert-premium-visual-qa-config";

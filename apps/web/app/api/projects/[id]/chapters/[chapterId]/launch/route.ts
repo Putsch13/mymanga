@@ -29,6 +29,7 @@ import {
 } from "@/lib/premium-chapter-contract";
 import { assertChapterCanonReadiness } from "@/lib/canon/assert-chapter-canon-readiness";
 import { toPrismaInputJson } from "@/lib/to-prisma-input-json";
+import { premiumVisualQaPreflightResponse } from "@/lib/generation/premium-visual-qa-preflight";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -72,6 +73,14 @@ export async function POST(_req: Request, ctx: Ctx) {
       },
       { status: 409 },
     );
+  }
+
+  const visualQaBlocked = premiumVisualQaPreflightResponse();
+  if (visualQaBlocked) {
+    console.warn(
+      `[launch] premium_visual_qa_preflight_failed chapterId=${chapterId} — job non créé (config serveur)`,
+    );
+    return visualQaBlocked;
   }
 
   // P0.4 — V3 premium nécessite FAL + storage durable

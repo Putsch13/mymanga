@@ -398,14 +398,19 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
   const generatedImages = generationContext?.imageStats.total ?? readiness?.imageCounts.generatedImages ?? 0;
   const acceptedImages = readiness?.imageCounts.acceptedImages ?? 0;
   const minimumImages = readiness?.imageCounts.minimumImages ?? PREMIUM_PANEL_RANGE.min;
-  const stackReady = generationContext?.stack.canGenerateChapters ?? true;
+  const premiumVisualBlocked =
+    generationContext?.stack.premiumVisualQaPreflight?.launchBlocked ?? false;
+  const stackReady =
+    (generationContext?.stack.canGenerateChapters ?? true) && !premiumVisualBlocked;
   const canAccessReview = generatedImages > 0 || ["QA_REVIEW", "NEEDS_FIXES", "COMPLETED", "PUBLISHED", "GENERATION_PARTIAL"].includes(snapshot.status);
   const launchDisabledMessage =
     blockerItems.length > 0 && generatedImages === 0
       ? "Corrige d’abord les blocants du studio pour lancer la génération."
-      : !stackReady
-        ? "La stack de génération n’est pas prête. Corrige les blocants techniques ci-dessous."
-        : null;
+      : premiumVisualBlocked
+        ? "Configuration serveur : QA visuelle premium incomplète (variables d’environnement). Corrige la liste ci-dessous ou contacte l’administrateur."
+        : !stackReady
+          ? "La stack de génération n’est pas prête. Corrige les blocants techniques ci-dessous."
+          : null;
   const creativityControls = normalizeCreativeControls(draft.creativityControls);
   const flowSteps = computeFlowCompletion(snapshot, blockerItems, liveReadiness?.completedSteps);
   const summary = computeChapterSummary(draft, snapshot, chapterTitle);

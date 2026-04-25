@@ -8,6 +8,7 @@ import { getAppUser } from "@/lib/auth/get-app-user";
 import { canAccessMatureContent, canBypassMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
 import { notFound, unauthorized, badRequest, validationError } from "@/lib/api-response";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
+import { premiumVisualQaPreflightResponse } from "@/lib/generation/premium-visual-qa-preflight";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { readChapterStudioSnapshotFromOutline } from "@/lib/chapter-studio";
 import {
@@ -67,6 +68,13 @@ export async function POST(req: Request, ctx: Ctx) {
   if (!stack.canGenerateChapters) {
     return validationError("La stack de generation n'est pas prete pour un chapitre complet.", stack);
   }
+
+  const visualQaBlocked = premiumVisualQaPreflightResponse();
+  if (visualQaBlocked) {
+    console.warn(`[pipeline] premium_visual_qa_preflight_failed — job non créé (config serveur)`);
+    return visualQaBlocked;
+  }
+
   const { id: projectId } = await ctx.params;
   const project = await prisma.project.findFirst({
     where: { id: projectId, userId: user.id },

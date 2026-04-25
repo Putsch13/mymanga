@@ -106,6 +106,14 @@ export function ChapterGenerateLauncher({
         setMessage(
           `Le contrat visuel est incomplet : ${missing}. Retourne dans le studio → étape Plan → Valider le plan avant de relancer.`
         );
+      } else if (code === "PREMIUM_VISUAL_QA_CONFIG_MISSING") {
+        const missing = Array.isArray(json.missing) && json.missing.length > 0
+          ? (json.missing as string[]).join(", ")
+          : "variables serveur";
+        setMessage(
+          `Configuration production incomplète pour la QA visuelle premium : ${missing}. ` +
+            `Ajoute ces variables sur l’hébergeur (ex. Render), ou définis PREMIUM_VISUAL_QA_REQUIRED=false pour un mode dégradé (qualité needs_review).`,
+        );
       } else {
         setMessage(json.message ?? json.error ?? "Erreur inconnue lors du lancement.");
       }

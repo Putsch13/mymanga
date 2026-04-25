@@ -4,6 +4,7 @@ import { runFullChapterPipelineFromJob, runChapterOutlineFromJob } from "@manga-
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized, validationError } from "@/lib/api-response";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
+import { premiumVisualQaPreflightResponse } from "@/lib/generation/premium-visual-qa-preflight";
 
 type Ctx = { params: Promise<{ jobId: string }> };
 
@@ -31,6 +32,8 @@ export async function POST(_req: Request, ctx: Ctx) {
     if (!stack.canGenerateChapters) {
       return validationError("La stack de generation n'est pas prete pour executer ce job.", stack);
     }
+    const visualBlocked = premiumVisualQaPreflightResponse();
+    if (visualBlocked) return visualBlocked;
     const r = await runFullChapterPipelineFromJob(job.id);
     if (!r.ok) {
       return NextResponse.json({ ok: false, jobId: job.id, error: r.error ?? "unknown" }, { status: 500 });

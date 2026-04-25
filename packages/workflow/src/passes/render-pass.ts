@@ -222,6 +222,11 @@ export interface RunRenderPassInput {
    * des SceneImage non validées). Fournir une valeur pour les tests sans DB.
    */
   generationRunId?: string | null;
+  /**
+   * Prod premium : config QA vision incomplète mais lancement autorisé
+   * (`PREMIUM_VISUAL_QA_REQUIRED=false`) — force `v3RenderQualityStatus=needs_review`.
+   */
+  visualQaProductionConfigIncomplete?: boolean;
 }
 
 export interface RunRenderPassResult {
@@ -813,7 +818,11 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
   }
 
   const v3RenderQualityStatus =
-    visualQaFailedCount > 0 || manualReviewRequiredCount > 0 ? "needs_review" : "passed";
+    input.visualQaProductionConfigIncomplete
+    || visualQaFailedCount > 0
+    || manualReviewRequiredCount > 0
+      ? "needs_review"
+      : "passed";
 
   const summary: RenderPassResultSummary = {
     chapterId: input.chapterId,
@@ -826,6 +835,7 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
     passedAfterRetryCount,
     visualQaPassedCount,
     v3RenderQualityStatus,
+    visualQaProductionConfigIncomplete: Boolean(input.visualQaProductionConfigIncomplete),
     startedAt: startedAt.toISOString(),
     finishedAt: new Date().toISOString(),
     warnings,

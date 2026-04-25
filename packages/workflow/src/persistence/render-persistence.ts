@@ -29,6 +29,8 @@ export interface RenderPassResultSummary {
   /** Panels rendus avec QA `passed` au premier essai ou après retry. */
   visualQaPassedCount: number;
   v3RenderQualityStatus: V3RenderQualityStatus;
+  /** Config prod QA vision incomplète (lancement dégradé `PREMIUM_VISUAL_QA_REQUIRED=false`). */
+  visualQaProductionConfigIncomplete?: boolean;
   startedAt: string;
   finishedAt: string;
   warnings: string[];
@@ -76,5 +78,6 @@ export async function loadRenderPassResult(
     passedAfterRetryCount: base.passedAfterRetryCount ?? 0,
     visualQaPassedCount: base.visualQaPassedCount ?? 0,
     v3RenderQualityStatus: base.v3RenderQualityStatus === "needs_review" ? "needs_review" : "passed",
+    visualQaProductionConfigIncomplete: base.visualQaProductionConfigIncomplete,
   };
 }

@@ -41,7 +41,11 @@ import {
 import { runMangaStructureQaOnBlueprints } from "./passes/manga-structure-qa";
 import { runPreRenderPremiumQaOrThrow } from "./passes/pre-render-premium-qa";
 import { runNarrativeContractQa } from "./passes/beat-narrative-contract";
-import { assertPremiumVisualQaConfig } from "./passes/assert-premium-visual-qa-config";
+import {
+  assertPremiumVisualQaConfig,
+  getPremiumVisualQaConfigStatus,
+  isPremiumVisualQaStrictlyRequired,
+} from "./passes/assert-premium-visual-qa-config";
 
 export type { PremiumV3PipelineLocation } from "./load-locations-for-v3-story-pass";
 
@@ -161,8 +165,20 @@ export async function runPremiumV3Pipeline(
   input: RunPremiumV3PipelineInput,
 ): Promise<RunPremiumV3PipelineResult> {
   assertPremiumOnlyV3Config(input);
+  let visualQaProductionConfigSkipped = false;
   if (input.premiumV3OnlyEnabled && process.env.NODE_ENV === "production") {
-    assertPremiumVisualQaConfig();
+    const visualCfg = getPremiumVisualQaConfigStatus();
+    if (!visualCfg.ok) {
+      if (isPremiumVisualQaStrictlyRequired()) {
+        assertPremiumVisualQaConfig();
+      } else {
+        visualQaProductionConfigSkipped = true;
+        console.warn(
+          `[pipeline:v3] premium_visual_qa_config_skipped chapterId=${input.chapterId} ` +
+            `PREMIUM_VISUAL_QA_REQUIRED=false missing=${visualCfg.missing.join(",")} — rendu avec needs_review`,
+        );
+      }
+    }
   }
 
   let v3RenderSucceeded = false;
@@ -629,6 +645,7 @@ export async function runPremiumV3Pipeline(
       const renderPassResult = await runRenderPass({
         chapterId: input.chapterId,
         storyboardPlan: storyboardPassResult.storyboardPlan,
+        visualQaProductionConfigIncomplete: visualQaProductionConfigSkipped,
         canonicalProductionPlan: canonicalRuntimePlan,
         styleBible: buildStyleBibleFromUserProject({
           project: input.project,
@@ -667,11 +684,17 @@ export async function runPremiumV3Pipeline(
       const skippedCount = renderPassResult.summary.skippedCount;
       const visualQaFailedCount = renderPassResult.summary.visualQaFailedCount;
       const manualReviewRequiredCount = renderPassResult.summary.manualReviewRequiredCount;
+      const deferredReviewFromConfig =
+        renderPassResult.summary.visualQaProductionConfigIncomplete === true
+        && process.env.PREMIUM_VISUAL_QA_REQUIRED === "false";
+      const qualityAcceptable =
+        renderPassResult.summary.v3RenderQualityStatus === "passed" || deferredReviewFromConfig;
+
       v3RenderSucceeded =
         renderPassResult.summary.failedCount === 0 &&
         visualQaFailedCount === 0 &&
         manualReviewRequiredCount === 0 &&
-        renderPassResult.summary.v3RenderQualityStatus === "passed" &&
+        qualityAcceptable &&
         renderPassResult.specs.length === renderPassResult.summary.totalPanels &&
         renderPassResult.summary.totalPanels > 0 &&
         renderedCount > 0 &&
