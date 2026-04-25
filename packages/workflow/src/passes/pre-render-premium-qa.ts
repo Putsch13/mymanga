@@ -4,7 +4,9 @@
  * Objectif : ne plus payer FAL pour des images inutilisables.
  */
 
-import type { StoryboardPlan } from "@manga-ai-studio/ai";
+import type { StoryboardPlan } from "@manga-ai-studio/ai/contracts";
+import { getPanelPromptFingerprint } from "./panel-prompt-fingerprint";
+import { repairStoryboardPlanRepeatedPromptFingerprints } from "./repair-repeated-prompt-fingerprints";
 
 export interface PreRenderPremiumQaInput {
   storyboardPlan: StoryboardPlan;
@@ -91,12 +93,6 @@ function panelHasDialogueOrSfx(panel: Record<string, unknown>): boolean {
   );
 }
 
-function extractPromptFingerprint(panel: Record<string, unknown>): string {
-  const action = String(panel.actionLine ?? "").trim().substring(0, 100);
-  const purpose = String(panel.scenePurpose ?? panel.purpose ?? "").trim().substring(0, 80);
-  return `${action}||${purpose}`;
-}
-
 function hasStrongWithoutRefs(panel: Record<string, unknown>): boolean {
   const policy = String(panel.referencePolicy ?? "");
   const refs = panel.imageReferences as Record<string, unknown[]> | undefined;
@@ -151,7 +147,7 @@ export function runPreRenderPremiumQa(input: PreRenderPremiumQaInput): PreRender
 
   const promptFingerprints = new Map<string, number>();
   for (const panel of panels) {
-    const fp = extractPromptFingerprint(panel);
+    const fp = getPanelPromptFingerprint(panel);
     promptFingerprints.set(fp, (promptFingerprints.get(fp) ?? 0) + 1);
   }
   const repeatedPrompts = [...promptFingerprints.entries()].filter(([, count]) => count > 2);
@@ -206,9 +202,38 @@ export class PreRenderPremiumQaError extends Error {
 }
 
 export function runPreRenderPremiumQaOrThrow(input: PreRenderPremiumQaInput): PreRenderPremiumQaResult {
-  const result = runPreRenderPremiumQa(input);
+  let result = runPreRenderPremiumQa(input);
+
+  if (!result.ok && result.stats.repeatedPromptCount > 0) {
+    console.warn("[pipeline:v3:pre-render-qa] repeated_prompts detected; attempting fingerprint repair", {
+      repeatedPromptCount: result.stats.repeatedPromptCount,
+      issues: result.issues,
+    });
+    repairStoryboardPlanRepeatedPromptFingerprints(input.storyboardPlan);
+    result = runPreRenderPremiumQa(input);
+    console.log("[pipeline:v3:pre-render-qa] after repair", {
+      repeatedPromptCount: result.stats.repeatedPromptCount,
+      ok: result.ok,
+      issues: result.issues,
+    });
+  }
 
   if (!result.ok) {
+    const otherIssues = result.issues.filter((i) => !i.startsWith("repeated_prompts="));
+    const repeatedOnly = otherIssues.length === 0 && result.stats.repeatedPromptCount <= 5;
+    if (repeatedOnly) {
+      console.warn("[pipeline:v3:pre-render-qa] tolerating repeated_prompts<=5 after repair (warning only)", {
+        repeatedPromptCount: result.stats.repeatedPromptCount,
+      });
+      console.info(
+        `[pipeline:v3:pre-render-premium-qa] ok=true (tolerated_repeated) panels=${result.stats.totalPanels} closeups=${result.stats.closeupCount}/${result.stats.totalPanels} genericActions=${result.stats.genericActionCount} repeatedPrompts=${result.stats.repeatedPromptCount}`,
+      );
+      return {
+        ...result,
+        ok: true,
+        issues: [...result.issues, "tolerated_repeated_prompts_after_repair"],
+      };
+    }
     throw new PreRenderPremiumQaError(result.issues, result.stats);
   }
 

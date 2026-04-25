@@ -2,6 +2,11 @@
  * Ancrage des beats de dialogue (speaker / réaction / zones texte réservées).
  */
 
+import {
+  getDialogueStyleProfile,
+  pickDeterministicFallbackLine,
+  type DialogueStyleProfile,
+} from "@manga-ai-studio/ai";
 import type { CutawayType, PanelBlueprintPremium, PanelTextBundle, ProductionOutline } from "@manga-ai-studio/core";
 import { blueprintTextBlob } from "./premium-manga-cutaway";
 import type { VisualEntity } from "./visual-entity-registry";
@@ -209,61 +214,71 @@ function firstNamedCharacter(text: string): string | null {
 
 export type InferredPanelTextMode = "dialogue" | "thought" | "narration" | "silent";
 
+type PanelTextStyleContext = { seed: string; profile: DialogueStyleProfile };
+
+function pickBeatDialogueOnly(args: {
+  seed: string;
+  profile: DialogueStyleProfile;
+  kind: "approach" | "hesitation" | "interrupt" | "gaze" | "decision";
+}): { text: string } | null {
+  const kinds: Array<typeof args.kind> = [args.kind, "interrupt", "approach", "gaze", "decision", "hesitation"];
+  for (let i = 0; i < kinds.length; i++) {
+    const k = kinds[i]!;
+    const pick = pickDeterministicFallbackLine({ seed: `${args.seed}|${i}`, profile: args.profile, kind: k });
+    if (pick.mode === "dialogue") return { text: pick.text };
+  }
+  return null;
+}
+
 export function inferPanelTextFromBeatSummary(
   summary: string,
   _panelRole: "speaker" | "reaction" | "generic",
   speakerHint?: string | null,
+  style?: PanelTextStyleContext | null,
 ): { mode: InferredPanelTextMode; speaker?: string; text?: string } {
   const cleaned = normalizeBeatText(summary);
   if (!cleaned) return { mode: "silent" };
   const lower = cleaned.toLowerCase();
   const speaker = (speakerHint ?? "").trim();
 
-  if (/(s['’]approche|approche pour|aller vers|discuter|parler à|talk to)/i.test(lower)) {
-    return {
-      mode: "dialogue",
-      speaker,
-      text: speaker ? "Je… je voulais te parler." : "Il faut que je lui parle.",
-    };
-  }
-  if (/(hésite|hesite|nerveux|nerveuse|angoiss|stress|trouve pas les mots)/i.test(lower)) {
-    return { mode: "thought", speaker, text: "Respire. Encore un pas." };
-  }
-  if (/(interrompt|interrupt|coupe la parole|coupe dans)/i.test(lower)) {
-    return { mode: "dialogue", speaker, text: "Attends —" };
-  }
-  if (/(regard.*crois|œil|oeil|coeur|cœur|emballe|battre)/i.test(lower)) {
-    return { mode: "thought", speaker, text: "Pourquoi est-ce si difficile de détacher les yeux ?" };
-  }
-  if (/(décision|decision|choix|détermin|determin|tranche|silence lourd)/i.test(lower)) {
-    return { mode: "narration", text: "Un silence lourd, puis le geste qui tranche." };
-  }
-  return { mode: "silent" };
+  if (!style) return { mode: "silent" };
+
+  const { seed, profile } = style;
+  let kind: "approach" | "hesitation" | "interrupt" | "gaze" | "decision" | null = null;
+  if (/(s['’]approche|approche pour|aller vers|discuter|parler à|talk to)/i.test(lower)) kind = "approach";
+  else if (/(hésite|hesite|nerveux|nerveuse|angoiss|stress|trouve pas les mots)/i.test(lower)) kind = "hesitation";
+  else if (/(interrompt|interrupt|coupe la parole|coupe dans)/i.test(lower)) kind = "interrupt";
+  else if (/(regard.*crois|œil|oeil|coeur|cœur|emballe|battre)/i.test(lower)) kind = "gaze";
+  else if (/(décision|decision|choix|détermin|determin|tranche|silence lourd)/i.test(lower)) kind = "decision";
+
+  if (!kind) return { mode: "silent" };
+
+  const pick = pickDeterministicFallbackLine({ seed, profile, kind });
+  if (pick.mode === "dialogue") return { mode: "dialogue", speaker, text: pick.text };
+  if (pick.mode === "thought") return { mode: "thought", speaker, text: pick.text };
+  return { mode: "narration", text: pick.text };
 }
 
-function inferDialogueFromBeatSummary(summary: string): { speaker: string; text: string } | null {
+function inferDialogueFromBeatSummary(
+  summary: string,
+  style: PanelTextStyleContext,
+): { speaker: string; text: string } | null {
   const cleaned = normalizeBeatText(summary);
   if (!cleaned) return null;
   const lower = cleaned.toLowerCase();
   const speaker = firstNamedCharacter(cleaned) ?? "";
 
-  if (/(accuse|ne .*fait pas confiance|confiance)/i.test(lower)) {
-    return { speaker, text: "Tu ne m'as jamais fait confiance." };
-  }
-  if (/(calme|calmer|craintes|doutes|peur)/i.test(lower)) {
-    return { speaker, text: "Je ne veux pas te combattre, mais j'ai peur de ce que je découvre." };
-  }
-  if (/(révèle|revele|lié|lie|trahison|magicien)/i.test(lower)) {
-    return { speaker, text: "La vérité, c'est que tout me relie encore à lui." };
-  }
-  if (/(hésite|hesite|ami|blesser)/i.test(lower)) {
-    return { speaker, text: "Tu es mon ami... je ne veux pas te blesser." };
-  }
-  if (/(décision|decision|déterminée|determinee|céder|ceder)/i.test(lower)) {
-    return { speaker, text: "Je ne céderai pas." };
-  }
+  let kind: "approach" | "hesitation" | "interrupt" | "gaze" | "decision" | null = null;
+  if (/(accuse|ne .*fait pas confiance|confiance)/i.test(lower)) kind = "interrupt";
+  else if (/(calme|calmer|craintes|doutes|peur)/i.test(lower)) kind = "hesitation";
+  else if (/(révèle|revele|lié|lie|trahison|magicien)/i.test(lower)) kind = "gaze";
+  else if (/(hésite|hesite|ami|blesser)/i.test(lower)) kind = "hesitation";
+  else if (/(décision|decision|déterminée|determinee|céder|ceder)/i.test(lower)) kind = "decision";
 
-  return null;
+  if (!kind) return null;
+  const line = pickBeatDialogueOnly({ seed: `${style.seed}|beat-dialogue`, profile: style.profile, kind });
+  if (!line) return null;
+  return { speaker, text: line.text };
 }
 
 function buildBeatSummaryMap(outline?: ProductionOutline | null): Map<string, string> {
@@ -307,6 +322,9 @@ export interface EnsureDialogueAndSfxInput {
   chapterSummary?: string | null;
   /** id → nom affichable pour dialogues inférés sans heuristique de capitales. */
   characterNameById?: Record<string, string>;
+  projectGenre?: string | null;
+  projectTone?: string | null;
+  contentRating?: string | null;
 }
 
 /**
@@ -325,6 +343,11 @@ export function ensureDialogueAndSfxForPremiumBlueprints(input: EnsureDialogueAn
 
   const extractedDialogues = extractDialogueFromIntent(input.chapterUserIntent);
   const beatSummaryById = buildBeatSummaryMap(input.productionOutline);
+  const styleProfile = getDialogueStyleProfile({
+    genre: input.projectGenre,
+    tone: input.projectTone,
+    contentRating: input.contentRating,
+  });
 
   for (const bp of input.blueprints) {
     if (isCombatBeatPanel(bp) && (!bp.sfxCues || bp.sfxCues.length === 0)) {
@@ -359,7 +382,11 @@ export function ensureDialogueAndSfxForPremiumBlueprints(input: EnsureDialogueAn
         : null;
 
       if (bp.dialogueCarrier === "speaker_visible" || bp.subjectFocus === "speaker") {
-        const contextual = inferPanelTextFromBeatSummary(beatSummary, "speaker", speakerHint);
+        const styleCtx: PanelTextStyleContext = {
+          seed: `${bp.beatId}:${bp.panelId}`,
+          profile: styleProfile,
+        };
+        const contextual = inferPanelTextFromBeatSummary(beatSummary, "speaker", speakerHint, styleCtx);
         if (contextual.mode === "dialogue" && contextual.text) {
           bp.dialogueLines = [{ speaker: contextual.speaker ?? "", text: contextual.text }];
           bp.dialogueLinesAnchored = Math.max(1, bp.dialogueLinesAnchored ?? 0);
@@ -382,7 +409,7 @@ export function ensureDialogueAndSfxForPremiumBlueprints(input: EnsureDialogueAn
           continue;
         }
 
-        const inferred = inferDialogueFromBeatSummary(beatSummary);
+        const inferred = inferDialogueFromBeatSummary(beatSummary, styleCtx);
         if (inferred) {
           bp.dialogueLines = [inferred];
           bp.dialogueLinesAnchored = Math.max(1, bp.dialogueLinesAnchored ?? 0);

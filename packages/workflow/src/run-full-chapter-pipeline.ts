@@ -12,6 +12,7 @@ import {
   isPipelineV3StoryboardEnabled,
   isPipelineV3PremiumOnlyEnabled,
 } from "./pipeline-feature-flags";
+import { extractDialogueSnippetsFromChapterOutline } from "./load-prior-chapter-dialogue-snippets";
 import { runPremiumV3Pipeline } from "./run-premium-v3-pipeline";
 import { runLegacyCompatibleChapterPipeline } from "./legacy/run-legacy-compatible-chapter-pipeline";
 
@@ -152,6 +153,20 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         ? { ...(productionPlanRecord ?? {}), panelBlueprints: topLevelBlueprints }
         : productionPlanRecord;
 
+  let priorChapterDialogueSnippets: string[] | undefined;
+  if (chapter.chapterNumber > 1) {
+    const prevChapter = await prisma.chapter.findFirst({
+      where: { projectId, chapterNumber: chapter.chapterNumber - 1 },
+      select: { outline: true },
+    });
+    priorChapterDialogueSnippets = extractDialogueSnippetsFromChapterOutline(prevChapter?.outline, 48);
+    if (priorChapterDialogueSnippets?.length) {
+      console.info(
+        `[pipeline:v3:prior-dialogue] snippets_from_chapter_n_minus_1=${priorChapterDialogueSnippets.length}`,
+      );
+    }
+  }
+
   try {
     const { v3RenderSucceeded } = await runPremiumV3Pipeline({
       chapterId,
@@ -189,6 +204,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         ? jobInput.panelBlueprints as PanelBlueprintPremium[]
         : undefined,
       chapterLocationName,
+      priorChapterDialogueSnippets,
     });
 
     // P3 — gate : en mode premium-only, on SAUTE la pipeline legacy

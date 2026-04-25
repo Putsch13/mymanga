@@ -2,6 +2,7 @@ import {
   buildOutlineTextForSanitizer,
   buildVisualCoverageGapClassificationContext,
   classifyVisualCoverageGaps,
+  enrichPremiumBlueprintsSceneDialogue,
   extractRequiredVisualCoverage,
   extractRequiredVisualCoverageFromProductionPlan,
   sanitizeVisualContractBeforeCoverage,
@@ -43,6 +44,7 @@ import {
   ensureDialogueAndSfxForPremiumBlueprints,
   runDialogueQaOnBlueprints,
 } from "./passes/dialogue-beat-rebalance";
+import { applyPanelNarrativeVariationToBlueprints } from "./passes/panel-narrative-variation-planner";
 import { buildVisualEntitiesFromPremiumV3Input } from "./passes/visual-entity-registry";
 import {
   isPremiumMangaCutawayBlueprint,
@@ -96,6 +98,8 @@ export interface RunPremiumV3PipelineInput {
   productionPlanPages?: Array<{ pageNumber: number; panelCount: number; beatIds?: string[] | null }>;
   panelBlueprints?: PanelBlueprintPremium[];
   chapterLocationName?: string | null;
+  /** Répliques du chapitre précédent (normalisées) — alimente le dialoguiste scène si activé. */
+  priorChapterDialogueSnippets?: string[] | null;
 }
 
 export interface RunPremiumV3PipelineResult {
@@ -331,6 +335,9 @@ export async function runPremiumV3Pipeline(
           productionOutline: resolvedProductionOutline ?? undefined,
           chapterSummary: input.chapterSummary,
           characterNameById,
+          projectGenre: typeof input.project?.primaryGenre === "string" ? input.project.primaryGenre : null,
+          projectTone: typeof input.project?.tone === "string" ? input.project.tone : null,
+          contentRating: typeof input.project?.contentRating === "string" ? input.project.contentRating : null,
         });
         if (
           sfxEnrichment.combatSfxAdded > 0
@@ -339,6 +346,28 @@ export async function runPremiumV3Pipeline(
         ) {
           console.info(
             `[pipeline:v3:dialogue-sfx-enrichment] combatSfxAdded=${sfxEnrichment.combatSfxAdded} dialogueEnriched=${sfxEnrichment.dialogueEnriched} narrativeContextAdded=${sfxEnrichment.narrativeContextAdded}`,
+          );
+        }
+
+        const narrativeVar = applyPanelNarrativeVariationToBlueprints(rebal.blueprints);
+        if (narrativeVar.panelsAdjusted > 0) {
+          console.info(`[pipeline:v3:narrative-variation] panelsAdjusted=${narrativeVar.panelsAdjusted}`);
+        }
+
+        const sceneDialogue = await enrichPremiumBlueprintsSceneDialogue({
+          blueprints: rebal.blueprints,
+          productionOutline: resolvedProductionOutline ?? null,
+          chapterSummary: input.chapterSummary,
+          chapterUserIntent: input.chapterUserIntent,
+          characterNameById,
+          projectGenre: typeof input.project?.primaryGenre === "string" ? input.project.primaryGenre : null,
+          projectTone: typeof input.project?.tone === "string" ? input.project.tone : null,
+          contentRating: typeof input.project?.contentRating === "string" ? input.project.contentRating : null,
+          avoidDialogueSnippets: input.priorChapterDialogueSnippets ?? undefined,
+        });
+        if (sceneDialogue.linesWritten > 0 || sceneDialogue.warnings.length > 0) {
+          console.info(
+            `[pipeline:v3:scene-dialogue] beatsTouched=${sceneDialogue.beatsTouched} linesWritten=${sceneDialogue.linesWritten} warnings=${sceneDialogue.warnings.join(";") || "none"}`,
           );
         }
 
@@ -833,6 +862,7 @@ export async function runPremiumV3Pipeline(
         chapterLocationName: input.chapterLocationName,
         mainCharacterNames,
       });
+      await saveStoryboardPlan(input.chapterId, storyboardPassResult.storyboardPlan);
 
       const renderFalEnabled = isPipelineV3RenderFalEnabled();
       console.log(

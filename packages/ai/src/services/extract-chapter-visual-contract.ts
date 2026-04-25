@@ -60,6 +60,62 @@ const rejectedSliceSchema = z.object({
   reason: z.string(),
 });
 
+function stripDiacriticsKey(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Normalise les rôles renvoyés par le LLM (FR / synonymes) avant `safeParse` Zod.
+ */
+export function normalizeCharacterRole(value: unknown): "main" | "secondary" | "npc" | "unknown" {
+  const raw = stripDiacriticsKey(String(value ?? ""));
+  const map: Record<string, "main" | "secondary" | "npc" | "unknown"> = {
+    hero: "main",
+    heros: "main",
+    protagoniste: "main",
+    "personnage principal": "main",
+    principal: "main",
+    main: "main",
+    secondary: "secondary",
+    secondaire: "secondary",
+    support: "secondary",
+    allie: "secondary",
+    ally: "secondary",
+    npc: "npc",
+    pnj: "npc",
+    figurant: "npc",
+    groupe: "npc",
+    ami: "npc",
+    amie: "npc",
+    unknown: "unknown",
+    inconnu: "unknown",
+    inconnue: "unknown",
+    autre: "unknown",
+  };
+  return map[raw] ?? "unknown";
+}
+
+function normalizeChapterVisualContractJsonRoles(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const o = raw as Record<string, unknown>;
+  if (!Array.isArray(o.characters)) return raw;
+  return {
+    ...o,
+    characters: o.characters.map((c) => {
+      if (!c || typeof c !== "object" || Array.isArray(c)) return c;
+      const ch = c as Record<string, unknown>;
+      return {
+        ...ch,
+        role: normalizeCharacterRole(ch.role),
+      };
+    }),
+  };
+}
+
 const chapterVisualContractLlmSchema = z.object({
   mainLocation: locationSliceSchema.nullable().optional(),
   secondaryLocations: z.array(locationSliceSchema).default([]),
@@ -474,7 +530,8 @@ export async function extractChapterVisualContract(
 
     const raw = response.choices[0]?.message?.content ?? "{}";
     const json = JSON.parse(raw) as unknown;
-    const parsed = chapterVisualContractLlmSchema.safeParse(json);
+    const normalizedJson = normalizeChapterVisualContractJsonRoles(json);
+    const parsed = chapterVisualContractLlmSchema.safeParse(normalizedJson);
     if (!parsed.success) {
       warnings.push(`chapter_visual_contract.parse_failed=${parsed.error.message.slice(0, 200)}`);
       return {

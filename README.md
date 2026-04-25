@@ -174,6 +174,8 @@ Contrats principaux :
 - `ChapterVisualMemory`
 - `FalRenderRoute`
 
+**Contrat visuel chapitre (LLM)** : `extractChapterVisualContract` (`packages/ai/src/services/extract-chapter-visual-contract.ts`) normalise les roles personnages renvoyes en JSON (ex. libelles FR type heros / « Héros ») vers l'enum Zod **`main` | `secondary` | `npc` | `unknown`** via `normalizeCharacterRole` avant parsing, pour eviter les rejets `safeParse` sur sorties LLM bilingues.
+
 ### IA1 - Story Architect
 
 Implementation :
@@ -256,6 +258,15 @@ Sequence stricte :
 5. `generatePanelImage`
 6. panel QA + page QA + persistence
 
+### Blueprints premium : dialogue, narration, variation
+
+Apres le rebalance manga (`rebalancePremiumBlueprintsForManga`) et avant l'ancrage strict des beats (`ensureDialogueBeatsHaveAnchors`), la pipeline enrichit les `PanelBlueprintPremium` :
+
+- **`ensureDialogueAndSfxForPremiumBlueprints`** (`packages/workflow/src/passes/dialogue-beat-rebalance.ts`) : SFX combat, dialogues depuis l'intention auteur, puis inference depuis le resume de beat. L'inference textuelle **ne repose plus sur des gabarits figes** : elle utilise `getDialogueStyleProfile` + `pickDeterministicFallbackLine` (`packages/ai/src/services/dialogue-style-director.ts`) avec une graine stable par `beatId:panelId`. Les champs projet **`projectGenre`**, **`projectTone`**, **`contentRating`** sont transmis pour calibrer le profil.
+- **`applyPanelNarrativeVariationToBlueprints`** (`packages/workflow/src/passes/panel-narrative-variation-planner.ts`) : si plusieurs cases d'un meme beat ont la **meme** `narrationText` (copie du resume), les phrases sont reparties ou le `purpose` sert de micro-distinction ; `panelTextBundle.narration` est synchronise.
+- **`enrichPremiumBlueprintsSceneDialogue`** (`packages/ai/src/services/dialogue-scene-writer.ts`) : **optionnel**. Active uniquement si `OPENAI_SCENE_DIALOGUE_ENRICH=1` et `OPENAI_API_KEY` est defini. Modele : `OPENAI_SCENE_DIALOGUE_MODEL` (defaut `gpt-4o-mini`). Ecrit des lignes courtes sur les cases « speaker » encore vides ; `validateDialogueVariety` (`packages/ai/src/services/dialogue-variety-guard.ts`) journalise des avertissements si besoin.
+- **Memoire trans-chapitre (legere)** : `run-full-chapter-pipeline` charge le chapitre `n-1`, extrait des snippets de dialogue depuis `chapter.outline` (`studio.data.productionPlan.panelBlueprints` ou `productionPlan` racine) via `collectDialogueSnippetsFromBlueprints` (`packages/memory/src/dialogue-memory.ts`), et passe le resultat a la v3 comme **`priorChapterDialogueSnippets`** pour alimenter le prompt (`avoidPhrasesFromPriorChapter`). Si le chapitre precedent n'a pas de blueprints persistes, la liste reste vide (comportement normal).
+
 ## Ce qui reste legacy
 
 Le chemin legacy n'est pas mort, il est encapsule.
@@ -290,7 +301,7 @@ En clair :
 - `packages/core` : types centraux, enums, contrats canoniques, range premium
 - `packages/billing` : estimation des tokens et regles de pricing
 - `packages/db` : Prisma, schema, migrations
-- `packages/memory` : contexte et snapshots memoire
+- `packages/memory` : contexte et snapshots memoire ; utilitaires **dialogue** (`normalizeDialogueSnippet`, `collectDialogueSnippetsFromBlueprints`) pour deduplication / prompts
 - `packages/continuity` : diffs et coherence narrative
 - `packages/world` : resolution PNJ, univers, compatibilites
 
@@ -328,6 +339,11 @@ Secrets critiques :
 - `FAL_KEY`
 - credentials Prisma / DB
 - credentials Supabase
+
+Optionnels (dialoguiste scène sur blueprints) :
+
+- `OPENAI_SCENE_DIALOGUE_ENRICH=1` pour activer l'appel LLM post-enrichissement blueprint
+- `OPENAI_SCENE_DIALOGUE_MODEL` (sinon `gpt-4o-mini`)
 
 ## Contrats de donnees a connaitre
 
@@ -623,6 +639,7 @@ Principe commun (storyboard) :
 
 QA importante :
 
+- **QA pre-rendu premium** (`packages/workflow/src/passes/pre-render-premium-qa.ts`), executee **avant** FAL dans `run-premium-v3-pipeline` : bloque les plans trop generiques (action lines type « visible character advances the scene »), les closeups excessifs, les heros etiquetes NPC, les chapitres d'action sans dialogue/SFX, les references STRONG vides, les mentions de lieu attendu absentes, et les **empreintes de prompt dupliquees** (fingerprint par panel derive de `actionLine` + modes + refs via `packages/workflow/src/passes/panel-prompt-fingerprint.ts`). Si `repeated_prompts` est detecte, une passe **`repairStoryboardPlanRepeatedPromptFingerprints`** (`packages/workflow/src/passes/repair-repeated-prompt-fingerprints.ts`) prefixe les `actionLine` en conflit, puis la QA est relancee. Si le seul probleme restant est `repeated_prompts` avec **au plus 5** repetitions residuelles, la pipeline **tolere** avec un issue `tolerated_repeated_prompts_after_repair` (sinon throw `PreRenderPremiumQaError`). Le storyboard repare est **re-persiste** via `saveStoryboardPlan` apres cette etape.
 - panel QA dans `render-pass`
 - page QA dans `render-pass`
 - **QA visuelle** : un echec bloquant sur panel critique (ou revue manuelle requise) empeche de compter le rendu comme reussi ; agrege dans les metriques V3 (`visualQaFailedCount`, etc.) et dans `run-premium-v3-pipeline` pour le succes global.
@@ -869,6 +886,15 @@ Si on veut savoir quoi travailler ensuite, les priorites les plus rentables sont
 3. mesurer le cout reel chapitre par chapitre ;
 4. reduire les rerolls et les echec render ;
 5. outiller la couverture refs/canon avant launch.
+
+### Ce qui manque encore
+
+- UI studio pour activer ou desactiver explicitement le dialoguiste scène (`OPENAI_SCENE_DIALOGUE_ENRICH`) et surfacer les warnings (`scene_dialogue_*`, QA dialogue blueprint).
+- Tests d'integration longs sur la v3 bout en bout (pre-render QA, repair fingerprints, enrichissement dialogue optionnel, render mock FAL).
+- Les `priorChapterDialogueSnippets` ne sont remplis que si le chapitre `n-1` a des `panelBlueprints` avec `dialogueLines` persistes dans `chapter.outline` ; sinon le prompt part sans liste d'evitement (comportement attendu).
+
+---
+
 # Manga AI Studio
 
 Monorepo full-stack pour generer des chapitres manga/webtoon coherents avec memoire narrative, canon visuel, PNJ adaptatifs et generation multi-provider.

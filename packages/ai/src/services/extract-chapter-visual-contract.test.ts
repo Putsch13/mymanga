@@ -3,6 +3,7 @@ import type { ChapterVisualContract } from "../contracts/chapter-visual-contract
 import type { RequiredVisualCoverage } from "./required-visual-coverage";
 import {
   mergeRequiredVisualCoverageWithContract,
+  normalizeCharacterRole,
   requiredVisualCoverageFromChapterVisualContract,
 } from "./extract-chapter-visual-contract";
 
@@ -107,6 +108,16 @@ describe("requiredVisualCoverageFromChapterVisualContract", () => {
     expect(cov.filter((c) => c.entity.includes("abysses")).length).toBe(1);
     expect(cov.filter((c) => c.entity.includes("mk-ii")).length).toBe(1);
     expect(cov.filter((c) => c.entity.includes("demi-dragon")).length).toBe(1);
+  });
+});
+
+describe("normalizeCharacterRole", () => {
+  it("mappe les libellés FR / synonymes vers l’enum Zod", () => {
+    expect(normalizeCharacterRole("Héros")).toBe("main");
+    expect(normalizeCharacterRole("PNJ")).toBe("npc");
+    expect(normalizeCharacterRole("Secondaire")).toBe("secondary");
+    expect(normalizeCharacterRole("inconnu")).toBe("unknown");
+    expect(normalizeCharacterRole("main")).toBe("main");
   });
 });
 

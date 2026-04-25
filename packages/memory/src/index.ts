@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from "@manga-ai-studio/db";
 export * from "./scene-extras-registry";
 export * from "./species-resolver";
+export * from "./dialogue-memory";
 
 type RagDocumentInput = {
   projectId: string;
