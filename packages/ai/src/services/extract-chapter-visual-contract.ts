@@ -65,6 +65,9 @@ const chapterVisualContractLlmSchema = z.object({
   secondaryLocations: z.array(locationSliceSchema).default([]),
   characters: z.array(characterSliceSchema).default([]),
   groups: z.array(groupSliceSchema).default([]),
+  species: z.array(creatureSliceSchema).default([]),
+  robots: z.array(creatureSliceSchema).default([]),
+  hybrids: z.array(creatureSliceSchema).default([]),
   creatures: z.array(creatureSliceSchema).default([]),
   props: z.array(propSliceSchema).default([]),
   ambientElements: z.array(propSliceSchema).default([]),
@@ -110,6 +113,7 @@ Règles strictes :
 - Les lieux / persos / props du canon projet listés en référence ne sont obligatoires QUE s'ils apparaissent explicitement dans le chapitre.
 - importance "required" uniquement si l'élément est centrale à la compréhension visuelle du chapitre.
 - needsClarification=true si le lieu principal reste ambigu après lecture.
+- Répartis les non-humains visibles : espèces/peuples dans "species", androïdes/méchas dans "robots", chimères dans "hybrids", autres menaces dans "creatures".
 Réponds UNIQUEMENT en JSON valide selon le schéma demandé (objet racine).`;
 
 function normalizeBeatIds(ids: string[], valid: Set<string>): string[] {
@@ -146,6 +150,24 @@ function sanitizeContractForValidBeats(
         sourceBeatIds: normalizeBeatIds(g.sourceBeatIds, validBeatIds),
       }))
       .filter((g) => g.name.trim().length > 0 && g.sourceBeatIds.length > 0),
+    species: (raw.species ?? [])
+      .map((c) => ({
+        ...c,
+        sourceBeatIds: normalizeBeatIds(c.sourceBeatIds, validBeatIds),
+      }))
+      .filter((c) => c.name.trim().length > 0 && c.sourceBeatIds.length > 0),
+    robots: (raw.robots ?? [])
+      .map((c) => ({
+        ...c,
+        sourceBeatIds: normalizeBeatIds(c.sourceBeatIds, validBeatIds),
+      }))
+      .filter((c) => c.name.trim().length > 0 && c.sourceBeatIds.length > 0),
+    hybrids: (raw.hybrids ?? [])
+      .map((c) => ({
+        ...c,
+        sourceBeatIds: normalizeBeatIds(c.sourceBeatIds, validBeatIds),
+      }))
+      .filter((c) => c.name.trim().length > 0 && c.sourceBeatIds.length > 0),
     creatures: (raw.creatures ?? [])
       .map((c) => ({
         ...c,
@@ -177,6 +199,9 @@ function emptyContract(needsClarification?: boolean): ChapterVisualContract {
     secondaryLocations: [],
     characters: [],
     groups: [],
+    species: [],
+    robots: [],
+    hybrids: [],
     creatures: [],
     props: [],
     ambientElements: [],
@@ -236,6 +261,9 @@ function buildUserPrompt(input: ExtractChapterVisualContractInput, validBeatIds:
     `  "secondaryLocations": [...],`,
     `  "characters": [{ name, role, knownCharacterId?, confidence, sourceBeatIds, importance }],`,
     `  "groups": [{ name, kind, description, confidence, sourceBeatIds, importance }],`,
+    `  "species": [{ name, kind, description, confidence, sourceBeatIds, importance }],`,
+    `  "robots": [{ name, kind, description, confidence, sourceBeatIds, importance }],`,
+    `  "hybrids": [{ name, kind, description, confidence, sourceBeatIds, importance }],`,
     `  "creatures": [{ name, kind, description, confidence, sourceBeatIds, importance }],`,
     `  "props": [{ name, description, importance, confidence, sourceBeatIds }],`,
     `  "ambientElements": [...],`,
@@ -255,6 +283,25 @@ export function requiredVisualCoverageFromChapterVisualContract(
   contract: ChapterVisualContract,
 ): RequiredVisualCoverage[] {
   const out: RequiredVisualCoverage[] = [];
+
+  const pushCreatureSlice = (cr: ChapterVisualContract["creatures"][number], forceKind?: ChapterVisualContract["creatures"][number]["kind"]) => {
+    if (cr.importance !== "required" || cr.confidence < MIN_CONF) return;
+    const bid = cr.sourceBeatIds[0];
+    if (!bid) return;
+    const entity = cr.name.toLowerCase().trim();
+    const kind = forceKind ?? cr.kind;
+    const isRobot = kind === "robot";
+    out.push({
+      entity,
+      entityType: "creature",
+      sourceBeatId: bid,
+      requiresDedicatedPanel: true,
+      acceptedRenderModes: isRobot ? ["creature_reveal", "insert_object"] : ["creature_reveal", "threat_silhouette"],
+      acceptedSubjectFocuses: ["creature", "threat"],
+      tokensHint: [entity, kind, ...entity.split(/[\s-]+/).filter((w) => w.length > 2)],
+      fulfilledByPanelIds: [],
+    });
+  };
 
   const pushLoc = (loc: LocationSlice | null) => {
     if (!loc || loc.importance !== "required" || loc.confidence < MIN_CONF) return;
@@ -306,21 +353,17 @@ export function requiredVisualCoverageFromChapterVisualContract(
     });
   }
 
+  for (const cr of contract.species) {
+    pushCreatureSlice(cr, "animal");
+  }
+  for (const cr of contract.robots) {
+    pushCreatureSlice(cr, "robot");
+  }
+  for (const cr of contract.hybrids) {
+    pushCreatureSlice(cr, "hybrid");
+  }
   for (const cr of contract.creatures) {
-    if (cr.importance !== "required" || cr.confidence < MIN_CONF) continue;
-    const bid = cr.sourceBeatIds[0];
-    if (!bid) continue;
-    const entity = cr.name.toLowerCase().trim();
-    out.push({
-      entity,
-      entityType: "creature",
-      sourceBeatId: bid,
-      requiresDedicatedPanel: true,
-      acceptedRenderModes: ["creature_reveal", "threat_silhouette"],
-      acceptedSubjectFocuses: ["creature", "threat"],
-      tokensHint: [entity, ...entity.split(/[\s-]+/).filter((w) => w.length > 2)],
-      fulfilledByPanelIds: [],
-    });
+    pushCreatureSlice(cr);
   }
 
   for (const g of contract.groups) {

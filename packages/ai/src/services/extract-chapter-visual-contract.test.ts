@@ -28,6 +28,9 @@ describe("requiredVisualCoverageFromChapterVisualContract", () => {
         },
       ],
       groups: [],
+      species: [],
+      robots: [],
+      hybrids: [],
       creatures: [
         {
           name: "Chevalier-luciole mécanique",
@@ -57,6 +60,53 @@ describe("requiredVisualCoverageFromChapterVisualContract", () => {
     expect(types.has("character")).toBe(true);
     expect(types.has("creature")).toBe(true);
     expect(types.has("prop")).toBe(true);
+  });
+
+  it("inclut les slices species / robots / hybrides en obligations creature", () => {
+    const contract: ChapterVisualContract = {
+      mainLocation: null,
+      secondaryLocations: [],
+      characters: [],
+      groups: [],
+      species: [
+        {
+          name: "Peuple des abysses",
+          kind: "animal",
+          description: "",
+          confidence: 0.9,
+          sourceBeatIds: ["b1"],
+          importance: "required",
+        },
+      ],
+      robots: [
+        {
+          name: "Sentinelle MK-II",
+          kind: "robot",
+          description: "",
+          confidence: 0.85,
+          sourceBeatIds: ["b1"],
+          importance: "required",
+        },
+      ],
+      hybrids: [
+        {
+          name: "Demi-dragon",
+          kind: "hybrid",
+          description: "",
+          confidence: 0.88,
+          sourceBeatIds: ["b1"],
+          importance: "required",
+        },
+      ],
+      creatures: [],
+      props: [],
+      ambientElements: [],
+      rejectedOrUnrelated: [],
+    };
+    const cov = requiredVisualCoverageFromChapterVisualContract(contract);
+    expect(cov.filter((c) => c.entity.includes("abysses")).length).toBe(1);
+    expect(cov.filter((c) => c.entity.includes("mk-ii")).length).toBe(1);
+    expect(cov.filter((c) => c.entity.includes("demi-dragon")).length).toBe(1);
   });
 });
 

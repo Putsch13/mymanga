@@ -30,6 +30,7 @@ import {
 import { assertChapterCanonReadiness } from "@/lib/canon/assert-chapter-canon-readiness";
 import { toPrismaInputJson } from "@/lib/to-prisma-input-json";
 import { premiumVisualQaPreflightResponse } from "@/lib/generation/premium-visual-qa-preflight";
+import { isVisualContractPrelaunchBlocked } from "@/lib/visual-contract-prelaunch-gate";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -199,6 +200,18 @@ export async function POST(_req: Request, ctx: Ctx) {
         error: "premium_contract_incomplete",
         missing: contractCheck.missing,
         message: contractCheck.message,
+      },
+      { status: 422 },
+    );
+  }
+
+  if (isVisualContractPrelaunchBlocked(chapter.outline, chapter.generatedImages ?? 0)) {
+    return NextResponse.json(
+      {
+        error: "visual_contract_prelaunch_required",
+        code: "VISUAL_CONTRACT_PRELAUNCH_REQUIRED",
+        message:
+          "Avant le tout premier lancement, confirme dans le studio le panneau « Contrat visuel » (case de confirmation en bas).",
       },
       { status: 422 },
     );

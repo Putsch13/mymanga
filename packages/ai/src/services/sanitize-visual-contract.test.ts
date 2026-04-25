@@ -55,4 +55,48 @@ describe("sanitizeVisualContractBeforeCoverage", () => {
     });
     expect(r.requiredConfirmed).toHaveLength(0);
   });
+
+  it("auto_strip : créature dédiée absente de l’outline → rejetée (pas confirmée)", () => {
+    const r = sanitizeVisualContractBeforeCoverage({
+      requiredCoverage: [
+        {
+          entity: "wyrm fantôme",
+          entityType: "creature",
+          sourceBeatId: "b1",
+          requiresDedicatedPanel: true,
+          acceptedRenderModes: ["creature_reveal"],
+          acceptedSubjectFocuses: ["creature"],
+          tokensHint: ["wyrm"],
+          fulfilledByPanelIds: [],
+        },
+      ],
+      outlineText: "Ils marchent dans la ville sans incident.",
+      knownCharacters: [{ id: "c1", name: "Eryon" }],
+      parasitePolicy: "auto_strip",
+    });
+    expect(r.requiredConfirmed).toHaveLength(0);
+    expect(r.rejected.length).toBe(1);
+  });
+
+  it("keep_all : créature dédiée absente de l’outline reste confirmée (historique)", () => {
+    const r = sanitizeVisualContractBeforeCoverage({
+      requiredCoverage: [
+        {
+          entity: "wyrm fantôme",
+          entityType: "creature",
+          sourceBeatId: "b1",
+          requiresDedicatedPanel: true,
+          acceptedRenderModes: ["creature_reveal"],
+          acceptedSubjectFocuses: ["creature"],
+          tokensHint: ["wyrm"],
+          fulfilledByPanelIds: [],
+        },
+      ],
+      outlineText: "Ils marchent dans la ville sans incident.",
+      knownCharacters: [{ id: "c1", name: "Eryon" }],
+      parasitePolicy: "keep_all",
+    });
+    expect(r.requiredConfirmed).toHaveLength(1);
+    expect(r.suspicious).toHaveLength(1);
+  });
 });

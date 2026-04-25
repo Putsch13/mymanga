@@ -18,6 +18,7 @@ import {
   IncompletePlanError,
   resolveApprovedOutlineFromSnapshot,
 } from "@/lib/premium-chapter-contract";
+import { isVisualContractPrelaunchBlocked } from "@/lib/visual-contract-prelaunch-gate";
 import type { Prisma } from "@manga-ai-studio/db";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -153,6 +154,18 @@ export async function POST(req: Request, ctx: Ctx) {
         error: "premium_contract_incomplete",
         missing: contractCheck.missing,
         message: contractCheck.message,
+      },
+      { status: 422 },
+    );
+  }
+
+  if (isVisualContractPrelaunchBlocked(chapter.outline, chapter.generatedImages ?? 0)) {
+    return NextResponse.json(
+      {
+        error: "visual_contract_prelaunch_required",
+        code: "VISUAL_CONTRACT_PRELAUNCH_REQUIRED",
+        message:
+          "Avant le tout premier lancement, confirme dans le studio le panneau « Contrat visuel » (case de confirmation en bas).",
       },
       { status: 422 },
     );

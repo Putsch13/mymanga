@@ -196,6 +196,9 @@ function ChapterVisualContractReadout({ snapshot }: { snapshot: unknown }) {
     typeof o.requiredFromContractCount === "number" ? o.requiredFromContractCount : 0;
   const warnings = Array.isArray(o.warnings) ? (o.warnings as string[]) : [];
   const props = Array.isArray(contract.props) ? (contract.props as Record<string, unknown>[]) : [];
+  const species = Array.isArray(contract.species) ? (contract.species as Record<string, unknown>[]) : [];
+  const robots = Array.isArray(contract.robots) ? (contract.robots as Record<string, unknown>[]) : [];
+  const hybrids = Array.isArray(contract.hybrids) ? (contract.hybrids as Record<string, unknown>[]) : [];
   const creatures = Array.isArray(contract.creatures)
     ? (contract.creatures as Record<string, unknown>[])
     : [];
@@ -229,9 +232,39 @@ function ChapterVisualContractReadout({ snapshot }: { snapshot: unknown }) {
           <p className="text-xs font-medium text-muted-foreground">Lieu principal détecté</p>
           <p className="mt-0.5">{mainName ?? "— (non spécifié)"}</p>
         </div>
+        {species.length > 0 ? (
+          <div>
+            <p className="text-xs font-medium text-muted-foreground">Espèces / peuples</p>
+            <ul className="mt-1 list-inside list-disc text-muted-foreground">
+              {species.slice(0, 6).map((c, i) => (
+                <li key={i}>{typeof c.name === "string" ? c.name : "—"}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {robots.length > 0 ? (
+          <div>
+            <p className="text-xs font-medium text-muted-foreground">Robots / méchas</p>
+            <ul className="mt-1 list-inside list-disc text-muted-foreground">
+              {robots.slice(0, 6).map((c, i) => (
+                <li key={i}>{typeof c.name === "string" ? c.name : "—"}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {hybrids.length > 0 ? (
+          <div>
+            <p className="text-xs font-medium text-muted-foreground">Hybrides / chimères</p>
+            <ul className="mt-1 list-inside list-disc text-muted-foreground">
+              {hybrids.slice(0, 6).map((c, i) => (
+                <li key={i}>{typeof c.name === "string" ? c.name : "—"}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {creatures.length > 0 ? (
           <div>
-            <p className="text-xs font-medium text-muted-foreground">Créatures / hybrides / robots</p>
+            <p className="text-xs font-medium text-muted-foreground">Créatures / menaces (autres)</p>
             <ul className="mt-1 list-inside list-disc text-muted-foreground">
               {creatures.slice(0, 8).map((c, i) => (
                 <li key={i}>{typeof c.name === "string" ? c.name : "—"}</li>

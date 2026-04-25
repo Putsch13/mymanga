@@ -1,5 +1,6 @@
 import {
   buildOutlineTextForSanitizer,
+  buildVisualCoverageGapClassificationContext,
   classifyVisualCoverageGaps,
   extractRequiredVisualCoverage,
   extractRequiredVisualCoverageFromProductionPlan,
@@ -31,7 +32,10 @@ import { runStoryboardPass } from "./passes/storyboard-pass";
 import { buildStyleBibleFromUserProject } from "./chapter-style-bible-resolver";
 import { isPipelineV3RenderFalEnabled } from "./pipeline-feature-flags";
 import { loadLocationsForV3StoryPass, type PremiumV3PipelineLocation } from "./load-locations-for-v3-story-pass";
-import { saveChapterVisualContractSnapshot } from "./persistence/chapter-visual-contract-persistence";
+import {
+  loadChapterVisualContractUi,
+  saveChapterVisualContractSnapshot,
+} from "./persistence/chapter-visual-contract-persistence";
 import { saveStoryboardPlan } from "./persistence/storyboard-persistence";
 import { computeEntityCoverageTelemetry, formatEntityCoverageTypesLine } from "./passes/entity-coverage-telemetry";
 import {
@@ -612,6 +616,9 @@ export async function runPremiumV3Pipeline(
       `[pipeline:v3:chapter-visual-contract] openai=${chapterVisualContractResult.usedOpenAI} ` +
         `requiredSlices=${chapterVisualContractResult.requiredFromContract.length} ` +
         `props=${chapterVisualContractResult.contract.props.length} ` +
+        `species=${chapterVisualContractResult.contract.species.length} ` +
+        `robots=${chapterVisualContractResult.contract.robots.length} ` +
+        `hybrids=${chapterVisualContractResult.contract.hybrids.length} ` +
         `creatures=${chapterVisualContractResult.contract.creatures.length} ` +
         `needsClarification=${Boolean(chapterVisualContractResult.contract.needsClarification)}`,
     );
@@ -628,7 +635,24 @@ export async function runPremiumV3Pipeline(
       console.warn(`[pipeline:v3:chapter-visual-contract] persist_failed chapterId=${input.chapterId} ${msg}`);
     }
 
-    const sanitizedCoverage = sanitizeVisualContractBeforeCoverage({
+    const visualContractUi = await loadChapterVisualContractUi(input.chapterId);
+    const parasitePolicy = visualContractUi.parasitePolicy ?? "auto_strip";
+    const contractHasRequiredSlices = chapterVisualContractResult.requiredFromContract.length > 0;
+
+    const contractSanitized = contractHasRequiredSlices
+      ? sanitizeVisualContractBeforeCoverage({
+          requiredCoverage: chapterVisualContractResult.requiredFromContract,
+          outlineText,
+          canonicalPlan: canonicalRuntimePlan,
+          knownCharacters: input.rawCharacters,
+          knownLocations: knownLocsForSanitize,
+          projectGenre: typeof input.project?.primaryGenre === "string" ? input.project.primaryGenre : null,
+          projectTone: typeof input.project?.tone === "string" ? input.project.tone : null,
+          parasitePolicy: "keep_all",
+        })
+      : { requiredConfirmed: [], optional: [], suspicious: [], rejected: [] };
+
+    const blueprintSanitized = sanitizeVisualContractBeforeCoverage({
       requiredCoverage: rawCoverage,
       outlineText,
       canonicalPlan: canonicalRuntimePlan,
@@ -636,22 +660,36 @@ export async function runPremiumV3Pipeline(
       knownLocations: knownLocsForSanitize,
       projectGenre: typeof input.project?.primaryGenre === "string" ? input.project.primaryGenre : null,
       projectTone: typeof input.project?.tone === "string" ? input.project.tone : null,
+      parasitePolicy,
     });
 
-    let requiredCoverage =
-      chapterVisualContractResult.requiredFromContract.length > 0
-        ? mergeRequiredVisualCoverageWithContract(
-            chapterVisualContractResult.requiredFromContract,
-            sanitizedCoverage.requiredConfirmed,
-          )
-        : sanitizedCoverage.requiredConfirmed;
+    let requiredCoverage;
+    if (contractHasRequiredSlices) {
+      if (parasitePolicy === "keep_all") {
+        const blueprintMerged = [
+          ...blueprintSanitized.requiredConfirmed,
+          ...blueprintSanitized.suspicious,
+        ];
+        requiredCoverage = mergeRequiredVisualCoverageWithContract(
+          contractSanitized.requiredConfirmed,
+          blueprintMerged,
+        );
+      } else {
+        requiredCoverage = contractSanitized.requiredConfirmed;
+      }
+    } else {
+      requiredCoverage = blueprintSanitized.requiredConfirmed;
+    }
 
     console.log(
-      "[pipeline:v3:visual-contract] confirmed=%d optional=%d suspicious=%d rejected=%d",
-      sanitizedCoverage.requiredConfirmed.length,
-      sanitizedCoverage.optional.length,
-      sanitizedCoverage.suspicious.length,
-      sanitizedCoverage.rejected.length,
+      "[pipeline:v3:visual-contract] contract_confirmed=%d blueprint_confirmed=%d optional=%d suspicious=%d rejected=%d parasitePolicy=%s contract_only=%s",
+      contractSanitized.requiredConfirmed.length,
+      blueprintSanitized.requiredConfirmed.length,
+      blueprintSanitized.optional.length,
+      blueprintSanitized.suspicious.length,
+      blueprintSanitized.rejected.length,
+      parasitePolicy,
+      String(contractHasRequiredSlices && parasitePolicy !== "keep_all"),
     );
 
     let coverageReport = validateVisualCoverage(
@@ -660,11 +698,28 @@ export async function runPremiumV3Pipeline(
     );
     let visualCoverageStatus: "ok" | "soft_gaps" = "ok";
 
+    const coverageSource = contractHasRequiredSlices
+      ? parasitePolicy === "keep_all"
+        ? "chapter_visual_contract+blueprint_merged"
+        : "chapter_visual_contract_only"
+      : storyArc
+        ? "storyArc"
+        : approvedPlanDriven
+          ? "productionPlan"
+          : "none";
     console.log(
-      `[pipeline:v3:visual-coverage] required=${requiredCoverage.length} fulfilled=${coverageReport.fulfilled.length} gaps=${coverageReport.gaps.length} source=${storyArc ? "storyArc" : approvedPlanDriven ? "productionPlan" : "none"} (raw=${rawCoverage.length})`,
+      `[pipeline:v3:visual-coverage] required=${requiredCoverage.length} fulfilled=${coverageReport.fulfilled.length} gaps=${coverageReport.gaps.length} source=${coverageSource} (raw_blueprint_slices=${rawCoverage.length})`,
     );
 
-    const firstClass = classifyVisualCoverageGaps(coverageReport.gaps);
+    const gapClassificationContext = buildVisualCoverageGapClassificationContext({
+      outlineText,
+      canonicalPlan: canonicalRuntimePlan,
+      rawCharacters: input.rawCharacters,
+      focusCharacterIds: input.focusCharacterIds,
+      heroCharacterId: input.heroCharacterId ?? null,
+      contractMainLocationName: chapterVisualContractResult.contract.mainLocation?.name ?? null,
+    });
+    const firstClass = classifyVisualCoverageGaps(coverageReport.gaps, gapClassificationContext);
 
     if (firstClass.repairableGaps.length > 0) {
       storyboardPassResult = {
@@ -686,7 +741,7 @@ export async function runPremiumV3Pipeline(
       );
     }
 
-    const remaining = classifyVisualCoverageGaps(coverageReport.gaps);
+    const remaining = classifyVisualCoverageGaps(coverageReport.gaps, gapClassificationContext);
 
     if (remaining.rejectedGaps.length > 0) {
       console.warn("[pipeline:v3:visual-coverage] rejected gaps (ignored)", {

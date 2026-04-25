@@ -11,6 +11,7 @@ import { ChapterEditorSidebarSummary } from "./chapter-editor-sidebar-summary";
 import { ChapterGenerationReviewStep } from "./chapter-generation-review-step";
 import { ChapterOnboardingBanner } from "./chapter-onboarding-banner";
 import { ChapterPlanStep } from "./chapter-plan-step";
+import { ChapterVisualContractPolicyPanel } from "./chapter-visual-contract-policy-panel";
 import { IncompletePlanRepairBanner } from "./incomplete-plan-repair-banner";
 import {
   computeChapterSummary,
@@ -53,6 +54,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
   const [characterCatalog, setCharacterCatalog] = useState<CharacterCatalogEntry[]>([]);
   const [progressionIssues, setProgressionIssues] = useState<OutlineProgressionIssue[]>([]);
   const [chapterVisualContract, setChapterVisualContract] = useState<unknown>(null);
+  const [chapterVisualContractUi, setChapterVisualContractUi] = useState<StudioResponse["chapterVisualContractUi"]>(undefined);
   const [saveError, setSaveError] = useState<string | null>(null);
   const hasExistingContent = Boolean(
     snapshot?.data?.intent?.shortPitch ||
@@ -66,6 +68,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
     const response = await fetch(`/api/projects/${projectId}/chapters/${chapterId}/studio`, { cache: "no-store" });
     const json = (await response.json()) as StudioResponse & { characterCatalog?: CharacterCatalogEntry[] };
     setChapterVisualContract(json.chapterVisualContract ?? null);
+    setChapterVisualContractUi(json.chapterVisualContractUi);
     setProjectTitle(json.project.title);
     setChapterTitle(json.chapter.title ?? `Chapitre ${json.chapter.chapterNumber}`);
     setSnapshot(json.snapshot);
@@ -422,6 +425,12 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
   const castCanonWarnings = groupIssuesByFlowStep(warningItems, "cast_canon");
   const planIssues = groupIssuesByFlowStep(blockerItems, "plan");
   const planWarnings = groupIssuesByFlowStep(warningItems, "plan");
+  const planReadyForFirstLaunch =
+    (readiness?.panelBlueprintCount ?? 0) >= minimumImages && minimumImages > 0;
+  const preLaunchBlocked =
+    generatedImages === 0 &&
+    planReadyForFirstLaunch &&
+    chapterVisualContractUi?.preLaunchAcknowledged !== true;
 
   return (
     <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
@@ -467,6 +476,17 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
             void generateOutlines();
           }}
         />
+
+        {planReadyForFirstLaunch && generatedImages === 0 ? (
+          <ChapterVisualContractPolicyPanel
+            projectId={projectId}
+            chapterId={chapterId}
+            ui={chapterVisualContractUi ?? undefined}
+            generatedImages={generatedImages}
+            planReadyForFirstLaunch={planReadyForFirstLaunch}
+            onUpdated={() => void loadStudio()}
+          />
+        ) : null}
 
         <div className="flex items-center gap-2">
           <button
@@ -644,6 +664,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
           <ChapterGenerationReviewStep
             projectId={projectId}
             chapterId={chapterId}
+            preLaunchBlocked={preLaunchBlocked}
             projectTitle={projectTitle}
             chapterTitle={summary.title}
             blockerItems={blockerItems}

@@ -114,6 +114,12 @@ export function ChapterGenerateLauncher({
           `Configuration production incomplète pour la QA visuelle premium : ${missing}. ` +
             `Ajoute ces variables sur l’hébergeur (ex. Render), ou définis PREMIUM_VISUAL_QA_REQUIRED=false pour un mode dégradé (qualité needs_review).`,
         );
+      } else if (code === "VISUAL_CONTRACT_PRELAUNCH_REQUIRED" || errorKey === "visual_contract_prelaunch_required") {
+        setMessage(
+          typeof json.message === "string"
+            ? json.message
+            : "Confirme le contrat visuel dans le studio (panneau violet en haut) avant le premier lancement.",
+        );
       } else {
         setMessage(json.message ?? json.error ?? "Erreur inconnue lors du lancement.");
       }

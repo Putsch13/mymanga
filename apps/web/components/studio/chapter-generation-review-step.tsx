@@ -43,6 +43,7 @@ export function ChapterGenerationReviewStep({
   onIssueAction,
   chapterVisualContract,
   onNavigateToPlan,
+  preLaunchBlocked,
 }: {
   projectId: string;
   chapterId: string;
@@ -61,6 +62,8 @@ export function ChapterGenerationReviewStep({
   /** Snapshot issu du dernier run (GET studio) — avertissements avant lancement. */
   chapterVisualContract?: unknown;
   onNavigateToPlan?: () => void;
+  /** Accuse de réception pré-lancement manquante (0 image + plan prêt). */
+  preLaunchBlocked?: boolean;
 }) {
   const vcHints = readVisualContractLaunchHints(chapterVisualContract ?? null);
   const launchBlockedByReadiness = blockerItems.length > 0 && generatedImages === 0;
@@ -206,13 +209,15 @@ export function ChapterGenerationReviewStep({
             projectId={projectId}
             chapterId={chapterId}
             initialStats={initialStats}
-            disabled={launchBlockedByReadiness || !stackReady}
+            disabled={launchBlockedByReadiness || !stackReady || Boolean(preLaunchBlocked)}
             disabledMessage={
-              launchBlockedByReadiness
-                ? `${blockerItems.length} point${blockerItems.length > 1 ? "s" : ""} bloquant${blockerItems.length > 1 ? "s" : ""} à corriger avant de lancer`
-                : !stackReady
-                  ? "La stack IA n'est pas prête"
-                  : disabledMessage
+              preLaunchBlocked
+                ? "Confirme d’abord le contrat visuel en haut du studio (bouton « J’ai vérifié — débloquer le lancement »)."
+                : launchBlockedByReadiness
+                  ? `${blockerItems.length} point${blockerItems.length > 1 ? "s" : ""} bloquant${blockerItems.length > 1 ? "s" : ""} à corriger avant de lancer`
+                  : !stackReady
+                    ? "La stack IA n'est pas prête"
+                    : disabledMessage
             }
             stackBlockers={stackBlockers}
           />

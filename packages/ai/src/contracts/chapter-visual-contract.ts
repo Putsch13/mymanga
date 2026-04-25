@@ -1,7 +1,7 @@
 /**
  * Contrat visuel local au chapitre — cible pour une extraction IA
  * (`extractChapterVisualContract`) : chaque entité doit citer ses beats sources.
- * Le pipeline actuel s’appuie encore sur des heuristiques + `sanitizeVisualContractBeforeCoverage`.
+ * La couverture visuelle premium privilégie ce contrat (sections species / robots / hybrids / …) + sanitation optionnelle du plan brut selon la politique UI.
  */
 
 export type ChapterVisualEntityImportance = "required" | "optional" | "ambient";
@@ -59,6 +59,12 @@ export interface ChapterVisualContract {
   secondaryLocations: ChapterVisualContractLocationSlice[];
   characters: ChapterVisualContractCharacterSlice[];
   groups: ChapterVisualContractGroupSlice[];
+  /** Espèces / peuples non humains (section dédiée — en plus des `groups.kind=species`). */
+  species: ChapterVisualContractCreatureSlice[];
+  /** Entités mécaniques / IA visibles comme sujets. */
+  robots: ChapterVisualContractCreatureSlice[];
+  /** Chimères, demi-humains, créatures hybrides nommées. */
+  hybrids: ChapterVisualContractCreatureSlice[];
   creatures: ChapterVisualContractCreatureSlice[];
   props: ChapterVisualContractPropSlice[];
   ambientElements: ChapterVisualContractPropSlice[];

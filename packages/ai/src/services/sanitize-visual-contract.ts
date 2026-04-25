@@ -1,6 +1,9 @@
 import type { CanonicalChapterProductionPlan } from "@manga-ai-studio/core";
 import type { RequiredVisualCoverage } from "./required-visual-coverage";
 
+/** auto_strip : obligations créature/ennemi non citées dans l’outline → rejetées (pas de merge couverture). keep_all : conserve le comportement historique (suspicious + confirmé). */
+export type VisualContractParasiteSanitizePolicy = "auto_strip" | "keep_all";
+
 export interface SanitizeVisualContractArgs {
   requiredCoverage: RequiredVisualCoverage[];
   outlineText: string;
@@ -9,6 +12,8 @@ export interface SanitizeVisualContractArgs {
   knownLocations?: Array<{ id?: string; name: string; aliases?: string[] }>;
   projectGenre?: string | null;
   projectTone?: string | null;
+  /** Politique pour les slices « parasites » issues du plan brut (pas du contrat LLM chapitre). Défaut : auto_strip. */
+  parasitePolicy?: VisualContractParasiteSanitizePolicy;
 }
 
 export interface SanitizeVisualContractResult {
@@ -35,7 +40,8 @@ function outlineMentions(outlineNorm: string, entity: string): boolean {
   return false;
 }
 
-function canonicalBeatsText(plan: CanonicalChapterProductionPlan | null | undefined): string {
+/** Texte concaténé des beats canoniques (réutilisé par le classifieur de gaps). */
+export function canonicalPlanBeatsPlainText(plan: CanonicalChapterProductionPlan | null | undefined): string {
   if (!plan?.beats?.length) return "";
   return plan.beats
     .map((b) =>
@@ -49,8 +55,9 @@ function canonicalBeatsText(plan: CanonicalChapterProductionPlan | null | undefi
  * avant la QA de couverture. Seul `requiredConfirmed` est validé strictement.
  */
 export function sanitizeVisualContractBeforeCoverage(args: SanitizeVisualContractArgs): SanitizeVisualContractResult {
+  const parasitePolicy: VisualContractParasiteSanitizePolicy = args.parasitePolicy ?? "auto_strip";
   const outlineNorm = normalize(
-    `${args.outlineText} ${canonicalBeatsText(args.canonicalPlan ?? null)}`,
+    `${args.outlineText} ${canonicalPlanBeatsPlainText(args.canonicalPlan ?? null)}`,
   );
   const knownIds = new Set(args.knownCharacters.map((c) => normalize(c.id)));
   const knownNames = new Set(
@@ -85,7 +92,11 @@ export function sanitizeVisualContractBeforeCoverage(args: SanitizeVisualContrac
         requiredConfirmed.push(cov);
       } else if (cov.requiresDedicatedPanel) {
         suspicious.push({ ...cov });
-        requiredConfirmed.push(cov);
+        if (parasitePolicy === "keep_all") {
+          requiredConfirmed.push(cov);
+        } else {
+          rejected.push({ ...cov, rejected: true });
+        }
       } else {
         suspicious.push({ ...cov });
         optional.push({ ...cov });

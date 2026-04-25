@@ -43,6 +43,13 @@ export type StudioResponse = {
   };
   /** Snapshot persistant (`chapter.outline.chapterVisualContract`) après run premium V3. */
   chapterVisualContract?: unknown;
+  /** Préférences UI + accuse de réception pré-lancement (`chapter.outline.chapterVisualContractUi`). */
+  chapterVisualContractUi?: {
+    version?: number;
+    parasitePolicy: "auto_strip" | "keep_all";
+    preLaunchAcknowledged?: boolean;
+    updatedAt?: string;
+  };
 };
 
 export type ChapterFlowStepId = "brief" | "cast_canon" | "plan" | "generation_review";

@@ -62,9 +62,17 @@ export {
 export {
   saveChapterVisualContractSnapshot,
   extractChapterVisualContractFromOutline,
+  extractChapterVisualContractUiFromOutline,
+  loadChapterVisualContractUi,
+  saveChapterVisualContractUi,
   CHAPTER_VISUAL_CONTRACT_OUTLINE_KEY,
+  CHAPTER_VISUAL_CONTRACT_UI_OUTLINE_KEY,
 } from "./persistence/chapter-visual-contract-persistence";
-export type { ChapterVisualContractSnapshot } from "./persistence/chapter-visual-contract-persistence";
+export type {
+  ChapterVisualContractSnapshot,
+  ChapterVisualContractUiState,
+  ChapterVisualContractParasitePolicy,
+} from "./persistence/chapter-visual-contract-persistence";
 export {
   saveRenderPassResult,
   loadRenderPassResult,
