@@ -209,7 +209,7 @@ export function aggregateChapterImageCounts(input?: ChapterImageCountInput | nul
   const normalized = chapterImageCountSchema.parse({
     estimatedImages: input?.estimatedImages ?? 0,
     targetImages: input?.targetImages ?? input?.estimatedImages ?? 0,
-    minimumImages: input?.minimumImages ?? PREMIUM_PANEL_RANGE.target,
+    minimumImages: input?.minimumImages ?? PREMIUM_PANEL_RANGE.min,
     generatedImages: input?.generatedImages ?? 0,
     acceptedImages: input?.acceptedImages ?? 0,
     rejectedImages: input?.rejectedImages ?? 0,

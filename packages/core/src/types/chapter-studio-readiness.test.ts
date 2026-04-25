@@ -5,6 +5,7 @@ import {
   updateChapterStudioSnapshot,
 } from "./chapter-studio-helpers";
 import type { ProductionPlan } from "./chapter-studio";
+import { PREMIUM_PANEL_RANGE } from "../premium-panel-range";
 
 /**
  * P0.1 — readiness doit matérialiser `panelBlueprints.length < minimumImages`
@@ -114,7 +115,7 @@ function buildPlan(partial: Partial<ProductionPlan>): ProductionPlan {
     panelsPerPage: [],
     estimatedImages: partial.estimatedImages ?? 80,
     targetImages: partial.targetImages ?? 80,
-    minimumImages: partial.minimumImages ?? 75,
+    minimumImages: partial.minimumImages ?? PREMIUM_PANEL_RANGE.min,
     criticalPanels: [],
     lockedCharacters: [],
     compressionRisks: [],
@@ -144,7 +145,7 @@ describe("chapter readiness — contrat de production P0.1", () => {
     const patch = buildBaseSnapshotPatch();
     const snapshot = updateChapterStudioSnapshot(createEmptyChapterStudioSnapshot(), {
       ...patch,
-      productionPlan: buildPlan({ estimatedImages: 80, targetImages: 80, minimumImages: 75 }),
+      productionPlan: buildPlan({ estimatedImages: 80, targetImages: 80, minimumImages: PREMIUM_PANEL_RANGE.min }),
     });
 
     const report = buildChapterReadinessReport(snapshot);

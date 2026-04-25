@@ -125,6 +125,71 @@ function stripComments(source: string): string {
     .join("\n");
 }
 
+const PREMIUM_CANONICAL_FILES_NO_DENSIFY = [
+  "packages/workflow/src/run-premium-v3-pipeline.ts",
+  "packages/ai/src/services/premium-chapter-contract-builder.ts",
+  "packages/workflow/src/passes/render-pass.ts",
+  "packages/workflow/src/build-storyboard-plan-from-canonical-plan.ts",
+  "packages/core/src/production/ensure-canonical-production-plan.ts",
+  "packages/core/src/production/build-canonical-production-plan.ts",
+  "apps/web/app/api/projects/[id]/chapters/estimate/route.ts",
+  "apps/web/app/api/projects/[id]/chapters/[chapterId]/launch/route.ts",
+  "apps/web/app/api/projects/[id]/chapters/[chapterId]/route.ts",
+];
+
+const FORBIDDEN_DENSIFY_MARKERS = ["densify-premium-blueprints", "densifyBlueprintsToPremiumRange"];
+
+describe("premium path — aucun import densification legacy (CTO)", () => {
+  it.each(PREMIUM_CANONICAL_FILES_NO_DENSIFY)(
+    "%s ne référence pas la densification blueprint legacy",
+    (relativePath) => {
+      const source = readPremiumFile(relativePath);
+      const hits = FORBIDDEN_DENSIFY_MARKERS.filter((m) => source.includes(m));
+      expect(
+        hits,
+        `${relativePath} ne doit pas importer ou citer ${FORBIDDEN_DENSIFY_MARKERS.join(", ")}`,
+      ).toEqual([]);
+    },
+  );
+});
+
+const PREMIUM_NO_LEGACY_PIPELINE_FILES = [
+  "packages/workflow/src/run-premium-v3-pipeline.ts",
+  "packages/ai/src/services/premium-chapter-contract-builder.ts",
+  "packages/workflow/src/passes/render-pass.ts",
+  "packages/workflow/src/build-storyboard-plan-from-canonical-plan.ts",
+  "packages/core/src/production/ensure-canonical-production-plan.ts",
+  "packages/core/src/production/build-canonical-production-plan.ts",
+  "apps/web/app/api/projects/[id]/chapters/estimate/route.ts",
+  "apps/web/app/api/projects/[id]/chapters/[chapterId]/launch/route.ts",
+  "apps/web/app/api/projects/[id]/chapters/[chapterId]/route.ts",
+];
+
+const FORBIDDEN_LEGACY_PIPELINE_MARKERS = [
+  "from \"../legacy/",
+  "from \"../../legacy/",
+  "from \"@manga-ai-studio/core/legacy",
+  "densify-premium-blueprints",
+  "run-legacy-compatible-chapter-pipeline",
+  "run-full-chapter-pipeline",
+  "pipelineScenesToPages",
+  "passes/image-generation-pass",
+];
+
+describe("premium hot path — aucun module pipeline legacy (phase 9)", () => {
+  it.each(PREMIUM_NO_LEGACY_PIPELINE_FILES)(
+    "%s ne doit pas réimporter le pipeline legacy",
+    (relativePath) => {
+      const source = readPremiumFile(relativePath);
+      const hits = FORBIDDEN_LEGACY_PIPELINE_MARKERS.filter((m) => source.includes(m));
+      expect(
+        hits,
+        `${relativePath} contient un marqueur legacy interdit :\n  ${hits.join("\n  ")}`,
+      ).toEqual([]);
+    },
+  );
+});
+
 describe("premium path — composeMangaPanelPrompt interdit (P1.A)", () => {
   it("aucun fichier du chemin premium n'appelle composeMangaPanelPrompt", () => {
     const violations: string[] = [];

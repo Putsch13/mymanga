@@ -11,27 +11,23 @@
  * `analyzePanelWithVision` (panel-vision-analyzer) et fusionner les scores avant persistance.
  */
 
-import type { CharacterFingerprint, CanonicalPanelPlan } from "@manga-ai-studio/core";
-import { PRODUCTION_RULES } from "@manga-ai-studio/core";
+import type { CharacterFingerprint, CanonicalPanelPlan, PanelRetryStrategy } from "@manga-ai-studio/core";
+import { normalizePanelRetryStrategy, PRODUCTION_RULES } from "@manga-ai-studio/core";
 import { analyzePanelWithVision, type PanelVisionQaScore } from "../services/panel-vision-analyzer";
 
-export type RetryStrategy =
-  | "same_prompt"
-  | "refined_prompt"
-  | "stronger_character_lock"
-  | "composition_fix"
-  | "text_space_fix"
-  | "style_lock"
-  | "simplify_scene"
-  /** @deprecated utiliser {@link simplify_scene} */
-  | "simpler_scene"
-  | "force_subject_focus";
+/** @deprecated utiliser {@link PanelRetryStrategy} depuis `@manga-ai-studio/core` */
+export type RetryStrategy = PanelRetryStrategy;
 
 export interface VisualQaInput {
   panelId: string;
   imageUrl: string;
   /** Si fourni, la criticité suit le plan canonique (premium). */
   canonicalPanel?: CanonicalPanelPlan | null;
+  /**
+   * `no_vision` : les checks « personnage présent » ne prétendent pas valider
+   * sans vision — le score heuristique est plafonné pour les panels critiques.
+   */
+  heuristicAssurance?: "full" | "no_vision";
   panelMetadata: {
     role: string;
     purpose: string;
@@ -240,8 +236,19 @@ export function checkCharacterFidelity(
       reason: "Character count implausible for scene",
       category: "character_fidelity",
       severity: "low",
-      suggestedStrategy: "simpler_scene",
+      suggestedStrategy: "simplify_scene",
     });
+  }
+
+  const needsCharacterProof = hasProtagonist || requiredCount > 0;
+  const ambientCutawayRelax =
+    input.panelMetadata.isCutaway
+    && !hasProtagonist
+    && requiredCount === 0
+    && input.expectedCharacters.length === 0;
+
+  if (input.heuristicAssurance === "no_vision" && needsCharacterProof && !ambientCutawayRelax) {
+    score = Math.min(score, 0.14);
   }
 
   return { check, score: Math.max(0, score), failures };
@@ -278,7 +285,7 @@ export function checkComposition(
       reason: "Panel composition is hard to read",
       category: "composition",
       severity: "medium",
-      suggestedStrategy: "simpler_scene",
+      suggestedStrategy: "simplify_scene",
     });
   }
 
@@ -288,7 +295,7 @@ export function checkComposition(
       reason: "Panel is visually oversaturated",
       category: "composition",
       severity: "low",
-      suggestedStrategy: "simpler_scene",
+      suggestedStrategy: "simplify_scene",
     });
   }
 
@@ -308,8 +315,12 @@ export function checkComposition(
       reason: "No clear focal point in composition",
       category: "composition",
       severity: "low",
-      suggestedStrategy: "force_subject_focus",
+      suggestedStrategy: "composition_fix",
     });
+  }
+
+  if (input.panelMetadata.reserveTextArea && input.heuristicAssurance === "no_vision") {
+    score = Math.min(score, 0.48);
   }
 
   return { check, score: Math.max(0, score), failures };
@@ -346,7 +357,7 @@ export function checkTechnical(
       reason: "Anatomical issues detected",
       category: "technical",
       severity: "medium",
-      suggestedStrategy: "simpler_scene",
+      suggestedStrategy: "simplify_scene",
     });
   }
 
@@ -381,12 +392,12 @@ function selectRetryStrategy(
 
   const criticalFailures = failures.filter((f) => f.severity === "critical");
   if (criticalFailures.length > 0) {
-    return criticalFailures[0]!.suggestedStrategy;
+    return normalizePanelRetryStrategy(criticalFailures[0]!.suggestedStrategy as string);
   }
 
   const highFailures = failures.filter((f) => f.severity === "high");
   if (highFailures.length > 0) {
-    return highFailures[0]!.suggestedStrategy;
+    return normalizePanelRetryStrategy(highFailures[0]!.suggestedStrategy as string);
   }
 
   const characterFailures = failures.filter((f) => f.category === "character_fidelity");
@@ -396,14 +407,14 @@ function selectRetryStrategy(
 
   const compositionFailures = failures.filter((f) => f.category === "composition");
   if (compositionFailures.length > 0 && attemptNumber >= 2) {
-    return "simpler_scene";
+    return "simplify_scene";
   }
 
   if (attemptNumber === 1) return "refined_prompt";
   if (attemptNumber === 2) return "stronger_character_lock";
   if (attemptNumber === 3) return "composition_fix";
 
-  return "simpler_scene";
+  return "simplify_scene";
 }
 
 export function runVisualPanelQa(
@@ -490,6 +501,7 @@ export function buildVisualQaInputFromRenderSpec(input: {
     panelId: input.panelId,
     imageUrl: input.imageUrl,
     canonicalPanel: input.canonicalPanel ?? null,
+    heuristicAssurance: undefined,
     panelMetadata: {
       role: input.panelPurpose,
       purpose: input.actionLine.slice(0, 240),
@@ -579,7 +591,6 @@ export async function runVisualPanelQaWithOptionalVision(
   input: VisualQaInput,
   weights: VisualQaScoreWeights = DEFAULT_WEIGHTS,
 ): Promise<VisualQaResult> {
-  const base = runVisualPanelQa(input, weights);
   const passThreshold = PRODUCTION_RULES.visualQa.passScore;
   const maxAttempts = PRODUCTION_RULES.visualQa.maxAttemptsPerPanel;
   const critical = inferCriticalPanelForVisualQa(input);
@@ -591,7 +602,26 @@ export async function runVisualPanelQaWithOptionalVision(
     return visionUnavailableBlockResult(input, maxAttempts);
   }
 
+  const nodeEnv = process.env.NODE_ENV;
+  const useNoVisionAssurance =
+    !visionFeatureOn
+    && critical
+    && (prod || nodeEnv === "development" || process.env.STRICT_VISUAL_QA_HEURISTIC === "true");
+
+  const inputForHeuristic: VisualQaInput = {
+    ...input,
+    heuristicAssurance: useNoVisionAssurance ? "no_vision" : "full",
+  };
+
+  const base = runVisualPanelQa(inputForHeuristic, weights);
+
   if (!visionFeatureOn) {
+    if (useNoVisionAssurance && nodeEnv === "development") {
+      console.warn(
+        `[visual-qa] critical_panel_heuristic_without_vision panel=${input.panelId} — ` +
+          "activer VISUAL_PANEL_QA_VISION=true (et clés) pour une QA visuelle fiable.",
+      );
+    }
     return base;
   }
 
@@ -643,7 +673,7 @@ export async function runVisualPanelQaWithOptionalVision(
       reason: `Vision QA (${vision.model}): release=${vision.releaseScore.toFixed(2)} — ${vision.findings.slice(0, 2).join("; ") || "score bas"}`,
       category: "technical",
       severity: vision.releaseScore < 0.32 ? "critical" : "high",
-      suggestedStrategy: vision.releaseScore < 0.32 ? "simpler_scene" : "refined_prompt",
+      suggestedStrategy: vision.releaseScore < 0.32 ? "simplify_scene" : "refined_prompt",
     });
   }
 
@@ -706,10 +736,11 @@ export function buildRetryPrompt(
       break;
 
     case "composition_fix":
-      prompt += " IMPORTANT: Leave clear space at top or bottom for text bubbles. Avoid cluttered compositions.";
+      prompt +=
+        " IMPORTANT: Leave clear space at top or bottom for text bubbles. Avoid cluttered compositions. " +
+        "The main subject must be the clear focal point (rule of thirds / center).";
       break;
 
-    case "simpler_scene":
     case "simplify_scene":
       simplifiedScene = true;
       prompt += " Simplify the scene. Focus on fewer elements. Clear, uncluttered composition.";
@@ -725,9 +756,6 @@ export function buildRetryPrompt(
         " Lock ink style: consistent manga line weight, coherent screentones, no color drift vs reference style.";
       break;
 
-    case "force_subject_focus":
-      prompt += " The main subject must be the clear focal point, centered or following rule of thirds.";
-      break;
   }
 
   return { prompt, strengthenedRefs, simplifiedScene };

@@ -18,6 +18,7 @@ import {
   resolveCharacterImportanceTier,
   resolveChapterLookProfile,
   validateShotCompliance,
+  PREMIUM_PANEL_RANGE,
   type StableImageReference,
   type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
@@ -1885,7 +1886,7 @@ export async function runImageGenerationPass(
     // Extrait dans ./image-generation/recovery-pass.ts
     const minimumImages = (typeof (chapter as Record<string, unknown>).minimumImages === "number"
       ? (chapter as Record<string, unknown>).minimumImages as number
-      : 75);
+      : PREMIUM_PANEL_RANGE.min);
     const { recoveredCount } = await runRecoveryPass({
       jobId,
       projectId,

@@ -15,6 +15,7 @@ import {
   determinePanelTextPlan,
   type RhythmConfig,
 } from "./panel-rhythm-planner";
+import { applyDistributedCutawayRhythmToPanels } from "./distributed-cutaway-rhythm";
 import { runProductionPlanQa } from "./production-plan-qa";
 import type {
   CanonicalChapterProductionPlan,
@@ -373,6 +374,8 @@ export function buildCanonicalChapterProductionPlan(
     beatPlans.push(buildBeatPlan(beat, panelIdsForBeat));
   }
 
+  const panelsDistributed = applyDistributedCutawayRhythmToPanels(panels, normalizedOutline);
+
   const partialPlanBare: CanonicalChapterProductionPlan = {
     chapterId: input.chapterId,
     projectId: input.projectId,
@@ -386,7 +389,7 @@ export function buildCanonicalChapterProductionPlan(
     beatCount: beatPlans.length,
     pageCount: currentPage,
     beats: beatPlans,
-    panels,
+    panels: panelsDistributed,
     rhythm: {
       cutawayMaxRatio: PRODUCTION_RULES.cutaway.maxRatio,
       actorDrivenMinRatio: PRODUCTION_RULES.actorDriven.minRatio,
@@ -394,7 +397,7 @@ export function buildCanonicalChapterProductionPlan(
       pattern: [...PRODUCTION_RULES.rhythm.preferredNarrativePattern],
       cutawayInsertionPolicy: PRODUCTION_RULES.rhythm.cutawayInsertionPolicy,
     },
-    metrics: computeCanonicalProductionMetrics(panels),
+    metrics: computeCanonicalProductionMetrics(panelsDistributed),
     qa: { valid: false, warnings: [], errors: [], details: {} as any },
     createdAt: new Date().toISOString(),
     version: "1.0.0",

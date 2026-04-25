@@ -136,6 +136,7 @@ beforeEach(() => {
     hasFal: true,
     hasStoragePersistence: true,
     hasOpenAI: true,
+    visionPremiumQaEnvReady: true,
     operationalStatus: "FULLY_OPERATIONAL",
     degradedModes: [],
     warnings: [],

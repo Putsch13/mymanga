@@ -12,22 +12,22 @@ import * as path from "path";
  * Ces tests bloquent toute régression vers un hardcode 75/55/autre.
  */
 describe("premium image targets — PREMIUM_PANEL_RANGE", () => {
-  it("chapter-runtime utilise PREMIUM_PANEL_RANGE.target (72), plus aucun hardcode 75", () => {
+  it("chapter-runtime utilise PREMIUM_PANEL_RANGE.min (70) comme plancher par défaut, plus aucun hardcode 75", () => {
     const source = fs.readFileSync(
       path.resolve(__dirname, "../../core/src/chapter-runtime.ts"),
       "utf-8",
     );
-    expect(source).toMatch(/minimumImages.*\?\?\s*PREMIUM_PANEL_RANGE\.target/);
+    expect(source).toMatch(/minimumImages.*\?\?\s*PREMIUM_PANEL_RANGE\.min/);
     expect(source).not.toMatch(/minimumImages.*\?\?\s*75/);
     expect(source).not.toMatch(/minimumImages.*\?\?\s*55/);
   });
 
-  it("chapter-runtime-helpers utilise PREMIUM_PANEL_RANGE.target en fallback", () => {
+  it("chapter-runtime-helpers utilise PREMIUM_PANEL_RANGE.min en fallback pour minimumAcceptedImages", () => {
     const source = fs.readFileSync(
       path.resolve(__dirname, "chapter-runtime-helpers.ts"),
       "utf-8",
     );
-    expect(source).toMatch(/PREMIUM_PANEL_RANGE\.target/);
+    expect(source).toMatch(/parseNumEnv\(process\.env\.CHAPTER_MIN_ACCEPTED_IMAGES,\s*PREMIUM_PANEL_RANGE\.min\)/);
     expect(source).not.toMatch(/CHAPTER_MIN_ACCEPTED_IMAGES.*"55"/);
     expect(source).not.toMatch(/\?\?\s*parseNumEnv\(process\.env\.CHAPTER_MIN_ACCEPTED_IMAGES,\s*75\)/);
   });

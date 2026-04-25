@@ -50,7 +50,7 @@ export function buildProductionPlanFromOutline(
     lockedCharacters?: string[];
   },
 ): ProductionPlan {
-  const minimumImages = Math.max(1, input?.minimumImages ?? PREMIUM_PANEL_RANGE.target);
+  const minimumImages = Math.max(1, input?.minimumImages ?? PREMIUM_PANEL_RANGE.min);
   const maxPanelsPerPage = Math.max(3, input?.maxPanelsPerPage ?? 6);
   const panels = outline.beats.map((beat) => Math.max(1, beat.estimatedPanels));
   const estimatedImages = sum(panels);
@@ -170,7 +170,7 @@ export function normalizeChapterImageCounts(input?: Partial<ChapterImageCount> |
   const normalized = chapterImageCountSchema.parse({
     estimatedImages: input?.estimatedImages ?? 0,
     targetImages: input?.targetImages ?? input?.estimatedImages ?? 0,
-    minimumImages: input?.minimumImages ?? PREMIUM_PANEL_RANGE.target,
+    minimumImages: input?.minimumImages ?? PREMIUM_PANEL_RANGE.min,
     generatedImages: input?.generatedImages ?? 0,
     acceptedImages: input?.acceptedImages ?? 0,
     rejectedImages: input?.rejectedImages ?? 0,
@@ -297,7 +297,7 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
     imageCounts = normalizeChapterImageCounts({
       estimatedImages: snapshot.data.productionPlan.estimatedImages ?? 0,
       targetImages: snapshot.data.productionPlan.targetImages ?? 0,
-      minimumImages: snapshot.data.productionPlan.minimumImages ?? PREMIUM_PANEL_RANGE.target,
+      minimumImages: snapshot.data.productionPlan.minimumImages ?? PREMIUM_PANEL_RANGE.min,
       acceptedImages: snapshot.data.readinessReport?.imageCounts.acceptedImages ?? 0,
       generatedImages: snapshot.data.readinessReport?.imageCounts.generatedImages ?? 0,
       rejectedImages: snapshot.data.readinessReport?.imageCounts.rejectedImages ?? 0,

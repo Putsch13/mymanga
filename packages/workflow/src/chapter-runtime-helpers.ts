@@ -72,7 +72,7 @@ export function computeChapterQualityReport(
     return Number.isFinite(parsed) ? parsed : fallback;
   };
   const releaseThreshold = input?.releaseThreshold ?? parseNumEnv(process.env.PREMIUM_RELEASE_SCORE_THRESHOLD, 0.72);
-  const minimumAcceptedImages = input?.minimumAcceptedImages ?? parseNumEnv(process.env.CHAPTER_MIN_ACCEPTED_IMAGES, PREMIUM_PANEL_RANGE.target);
+  const minimumAcceptedImages = input?.minimumAcceptedImages ?? parseNumEnv(process.env.CHAPTER_MIN_ACCEPTED_IMAGES, PREMIUM_PANEL_RANGE.min);
   const completed = rows.filter((row) => typeof row.consistencyScore === "number");
   // P10 — QUALITY GATE HONNÊTE.
   //

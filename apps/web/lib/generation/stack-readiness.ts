@@ -45,6 +45,8 @@ export type GenerationStackStatus = {
   canGenerateChapters: boolean;
   /** P0.4 — V3 premium pipeline nécessite FAL + storage */
   canRunV3Premium: boolean;
+  /** Prod premium-only : `VISUAL_PANEL_QA_VISION` + `ENABLE_PREMIUM_VISION_QA` à true (voir assertPremiumVisualQaConfig). */
+  visionPremiumQaEnvReady: boolean;
   blockers: string[];
   warnings: string[];
 };
@@ -83,8 +85,21 @@ export function getGenerationStackStatus(): GenerationStackStatus {
     providerNeedsStorage(preferred) && !storageReady ? "DEGRADED_STORAGE_MISSING" : "FULLY_OPERATIONAL",
   ]);
 
-  // P0.4 — V3 premium pipeline nécessite FAL + storage durable
-  const canRunV3Premium = hasFal && storageReady && Boolean(process.env.OPENAI_API_KEY);
+  const visionPremiumQaEnvReady =
+    process.env.VISUAL_PANEL_QA_VISION === "true" && process.env.ENABLE_PREMIUM_VISION_QA === "true";
+
+  if (process.env.NODE_ENV === "production" && !visionPremiumQaEnvReady) {
+    warnings.push(
+      "Production premium : définir VISUAL_PANEL_QA_VISION=true et ENABLE_PREMIUM_VISION_QA=true (obligatoire avec assertPremiumVisualQaConfig).",
+    );
+  }
+
+  // P0.4 — V3 premium + prod : QA vision explicitement activée
+  const canRunV3Premium =
+    hasFal
+    && storageReady
+    && Boolean(process.env.OPENAI_API_KEY)
+    && (process.env.NODE_ENV !== "production" || visionPremiumQaEnvReady);
 
   return {
     configuredProviders: providers,
@@ -104,6 +119,7 @@ export function getGenerationStackStatus(): GenerationStackStatus {
       providers.length > 0 &&
       (!preferred || !providerNeedsStorage(preferred) || storageReady),
     canRunV3Premium,
+    visionPremiumQaEnvReady,
     blockers,
     warnings,
   };

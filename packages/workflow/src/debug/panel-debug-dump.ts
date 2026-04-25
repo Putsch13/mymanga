@@ -24,6 +24,8 @@ export interface DumpPanelDebugArtifactsInput {
   providerPayload?: unknown;
   outputUrl?: string | null;
   error?: unknown;
+  /** Résumé panel (QA, retries, plan canonique) — phase 11 debug studio. */
+  renderDebug?: Record<string, unknown>;
 }
 
 function sanitizeSegment(value: string): string {
@@ -113,6 +115,7 @@ export async function dumpPanelDebugArtifacts(input: DumpPanelDebugArtifactsInpu
     providerPayload: input.providerPayload ?? null,
     outputUrl: input.outputUrl ?? null,
     error: serializeErrorValue(input.error),
+    renderDebug: input.renderDebug ?? null,
   };
 
   try {

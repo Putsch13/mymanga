@@ -8,7 +8,7 @@ import {
 import { computeShotVarietyBudget, computeContractualFocusAdequacy } from "@manga-ai-studio/ai";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { isUnlimitedAdminEmail } from "@/lib/auth/get-app-user";
-import { prisma, type Prisma } from "@manga-ai-studio/db";
+import { prisma } from "@manga-ai-studio/db";
 import {
   runFullChapterPipelineFromJob,
   sendChapterGenerateRequested,
@@ -28,6 +28,7 @@ import {
   resolveApprovedOutlineFromSnapshot,
 } from "@/lib/premium-chapter-contract";
 import { assertChapterCanonReadiness } from "@/lib/canon/assert-chapter-canon-readiness";
+import { toPrismaInputJson } from "@/lib/to-prisma-input-json";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -79,6 +80,9 @@ export async function POST(_req: Request, ctx: Ctx) {
     if (!stack.hasFal) missingComponents.push("FAL_KEY");
     if (!stack.hasStoragePersistence) missingComponents.push("SUPABASE storage (SUPABASE_SERVICE_ROLE_KEY + STORAGE_BUCKET)");
     if (!stack.hasOpenAI) missingComponents.push("OPENAI_API_KEY");
+    if (process.env.NODE_ENV === "production" && !stack.visionPremiumQaEnvReady) {
+      missingComponents.push("VISUAL_PANEL_QA_VISION=true et ENABLE_PREMIUM_VISION_QA=true");
+    }
 
     console.warn(
       `[launch] v3_premium_stack_incomplete chapterId=${chapterId} missing=[${missingComponents.join(", ")}]`,
@@ -132,7 +136,7 @@ export async function POST(_req: Request, ctx: Ctx) {
   }
 
   const chapterCharacterSelection = asRecord(snapshot.data.characterSelection);
-  const snapshotDataRecord = snapshot.data as Record<string, unknown>;
+  const snapshotDataRecord = asRecord(snapshot.data);
   const focusCharacterIds = Array.isArray(chapterCharacterSelection.activeCharacterIds)
     ? chapterCharacterSelection.activeCharacterIds.filter(
         (id): id is string => typeof id === "string" && id.length > 0,
@@ -175,7 +179,7 @@ export async function POST(_req: Request, ctx: Ctx) {
   // BUG-22 fix : resolveApprovedOutlineFromSnapshot peut reconstruire l'outline depuis
   // productionOutline (fallback) sans l'écrire dans chapterOutlineRecord. On synchronise
   // l'objet en mémoire pour que assertPremiumContract le voit correctement.
-  chapterOutlineRecord.approvedOutline = approvedOutline as unknown as Record<string, unknown>;
+  chapterOutlineRecord.approvedOutline = approvedOutline as Record<string, unknown>;
 
   // Vérifier le contrat premium complet avant lancement
   const contractCheck = assertPremiumContract(snapshot, chapterOutlineRecord);
@@ -314,25 +318,28 @@ export async function POST(_req: Request, ctx: Ctx) {
     // MISSING_ENVIRONMENT, SHOT_MONOTONY, EMPTY_PLAN). C'est un filet en plus
     // du contractual focus, avec un rapport human-readable pour l'auteur.
     try {
-      // Note : le type public de productionPlan ne liste pas shotPlan (c'est
-      // un champ additionnel persisté par /estimate). Cast contrôlé.
-      const productionPlanLoose = snapshot.data.productionPlan as (typeof snapshot.data.productionPlan & {
-        shotPlan?: {
-          reliability?: {
-            launchAllowed?: boolean;
-            score?: number;
-            blockers?: Array<{ code: string; message: string; severity: string }>;
-          };
-          humanReadable?: string;
-        };
-      }) | null | undefined;
-      const persistedShotPlan = productionPlanLoose?.shotPlan ?? null;
-      if (persistedShotPlan?.reliability && persistedShotPlan.reliability.launchAllowed === false) {
-        const blockers = persistedShotPlan.reliability.blockers ?? [];
+      const productionPlanRec = asRecord(snapshot.data.productionPlan ?? undefined);
+      const shotPlanRaw = productionPlanRec.shotPlan;
+      const persistedShotPlan =
+        shotPlanRaw && typeof shotPlanRaw === "object" && !Array.isArray(shotPlanRaw)
+          ? asRecord(shotPlanRaw)
+          : null;
+      const reliabilityRaw = persistedShotPlan?.reliability;
+      const reliability =
+        reliabilityRaw && typeof reliabilityRaw === "object" && !Array.isArray(reliabilityRaw)
+          ? asRecord(reliabilityRaw)
+          : null;
+      if (reliability && reliability.launchAllowed === false) {
+        const blockers = Array.isArray(reliability.blockers) ? reliability.blockers : [];
+        const blockerCodes = blockers.map((b) =>
+          b && typeof b === "object" && !Array.isArray(b) && typeof (b as Record<string, unknown>).code === "string"
+            ? (b as Record<string, unknown>).code
+            : "unknown",
+        );
         console.warn(
           `[launch] shot_plan_unreliable chapterId=${chapterId} ` +
-            `score=${(persistedShotPlan.reliability.score ?? 0).toFixed(2)} ` +
-            `blockers=${JSON.stringify(blockers.map((b) => b.code))}`,
+            `score=${(typeof reliability.score === "number" ? reliability.score : 0).toFixed(2)} ` +
+            `blockers=${JSON.stringify(blockerCodes)}`,
         );
         return NextResponse.json(
           {
@@ -341,9 +348,12 @@ export async function POST(_req: Request, ctx: Ctx) {
               "(héros trop centré, pas assez de coupes, décor absent, cadrages monotones). " +
               "Régénère le plan de production.",
             code: "SHOT_PLAN_UNRELIABLE",
-            score: persistedShotPlan.reliability.score,
+            score: typeof reliability.score === "number" ? reliability.score : null,
             blockers,
-            humanReadable: persistedShotPlan.humanReadable,
+            humanReadable:
+              persistedShotPlan && typeof persistedShotPlan.humanReadable === "string"
+                ? persistedShotPlan.humanReadable
+                : undefined,
           },
           { status: 422 },
         );
@@ -449,7 +459,7 @@ export async function POST(_req: Request, ctx: Ctx) {
     generatedImages: chapter.generatedImages ?? 0,
     acceptedImages: chapter.acceptedImages ?? 0,
     rejectedImages: chapter.rejectedImages ?? 0,
-    missingImages: chapter.missingImages ?? (nextSnapshot.data.readinessReport?.imageCounts.minimumImages ?? PREMIUM_PANEL_RANGE.target),
+    missingImages: chapter.missingImages ?? (nextSnapshot.data.readinessReport?.imageCounts.minimumImages ?? PREMIUM_PANEL_RANGE.min),
     criticalPanelsCount: chapter.criticalPanelsCount ?? 0,
     criticalPanelsBlocked: chapter.criticalPanelsBlocked ?? 0,
     criticalPanelsMissingQa: chapter.criticalPanelsMissingQa ?? 0,
@@ -461,11 +471,11 @@ export async function POST(_req: Request, ctx: Ctx) {
     data: {
       status: "ready_for_render",
       ...structuredRuntime,
-      outline: ({
+      outline: toPrismaInputJson({
         ...chapterOutlineRecord,
         studio: nextSnapshot,
         approvedOutline,
-      } as unknown) as Prisma.InputJsonValue,
+      }),
     },
   });
 
@@ -478,7 +488,8 @@ export async function POST(_req: Request, ctx: Ctx) {
       snapshot,
       approvedOutline,
       selectedPlotLabel: snapshot.data.selectedPlotLabel ?? "bold",
-      creativityControls: snapshot.data.creativityControls as Record<string, unknown> | null ?? null,
+      creativityControls:
+        snapshot.data.creativityControls == null ? null : asRecord(snapshot.data.creativityControls),
       heroCharacterId,
       focusCharacterIds,
       activeNpcIds,
@@ -516,10 +527,12 @@ export async function POST(_req: Request, ctx: Ctx) {
       // P1.2 — observabilité structurée. On cherche combien de chapitres
       // sortent incomplets en prod, avec quel gap et sous quelle source de
       // contrat (premium vs legacy_adapted).
+      const productionPlanRec = asRecord(snapshot.data.productionPlan ?? undefined);
       const productionPlanSource =
-        (snapshot.data.productionPlan as { source?: string } | undefined)?.source ?? "unknown";
+        typeof productionPlanRec.source === "string" ? productionPlanRec.source : "unknown";
+      const productionOutlineRec = asRecord(snapshot.data.productionOutline ?? undefined);
       const productionOutlineSource =
-        (snapshot.data.productionOutline as { source?: string } | undefined)?.source ?? "unknown";
+        typeof productionOutlineRec.source === "string" ? productionOutlineRec.source : "unknown";
       console.warn(
         `[launch] incomplete_plan userId=${user.id} projectId=${projectId} chapterId=${chapterId} ` +
         `blueprints=${err.panelBlueprintCount} minimum=${err.minimumImages} ` +
@@ -573,7 +586,7 @@ export async function POST(_req: Request, ctx: Ctx) {
       type: "GENERATE_CHAPTER_SCRIPT",
       status: "queued",
       estimatedTokenCost: estimatedCost,
-      input: jobInput as unknown as Prisma.InputJsonValue,
+      input: toPrismaInputJson(jobInput),
       output: {
         currentStep: "queued",
         steps: [],

@@ -91,13 +91,12 @@ export async function PATCH(req: Request, ctx: Ctx) {
   const providedProductionOutline = body.productionOutline;
   const providedProductionPlan = body.productionPlan;
 
-  // P2.1 — on transmet le `minimumImages` réel du chapitre au builder premium
-  // pour empêcher la régression "rebuild cape silencieusement à 75". La
-  // valeur est lue depuis la colonne Chapter.minimumImages (défaut 75).
+  // P2.1 — on transmet le `minimumImages` réel du chapitre au builder premium.
+  // Fallback = minimum produit (70), jamais la cible 72.
   const chapterMinimumImages = typeof (chapter as { minimumImages?: number | null }).minimumImages === "number"
     && (chapter as { minimumImages?: number | null }).minimumImages! > 0
     ? (chapter as { minimumImages: number }).minimumImages
-    : PREMIUM_PANEL_RANGE.target;
+    : PREMIUM_PANEL_RANGE.min;
 
   // Toujours reconstruire le contrat premium côté serveur pour validation
   const projectFormat =
@@ -211,7 +210,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
   const resolvedMinimumImages =
     typeof resolvedPlanRecord.minimumImages === "number" && resolvedPlanRecord.minimumImages > 0
       ? (resolvedPlanRecord.minimumImages as number)
-      : PREMIUM_PANEL_RANGE.target;
+      : PREMIUM_PANEL_RANGE.min;
   const launchBlocked = resolvedBlueprintCount < resolvedMinimumImages;
   const launchBlockedReason =
     !launchBlocked
@@ -275,11 +274,11 @@ export async function PATCH(req: Request, ctx: Ctx) {
     data: {
       ...buildChapterStructuredRuntimePrismaFields({
         snapshot: studioSnapshot,
-        minimumImages: studioSnapshot.data.readinessReport?.imageCounts.minimumImages ?? studioSnapshot.data.productionPlan?.minimumImages ?? PREMIUM_PANEL_RANGE.target,
+        minimumImages: studioSnapshot.data.readinessReport?.imageCounts.minimumImages ?? studioSnapshot.data.productionPlan?.minimumImages ?? PREMIUM_PANEL_RANGE.min,
         generatedImages: chapter.generatedImages ?? 0,
         acceptedImages: chapter.acceptedImages ?? 0,
         rejectedImages: chapter.rejectedImages ?? 0,
-        missingImages: chapter.missingImages ?? (studioSnapshot.data.readinessReport?.imageCounts.minimumImages ?? PREMIUM_PANEL_RANGE.target),
+        missingImages: chapter.missingImages ?? (studioSnapshot.data.readinessReport?.imageCounts.minimumImages ?? PREMIUM_PANEL_RANGE.min),
         criticalPanelsCount: chapter.criticalPanelsCount ?? 0,
         criticalPanelsBlocked: chapter.criticalPanelsBlocked ?? 0,
         criticalPanelsMissingQa: chapter.criticalPanelsMissingQa ?? 0,

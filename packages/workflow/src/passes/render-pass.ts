@@ -40,7 +40,11 @@ import {
   type StoryboardPlan,
 } from "@manga-ai-studio/ai";
 import type { StoryboardPanel } from "@manga-ai-studio/ai/contracts";
-import { PRODUCTION_RULES } from "@manga-ai-studio/core";
+import {
+  PRODUCTION_RULES,
+  type CanonicalChapterProductionPlan,
+  type CanonicalPanelPlan,
+} from "@manga-ai-studio/core";
 import {
   buildRetryPrompt,
   buildVisualQaInputFromRenderSpec,
@@ -178,9 +182,22 @@ function requiresDedicatedFaceRef(spec: PanelRenderSpec): boolean {
   );
 }
 
+function canonicalPanelByIdFromPlan(
+  plan: CanonicalChapterProductionPlan | null | undefined,
+): Map<string, CanonicalPanelPlan> {
+  const map = new Map<string, CanonicalPanelPlan>();
+  if (!plan?.panels?.length) return map;
+  for (const p of plan.panels) {
+    map.set(p.panelId, p);
+  }
+  return map;
+}
+
 export interface RunRenderPassInput {
   chapterId: string;
   storyboardPlan: StoryboardPlan;
+  /** Plan canonique (premium) — alimente la QA visuelle critique + debug. */
+  canonicalProductionPlan?: CanonicalChapterProductionPlan | null;
   styleBible: ChapterStyleBible;
   visualMemory: ChapterVisualMemory;
   characters: Array<{ id: string; name: string; roleType?: string | null }>;
@@ -215,6 +232,44 @@ export interface RunRenderPassResult {
   pageQa: PageQaPassOutput;
 }
 
+function compactRenderPanelDebug(input: {
+  panel: StoryboardPanel;
+  spec: PanelRenderSpec;
+  canonicalPanel: CanonicalPanelPlan | null;
+  reserveTextArea: boolean;
+  imageUrl: string | null | undefined;
+  lastQa: VisualQaResult | null;
+  attempts: V3PanelRenderAttemptLog[] | undefined;
+  finalStatus: PanelFinalStatus | null | undefined;
+}): Record<string, unknown> {
+  const { panel, spec, canonicalPanel, reserveTextArea, imageUrl, lastQa, attempts, finalStatus } = input;
+  return {
+    panelId: spec.panelId,
+    beatId: panel.sourceBeatId,
+    role: spec.panelPurpose,
+    isCutaway: spec.cutawayType !== "none",
+    isActorDriven: canonicalPanel?.isActorDriven ?? null,
+    expectedCharacters: canonicalPanel
+      ? {
+          mustShowCharacterIds: canonicalPanel.mustShowCharacterIds,
+          requiredCharacterIds: canonicalPanel.requiredCharacterIds,
+        }
+      : [...spec.constraints.mustShow],
+    textAnchor: canonicalPanel?.textPlan ?? null,
+    reserveTextArea,
+    renderMode: spec.renderMode,
+    imageUrl: imageUrl ?? null,
+    visualQaScore: lastQa?.score ?? null,
+    visualQaPassed: lastQa?.passed ?? null,
+    visualQaReasons: lastQa?.reasons ?? [],
+    attemptCount: attempts?.length ?? 0,
+    retryStrategies: (attempts ?? []).map((a) => a.retryStrategy),
+    finalStatus: finalStatus ?? null,
+    manualReviewRequired: Boolean(lastQa?.shouldMarkManualReview),
+    canonicalPanel,
+  };
+}
+
 export async function runRenderPass(input: RunRenderPassInput): Promise<RunRenderPassResult> {
   const startedAt = new Date();
   const specs: PanelRenderSpec[] = [];
@@ -229,6 +284,8 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
   let manualReviewRequiredCount = 0;
   let passedAfterRetryCount = 0;
   let visualQaPassedCount = 0;
+
+  const canonicalByPanelId = canonicalPanelByIdFromPlan(input.canonicalProductionPlan ?? undefined);
 
   const allPanels: StoryboardPanel[] = input.storyboardPlan.pages.flatMap((p) => p.panels);
   let previousPanel: StoryboardPanel | null = null;
@@ -392,6 +449,13 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
     }
 
     const providerPreview = buildProviderPayloadPreview(enrichedSpec, route);
+    const canonicalPanelForDump = canonicalByPanelId.get(enrichedSpec.panelId) ?? null;
+    const reserveTextAreaForDump =
+      (Array.isArray(panel.dialogue) && panel.dialogue.length > 0)
+      || Boolean(panel.narration?.trim())
+      || (Array.isArray(panel.sfx) && panel.sfx.length > 0)
+      || Boolean(enrichedSpec.panelTextPayload?.dialogue?.length)
+      || Boolean(enrichedSpec.panelTextPayload?.narration?.trim());
     await dumpPanelDebugArtifacts({
       chapterId: input.chapterId,
       panelId: enrichedSpec.panelId,
@@ -400,6 +464,16 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
       renderSpec: enrichedSpec,
       prompt: { positive: prompt.positive, negative: prompt.negative },
       providerPayload: providerPreview,
+      renderDebug: compactRenderPanelDebug({
+        panel,
+        spec: enrichedSpec,
+        canonicalPanel: canonicalPanelForDump,
+        reserveTextArea: reserveTextAreaForDump,
+        imageUrl: null,
+        lastQa: null,
+        attempts: undefined,
+        finalStatus: null,
+      }),
     });
 
     try {
@@ -421,12 +495,7 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
           process.env.RENDER_PASS_VISUAL_QA_RETRY === "true"
           || process.env.VISUAL_PANEL_QA_VISION === "true";
 
-        const reserveTextArea =
-          (Array.isArray(panel.dialogue) && panel.dialogue.length > 0)
-          || Boolean(panel.narration?.trim())
-          || (Array.isArray(panel.sfx) && panel.sfx.length > 0)
-          || Boolean(enrichedSpec.panelTextPayload?.dialogue?.length)
-          || Boolean(enrichedSpec.panelTextPayload?.narration?.trim());
+        const reserveTextArea = reserveTextAreaForDump;
 
         let positivePrompt = prompt.positive;
         const qaHistory: VisualQaResult[] = [];
@@ -454,6 +523,7 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
                 name: c.name,
                 isProtagonist: c.characterId === (enrichedSpec.heroCharacterId ?? null),
               })),
+              canonicalPanel: canonicalPanelForDump,
             });
             lastQa = await runVisualPanelQaWithOptionalVision(qaInput);
             qaHistory.push(lastQa);
@@ -525,6 +595,16 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
             providerPayload: providerPreview,
             outputUrl: null,
             error: { errorMessage: "missing_generated_image_url", errorCode: "MISSING_IMAGE_URL" },
+            renderDebug: compactRenderPanelDebug({
+              panel,
+              spec: enrichedSpec,
+              canonicalPanel: canonicalPanelForDump,
+              reserveTextArea,
+              imageUrl: null,
+              lastQa: null,
+              attempts: descriptor.renderAttempts,
+              finalStatus: "failed",
+            }),
           });
         } else if (!lastQa) {
           failedCount += 1;
@@ -544,6 +624,16 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
             providerPayload: providerPreview,
             outputUrl: imageUrl,
             error: { errorMessage: "visual_qa_not_run", errorCode: "VISUAL_QA_NOT_RUN" },
+            renderDebug: compactRenderPanelDebug({
+              panel,
+              spec: enrichedSpec,
+              canonicalPanel: canonicalPanelForDump,
+              reserveTextArea,
+              imageUrl,
+              lastQa: null,
+              attempts: descriptor.renderAttempts,
+              finalStatus: "failed",
+            }),
           });
         } else if (lastQa.passed) {
           renderedCount += 1;
@@ -568,6 +658,16 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
             prompt: { positive: prompt.positive, negative: prompt.negative },
             providerPayload: providerPreview,
             outputUrl: imageUrl,
+            renderDebug: compactRenderPanelDebug({
+              panel,
+              spec: enrichedSpec,
+              canonicalPanel: canonicalPanelForDump,
+              reserveTextArea,
+              imageUrl,
+              lastQa,
+              attempts: descriptor.renderAttempts,
+              finalStatus: descriptor.finalStatus ?? null,
+            }),
           });
         } else {
           visualQaFailedCount += 1;
@@ -604,6 +704,16 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
             providerPayload: providerPreview,
             outputUrl: imageUrl,
             error: { errorMessage: reasonsJoined, errorCode: "VISUAL_QA_FAILED" },
+            renderDebug: compactRenderPanelDebug({
+              panel,
+              spec: enrichedSpec,
+              canonicalPanel: canonicalPanelForDump,
+              reserveTextArea,
+              imageUrl,
+              lastQa,
+              attempts: descriptor.renderAttempts,
+              finalStatus: "manual_review_required",
+            }),
           });
         }
       } else {
@@ -632,6 +742,16 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
           providerPayload: providerPreview,
           outputUrl: res.imageUrl ?? null,
           error: { errorMessage, errorCode, raw: res.error ?? null },
+          renderDebug: compactRenderPanelDebug({
+            panel,
+            spec: enrichedSpec,
+            canonicalPanel: canonicalPanelForDump,
+            reserveTextArea: reserveTextAreaForDump,
+            imageUrl: res.imageUrl ?? null,
+            lastQa: null,
+            attempts: undefined,
+            finalStatus: "failed",
+          }),
         });
       }
     } catch (err) {
@@ -658,6 +778,16 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
         prompt: { positive: prompt.positive, negative: prompt.negative },
         providerPayload: providerPreview,
         error: err,
+        renderDebug: compactRenderPanelDebug({
+          panel,
+          spec: enrichedSpec,
+          canonicalPanel: canonicalPanelForDump,
+          reserveTextArea: reserveTextAreaForDump,
+          imageUrl: null,
+          lastQa: null,
+          attempts: undefined,
+          finalStatus: "failed",
+        }),
       });
     }
   }

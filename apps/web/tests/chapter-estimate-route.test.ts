@@ -140,7 +140,7 @@ function makePremiumBlueprint(beatId: string, panelNumber: number) {
     subjectFocus: "hero",
     mustShowEnemy: false,
     requiredNpcCount: 0,
-    requiredProps: [{ canonicalName: "katana", mustBeVisible: true, narrativeRole: "weapon", visibilityMode: "foreground_insert" }],
+    requiredProps: [{ id: "prop-katana", canonicalName: "katana", mustBeVisible: true, narrativeRole: "weapon", visibilityMode: "foreground_insert" }],
     optionalProps: [],
     requiredLocationSignals: [],
     speakerAnchorCharacterId: null,
@@ -406,9 +406,10 @@ describe("chapter estimate route", () => {
     expect(payload.planStatus).toBe("ready");
     expect(payload.panelCountStatus).toBe("ok");
     expect(payload.rawBlueprintCount).toBe(20);
-    expect(payload.enrichedBlueprintCount).toBe(70);
-    expect(payload.enrichmentApplied).toBe(true);
-    expect(payload.enrichmentAddedCount).toBe(50);
+    expect(payload.enrichedBlueprintCount).toBe(72);
+    // Plan canonique : le count « enrichi » vient de canonicalPlan→blueprints, pas du flag legacy densify.
+    expect(payload.enrichmentApplied).toBe(false);
+    expect(payload.enrichmentAddedCount).toBe(0);
     expect(payload.premiumPanelRange).toEqual({ min: 70, target: 72, max: 75 });
   });
 
@@ -441,9 +442,9 @@ describe("chapter estimate route", () => {
 
     expect(response.status).toBe(200);
     expect(payload.rawBlueprintCount).toBe(20);
-    expect(payload.enrichedBlueprintCount).toBe(70);
-    expect(payload.enrichmentApplied).toBe(true);
-    expect(payload.enrichmentAddedCount).toBe(50);
+    expect(payload.enrichedBlueprintCount).toBe(72);
+    expect(payload.enrichmentApplied).toBe(false);
+    expect(payload.enrichmentAddedCount).toBe(0);
   });
 
   it("productionPlan contient cutawayCoverage (cutawayComplianceScore calculable)", async () => {

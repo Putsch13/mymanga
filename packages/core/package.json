@@ -14,7 +14,7 @@
     "vitest": "^3.0.9"
   },
   "scripts": {
-    "test": "pnpm exec vitest run src/types/chapter-studio.test.ts src/types/chapter-studio-readiness.test.ts src/types/enum-normalizer.test.ts src/chapter-runtime.test.ts --environment node",
+    "test": "pnpm exec vitest run --environment node",
     "lint": "echo ok"
   }
 }

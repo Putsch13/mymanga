@@ -39,7 +39,7 @@ export function IncompletePlanRepairBanner({
   }
 
   const count = panelBlueprintCount ?? 0;
-  const minimum = minimumImages ?? PREMIUM_PANEL_RANGE.target;
+  const minimum = minimumImages ?? PREMIUM_PANEL_RANGE.min;
   const isEmpty = contractStatus === "missing_blueprints" || count === 0;
 
   const message = isEmpty

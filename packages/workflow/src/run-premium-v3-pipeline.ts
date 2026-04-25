@@ -7,7 +7,10 @@ import {
 import {
   PREMIUM_PANEL_RANGE,
   PRODUCTION_RULES,
+  canonicalPlanToPanelBlueprints,
+  ensureCanonicalProductionPlan,
   resolveProductionOutlineForPremiumPipeline,
+  type CanonicalChapterProductionPlan,
   type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
 import { createDefaultPanelImageGenerator } from "./passes/default-panel-image-generator";
@@ -16,6 +19,7 @@ import { runPageQaPass } from "./passes/page-qa-pass";
 import { runRenderPass } from "./passes/render-pass";
 import { runStoryPass } from "./passes/story-pass";
 import { buildStoryboardPlanFromApprovedProductionPlan } from "./build-storyboard-plan-from-approved-production-plan";
+import { buildStoryboardPlanFromCanonicalPlan } from "./build-storyboard-plan-from-canonical-plan";
 import { buildStoryArcFromProductionPlan } from "./build-story-arc-from-production-plan";
 import { buildStoryboardPlanFromPremiumBlueprints } from "./passes/storyboard-from-premium-plan";
 import { runStoryboardPass } from "./passes/storyboard-pass";
@@ -37,6 +41,7 @@ import {
 import { runMangaStructureQaOnBlueprints } from "./passes/manga-structure-qa";
 import { runPreRenderPremiumQaOrThrow } from "./passes/pre-render-premium-qa";
 import { runNarrativeContractQa } from "./passes/beat-narrative-contract";
+import { assertPremiumVisualQaConfig } from "./passes/assert-premium-visual-qa-config";
 
 export type { PremiumV3PipelineLocation } from "./load-locations-for-v3-story-pass";
 
@@ -156,6 +161,9 @@ export async function runPremiumV3Pipeline(
   input: RunPremiumV3PipelineInput,
 ): Promise<RunPremiumV3PipelineResult> {
   assertPremiumOnlyV3Config(input);
+  if (input.premiumV3OnlyEnabled && process.env.NODE_ENV === "production") {
+    assertPremiumVisualQaConfig();
+  }
 
   let v3RenderSucceeded = false;
   if (!input.pipelineV3Enabled) {
@@ -186,8 +194,40 @@ export async function runPremiumV3Pipeline(
         ? input.panelBlueprints.map((b) => structuredClone(b))
         : null;
 
+    let canonicalRuntimePlan: CanonicalChapterProductionPlan | null = null;
+    if (resolvedProductionOutline) {
+      try {
+        canonicalRuntimePlan = ensureCanonicalProductionPlan({
+          projectId: input.projectId,
+          chapterId: input.chapterId,
+          chapterNumber: input.chapterNumber,
+          chapterTitle: input.chapterTitle ?? `Chapitre ${input.chapterNumber}`,
+          format: projectFormat,
+          rawOutline: resolvedProductionOutline,
+          strictQa: input.premiumV3OnlyEnabled,
+        });
+        const derivedBlueprints = canonicalPlanToPanelBlueprints(canonicalRuntimePlan);
+        panelBlueprintsForPremiumPath = derivedBlueprints;
+        if (productionPlanForStoryboard) {
+          productionPlanForStoryboard.panelBlueprints = derivedBlueprints;
+        }
+        console.info(
+          `[pipeline:v3:canonical-runtime] panels=${derivedBlueprints.length} qa_valid=${canonicalRuntimePlan.qa.valid}`,
+        );
+      } catch (err) {
+        if (input.premiumV3OnlyEnabled) throw err;
+        console.warn(
+          `[pipeline:v3:canonical-runtime] fallback_persisted_blueprints reason=${(err as Error).message}`,
+        );
+      }
+    } else {
+      console.warn(
+        `[pipeline:v3:canonical-runtime] no_production_outline — using job/snapshot panelBlueprints (bridge) chapterId=${input.chapterId}`,
+      );
+    }
+
     if (projectFormat === "manga") {
-      const densifyBalanceStart = Date.now();
+      const mangaRebalanceStart = Date.now();
       let workingBlueprints: PanelBlueprintPremium[] | null = null;
       if (approvedPlanDriven && productionPlanForStoryboard) {
         const raw = productionPlanForStoryboard.panelBlueprints;
@@ -229,10 +269,10 @@ export async function runPremiumV3Pipeline(
         const actorRatio = total > 0 ? afterActor / total : 0;
 
         console.info(
-          `[pipeline:v3:densify-balance] before cutaways=${beforeCut}/${total} ratio=${(beforeRatio * 100).toFixed(1)}%`,
+          `[pipeline:v3:manga-rebalance] before cutaways=${beforeCut}/${total} ratio=${(beforeRatio * 100).toFixed(1)}%`,
         );
         console.info(
-          `[pipeline:v3:densify-balance] converted=${rebal.convertedCount} keptHardCritical=${rebal.keptHardCriticalCount} keptSoftCritical=${rebal.keptSoftCriticalCount} structureIterations=${rebal.structureIterations}`,
+          `[pipeline:v3:manga-rebalance] converted=${rebal.convertedCount} keptHardCritical=${rebal.keptHardCriticalCount} keptSoftCritical=${rebal.keptSoftCriticalCount} structureIterations=${rebal.structureIterations}`,
         );
         if (rebal.autoCreatedOpponents > 0 || rebal.skippedSuspenseBeats.length > 0) {
           console.info(
@@ -240,10 +280,10 @@ export async function runPremiumV3Pipeline(
           );
         }
         console.info(
-          `[pipeline:v3:densify-balance] after cutaways=${afterCut}/${total} ratio=${(afterRatio * 100).toFixed(1)}%`,
+          `[pipeline:v3:manga-rebalance] after cutaways=${afterCut}/${total} ratio=${(afterRatio * 100).toFixed(1)}%`,
         );
         console.info(
-          `[pipeline:v3:densify-balance] actorDriven=${afterActor}/${total} ratio=${(actorRatio * 100).toFixed(1)}%`,
+          `[pipeline:v3:manga-rebalance] actorDriven=${afterActor}/${total} ratio=${(actorRatio * 100).toFixed(1)}%`,
         );
 
         const entityCov = computeEntityCoverageTelemetry(rebal.blueprints, visualEntities);
@@ -281,7 +321,7 @@ export async function runPremiumV3Pipeline(
           `[pipeline:v3:dialogue-qa] ok=${dialogueQa.ok} dialogueBeats=${dialogueQa.dialogueBeats} speakerPanels=${dialogueQa.speakerPanels} reactionPanels=${dialogueQa.reactionPanels} anchored=${dialogueQa.anchored} floating=${dialogueQa.floating}`,
         );
 
-        timings.densify_balance_ms = Date.now() - densifyBalanceStart;
+        timings.manga_rebalance_ms = Date.now() - mangaRebalanceStart;
 
         if (approvedPlanDriven && productionPlanForStoryboard) {
           productionPlanForStoryboard.panelBlueprints = rebal.blueprints;
@@ -360,15 +400,29 @@ export async function runPremiumV3Pipeline(
         `[pipeline:v3:story-arc-from-plan] beats=${storyArcFromPlan.beats.length} chapterGoal=${storyArcFromPlan.chapterGoal?.slice(0, 50)}...`,
       );
 
-      const deterministicPlan = buildStoryboardPlanFromApprovedProductionPlan({
-        chapterId: input.chapterId,
-        projectId: input.projectId,
-        chapterNumber: input.chapterNumber,
-        productionPlan: (productionPlanForStoryboard ?? input.productionPlan) as Record<string, unknown>,
-        projectFormat,
-        chapterLocationName: input.chapterLocationName,
-        productionPlanPages: input.productionPlanPages,
-      });
+      const deterministicPlan = canonicalRuntimePlan
+        ? buildStoryboardPlanFromCanonicalPlan({
+            chapterId: input.chapterId,
+            projectId: input.projectId,
+            chapterNumber: input.chapterNumber,
+            projectFormat,
+            canonicalPlan: canonicalRuntimePlan,
+            productionPlanShell: (productionPlanForStoryboard ?? input.productionPlan) as Record<
+              string,
+              unknown
+            >,
+            chapterLocationName: input.chapterLocationName,
+            productionPlanPages: input.productionPlanPages,
+          })
+        : buildStoryboardPlanFromApprovedProductionPlan({
+            chapterId: input.chapterId,
+            projectId: input.projectId,
+            chapterNumber: input.chapterNumber,
+            productionPlan: (productionPlanForStoryboard ?? input.productionPlan) as Record<string, unknown>,
+            projectFormat,
+            chapterLocationName: input.chapterLocationName,
+            productionPlanPages: input.productionPlanPages,
+          });
       storyboardPassResult = {
         storyboardPlan: deterministicPlan,
         warnings: ["storyboard_plan.source=approved_production_plan_deterministic"],
@@ -575,6 +629,7 @@ export async function runPremiumV3Pipeline(
       const renderPassResult = await runRenderPass({
         chapterId: input.chapterId,
         storyboardPlan: storyboardPassResult.storyboardPlan,
+        canonicalProductionPlan: canonicalRuntimePlan,
         styleBible: buildStyleBibleFromUserProject({
           project: input.project,
           stylePacks: input.stylePacks,
@@ -616,6 +671,7 @@ export async function runPremiumV3Pipeline(
         renderPassResult.summary.failedCount === 0 &&
         visualQaFailedCount === 0 &&
         manualReviewRequiredCount === 0 &&
+        renderPassResult.summary.v3RenderQualityStatus === "passed" &&
         renderPassResult.specs.length === renderPassResult.summary.totalPanels &&
         renderPassResult.summary.totalPanels > 0 &&
         renderedCount > 0 &&

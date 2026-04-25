@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { createEmptyChapterVisualMemory } from "@manga-ai-studio/ai";
 import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
+import { PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
 import * as approvedProductionPlan from "./build-storyboard-plan-from-approved-production-plan";
 
 const mocks = vi.hoisted(() => ({
@@ -37,6 +38,36 @@ vi.mock("./pipeline-feature-flags", async (importOriginal) => {
 vi.mock("./persistence/storyboard-persistence", () => ({
   saveStoryboardPlan: vi.fn().mockResolvedValue(undefined),
 }));
+
+vi.mock("./passes/pre-render-premium-qa", () => ({
+  runPreRenderPremiumQaOrThrow: vi.fn(),
+}));
+
+function productionOutlineForCanonicalRuntime() {
+  return {
+    source: "estimated" as const,
+    chapterGoal: "Test arc for approved_plan_driven canonical runtime",
+    cliffhanger: "",
+    beats: Array.from({ length: 10 }, (_, i) => ({
+      beatId: `beat-${i + 1}`,
+      summary: `Beat ${i + 1} summary for canonical pipeline.`,
+      narrativeFunction: "escalation",
+      whyThisBeatExists: `Why ${i + 1}`,
+      dramaticChange: "turn",
+      involvedCharacters: ["hero-1"],
+      activeCanonConstraints: [],
+      environmentContext: ["dojo"],
+      visualPriority: "high" as const,
+      estimatedPanels: 4,
+      criticality: "medium" as const,
+      continuityDependencies: [],
+      infoGained: null,
+      emotionProduced: null,
+      indispensabilityScore: 72,
+      redundancyRisk: 18,
+    })),
+  };
+}
 
 function minimalBlueprint(overrides: Record<string, unknown> = {}): PanelBlueprintPremium & Record<string, unknown> {
   return {
@@ -122,6 +153,7 @@ describe("runPremiumV3Pipeline — approved_plan_driven", () => {
       rawCharacters: [{ id: "hero-1", name: "Hero", roleType: "main" }],
       approvedOutline: null,
       productionPlan: {
+        productionOutline: productionOutlineForCanonicalRuntime(),
         panelBlueprints: [minimalBlueprint()],
         pages: [{ pageNumber: 1, panelCount: 1, beatIds: ["beat-1"] }],
       },
@@ -135,16 +167,19 @@ describe("runPremiumV3Pipeline — approved_plan_driven", () => {
     expect(mocks.runStoryPass).not.toHaveBeenCalled();
     expect(mocks.runStoryboardPass).not.toHaveBeenCalled();
     expect(buildApprovedPlanSpy).toHaveBeenCalledTimes(1);
-    expect(buildApprovedPlanSpy.mock.calls[0]![0]).toMatchObject({
-      chapterId: "ch-1",
-      productionPlan: { panelBlueprints: [expect.objectContaining({ panelId: "panel-1" })] },
-    });
+    const callArg = buildApprovedPlanSpy.mock.calls[0]![0] as {
+      chapterId: string;
+      productionPlan: { panelBlueprints: PanelBlueprintPremium[] };
+    };
+    expect(callArg.chapterId).toBe("ch-1");
+    expect(callArg.productionPlan.panelBlueprints.length).toBeGreaterThanOrEqual(PREMIUM_PANEL_RANGE.min);
+    expect(callArg.productionPlan.panelBlueprints.length).toBeLessThanOrEqual(PREMIUM_PANEL_RANGE.max);
     expect(mocks.runRenderPass).toHaveBeenCalled();
     const renderArg = mocks.runRenderPass.mock.calls[0]![0] as { storyboardPlan: { pages: { panels: unknown[] }[] } };
-    expect(renderArg.storyboardPlan.pages[0]?.panels).toHaveLength(1);
-    expect(renderArg.storyboardPlan.pages[0]?.panels[0]).toMatchObject({
-      panelId: "panel-1",
-      sourceBeatId: "beat-1",
+    const allPanels = renderArg.storyboardPlan.pages.flatMap((p) => p.panels);
+    expect(allPanels.length).toBeGreaterThanOrEqual(PREMIUM_PANEL_RANGE.min);
+    expect(allPanels[0]).toMatchObject({
+      sourceBeatId: expect.stringMatching(/^beat-/),
     });
   });
 });

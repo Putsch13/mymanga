@@ -4,7 +4,7 @@ import {
   densifyBlueprintsToPremiumRangeEstimate,
   densifyBlueprintsToPremiumRangeContract,
 } from "./densify-premium-blueprints";
-import { PRODUCTION_RULES } from "./production-rules";
+import { PRODUCTION_RULES } from "../production/production-rules";
 import type { PanelBlueprintPremium } from "../types/narrative-facts";
 
 function seedBp(beatId: string, idx: number): PanelBlueprintPremium {

@@ -395,8 +395,8 @@ export function ChapterPlanStep({
         canonicalProductionPlan={canonicalPlan ?? null}
       />
 
-      {/* Section Auto-déductions (lecture seule) */}
-      {draft.productionPlan?.premiumReadinessScore !== undefined && (
+      {/* Métriques legacy : masquées quand le plan canonique existe (une seule vérité). */}
+      {draft.productionPlan?.premiumReadinessScore !== undefined && !canonicalPlan && (
         <Card className="border-border/60 bg-card/40">
           <CardHeader>
             <CardTitle className="text-base">Auto-déductions narratives</CardTitle>
@@ -443,6 +443,22 @@ export function ChapterPlanStep({
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {canonicalPlan && draft.productionPlan?.premiumReadinessScore !== undefined && (
+        <details className="rounded-xl border border-border/40 bg-muted/10 px-3 py-2 text-xs text-muted-foreground">
+          <summary className="cursor-pointer font-medium text-foreground">
+            Debug — métriques legacy (non utilisées pour la génération premium)
+          </summary>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {draft.productionPlan?.cutawayCoverage && (
+              <span>Coupe (legacy) : {draft.productionPlan.cutawayCoverage.count}</span>
+            )}
+            {draft.productionPlan?.npcCoverage && (
+              <span>PNJ moy. (legacy) : {draft.productionPlan.npcCoverage.avgNpcCount.toFixed(1)}</span>
+            )}
+          </div>
+        </details>
       )}
 
       <Card className="border-border/60 bg-card/40">

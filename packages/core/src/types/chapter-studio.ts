@@ -399,7 +399,7 @@ export const productionPlanSchema = z.object({
   panelsPerPage: z.array(z.number().int().min(1)).default([]),
   estimatedImages: z.number().int().min(0).default(0),
   targetImages: z.number().int().min(0).default(0),
-  minimumImages: z.number().int().min(0).default(PREMIUM_PANEL_RANGE.target),
+  minimumImages: z.number().int().min(0).default(PREMIUM_PANEL_RANGE.min),
   criticalPanels: z.array(z.string()).default([]),
   lockedCharacters: z.array(z.string()).default([]),
   compressionRisks: z.array(z.string()).default([]),
@@ -425,7 +425,7 @@ export type ProductionPlan = z.infer<typeof productionPlanSchema>;
 export const chapterImageCountSchema = z.object({
   estimatedImages: z.number().int().min(0).default(0),
   targetImages: z.number().int().min(0).default(0),
-  minimumImages: z.number().int().min(0).default(PREMIUM_PANEL_RANGE.target),
+  minimumImages: z.number().int().min(0).default(PREMIUM_PANEL_RANGE.min),
   generatedImages: z.number().int().min(0).default(0),
   acceptedImages: z.number().int().min(0).default(0),
   rejectedImages: z.number().int().min(0).default(0),

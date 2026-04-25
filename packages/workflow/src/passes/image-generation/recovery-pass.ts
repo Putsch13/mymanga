@@ -2,7 +2,7 @@
  * Image generation pass — recovery pass.
  *
  * Extrait de image-generation-pass.ts. Quand le nombre d'images générées est
- * inférieur au quota minimum (typiquement 75), on relance les panels en échec
+ * inférieur au quota minimum (plancher premium, typiquement 70), on relance les panels en échec
  * en mode PANEL_DRAFT.
  *
  * P1-2 — Garde-fous de cohérence :

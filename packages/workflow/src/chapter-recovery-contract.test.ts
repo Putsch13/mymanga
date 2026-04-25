@@ -50,10 +50,11 @@ describe("chapter recovery pass — contract tests", () => {
     expect(combinedSource).toContain("COMPLETED");
   });
 
-  it("default minimumImages is 75, not 55", () => {
-    // The fallback should be 75
-    expect(combinedSource).toMatch(/minimumImages[\s\S]{0,100}75/);
-    // Should NOT have 55 as image target fallback
+  it("image-generation-pass utilise PREMIUM_PANEL_RANGE.min comme fallback chapter.minimumImages, pas 75 ni 55", () => {
+    expect(imagePassSource).toMatch(
+      /typeof \(chapter as Record<string, unknown>\)\.minimumImages[\s\S]{0,200}PREMIUM_PANEL_RANGE\.min/,
+    );
+    expect(imagePassSource).not.toMatch(/\?\s*:\s*75\)/);
     const recoverySection = combinedSource.slice(
       combinedSource.indexOf("Recovery pass"),
       combinedSource.indexOf("chapter-summary") + 500,

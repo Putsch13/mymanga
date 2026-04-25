@@ -208,20 +208,31 @@ function buildReadyStudio() {
         // (panelBlueprints.length >= minimumImages). Auparavant un seul blueprint
         // suffisait parce que la readiness ne vérifiait pas ce ratio ; depuis P0.1
         // c'est un blocant explicite, donc le fixture doit fournir 75 panels.
-        panelBlueprints: Array.from({ length: 75 }, (_, i) => ({
-          panelId: `panel-${i + 1}`,
-          beatId: `b${(i % 10) + 1}`,
-          panelIndex: i,
-          panelNumber: i + 1,
-          purpose: "Progression",
-          cameraAngle: "eye_level",
-          // Rotation de shotTypes pour satisfaire le shot-variety-enforcer
-          // (sinon 75 panels tous "medium" tomberaient en SHOT_MONOTONY).
-          shotType: ["medium", "wide", "close_up", "establishing", "reaction", "over_shoulder"][i % 6],
-          subjectFocus: i % 3 === 0 ? "environment" : "hero",
-          requiredProps: [],
-          presenceObligations: [],
-        })),
+        panelBlueprints: Array.from({ length: 75 }, (_, i) => {
+          const isCutaway = i % 5 === 0;
+          return {
+            panelId: `panel-${i + 1}`,
+            beatId: `b${(i % 10) + 1}`,
+            panelIndex: i,
+            panelNumber: i + 1,
+            purpose: "Progression",
+            cameraAngle: "eye_level",
+            shotType: ["medium", "wide", "close_up", "establishing", "reaction", "over_shoulder"][i % 6],
+            subjectFocus: isCutaway ? ("environment" as const) : ("hero" as const),
+            mustShowEnemy: false,
+            requiredNpcCount: 0,
+            requiredProps: [],
+            requiredLocationSignals: [],
+            presenceObligations: [],
+            cutawayType: isCutaway ? ("environment" as const) : ("none" as const),
+            heroCenterAllowed: true,
+            criticality: "medium" as const,
+            mustShowCharacterIds: isCutaway ? [] : ["hero-1"],
+            requiredCharacterIds: isCutaway ? [] : ["hero-1"],
+            dialogueCarrier: isCutaway ? undefined : ("speaker_visible" as const),
+            dialogueLines: isCutaway ? undefined : ([{ speaker: "hero-1", text: "Ok." }] as const),
+          };
+        }),
       },
     },
   };
@@ -244,6 +255,7 @@ beforeEach(() => {
     hasFal: true,
     hasStoragePersistence: true,
     hasOpenAI: true,
+    visionPremiumQaEnvReady: true,
     operationalStatus: "FULLY_OPERATIONAL",
     degradedModes: [],
     warnings: [],
@@ -282,18 +294,35 @@ beforeEach(() => {
   // Default premium contract mock (sync + async)
   const defaultPremiumContractResult = {
     productionOutline: {
-      source: "premium_rebuilt",
+      source: "premium_rebuilt" as const,
       chapterGoal: "But du chapitre",
       cliffhanger: "Fin dramatique",
       beats: Array.from({ length: 10 }, (_, i) => ({
-        beatId: `b${i + 1}`,
+        beatId: `beat-${i + 1}`,
         summary: `Beat ${i + 1}`,
+        narrativeFunction: "progression",
+        whyThisBeatExists: "avancer",
+        dramaticChange: "changement",
+        involvedCharacters: ["hero-1"],
+        activeCanonConstraints: [],
+        environmentContext: [],
+        visualPriority: "high" as const,
+        estimatedPanels: 6,
+        criticality: "high" as const,
+        continuityDependencies: [],
+        infoGained: null,
+        emotionProduced: null,
+        indispensabilityScore: 80,
+        redundancyRisk: 10,
         narrativeFacts: [],
-        requiredProps: [{ canonicalName: "katana", mustBeVisible: true }],
+        requiredProps: [{ id: "prop-katana", canonicalName: "katana", mustBeVisible: true }],
       })),
     },
     productionPlan: {
       panelBlueprints: [],
+      minimumImages: 72,
+      estimatedImages: 72,
+      targetImages: 72,
       premiumReadinessScore: 0.85,
       heroCenterRatio: 0.5,
       focusDistribution: {},

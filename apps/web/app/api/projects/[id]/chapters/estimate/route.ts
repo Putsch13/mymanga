@@ -30,6 +30,12 @@ import {
   type ProductionBeatLike,
 } from "@/lib/outline-dedup";
 
+function countProductionPlanPages(plan: unknown): number {
+  if (plan == null || typeof plan !== "object") return 0;
+  const pages = Reflect.get(plan, "pages");
+  return Array.isArray(pages) ? pages.length : 0;
+}
+
 type Ctx = { params: Promise<{ id: string }> };
 
 const schema = z.object({
@@ -250,7 +256,10 @@ export async function POST(req: Request, ctx: Ctx) {
   const enrichmentCount = 0;
 
   const panelCountStatus = classifyPremiumPanelCount(allBlueprints.length);
-  const chapterMinimumImages = PREMIUM_PANEL_RANGE.min;
+  const chapterMinimumImages =
+    typeof targetChapter?.minimumImages === "number" && targetChapter.minimumImages > 0
+      ? targetChapter.minimumImages
+      : PREMIUM_PANEL_RANGE.min;
   const isEmptyPlan = allBlueprints.length === 0 || productionOutline.beats.length === 0;
   const isBelowTargetRange = panelCountStatus === "under_min";
   const isOverTargetRange = panelCountStatus === "over_max";
@@ -354,7 +363,7 @@ export async function POST(req: Request, ctx: Ctx) {
     `[estimate] estimate_generated projectId=${projectId} chapterId=${targetChapter?.id ?? "new"} ` +
     `chapterNumber=${targetChapterNumber} estimateMode=${estimateMode} ` +
     `beatsCount=${productionOutline.beats.length} ` +
-    `productionPlanPages=${Array.isArray((productionPlan as Record<string, unknown>).pages) ? ((productionPlan as Record<string, unknown>).pages as unknown[]).length : 0} ` +
+    `productionPlanPages=${countProductionPlanPages(productionPlan)} ` +
     `rawBlueprints=${rawBlueprints.length} blueprints=${allBlueprints.length} canonical_qa_valid=${canonicalPlan.qa.valid} enrichmentApplied=${enrichmentApplied} targetRange=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} planStatus=${panelCountStatus} ` +
     `progressionOk=${progressionCheck.ok} progressionScore=${progressionCheck.progressionScore.toFixed(2)}`,
   );

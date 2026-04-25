@@ -78,7 +78,7 @@ export interface BuildPremiumContractInput {
   heroCharacterId?: string | null;
   existingStudioData?: Record<string, unknown> | null;
   /**
-   * P2.1 — contrainte remontée depuis `Chapter.minimumImages` (défaut 75).
+   * P2.1 — contrainte remontée depuis `Chapter.minimumImages` (plancher premium 70).
    * Si omis, le builder retombe sur 75 pour rester compatible avec l'ancien
    * comportement. Quand fourni, la reconstruction du plan garantit que le
    * nombre de blueprints atteint cette cible.

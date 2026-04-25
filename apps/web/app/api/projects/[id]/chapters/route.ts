@@ -160,11 +160,11 @@ export async function POST(req: Request, ctx: Ctx) {
       ...(initialStudio
         ? buildChapterStructuredRuntimeCreateFields({
             snapshot: initialStudio,
-            minimumImages: initialStudio.data.readinessReport?.imageCounts.minimumImages ?? initialStudio.data.productionPlan?.minimumImages ?? PREMIUM_PANEL_RANGE.target,
+            minimumImages: initialStudio.data.readinessReport?.imageCounts.minimumImages ?? initialStudio.data.productionPlan?.minimumImages ?? PREMIUM_PANEL_RANGE.min,
             generatedImages: 0,
             acceptedImages: 0,
             rejectedImages: 0,
-            missingImages: initialStudio.data.readinessReport?.imageCounts.minimumImages ?? initialStudio.data.productionPlan?.minimumImages ?? PREMIUM_PANEL_RANGE.target,
+            missingImages: initialStudio.data.readinessReport?.imageCounts.minimumImages ?? initialStudio.data.productionPlan?.minimumImages ?? PREMIUM_PANEL_RANGE.min,
             criticalPanelsCount: 0,
             criticalPanelsBlocked: 0,
             criticalPanelsMissingQa: 0,

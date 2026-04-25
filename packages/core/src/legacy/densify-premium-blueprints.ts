@@ -1,8 +1,8 @@
 /**
- * densify-premium-blueprints.ts — Source unique pour la densification premium (70–75 panels).
+ * @deprecated LEGACY ONLY — ne pas importer depuis le flux premium (estimate,
+ * contract-builder, pipeline v3). La densité 70–75 est portée par le plan canonique.
  *
- * Règle : aucune autre table DENSIFY_VARIANTS ni logique parallèle.
- * Les routes estimation et le contract-builder importent exclusivement ce module.
+ * Conservé pour tests de non-régression / migration d’anciens snapshots.
  */
 
 import type { PanelBlueprintPremium } from "../types/narrative-facts";

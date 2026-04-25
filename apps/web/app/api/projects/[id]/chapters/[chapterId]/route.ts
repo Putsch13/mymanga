@@ -7,6 +7,7 @@ import { notFound, unauthorized, validationError } from "@/lib/api-response";
 import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
 import { toProxiedServerUrl } from "@/lib/images/proxy-url.server";
 import { patchChapterStudioSnapshot } from "@/lib/chapter-studio";
+import { toPrismaInputJson } from "@/lib/to-prisma-input-json";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -508,9 +509,9 @@ export async function PATCH(req: Request, ctx: Ctx) {
   if (body.summary !== undefined) data.summary = body.summary;
   if (body.cliffhanger !== undefined) data.cliffhanger = body.cliffhanger;
   if (body.userIntent !== undefined) data.userIntent = body.userIntent;
-  if (body.storyboard !== undefined) data.storyboard = body.storyboard as Prisma.InputJsonValue;
-  if (body.script !== undefined) data.script = body.script as Prisma.InputJsonValue;
-  if (body.outline !== undefined) data.outline = body.outline as Prisma.InputJsonValue;
+  if (body.storyboard !== undefined) data.storyboard = toPrismaInputJson(body.storyboard);
+  if (body.script !== undefined) data.script = toPrismaInputJson(body.script);
+  if (body.outline !== undefined) data.outline = toPrismaInputJson(body.outline);
 
   const chapter = await prisma.chapter.update({
     where: { id: chapterId },

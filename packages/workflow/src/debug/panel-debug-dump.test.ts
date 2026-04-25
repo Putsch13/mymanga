@@ -46,6 +46,19 @@ describe("dumpPanelDebugArtifacts", () => {
     expect(files.some((f) => f.startsWith("post_success-"))).toBe(true);
     const jsonPath = path.join(chapterDir, files.find((f) => f.endsWith(".json"))!);
     const raw = await readFile(jsonPath, "utf8");
+    await dumpPanelDebugArtifacts({
+      chapterId: "ch-b",
+      panelId: "panel-2",
+      phase: "post_success",
+      renderDebug: { panelId: "panel-2", finalStatus: "passed", attemptCount: 1 },
+    });
+    const chapterDirB = path.join(dir, "ch-b", "panel-2");
+    const filesB = await readdir(chapterDirB);
+    const jsonPathB = path.join(chapterDirB, filesB.find((f) => f.endsWith(".json"))!);
+    const rawB = await readFile(jsonPathB, "utf8");
+    const jb = JSON.parse(rawB) as { renderDebug: { finalStatus: string } };
+    expect(jb.renderDebug.finalStatus).toBe("passed");
+
     const j = JSON.parse(raw) as { phase: string; prompt: { positive: string }; outputUrl: string };
     expect(j.phase).toBe("post_success");
     expect(j.prompt.positive).toBe("hello");

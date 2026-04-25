@@ -59,6 +59,16 @@ describe("visual-panel-qa", () => {
       expect(result.reasons).toContain("Vision QA unavailable for critical panel");
       vi.unstubAllEnvs();
     });
+
+    it("en développement, panel critique sans vision → heuristique prudente (pas succès optimiste)", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("VISUAL_PANEL_QA_VISION", "");
+      vi.stubEnv("ENABLE_VISUAL_QA_MOCKS", "");
+      const input = createMockInput();
+      const result = await runVisualPanelQaWithOptionalVision(input);
+      expect(result.passed).toBe(false);
+      vi.unstubAllEnvs();
+    });
   });
 
   describe("isCriticalPanelForVisualQa", () => {
@@ -253,12 +263,12 @@ describe("visual-panel-qa", () => {
       expect(result.prompt).toContain("text bubbles");
     });
 
-    it("should simplify scene for simpler_scene strategy", () => {
+    it("should simplify scene for simplify_scene strategy", () => {
       const context: RetryContext = {
         panelId: "panel_001",
         originalPrompt: "Original prompt",
         previousResults: [],
-        currentStrategy: "simpler_scene",
+        currentStrategy: "simplify_scene",
       };
       const result = buildRetryPrompt(context);
 
@@ -266,12 +276,12 @@ describe("visual-panel-qa", () => {
       expect(result.prompt).toContain("Simplify");
     });
 
-    it("should add focus hint for force_subject_focus strategy", () => {
+    it("should add focal hint for composition_fix strategy", () => {
       const context: RetryContext = {
         panelId: "panel_001",
         originalPrompt: "Original prompt",
         previousResults: [],
-        currentStrategy: "force_subject_focus",
+        currentStrategy: "composition_fix",
       };
       const result = buildRetryPrompt(context);
 

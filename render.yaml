@@ -26,6 +26,10 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      - key: VISUAL_PANEL_QA_VISION
+        sync: false
+      - key: ENABLE_PREMIUM_VISION_QA
+        sync: false
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
