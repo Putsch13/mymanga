@@ -168,10 +168,16 @@ vi.mock("./passes/storyboard-pass", () => ({
 vi.mock("./passes/render-pass", () => ({
   runRenderPass: vi.fn().mockResolvedValue({
     summary: {
+      chapterId: "ch-1",
       totalPanels: 3,
-      successCount: 3,
+      renderedCount: 3,
       failedCount: 0,
       skippedCount: 0,
+      visualQaFailedCount: 0,
+      manualReviewRequiredCount: 0,
+      passedAfterRetryCount: 0,
+      visualQaPassedCount: 3,
+      v3RenderQualityStatus: "passed",
       startedAt: new Date().toISOString(),
       finishedAt: new Date().toISOString(),
       warnings: [],

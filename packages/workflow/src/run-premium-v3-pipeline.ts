@@ -600,7 +600,7 @@ export async function runPremiumV3Pipeline(
       });
       timings.render_pass_ms = Date.now() - renderStart;
       console.log(
-        `[pipeline:v3:render] total=${renderPassResult.summary.totalPanels} specs=${renderPassResult.specs.length} failed=${renderPassResult.summary.failedCount} panel_qa_ok=${renderPassResult.panelQa.okCount}/${renderPassResult.panelQa.okCount + renderPassResult.panelQa.failCount}`,
+        `[pipeline:v3:render] total=${renderPassResult.summary.totalPanels} specs=${renderPassResult.specs.length} failed=${renderPassResult.summary.failedCount} visual_qa_failed=${renderPassResult.summary.visualQaFailedCount} manual_review=${renderPassResult.summary.manualReviewRequiredCount} quality=${renderPassResult.summary.v3RenderQualityStatus} panel_qa_ok=${renderPassResult.panelQa.okCount}/${renderPassResult.panelQa.okCount + renderPassResult.panelQa.failCount}`,
       );
       if (renderPassResult.summary.warnings.length > 0) {
         console.warn(
@@ -610,19 +610,23 @@ export async function runPremiumV3Pipeline(
 
       const renderedCount = renderPassResult.summary.renderedCount;
       const skippedCount = renderPassResult.summary.skippedCount;
+      const visualQaFailedCount = renderPassResult.summary.visualQaFailedCount;
+      const manualReviewRequiredCount = renderPassResult.summary.manualReviewRequiredCount;
       v3RenderSucceeded =
         renderPassResult.summary.failedCount === 0 &&
+        visualQaFailedCount === 0 &&
+        manualReviewRequiredCount === 0 &&
         renderPassResult.specs.length === renderPassResult.summary.totalPanels &&
         renderPassResult.summary.totalPanels > 0 &&
         renderedCount > 0 &&
         skippedCount === 0;
       if (!v3RenderSucceeded) {
         console.warn(
-          `[pipeline:v3:render] v3_succeeded=false rendered=${renderedCount} skipped=${skippedCount} failed=${renderPassResult.summary.failedCount} specs=${renderPassResult.specs.length}/${renderPassResult.summary.totalPanels} — legacy image-gen will still run (unless PREMIUM_ONLY=true which would then fail-hard)`,
+          `[pipeline:v3:render] v3_succeeded=false rendered=${renderedCount} skipped=${skippedCount} failed=${renderPassResult.summary.failedCount} visual_qa_failed=${visualQaFailedCount} manual_review=${manualReviewRequiredCount} quality=${renderPassResult.summary.v3RenderQualityStatus} specs=${renderPassResult.specs.length}/${renderPassResult.summary.totalPanels} — legacy image-gen will still run (unless PREMIUM_ONLY=true which would then fail-hard)`,
         );
         if (input.premiumV3OnlyEnabled) {
           throw new Error(
-            `premium_v3_only_render_incomplete: rendered=${renderedCount} skipped=${skippedCount} failed=${renderPassResult.summary.failedCount} specs=${renderPassResult.specs.length}/${renderPassResult.summary.totalPanels}`,
+            `premium_v3_only_render_incomplete: rendered=${renderedCount} skipped=${skippedCount} failed=${renderPassResult.summary.failedCount} visual_qa_failed=${visualQaFailedCount} manual_review=${manualReviewRequiredCount} specs=${renderPassResult.specs.length}/${renderPassResult.summary.totalPanels}`,
           );
         }
       }

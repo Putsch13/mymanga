@@ -264,16 +264,16 @@ export function determinePanelRole(
     return "reaction";
   }
 
+  if (beat.involvedCharacters.length > 3) {
+    return "group";
+  }
+
   if (beat.involvedCharacters.length >= 2) {
     return "duo";
   }
 
   if (beat.involvedCharacters.length === 1) {
     return "hero";
-  }
-
-  if (beat.involvedCharacters.length > 3) {
-    return "group";
   }
 
   return "action";

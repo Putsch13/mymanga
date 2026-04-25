@@ -8,9 +8,11 @@ import {
   checkCharacterFidelity,
   checkComposition,
   checkTechnical,
+  isCriticalPanelForVisualQa,
   type VisualQaInput,
   type RetryContext,
 } from "./visual-panel-qa";
+import type { CanonicalPanelPlan } from "@manga-ai-studio/core";
 
 function createMockInput(overrides: Partial<VisualQaInput> = {}): VisualQaInput {
   return {
@@ -44,6 +46,53 @@ describe("visual-panel-qa", () => {
       expect(result.visionAnalysis).toBeUndefined();
       expect(result.passed).toBe(runVisualPanelQa(input).passed);
       vi.unstubAllEnvs();
+    });
+
+    it("en production, panel critique sans vision → échec explicite (relecture manuelle)", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("VISUAL_PANEL_QA_VISION", "");
+      vi.stubEnv("ENABLE_VISUAL_QA_MOCKS", "");
+      const input = createMockInput();
+      const result = await runVisualPanelQaWithOptionalVision(input);
+      expect(result.passed).toBe(false);
+      expect(result.shouldMarkManualReview).toBe(true);
+      expect(result.reasons).toContain("Vision QA unavailable for critical panel");
+      vi.unstubAllEnvs();
+    });
+  });
+
+  describe("isCriticalPanelForVisualQa", () => {
+    it("returns true for actor-driven dialogue panel", () => {
+      const panel = {
+        panelId: "p1",
+        beatId: "b1",
+        panelIndex: 0,
+        pageNumber: 1,
+        panelNumberInPage: 1,
+        role: "speaker" as const,
+        isCutaway: false,
+        isActorDriven: true,
+        purpose: "x",
+        shotType: "medium",
+        cameraAngle: "eye_level",
+        subjectFocus: "hero",
+        requiredCharacterIds: [],
+        mustShowCharacterIds: ["h1"],
+        mayShowCharacterIds: [],
+        requiredEntityIds: [],
+        mustShowEnemy: false,
+        requiredNpcCount: 0,
+        requiredProps: [],
+        requiredLocationSignals: [],
+        textPlan: {
+          panelId: "p1",
+          mode: "dialogue" as const,
+          reserveTextArea: true,
+        },
+        criticality: "medium" as const,
+        notes: [],
+      } satisfies CanonicalPanelPlan;
+      expect(isCriticalPanelForVisualQa(panel)).toBe(true);
     });
   });
 

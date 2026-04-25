@@ -114,7 +114,7 @@ describe("runRenderPass", () => {
 
   it("appelle generatePanelImage avec la route FAL résolue", async () => {
     const plan = makePlan([makePanel({ panelId: "pX" })]);
-    const gen = vi.fn().mockResolvedValue({ ok: true });
+    const gen = vi.fn().mockResolvedValue({ ok: true, imageUrl: "https://example.com/panel.png" });
     const res = await runRenderPass({
       chapterId: "ch-1",
       storyboardPlan: plan,

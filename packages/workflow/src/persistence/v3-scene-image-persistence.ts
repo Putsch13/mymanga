@@ -39,6 +39,12 @@ import { persistImageIfNeeded, type PersistedImageResult } from "../pipeline-ima
 import { buildVisualQaInputFromRenderSpec, runVisualPanelQaWithOptionalVision } from "@manga-ai-studio/ai";
 import type { VisualQaResult } from "@manga-ai-studio/ai";
 
+export type PanelFinalStatus =
+  | "passed"
+  | "passed_after_retry"
+  | "manual_review_required"
+  | "failed";
+
 /** Historique des tentatives image + QA (persisté dans `SceneImage.metadata`). */
 export interface V3PanelRenderAttemptLog {
   attemptNumber: number;
@@ -62,6 +68,8 @@ export interface V3RenderedPanelRecord {
   seed?: number | null;
   error?: string | null;
   renderFailure?: unknown;
+  /** Statut livrable après génération + QA visuelle (render-pass v3). */
+  finalStatus?: PanelFinalStatus | null;
   /** Renseigné par le render-pass v3 après QA (évite un second passage vision en persistance). */
   visualQa?: VisualQaResult | null;
   /** Chaque tentative FAL + résultat QA (ordre chronologique). */
@@ -157,13 +165,18 @@ async function preparePanelData(
   }
 
   const hasImage = !!durableImageUrl;
+  const visualQaBlocksDeliverable =
+    Boolean(record.visualQa && !record.visualQa.passed)
+    || record.finalStatus === "manual_review_required"
+    || record.finalStatus === "failed"
+    || record.error === "visual_qa_failed";
   const pageSlots = buildReaderPanelSlots({
     template: page.layoutTemplate,
     readingDirection: "rtl",
     panelIds: page.panels.map((pagePanel) => pagePanel.panelId),
   });
   const panelSlot = pageSlots.find((slot) => slot.panelId === panel.panelId) ?? null;
-  const status = record.error
+  const status = record.error || visualQaBlocksDeliverable
     ? "failed"
     : hasImage
       ? "completed"
@@ -251,7 +264,7 @@ async function preparePanelData(
   let visualQa: VisualQaResult | null = null;
   if (record.visualQa != null) {
     visualQa = record.visualQa;
-  } else if (durableImageUrl && !record.error) {
+  } else if (durableImageUrl && !record.error && !visualQaBlocksDeliverable) {
     const qaInput = buildVisualQaInputFromRenderSpec({
       panelId: panel.panelId,
       imageUrl: durableImageUrl,
@@ -262,7 +275,7 @@ async function preparePanelData(
       shotType: String(record.spec.shotType),
       subjectFocus: String(record.spec.subjectFocus),
       cutawayType: String(record.spec.cutawayType),
-      mustShowCharacterIds: [...record.spec.constraints.mustShow],
+      mustShowCharacterIds: [...(record.spec.constraints.mustShow ?? [])],
       reserveTextArea,
       textOverflowStrategy: panel.textPlacementHint?.overflowStrategy ?? null,
       visibleCharacters: record.spec.visibleCharacters.map((vc) => ({
@@ -273,6 +286,12 @@ async function preparePanelData(
     });
     visualQa = await runVisualPanelQaWithOptionalVision(qaInput);
   }
+
+  const visualQaForMetadata =
+    visualQa == null ? null : (JSON.parse(JSON.stringify(visualQa)) as VisualQaResult);
+  const renderAttemptsForMetadata = JSON.parse(JSON.stringify(record.renderAttempts ?? [])) as NonNullable<
+    V3RenderedPanelRecord["renderAttempts"]
+  >;
 
   const metadata = {
     v3: true,
@@ -299,8 +318,8 @@ async function preparePanelData(
       : null,
     readerLayout: generationDebugSnapshot.readerLayout,
     generationDebugSnapshot,
-    visualQa,
-    renderAttempts: record.renderAttempts ?? [],
+    visualQa: visualQaForMetadata,
+    renderAttempts: renderAttemptsForMetadata,
   } as unknown as Prisma.InputJsonValue;
 
   const routingDecision = {

@@ -13,9 +13,9 @@ import {
 } from "@manga-ai-studio/ai";
 import {
   PREMIUM_PANEL_RANGE,
-  buildCanonicalProductionPlanFromPremiumBlueprints,
+  buildCanonicalChapterProductionPlan,
+  canonicalPlanToPanelBlueprints,
   classifyPremiumPanelCount,
-  densifyBlueprintsToPremiumRangeEstimate,
 } from "@manga-ai-studio/core";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { buildApprovedOutlineVersion, buildProductionPlanFromOutline } from "@manga-ai-studio/core";
@@ -211,69 +211,8 @@ export async function POST(req: Request, ctx: Ctx) {
 
   const rawBlueprints = enrichedBeats.flatMap((b) => b._blueprints);
 
-  // P1 — L'ENRICHISSEMENT LEGACY EST SUPPRIMÉ DU CHEMIN PREMIUM.
-  // Avant : on comptait le nombre natif de blueprints (rawBlueprints) puis
-  // on appelait `expandBlueprintsToMinimum` pour boucher jusqu'à 75 avec
-  // des panels cutaway/reaction/prop clonés. Résultat : des "faux panels"
-  // qui polluaient le routing et fabriquaient des prompts contradictoires.
-  //
-  // P8 — CONTRAT COUNT STRICT (mission de refonte premium).
-  //
-  // La range produit est 70-75 NATIF. Un storyboard qui sort 56 panels est
-  // un BUG éditorial. L'estimate doit marquer le plan comme "incomplete"
-  // pour que le studio refuse de le lancer : plus de passage silencieux
-  // via `ready_below_target`.
-  //
-  //   - raw === 0                → planStatus = "incomplete" (plan vide)
-  //   - raw < 70                 → planStatus = "incomplete" (sous la range)
-  //   - 70 ≤ raw ≤ 75            → planStatus = "ready"
-  //   - raw > 75                 → planStatus = "incomplete" (sur la range)
-  // FIX — densification DÉTERMINISTE (pas de random) pour atteindre 70–75.
-  // On ne “bricole” pas les prompts : on ajuste le contrat panelBlueprints,
-  // ce qui nourrit ensuite shotPlan/focusBudget et le launch.
-  const densified = densifyBlueprintsToPremiumRangeEstimate({
-    beats: enrichedBeats.map((b) => ({ beatId: b.beatId, blueprints: b._blueprints })),
-    minPanels: PREMIUM_PANEL_RANGE.min,
-    maxPanels: PREMIUM_PANEL_RANGE.max,
-  });
-  const allBlueprints = densified.blueprints;
-  const enrichmentApplied = densified.added > 0 || densified.removed > 0;
-  const enrichmentCount = densified.added - densified.removed;
-  const panelCountStatus = classifyPremiumPanelCount(allBlueprints.length);
-  const chapterMinimumImages = PREMIUM_PANEL_RANGE.min;
-  const isEmptyPlan = allBlueprints.length === 0;
-  const isBelowTargetRange = panelCountStatus === "under_min";
-  const isOverTargetRange = panelCountStatus === "over_max";
-
-  if (isBelowTargetRange) {
-    console.error(
-      `[estimate] below_target_range raw=${rawBlueprints.length} required_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${targetChapter?.id ?? "new"} — BLOQUÉ (storyboard natif sous la range premium)`,
-    );
-  }
-  if (isOverTargetRange) {
-    console.error(
-      `[estimate] over_target_range raw=${rawBlueprints.length} required_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${targetChapter?.id ?? "new"} — BLOQUÉ (compactage éditorial requis)`,
-    );
-  }
-  if (isEmptyPlan) {
-    console.error(
-      `[estimate] empty_plan chapterId=${targetChapter?.id ?? "new"} — aucun blueprint natif, génération bloquée`,
-    );
-  }
-
-  console.log(
-    `[estimate] blueprint_quality chapterId=${targetChapter?.id ?? "new"} ` +
-    `raw=${rawBlueprints.length} enriched=${allBlueprints.length} ` +
-    `target_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} ` +
-    `status=${panelCountStatus}`,
-  );
-  const focusBudget = computeChapterFocusBudget(allBlueprints);
-  const premiumReadinessScore = computePremiumReadinessScore(allBlueprints);
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const rawProductionBeats = enrichedBeats.map(({ _blueprints: _b, ...beat }) => beat);
 
-  // Validation anti-répétition narrative
   const progressionCheck = validateNarrativeProgression(rawProductionBeats as ProductionBeatLike[]);
   if (!progressionCheck.ok) {
     console.warn(
@@ -288,6 +227,62 @@ export async function POST(req: Request, ctx: Ctx) {
     cliffhanger: bundle.outline.cliffhanger,
     beats: rawProductionBeats,
   };
+
+  // Phase 3 — source de vérité : outline → plan canonique → blueprints premium.
+  // Les blueprints « natifs » (rawBlueprints) servent de diagnostic éditorial uniquement.
+  const projectFormat = context.project.format === "webtoon" ? "webtoon" : "manga";
+  const estimateChapterId = targetChapter?.id ?? `estimate-${projectId}-ch${targetChapterNumber}`;
+  const estimateChapterTitle = targetChapter?.title ?? `Chapitre ${targetChapterNumber}`;
+  const canonicalPlan = buildCanonicalChapterProductionPlan({
+    chapterId: estimateChapterId,
+    projectId,
+    chapterNumber: targetChapterNumber,
+    chapterTitle: estimateChapterTitle,
+    format: projectFormat,
+    rawOutline: productionOutline,
+  });
+  const allBlueprints = canonicalPlanToPanelBlueprints(canonicalPlan);
+  const enrichmentApplied = false;
+  const enrichmentCount = 0;
+
+  const panelCountStatus = classifyPremiumPanelCount(allBlueprints.length);
+  const chapterMinimumImages = PREMIUM_PANEL_RANGE.min;
+  const isEmptyPlan = allBlueprints.length === 0 || productionOutline.beats.length === 0;
+  const isBelowTargetRange = panelCountStatus === "under_min";
+  const isOverTargetRange = panelCountStatus === "over_max";
+
+  const rawNativeStatus = classifyPremiumPanelCount(rawBlueprints.length);
+  if (rawNativeStatus === "under_min") {
+    console.warn(
+      `[estimate] native_blueprints_below_range raw=${rawBlueprints.length} ` +
+      `contract=${allBlueprints.length} chapterId=${targetChapter?.id ?? "new"} — le contrat premium suit le plan canonique`,
+    );
+  }
+
+  if (isBelowTargetRange) {
+    console.error(
+      `[estimate] below_target_range contract=${allBlueprints.length} required_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${targetChapter?.id ?? "new"} — BLOQUÉ`,
+    );
+  }
+  if (isOverTargetRange) {
+    console.error(
+      `[estimate] over_target_range contract=${allBlueprints.length} required_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${targetChapter?.id ?? "new"} — BLOQUÉ`,
+    );
+  }
+  if (isEmptyPlan) {
+    console.error(
+      `[estimate] empty_plan chapterId=${targetChapter?.id ?? "new"} — outline ou plan canonique vide`,
+    );
+  }
+
+  console.log(
+    `[estimate] blueprint_quality chapterId=${targetChapter?.id ?? "new"} ` +
+    `raw_native=${rawBlueprints.length} contract_canonical=${allBlueprints.length} ` +
+    `target_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} ` +
+    `status=${panelCountStatus}`,
+  );
+  const focusBudget = computeChapterFocusBudget(allBlueprints);
+  const premiumReadinessScore = computePremiumReadinessScore(allBlueprints);
 
   const productionPlan = {
     // P2.1bis — on propage le `minimumImages` du chapitre dans le productionPlan
@@ -351,23 +346,12 @@ export async function POST(req: Request, ctx: Ctx) {
     context.characters?.length ?? 0,
   ].join("|");
 
-  const projectFormat = context.project.format === "webtoon" ? "webtoon" : "manga";
-  const canonicalFromBlueprints = buildCanonicalProductionPlanFromPremiumBlueprints({
-    chapterId: targetChapter?.id ?? `estimate-${projectId}-ch${targetChapterNumber}`,
-    projectId,
-    chapterNumber: targetChapterNumber,
-    chapterTitle: targetChapter?.title ?? `Chapitre ${targetChapterNumber}`,
-    format: projectFormat,
-    productionOutline,
-    blueprints: allBlueprints,
-  });
-
   console.log(
     `[estimate] estimate_generated projectId=${projectId} chapterId=${targetChapter?.id ?? "new"} ` +
     `chapterNumber=${targetChapterNumber} estimateMode=${estimateMode} ` +
     `beatsCount=${productionOutline.beats.length} ` +
     `productionPlanPages=${Array.isArray((productionPlan as Record<string, unknown>).pages) ? ((productionPlan as Record<string, unknown>).pages as unknown[]).length : 0} ` +
-    `rawBlueprints=${rawBlueprints.length} blueprints=${allBlueprints.length} enrichmentApplied=${enrichmentApplied} targetRange=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} planStatus=${panelCountStatus} ` +
+    `rawBlueprints=${rawBlueprints.length} blueprints=${allBlueprints.length} canonical_qa_valid=${canonicalPlan.qa.valid} enrichmentApplied=${enrichmentApplied} targetRange=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} planStatus=${panelCountStatus} ` +
     `progressionOk=${progressionCheck.ok} progressionScore=${progressionCheck.progressionScore.toFixed(2)}`,
   );
 
@@ -389,12 +373,12 @@ export async function POST(req: Request, ctx: Ctx) {
       estimateSource: estimateMode,
       estimatedAt: new Date().toISOString(),
       canonicalProductionPlan: {
-        format: canonicalFromBlueprints.format,
-        beatCount: canonicalFromBlueprints.beatCount,
-        panelCount: canonicalFromBlueprints.metrics.totalPanels,
-        metrics: canonicalFromBlueprints.metrics,
-        rhythm: canonicalFromBlueprints.rhythm,
-        qa: canonicalFromBlueprints.qa,
+        format: canonicalPlan.format,
+        beatCount: canonicalPlan.beatCount,
+        panelCount: canonicalPlan.metrics.totalPanels,
+        metrics: canonicalPlan.metrics,
+        rhythm: canonicalPlan.rhythm,
+        qa: canonicalPlan.qa,
       },
     },
     contextPreview: {
@@ -427,7 +411,7 @@ export async function POST(req: Request, ctx: Ctx) {
     productionPlan,
     // P8 — planStatus STRICT : tout ce qui n'est pas dans la range premium
     // 70-75 (PREMIUM_PANEL_RANGE) est marqué `incomplete` et bloque le launch.
-    planStatus: panelCountStatus === "ok" ? "ready" : "incomplete",
+    planStatus: panelCountStatus === "ok" && canonicalPlan.qa.valid ? "ready" : "incomplete",
     rawBlueprintCount: rawBlueprints.length,
     enrichedBlueprintCount: allBlueprints.length,
     enrichmentApplied,
@@ -448,12 +432,12 @@ export async function POST(req: Request, ctx: Ctx) {
     progressionScore: progressionCheck.progressionScore,
     /** Plan canonique + QA structurelle sur les blueprints réels (même source que le launch). */
     canonicalProductionPlan: {
-      format: canonicalFromBlueprints.format,
-      beatCount: canonicalFromBlueprints.beatCount,
-      panelCount: canonicalFromBlueprints.metrics.totalPanels,
-      metrics: canonicalFromBlueprints.metrics,
-      rhythm: canonicalFromBlueprints.rhythm,
-      qa: canonicalFromBlueprints.qa,
+      format: canonicalPlan.format,
+      beatCount: canonicalPlan.beatCount,
+      panelCount: canonicalPlan.metrics.totalPanels,
+      metrics: canonicalPlan.metrics,
+      rhythm: canonicalPlan.rhythm,
+      qa: canonicalPlan.qa,
     },
   });
 }

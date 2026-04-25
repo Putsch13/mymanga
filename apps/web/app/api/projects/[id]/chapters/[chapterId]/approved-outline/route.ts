@@ -35,7 +35,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
   // Charger le projet pour les métadonnées premium (genre, tone, hero)
   const project = await prisma.project.findFirst({
     where: { id: projectId, userId: user.id },
-    select: { primaryGenre: true, tone: true },
+    select: { primaryGenre: true, tone: true, format: true },
   });
   const projectCharacters = await prisma.character.findMany({
     where: { projectId },
@@ -100,8 +100,18 @@ export async function PATCH(req: Request, ctx: Ctx) {
     : PREMIUM_PANEL_RANGE.target;
 
   // Toujours reconstruire le contrat premium côté serveur pour validation
+  const projectFormat =
+    typeof project?.format === "string" && project.format.toLowerCase() === "webtoon"
+      ? ("webtoon" as const)
+      : ("manga" as const);
+
   const rebuiltContract = await buildPremiumChapterContractFromApprovedOutline({
     approvedOutline,
+    chapterId,
+    projectId,
+    chapterNumber: chapter.chapterNumber,
+    chapterTitle: chapter.title,
+    projectFormat,
     heroCharacterId,
     projectGenre: project?.primaryGenre ?? null,
     projectTone: project?.tone ?? null,

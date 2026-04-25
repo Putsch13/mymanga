@@ -53,6 +53,7 @@ import {
 } from "../persistence/render-persistence";
 import {
   persistV3RenderedPanels,
+  type PanelFinalStatus,
   type V3PanelRenderAttemptLog,
   type V3RenderedPanelRecord,
 } from "../persistence/v3-scene-image-persistence";
@@ -89,6 +90,8 @@ export interface RenderedPanelDescriptor {
   visualQa?: VisualQaResult | null;
   /** Tentatives FAL + scores QA (persistées en DB). */
   renderAttempts?: V3PanelRenderAttemptLog[];
+  /** Après QA visuelle : livrable ou relecture manuelle. */
+  finalStatus?: PanelFinalStatus | null;
 }
 
 export interface GeneratePanelImageResult {
@@ -222,6 +225,10 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
   let renderedCount = 0;
   let failedCount = 0;
   let skippedCount = 0;
+  let visualQaFailedCount = 0;
+  let manualReviewRequiredCount = 0;
+  let passedAfterRetryCount = 0;
+  let visualQaPassedCount = 0;
 
   const allPanels: StoryboardPanel[] = input.storyboardPlan.pages.flatMap((p) => p.panels);
   let previousPanel: StoryboardPanel | null = null;
@@ -403,7 +410,6 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
         route,
       });
       if (res.ok) {
-        renderedCount += 1;
         let imageUrl: string | null = res.imageUrl ?? null;
         let providerOut: string | null = res.provider ?? null;
         let modelOut: string | null = res.model ?? null;
@@ -499,24 +505,110 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
           }
         }
 
-        descriptor.imageUrl = imageUrl;
-        descriptor.provider = providerOut;
-        descriptor.model = modelOut;
-        descriptor.seed = seedOut;
         descriptor.visualQa = lastQa;
 
-        await dumpPanelDebugArtifacts({
-          chapterId: input.chapterId,
-          panelId: enrichedSpec.panelId,
-          phase: "post_success",
-          blueprint: panel,
-          renderSpec: enrichedSpec,
-          prompt: { positive: prompt.positive, negative: prompt.negative },
-          providerPayload: providerPreview,
-          outputUrl: imageUrl,
-        });
+        if (!imageUrl) {
+          failedCount += 1;
+          descriptor.finalStatus = "failed";
+          descriptor.error = "missing_generated_image_url";
+          descriptor.imageUrl = null;
+          descriptor.provider = providerOut;
+          descriptor.model = modelOut;
+          descriptor.seed = seedOut;
+          await dumpPanelDebugArtifacts({
+            chapterId: input.chapterId,
+            panelId: enrichedSpec.panelId,
+            phase: "post_failure",
+            blueprint: panel,
+            renderSpec: enrichedSpec,
+            prompt: { positive: prompt.positive, negative: prompt.negative },
+            providerPayload: providerPreview,
+            outputUrl: null,
+            error: { errorMessage: "missing_generated_image_url", errorCode: "MISSING_IMAGE_URL" },
+          });
+        } else if (!lastQa) {
+          failedCount += 1;
+          descriptor.finalStatus = "failed";
+          descriptor.error = "visual_qa_not_run";
+          descriptor.imageUrl = imageUrl;
+          descriptor.provider = providerOut;
+          descriptor.model = modelOut;
+          descriptor.seed = seedOut;
+          await dumpPanelDebugArtifacts({
+            chapterId: input.chapterId,
+            panelId: enrichedSpec.panelId,
+            phase: "post_failure",
+            blueprint: panel,
+            renderSpec: enrichedSpec,
+            prompt: { positive: prompt.positive, negative: prompt.negative },
+            providerPayload: providerPreview,
+            outputUrl: imageUrl,
+            error: { errorMessage: "visual_qa_not_run", errorCode: "VISUAL_QA_NOT_RUN" },
+          });
+        } else if (lastQa.passed) {
+          renderedCount += 1;
+          visualQaPassedCount += 1;
+          const attemptsUsed = descriptor.renderAttempts?.length ?? 1;
+          if (attemptsUsed > 1) {
+            passedAfterRetryCount += 1;
+            descriptor.finalStatus = "passed_after_retry";
+          } else {
+            descriptor.finalStatus = "passed";
+          }
+          descriptor.imageUrl = imageUrl;
+          descriptor.provider = providerOut;
+          descriptor.model = modelOut;
+          descriptor.seed = seedOut;
+          await dumpPanelDebugArtifacts({
+            chapterId: input.chapterId,
+            panelId: enrichedSpec.panelId,
+            phase: "post_success",
+            blueprint: panel,
+            renderSpec: enrichedSpec,
+            prompt: { positive: prompt.positive, negative: prompt.negative },
+            providerPayload: providerPreview,
+            outputUrl: imageUrl,
+          });
+        } else {
+          visualQaFailedCount += 1;
+          manualReviewRequiredCount += 1;
+          descriptor.finalStatus = "manual_review_required";
+          descriptor.error = "visual_qa_failed";
+          const reasonsJoined = lastQa.reasons.length > 0 ? lastQa.reasons.join(" | ") : "visual_qa_failed";
+          descriptor.renderFailure = {
+            panelId: enrichedSpec.panelId,
+            renderMode: enrichedSpec.renderMode,
+            locationName: enrichedSpec.locationName,
+            mustShow: [...enrichedSpec.constraints.mustShow],
+            errorCode: "VISUAL_QA_FAILED",
+            errorMessage: reasonsJoined,
+          };
+          descriptor.imageUrl = imageUrl;
+          descriptor.provider = providerOut;
+          descriptor.model = modelOut;
+          descriptor.seed = seedOut;
+          renderErrors.push({
+            panelId: panel.panelId,
+            error: formatRenderFailure(descriptor.renderFailure),
+          });
+          console.error(
+            `[visual-qa] panel_blocked panel=${enrichedSpec.panelId} reasons=${reasonsJoined.slice(0, 200)}`,
+          );
+          await dumpPanelDebugArtifacts({
+            chapterId: input.chapterId,
+            panelId: enrichedSpec.panelId,
+            phase: "post_failure",
+            blueprint: panel,
+            renderSpec: enrichedSpec,
+            prompt: { positive: prompt.positive, negative: prompt.negative },
+            providerPayload: providerPreview,
+            outputUrl: imageUrl,
+            error: { errorMessage: reasonsJoined, errorCode: "VISUAL_QA_FAILED" },
+          });
+        }
       } else {
         failedCount += 1;
+        descriptor.finalStatus = "failed";
         const errorMessage = res.error ?? "render_failed";
         const errorCode = res.errorCode ?? "GENERATE_PANEL_IMAGE_FAILED";
         const detail: RenderPassImageFailureDetail = {
@@ -544,6 +636,7 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
       }
     } catch (err) {
       failedCount += 1;
+      descriptor.finalStatus = "failed";
       const msg = err instanceof Error ? err.message : String(err);
       const detail: RenderPassImageFailureDetail = {
         panelId: enrichedSpec.panelId,
@@ -589,12 +682,20 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
     }
   }
 
+  const v3RenderQualityStatus =
+    visualQaFailedCount > 0 || manualReviewRequiredCount > 0 ? "needs_review" : "passed";
+
   const summary: RenderPassResultSummary = {
     chapterId: input.chapterId,
     totalPanels: allPanels.length,
     renderedCount,
     failedCount,
     skippedCount,
+    visualQaFailedCount,
+    manualReviewRequiredCount,
+    passedAfterRetryCount,
+    visualQaPassedCount,
+    v3RenderQualityStatus,
     startedAt: startedAt.toISOString(),
     finishedAt: new Date().toISOString(),
     warnings,

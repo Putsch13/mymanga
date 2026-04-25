@@ -5,9 +5,10 @@
  */
 
 import {
+  buildCanonicalChapterProductionPlan,
   buildProductionPlanFromOutline,
+  canonicalPlanToPanelBlueprints,
   classifyPremiumPanelCount,
-  densifyBlueprintsToPremiumRangeContract,
   PREMIUM_PANEL_RANGE,
 } from "@manga-ai-studio/core";
 import type { ApprovedChapterOutline, ProductionBeat } from "@manga-ai-studio/core";
@@ -35,17 +36,23 @@ export interface BuildPremiumChapterContractInput {
   }>;
   /**
    * P2.1 — Budget minimum de panels pour ce chapitre. Permet au contrat
-   * premium d'honorer le `Chapter.minimumImages` réel (défaut 75 dans le
-   * schema Prisma) plutôt qu'une constante figée.
+   * premium d'honorer le `Chapter.minimumImages` réel (défaut aligné
+   * `PRODUCTION_RULES.panelCount.minimum`) plutôt qu'une constante figée.
    *
    * Cause racine du bug "52 blueprints pour 75 minimum" historique :
-   * `buildPremiumChapterContract` utilisait `MINIMUM_PREMIUM_PANELS = 75`
-   * en dur. Un chapitre configuré avec `minimumImages > 75` (ou un plan
+   * le builder capait sur une constante hors `PRODUCTION_RULES`. Un chapitre
+   * configuré avec `minimumImages` élevé (ou un plan
    * rebuilt dont `buildPanelBlueprintsFromBeat` sortait trop peu de panels
    * après filtrage) finissait avec un contrat sous le minimum — sans que le
    * builder s'en aperçoive. On remonte maintenant la contrainte au caller.
    */
   minimumPanels?: number;
+  /** Identifiants chapitre/projet pour le plan canonique (launch / persist). */
+  chapterId?: string;
+  projectId?: string;
+  chapterNumber?: number;
+  chapterTitle?: string | null;
+  projectFormat?: "manga" | "webtoon";
 }
 
 export interface ObjectStateFrame {
@@ -181,7 +188,18 @@ function buildObjectStateTimeline(
 export function buildPremiumChapterContract(
   input: BuildPremiumChapterContractInput,
 ): BuildPremiumChapterContractResult {
-  const { approvedOutline, heroCharacterId, projectGenre, projectTone, recentContinuityEvents } = input;
+  const {
+    approvedOutline,
+    heroCharacterId,
+    projectGenre,
+    projectTone,
+    recentContinuityEvents,
+    chapterId: inputChapterId,
+    projectId: inputProjectId,
+    chapterNumber: inputChapterNumber,
+    chapterTitle: inputChapterTitle,
+    projectFormat: inputProjectFormat,
+  } = input;
 
   const narrativeContext = {
     projectGenre,
@@ -240,30 +258,42 @@ export function buildPremiumChapterContract(
   const minPanels = PREMIUM_PANEL_RANGE.min;
   const maxPanels = PREMIUM_PANEL_RANGE.max;
 
-  // FIX — densification déterministe du contrat pour rester dans la range premium
-  // sans “random padding” : on dérive des cutaways / réactions / inserts depuis
-  // les beats existants et on répartit l'effort sur tous les beats.
-  const densified = densifyBlueprintsToPremiumRangeContract({
-    beats: enrichedBeats.map((b) => ({ beatId: b.beatId, _blueprints: b._blueprints })),
-    minPanels,
-    maxPanels,
-  });
-  const allBlueprints = densified.allBlueprints;
-  const enrichedBeatsWithDensity = enrichedBeats.map((b) => {
-    const nextBlueprints = densified.beats.find((x) => x.beatId === b.beatId)?._blueprints ?? b._blueprints;
-    return {
-      ...b,
-      _blueprints: nextBlueprints,
-      estimatedPanels: nextBlueprints.length > 0 ? nextBlueprints.length : b.estimatedPanels,
-    };
-  });
-
   const minimumPanels = typeof input.minimumPanels === "number" && input.minimumPanels > 0
     ? input.minimumPanels
     : minPanels;
+
+  const chapterId = inputChapterId ?? "premium-contract-preview";
+  const projectId = inputProjectId ?? "premium-contract-preview";
+  const chapterNumber = inputChapterNumber ?? 1;
+  const chapterTitle = inputChapterTitle ?? `Chapitre ${chapterNumber}`;
+  const format = inputProjectFormat === "webtoon" ? "webtoon" : "manga";
+
+  const outlineForCanonical = {
+    source: "premium_rebuilt" as const,
+    chapterGoal: approvedOutline.summary,
+    cliffhanger: approvedOutline.cliffhanger,
+    beats: enrichedBeats.map(({ _blueprints: _b, ...beat }) => beat),
+  };
+
+  const canonicalPlan = buildCanonicalChapterProductionPlan({
+    chapterId,
+    projectId,
+    chapterNumber,
+    chapterTitle,
+    format,
+    rawOutline: outlineForCanonical,
+  });
+  const allBlueprints = canonicalPlanToPanelBlueprints(canonicalPlan);
+
+  const beatPanelCounts = new Map(canonicalPlan.beats.map((b) => [b.beatId, b.actualPanelCount]));
+  const enrichedBeatsAligned = enrichedBeats.map((b) => ({
+    ...b,
+    estimatedPanels: beatPanelCounts.get(b.beatId) ?? b.estimatedPanels,
+  }));
+
   const panelCountStatus = classifyPremiumPanelCount(allBlueprints.length);
   console.log(
-    `[premium-contract] native_panel_count=${allBlueprints.length} status=${panelCountStatus} required_range=${minPanels}-${maxPanels} minimumPanels=${minimumPanels}`,
+    `[premium-contract] canonical_panel_count=${allBlueprints.length} status=${panelCountStatus} required_range=${minPanels}-${maxPanels} minimumPanels=${minimumPanels}`,
   );
   const focusBudget = computeChapterFocusBudget(allBlueprints);
   const premiumReadinessScore = computePremiumReadinessScore(allBlueprints);
@@ -272,11 +302,11 @@ export function buildPremiumChapterContract(
     source: "premium_rebuilt" as const,
     chapterGoal: approvedOutline.summary,
     cliffhanger: approvedOutline.cliffhanger,
-    beats: enrichedBeatsWithDensity.map(({ _blueprints: _b, ...beat }) => beat),
+    beats: enrichedBeatsAligned.map(({ _blueprints: _b, ...beat }) => beat),
   };
 
   const objectStateTimeline = buildObjectStateTimeline(
-    enrichedBeatsWithDensity.map((b) => ({
+    enrichedBeatsAligned.map((b) => ({
       beatId: b.beatId,
       narrativeFacts: b.narrativeFacts,
       requiredProps: b.requiredProps,
@@ -309,7 +339,7 @@ export function buildPremiumChapterContract(
 
   const enemyCoverage = {
     panelCount: enemyPanelCount,
-    beatsCovered: enrichedBeats
+    beatsCovered: enrichedBeatsAligned
       .filter((b) => b.narrativeFacts.some((f) => f.type === "enemy_presence"))
       .map((b) => b.beatId),
   };
@@ -328,7 +358,7 @@ export function buildPremiumChapterContract(
   };
 
   const productionPlan = {
-    ...buildProductionPlanFromOutline(productionOutline),
+    ...buildProductionPlanFromOutline(productionOutline, { minimumImages: minimumPanels }),
     panelBlueprints: allBlueprints,
     focusDistribution: focusBudget.focusDistribution,
     shotDistribution: focusBudget.shotDistribution,
@@ -378,7 +408,18 @@ export function buildPremiumChapterContract(
 export async function buildPremiumChapterContractAsync(
   input: BuildPremiumChapterContractInput,
 ): Promise<BuildPremiumChapterContractResult> {
-  const { approvedOutline, heroCharacterId, projectGenre, projectTone, recentContinuityEvents } = input;
+  const {
+    approvedOutline,
+    heroCharacterId,
+    projectGenre,
+    projectTone,
+    recentContinuityEvents,
+    chapterId: inputChapterId,
+    projectId: inputProjectId,
+    chapterNumber: inputChapterNumber,
+    chapterTitle: inputChapterTitle,
+    projectFormat: inputProjectFormat,
+  } = input;
 
   const narrativeContext: NarrativeExtractionContext = {
     projectGenre,
@@ -442,6 +483,10 @@ export async function buildPremiumChapterContractAsync(
   const minPanels = PREMIUM_PANEL_RANGE.min;
   const maxPanels = PREMIUM_PANEL_RANGE.max;
 
+  const minimumPanels = typeof input.minimumPanels === "number" && input.minimumPanels > 0
+    ? input.minimumPanels
+    : minPanels;
+
   // Reconstruire les ProductionBeats enrichis avec les blueprints LLM
   const enrichedBeatsWithLLMBlueprints = enrichedBeats.map((beat, index) => {
     const originalBeat = approvedOutline.beats[index];
@@ -475,28 +520,38 @@ export async function buildPremiumChapterContractAsync(
     };
   });
 
-  // Densification avec les blueprints LLM
-  const densified = densifyBlueprintsToPremiumRangeContract({
-    beats: enrichedBeatsWithLLMBlueprints.map((b) => ({ beatId: b.beatId, _blueprints: b._blueprints })),
-    minPanels,
-    maxPanels,
-  });
-  const allBlueprints = densified.allBlueprints;
-  const enrichedBeatsWithDensity = enrichedBeatsWithLLMBlueprints.map((b) => {
-    const nextBlueprints = densified.beats.find((x) => x.beatId === b.beatId)?._blueprints ?? b._blueprints;
-    return {
-      ...b,
-      _blueprints: nextBlueprints,
-      estimatedPanels: nextBlueprints.length > 0 ? nextBlueprints.length : b.estimatedPanels,
-    };
-  });
+  const chapterId = inputChapterId ?? "premium-contract-preview";
+  const projectId = inputProjectId ?? "premium-contract-preview";
+  const chapterNumber = inputChapterNumber ?? 1;
+  const chapterTitle = inputChapterTitle ?? `Chapitre ${chapterNumber}`;
+  const format = inputProjectFormat === "webtoon" ? "webtoon" : "manga";
 
-  const minimumPanels = typeof input.minimumPanels === "number" && input.minimumPanels > 0
-    ? input.minimumPanels
-    : minPanels;
+  const outlineForCanonical = {
+    source: "premium_rebuilt" as const,
+    chapterGoal: approvedOutline.summary,
+    cliffhanger: approvedOutline.cliffhanger,
+    beats: enrichedBeatsWithLLMBlueprints.map(({ _blueprints: _b, ...beat }) => beat),
+  };
+
+  const canonicalPlan = buildCanonicalChapterProductionPlan({
+    chapterId,
+    projectId,
+    chapterNumber,
+    chapterTitle,
+    format,
+    rawOutline: outlineForCanonical,
+  });
+  const allBlueprints = canonicalPlanToPanelBlueprints(canonicalPlan);
+
+  const beatPanelCounts = new Map(canonicalPlan.beats.map((b) => [b.beatId, b.actualPanelCount]));
+  const enrichedBeatsAligned = enrichedBeatsWithLLMBlueprints.map((b) => ({
+    ...b,
+    estimatedPanels: beatPanelCounts.get(b.beatId) ?? b.estimatedPanels,
+  }));
+
   const panelCountStatus = classifyPremiumPanelCount(allBlueprints.length);
   console.log(
-    `[premium-contract-async] native_panel_count=${allBlueprints.length} status=${panelCountStatus} required_range=${minPanels}-${maxPanels} minimumPanels=${minimumPanels}`,
+    `[premium-contract-async] canonical_panel_count=${allBlueprints.length} status=${panelCountStatus} required_range=${minPanels}-${maxPanels} minimumPanels=${minimumPanels}`,
   );
   const focusBudget = computeChapterFocusBudget(allBlueprints);
   const premiumReadinessScore = computePremiumReadinessScore(allBlueprints);
@@ -505,11 +560,11 @@ export async function buildPremiumChapterContractAsync(
     source: "premium_rebuilt" as const,
     chapterGoal: approvedOutline.summary,
     cliffhanger: approvedOutline.cliffhanger,
-    beats: enrichedBeatsWithDensity.map(({ _blueprints: _b, ...beat }) => beat),
+    beats: enrichedBeatsAligned.map(({ _blueprints: _b, ...beat }) => beat),
   };
 
   const objectStateTimeline = buildObjectStateTimeline(
-    enrichedBeatsWithDensity.map((b) => ({
+    enrichedBeatsAligned.map((b) => ({
       beatId: b.beatId,
       narrativeFacts: b.narrativeFacts,
       requiredProps: b.requiredProps,
@@ -539,7 +594,7 @@ export async function buildPremiumChapterContractAsync(
 
   const enemyCoverage = {
     panelCount: enemyPanelCount,
-    beatsCovered: enrichedBeatsWithLLMBlueprints
+    beatsCovered: enrichedBeatsAligned
       .filter((b) => b.narrativeFacts.some((f) => f.type === "enemy_presence"))
       .map((b) => b.beatId),
   };
@@ -558,7 +613,7 @@ export async function buildPremiumChapterContractAsync(
   };
 
   const productionPlan = {
-    ...buildProductionPlanFromOutline(productionOutline),
+    ...buildProductionPlanFromOutline(productionOutline, { minimumImages: minimumPanels }),
     panelBlueprints: allBlueprints,
     focusDistribution: focusBudget.focusDistribution,
     shotDistribution: focusBudget.shotDistribution,

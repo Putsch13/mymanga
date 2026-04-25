@@ -97,9 +97,9 @@ Avant la generation, l'utilisateur ou le studio demande un estimate premium :
 Cette route :
 
 - produit ou relit l'outline approuve ;
-- construit un `productionOutline` ;
-- construit des `panelBlueprints` premium ;
-- densifie de maniere deterministe pour rester dans la range `70-75` ;
+- construit un `productionOutline` intermediaire ;
+- derive un **`CanonicalChapterProductionPlan`** (`buildCanonicalChapterProductionPlan` dans `packages/core`) puis des **`panelBlueprints`** via **`canonicalPlanToPanelBlueprints`** — meme source de verite que le rebuild contrat premium ;
+- reste dans la range `70-75` imposee par **`PRODUCTION_RULES`** / `PREMIUM_PANEL_RANGE` ;
 - calcule des budgets de focus, des scores de readiness et des blockers editoriaux.
 
 ### 5. Lancer la generation
@@ -597,32 +597,27 @@ Ce generateur appelle l'adapter FAL en :
 - dimensions derivees du `sizePreset` ;
 - `skipPromptTranslation: true` pour ne pas polluer le prompt minimal.
 
-## Densification premium 70-75
+## Range premium 70–75 et plan canonique
 
 Le systeme premium n'accepte pas un chapitre "a peu pres dense".
 
-Contrat :
+Contrat (source unique **`PRODUCTION_RULES.panelCount`** + **`packages/core/src/premium-panel-range.ts`**) :
 
 - `min = 70`
 - `target = 72`
 - `max = 75`
 
-Ce contrat est centralise dans :
+**Estimate et contrat premium** (`POST .../chapters/estimate`, `premium-chapter-contract-builder`, rebuild `approved-outline`) : l'outline est normalise puis **`buildCanonicalChapterProductionPlan`** produit le rythme officiel ; **`canonicalPlanToPanelBlueprints`** (`packages/core/src/production/canonical-to-premium-blueprints.ts`) materialise les blueprints — plus de couche separee "densification contract" divergente.
 
-- `packages/core/src/premium-panel-range.ts`
+**Storyboard-pass v3** (`packages/workflow/src/passes/storyboard-pass.ts`) : si l'IA2 sort un plan hors range, une **densification deterministe** cote storyboard ramene toujours vers la cible (grammaire environment / threat / prop / group / transitions, anti hero-closeup, anti repetition).
 
-La densification premium existe actuellement sur plusieurs surfaces fonctionnelles :
-
-- `POST /api/projects/[id]/chapters/estimate`
-- `packages/ai/src/services/premium-chapter-contract-builder.ts`
-- `packages/workflow/src/passes/storyboard-pass.ts`
-
-Principe :
+Principe commun (storyboard) :
 
 - pas de random padding ;
-- seulement des panels de grammaire derives des beats ;
-- round-robin sur les beats ;
-- on ajoute des panels `environment`, `reaction`, `prop`, `npc`, `aftermath`, `duo`.
+- panels de grammaire derives des beats ;
+- round-robin sur les beats quand la densification s'applique.
+
+**Prisma** : `Chapter.minimumImages` a un **defaut 70** (aligne sur le minimum produit) ; les chapitres existants gardent la valeur deja persistee (souvent 75) tant qu'on ne la modifie pas dans le studio.
 
 ## QA, observabilite et rerolls
 
@@ -630,6 +625,7 @@ QA importante :
 
 - panel QA dans `render-pass`
 - page QA dans `render-pass`
+- **QA visuelle** : un echec bloquant sur panel critique (ou revue manuelle requise) empeche de compter le rendu comme reussi ; agrege dans les metriques V3 (`visualQaFailedCount`, etc.) et dans `run-premium-v3-pipeline` pour le succes global.
 - quality report dans le chemin legacy
 - traces provider FAL dans `FalTrace`
 - `promptDebug`, `canonicalPacket`, `packetRerollPlans` dans `SceneImage.metadata`
@@ -755,13 +751,13 @@ Travail suivant probable :
 - finir le hard switch ;
 - supprimer les branches `source=legacy` quand toute la chaine packet sera universelle.
 
-## 2. Densification encore distribuee
+## 2. Densification restante (storyboard uniquement)
 
-La range premium est centralisee, mais la logique de densification n'est pas encore completement mutualisee.
+La range premium et le **plan canonique** sont mutualises pour **estimate** + **rebuild contrat** ; la **densification deterministe** ne vit plus que dans le **storyboard-pass** quand la sortie IA2 est hors range.
 
 Travail suivant probable :
 
-- extraire un vrai module partage de densification premium pour `estimate`, `contract-builder` et `storyboard-pass`.
+- eventuellement factoriser la logique storyboard avec des helpers partages du module production (sans reintroduire un second chemin de comptage panels).
 
 ## 3. Le style est mieux centralise en v3, pas encore partout
 
@@ -869,7 +865,7 @@ Le produit sait deja faire une vraie pipeline premium structuree :
 Si on veut savoir quoi travailler ensuite, les priorites les plus rentables sont :
 
 1. finir la convergence premium v3 / canonical packet ;
-2. mutualiser totalement la densification premium ;
+2. reduire la dette storyboard (densification IA2 uniquement) ;
 3. mesurer le cout reel chapitre par chapitre ;
 4. reduire les rerolls et les echec render ;
 5. outiller la couverture refs/canon avant launch.
@@ -962,10 +958,11 @@ Artefacts/contrats :
 - `PanelRenderSpec` (`packages/ai/src/contracts/panel-render-spec.ts`)
 - `ChapterStyleBible` (`packages/ai/src/contracts/chapter-style-bible.ts`)
 
-### Range premium (70–75) et densification deterministe
+### Range premium (70–75) : plan canonique + densification storyboard
 Contrat produit : un chapitre premium doit sortir **entre 70 et 75 panels** (cible 72).
 
-- **Estimate route** (`apps/web/app/api/projects/[id]/chapters/estimate/route.ts`) : densifie deterministiquement les blueprints vers 70–75 pour eviter les plans "sous-min" qui bloquent le studio.
+- **Estimate route** (`apps/web/app/api/projects/[id]/chapters/estimate/route.ts`) : **plan canonique** puis **`canonicalPlanToPanelBlueprints`** — aligne avec `PRODUCTION_RULES` et avec le rebuild contrat (`premium-chapter-contract-builder`).
+- **Rebuild contrat** (`buildPremiumChapterContract` / `...Async`, `approved-outline`) : memes etapes + passage de `chapterId` / `projectId` / `chapterNumber` / `projectFormat` pour un plan stable.
 - **Storyboard pass v3** (`packages/workflow/src/passes/storyboard-pass.ts`) :
   - si l'IA2 sort un storyboard hors range (ex. 13–16 panels), on **densifie deterministiquement** vers la cible (72) en injectant des panels de grammaire (environment / threat / prop / group / transitions).
   - la densification contre-balance automatiquement les budgets editoriaux (anti "portraits en boucle") :
@@ -1211,7 +1208,7 @@ Cette passe finalise l'integration du compilateur visuel canonique (`CanonicalIm
 
 ## Sprint CTO — Durcissement studio & fix bug `INCOMPLETE_PLAN` (avril 2026)
 
-Cette passe supprime la divergence UI/backend autour des plans de production incomplets. Symptôme avant : un chapitre pouvait être présenté comme "prêt" côté studio alors que le backend refusait le launch avec `IncompletePlanError` (52 blueprints pour un minimum de 75). Fix : rendre le blocage explicite côté studio, avant tout appel pipeline.
+Cette passe supprime la divergence UI/backend autour des plans de production incomplets. Symptôme avant : un chapitre pouvait être présenté comme "prêt" côté studio alors que le backend refusait le launch avec `IncompletePlanError` (ex. 52 blueprints pour un `minimumImages` plus élevé). Fix : rendre le blocage explicite côté studio, avant tout appel pipeline.
 
 ### P0.1 — Readiness report bloque sur `panelBlueprints.length < minimumImages`
 - `packages/core/src/types/chapter-studio-helpers.ts` : `buildChapterReadinessReport` calcule desormais `panelBlueprintCount` + `contractStatus` (`ok` / `missing_production_plan` / `missing_blueprints` / `incomplete_blueprints`) + `launchBlocked` + `launchBlockedReason`.
@@ -1274,12 +1271,12 @@ Cette passe supprime la divergence UI/backend autour des plans de production inc
 - Message adapte : "Ce chapitre utilise un plan incomplet (52/75 blueprints). La generation n'est pas lançable — régénère le plan pour rétablir un contrat images valide. Tes données canon et narratives ne sont pas perdues."
 - CTA "Régénérer le plan" qui cible directement l'etape `plan → production_plan` via `goToFlowStep` + `generateOutlines`. Reparation non destructive.
 
-### P2.1 — Fix cause racine : `minimumImages` dynamique dans le builder premium
-- `packages/ai/src/services/premium-chapter-contract-builder.ts` : `BuildPremiumChapterContractInput` accepte desormais `minimumPanels?: number`. Le builder utilise cette valeur pour `expandBlueprintsToMinimum` au lieu d'une constante `MINIMUM_PREMIUM_PANELS = 75` figée. Si omise, fallback 75 (aligne avec `schema.prisma`).
-- `apps/web/lib/premium-chapter-contract.ts` : `BuildPremiumContractInput.minimumPanels` propage la valeur au builder async.
-- `apps/web/app/api/projects/[id]/chapters/[chapterId]/approved-outline/route.ts` : lit `chapter.minimumImages` depuis la colonne Prisma et le transmet au builder lors de la reconstruction serveur. Cela elimine la regression "rebuild cape silencieusement a 75" quand un chapitre exige plus (ou quand `buildPanelBlueprintsFromBeat` sort trop peu apres filtrage).
-- Log ajoute `[premium-contract] incomplete_plan_after_build raw=X expanded=Y minimum=Z` pour tracer les cas rarissimes ou meme l'expansion ne peut pas atteindre le minimum (ex. `rawBlueprints` vides).
-- Tests : `packages/ai/src/services/premium-chapter-contract-builder.test.ts` (3 tests : defaut 75, extension a 100 si demande, valeur invalide fallback 75).
+### P2.1 — `minimumImages` dynamique + plan canonique unique (builder premium)
+- `packages/ai/src/services/premium-chapter-contract-builder.ts` : `minimumPanels` alimente `buildProductionPlanFromOutline(..., { minimumImages })`. Le nombre de **`panelBlueprints`** vient du **plan canonique** (`buildCanonicalChapterProductionPlan` → `canonicalPlanToPanelBlueprints`), pas d'une densification contract separee. Identifiants optionnels (`chapterId`, `projectId`, `chapterNumber`, `chapterTitle`, `projectFormat`) pour aligner le plan avec le chapitre reel.
+- `apps/web/lib/premium-chapter-contract.ts` : propage `minimumPanels` et les identifiants vers `buildPremiumChapterContractAsync`.
+- `apps/web/app/api/projects/[id]/chapters/[chapterId]/approved-outline/route.ts` : lit `chapter.minimumImages` + `project.format` et transmet tout au rebuild serveur.
+- `Chapter.minimumImages` en base : **defaut Prisma 70** (nouveaux chapitres) ; valeur existante preservee pour les lignes deja ecrites.
+- Tests : `packages/ai/src/services/premium-chapter-contract-builder.test.ts` (range 70–75 respectee ; `minimumPanels` hors range ne force pas plus de 75 panels natifs).
 
 ### Tests finaux (P1+P2)
 - **63 tests `core` (+5 readiness) + 404 tests `workflow` + 271+3 tests `ai` + 394 tests `apps/web`** — toutes suites vertes.

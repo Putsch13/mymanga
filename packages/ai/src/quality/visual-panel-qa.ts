@@ -11,7 +11,7 @@
  * `analyzePanelWithVision` (panel-vision-analyzer) et fusionner les scores avant persistance.
  */
 
-import type { CharacterFingerprint } from "@manga-ai-studio/core";
+import type { CharacterFingerprint, CanonicalPanelPlan } from "@manga-ai-studio/core";
 import { PRODUCTION_RULES } from "@manga-ai-studio/core";
 import { analyzePanelWithVision, type PanelVisionQaScore } from "../services/panel-vision-analyzer";
 
@@ -30,6 +30,8 @@ export type RetryStrategy =
 export interface VisualQaInput {
   panelId: string;
   imageUrl: string;
+  /** Si fourni, la criticité suit le plan canonique (premium). */
+  canonicalPanel?: CanonicalPanelPlan | null;
   panelMetadata: {
     role: string;
     purpose: string;
@@ -482,10 +484,12 @@ export function buildVisualQaInputFromRenderSpec(input: {
   reserveTextArea: boolean;
   textOverflowStrategy?: string | null;
   visibleCharacters: Array<{ characterId: string; name: string; isProtagonist: boolean }>;
+  canonicalPanel?: CanonicalPanelPlan | null;
 }): VisualQaInput {
   return {
     panelId: input.panelId,
     imageUrl: input.imageUrl,
+    canonicalPanel: input.canonicalPanel ?? null,
     panelMetadata: {
       role: input.panelPurpose,
       purpose: input.actionLine.slice(0, 240),
@@ -503,6 +507,71 @@ export function buildVisualQaInputFromRenderSpec(input: {
 }
 
 /**
+ * Panel critique : vision réelle obligatoire en production premium
+ * (pas de succès heuristique par défaut).
+ */
+export function isCriticalPanelForVisualQa(
+  panel: CanonicalPanelPlan,
+  opts?: { previousQaAttemptFailed?: boolean },
+): boolean {
+  if (opts?.previousQaAttemptFailed) return true;
+  if (panel.isCutaway && panel.textPlan.mode === "silent" && !panel.textPlan.reserveTextArea) {
+    return false;
+  }
+  if (panel.isActorDriven) return true;
+  if (panel.mustShowCharacterIds.length > 0 || panel.requiredCharacterIds.length > 0) return true;
+  const mode = panel.textPlan.mode;
+  if (mode === "dialogue" || mode === "thought") return true;
+  if (panel.mustShowEnemy || panel.role === "enemy") return true;
+  if (panel.role === "action" || panel.role === "speaker" || panel.role === "listener") return true;
+  if (panel.textPlan.reserveTextArea) return true;
+  if (panel.criticality === "high" || panel.criticality === "critical") return true;
+  return false;
+}
+
+function inferCriticalPanelForVisualQa(input: VisualQaInput): boolean {
+  if (input.attemptNumber > 1) return true;
+  if (input.canonicalPanel) {
+    return isCriticalPanelForVisualQa(input.canonicalPanel, {
+      previousQaAttemptFailed: input.attemptNumber > 1,
+    });
+  }
+  const m = input.panelMetadata;
+  if (m.reserveTextArea) return true;
+  if (m.mustShowCharacterIds.length > 0) return true;
+  if (input.expectedCharacters.length > 0) return true;
+  return false;
+}
+
+function visualQaMocksExplicitlyAllowed(): boolean {
+  return process.env.NODE_ENV === "test" || process.env.ENABLE_VISUAL_QA_MOCKS === "true";
+}
+
+function isProductionNodeEnv(): boolean {
+  return process.env.NODE_ENV === "production";
+}
+
+function visionUnavailableBlockResult(input: VisualQaInput, maxAttempts: number): VisualQaResult {
+  return {
+    passed: false,
+    score: 0,
+    reasons: ["Vision QA unavailable for critical panel"],
+    failures: [
+      {
+        reason: "Vision QA unavailable for critical panel",
+        category: "technical",
+        severity: "critical",
+        suggestedStrategy: "refined_prompt",
+      },
+    ],
+    retryRecommended: false,
+    attemptNumber: input.attemptNumber,
+    maxAttempts,
+    shouldMarkManualReview: true,
+  };
+}
+
+/**
  * QA heuristique + optionnellement vision OpenAI (`VISUAL_PANEL_QA_VISION=true` + `OPENAI_API_KEY`).
  * Fusionne les scores ; peut recommander un retry aligné sur {@link PRODUCTION_RULES.retry}.
  */
@@ -513,8 +582,16 @@ export async function runVisualPanelQaWithOptionalVision(
   const base = runVisualPanelQa(input, weights);
   const passThreshold = PRODUCTION_RULES.visualQa.passScore;
   const maxAttempts = PRODUCTION_RULES.visualQa.maxAttemptsPerPanel;
+  const critical = inferCriticalPanelForVisualQa(input);
+  const visionFeatureOn = process.env.VISUAL_PANEL_QA_VISION === "true" && Boolean(input.imageUrl?.trim());
+  const prod = isProductionNodeEnv();
+  const mocksOk = visualQaMocksExplicitlyAllowed();
 
-  if (process.env.VISUAL_PANEL_QA_VISION !== "true" || !input.imageUrl?.trim()) {
+  if (critical && prod && !mocksOk && !visionFeatureOn) {
+    return visionUnavailableBlockResult(input, maxAttempts);
+  }
+
+  if (!visionFeatureOn) {
     return base;
   }
 
@@ -540,6 +617,10 @@ export async function runVisualPanelQaWithOptionalVision(
     });
   } catch {
     vision = null;
+  }
+
+  if (critical && prod && !mocksOk && !vision) {
+    return visionUnavailableBlockResult(input, maxAttempts);
   }
 
   if (!vision) {

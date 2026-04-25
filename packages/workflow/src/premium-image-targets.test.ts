@@ -32,13 +32,20 @@ describe("premium image targets — PREMIUM_PANEL_RANGE", () => {
     expect(source).not.toMatch(/\?\?\s*parseNumEnv\(process\.env\.CHAPTER_MIN_ACCEPTED_IMAGES,\s*75\)/);
   });
 
-  it("la range premium est bien 70-75 (min/target/max) dans le contrat", () => {
-    const source = fs.readFileSync(
+  it("la range premium est bien 70-75 (min/target/max) via PRODUCTION_RULES", () => {
+    const rangeSource = fs.readFileSync(
       path.resolve(__dirname, "../../core/src/premium-panel-range.ts"),
       "utf-8",
     );
-    expect(source).toMatch(/min:\s*70/);
-    expect(source).toMatch(/target:\s*72/);
-    expect(source).toMatch(/max:\s*75/);
+    expect(rangeSource).toMatch(/PRODUCTION_RULES\.panelCount\.minimum/);
+    expect(rangeSource).toMatch(/PRODUCTION_RULES\.panelCount\.target/);
+    expect(rangeSource).toMatch(/PRODUCTION_RULES\.panelCount\.maximum/);
+    const rulesSource = fs.readFileSync(
+      path.resolve(__dirname, "../../core/src/production/production-rules.ts"),
+      "utf-8",
+    );
+    expect(rulesSource).toMatch(/minimum:\s*70/);
+    expect(rulesSource).toMatch(/target:\s*72/);
+    expect(rulesSource).toMatch(/maximum:\s*75/);
   });
 });

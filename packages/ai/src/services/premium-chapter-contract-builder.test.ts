@@ -3,9 +3,8 @@ import { buildPremiumChapterContract } from "./premium-chapter-contract-builder"
 import { PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
 
 /**
- * FIX — densification déterministe pour respecter la range premium (70–75).
- * On n'autorise pas un contrat premium qui sort à 52 panels : la densité
- * doit être corrigée au moment de construire le plan (sans random).
+ * Le contrat premium dérive le nombre de panels du plan canonique
+ * (`buildCanonicalChapterProductionPlan` → blueprints), dans la range 70–75.
  */
 
 function buildApprovedOutline(beatCount: number) {

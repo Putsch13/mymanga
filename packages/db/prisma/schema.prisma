@@ -610,7 +610,7 @@ model Chapter {
   coverImageUrl  String?
   tokenEstimate  Int?
   tokenActual    Int?
-  minimumImages  Int?    @default(75)
+  minimumImages  Int?    @default(70)
   generatedImages Int?
   acceptedImages Int?
   rejectedImages Int?

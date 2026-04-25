@@ -182,11 +182,14 @@ export function ProductionPlanCard({ plan, productionOutlineSource, canonicalPro
                 </span>
               </div>
             ) : null}
+            <p className="text-muted-foreground pt-1 border-t border-border/30">
+              Source : <span className="font-medium text-foreground">CanonicalChapterProductionPlan</span>
+            </p>
           </div>
         ) : null}
 
-        {/* Premium intelligence section */}
-        {hasPremium && (
+        {/* Premium intelligence — masquée si plan canonique (estimate) : évite deux jeux de métriques. */}
+        {hasPremium && !canonicalProductionPlan && (
           <>
             <hr className="border-border/40" />
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">

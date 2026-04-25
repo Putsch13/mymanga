@@ -64,6 +64,10 @@ export interface PremiumChapterContractResult {
 
 export interface BuildPremiumContractInput {
   approvedOutline: ApprovedChapterOutline;
+  /** Pour aligner le plan canonique avec le chapitre / projet persistés. */
+  chapterId?: string;
+  projectId?: string;
+  projectFormat?: "manga" | "webtoon" | null;
   projectGenre?: string | null;
   projectTone?: string | null;
   chapterNumber?: number | null;
@@ -96,6 +100,13 @@ export async function buildPremiumChapterContractFromApprovedOutline(
     heroCharacterId: input.heroCharacterId ?? null,
     projectGenre: input.projectGenre ?? null,
     projectTone: input.projectTone ?? null,
+    chapterId: input.chapterId,
+    projectId: input.projectId,
+    chapterNumber: typeof input.chapterNumber === "number" ? input.chapterNumber : undefined,
+    chapterTitle: input.chapterTitle ?? undefined,
+    projectFormat: input.projectFormat === "webtoon" || input.projectFormat === "manga"
+      ? input.projectFormat
+      : undefined,
     // P2.1 — on transmet le vrai minimum du chapitre pour éviter que le
     // builder cape silencieusement à 75 quand le chapitre exige plus.
     minimumPanels: typeof input.minimumPanels === "number" && input.minimumPanels > 0

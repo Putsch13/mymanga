@@ -61,7 +61,7 @@ export {
   saveRenderPassResult,
   loadRenderPassResult,
 } from "./persistence/render-persistence";
-export type { RenderPassResultSummary } from "./persistence/render-persistence";
+export type { RenderPassResultSummary, V3RenderQualityStatus } from "./persistence/render-persistence";
 export { runChapterOutlineFromJob, runOutlineForChapterId } from "./run-outline-for-chapter";
 export { runFullChapterPipelineFromJob } from "./run-full-chapter-pipeline";
 export { buildStyleBibleFromUserProject } from "./chapter-style-bible-resolver";

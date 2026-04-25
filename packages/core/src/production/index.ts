@@ -15,5 +15,6 @@ export * from "./production-plan-qa";
 export * from "./build-canonical-production-plan";
 export * from "./densify-premium-blueprints";
 export * from "./blueprint-to-canonical-plan";
+export * from "./canonical-to-premium-blueprints";
 export * from "./resolve-production-outline-for-premium-pipeline";
 export * from "./panel-dialogue-text-plan";

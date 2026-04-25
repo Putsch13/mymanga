@@ -223,6 +223,26 @@ describe("production-plan-qa", () => {
       expect(result.details).toHaveProperty("beatCoverageOk");
       expect(result.details).toHaveProperty("panelCountOk");
     });
+
+    it("should error when dialogue beats exist but no verbal text panels", () => {
+      const plan = createValidPlan();
+      plan.panels = plan.panels.map((p) => ({
+        ...p,
+        textPlan: { ...p.textPlan, mode: "silent" as const, reserveTextArea: false },
+      }));
+      plan.metrics = {
+        ...plan.metrics,
+        dialogueAnchoredCount: 0,
+        dialogueFloatingCount: 0,
+        narrationCount: 0,
+        silentCount: plan.panels.length,
+      };
+
+      const result = runProductionPlanQa(plan);
+
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.includes("textual panels"))).toBe(true);
+    });
   });
 
   describe("runProductionPlanQaOrThrow", () => {

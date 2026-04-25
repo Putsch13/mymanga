@@ -142,6 +142,17 @@ describe("panel-rhythm-planner", () => {
       const role = determinePanelRole(beat, 0, 4, false);
       expect(role).toBe("duo");
     });
+
+    it("should return group when more than three characters (non combat/dialogue path)", () => {
+      const beat = createMockBeat({
+        involvedCharacters: ["a", "b", "c", "d"],
+        hasCombat: false,
+        hasDialogue: false,
+        hasEmotion: false,
+      });
+      const role = determinePanelRole(beat, 0, 4, false);
+      expect(role).toBe("group");
+    });
   });
 
   describe("determinePanelTextPlan", () => {

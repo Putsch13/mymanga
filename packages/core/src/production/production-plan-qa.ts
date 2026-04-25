@@ -100,10 +100,27 @@ function checkBeatCoverage(plan: CanonicalChapterProductionPlan): QaCheckResult 
   return { passed: true, message: "Beat coverage OK", severity: "warning" };
 }
 
+function countVerbalTextPanels(plan: CanonicalChapterProductionPlan): number {
+  return plan.panels.filter((p) => {
+    const mode = p.textPlan.mode;
+    return mode === "dialogue" || mode === "thought" || mode === "narration";
+  }).length;
+}
+
 function checkDialogueCoverage(plan: CanonicalChapterProductionPlan): QaCheckResult {
   const dialogueBeats = plan.beats.filter((b) => b.hasDialogue);
   if (dialogueBeats.length === 0) {
     return { passed: true, message: "No dialogue beats to check", severity: "warning" };
+  }
+
+  const verbalPanels = countVerbalTextPanels(plan);
+  if (verbalPanels === 0) {
+    return {
+      passed: false,
+      message:
+        "Chapter has dialogue beats but no textual panels (dialogue, thought, or narration) — premium requires verbal coverage",
+      severity: "error",
+    };
   }
 
   const { dialogueAnchoredCount, dialogueFloatingCount } = plan.metrics;
@@ -111,8 +128,8 @@ function checkDialogueCoverage(plan: CanonicalChapterProductionPlan): QaCheckRes
 
   if (total === 0) {
     return {
-      passed: false,
-      message: "Chapter has dialogue beats but no dialogue panels",
+      passed: true,
+      message: "Dialogue beats covered by non-dialogue textual modes (thought/narration)",
       severity: "warning",
     };
   }
