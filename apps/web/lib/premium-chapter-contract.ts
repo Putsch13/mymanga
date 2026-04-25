@@ -811,5 +811,9 @@ export function buildGenerationJobInputFromSnapshot(opts: GenerationJobInputOpti
     estimateContext: opts.estimateContext ?? null,
   };
 
+  if (snapshot.data.pipelinePreferences?.sceneDialogueEnrich === true) {
+    input.sceneDialogueEnrich = true;
+  }
+
   return input;
 }

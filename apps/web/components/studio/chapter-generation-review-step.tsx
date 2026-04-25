@@ -4,6 +4,8 @@ import type { ChapterReadinessIssue } from "@manga-ai-studio/core";
 import { AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { ChapterGenerateLauncher } from "./chapter-generate-launcher";
 import { ChapterReviewBoard } from "./chapter-review-board";
 import { StudioInlineIssues } from "./studio-inline-issues";
@@ -44,6 +46,8 @@ export function ChapterGenerationReviewStep({
   chapterVisualContract,
   onNavigateToPlan,
   preLaunchBlocked,
+  sceneDialogueEnrichPreferred,
+  onSceneDialogueEnrichPreferredChange,
 }: {
   projectId: string;
   chapterId: string;
@@ -64,6 +68,8 @@ export function ChapterGenerationReviewStep({
   onNavigateToPlan?: () => void;
   /** Accuse de réception pré-lancement manquante (0 image + plan prêt). */
   preLaunchBlocked?: boolean;
+  sceneDialogueEnrichPreferred?: boolean;
+  onSceneDialogueEnrichPreferredChange?: (value: boolean) => void;
 }) {
   const vcHints = readVisualContractLaunchHints(chapterVisualContract ?? null);
   const launchBlockedByReadiness = blockerItems.length > 0 && generatedImages === 0;
@@ -205,6 +211,26 @@ export function ChapterGenerationReviewStep({
           <CardTitle className="text-base">Lancer la génération</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
+          {typeof onSceneDialogueEnrichPreferredChange === "function" ? (
+            <div className="flex items-start justify-between gap-4 rounded-lg border border-border/50 bg-background/40 px-3 py-3">
+              <div className="space-y-1 pr-2">
+                <Label htmlFor="scene-dialogue-enrich" className="text-sm font-medium leading-tight">
+                  Dialoguiste scène (OpenAI)
+                </Label>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Complète les cases « speaker » encore sans réplique après le plan. Nécessite{" "}
+                  <code className="rounded bg-muted px-1">OPENAI_API_KEY</code> sur le serveur. Tu peux aussi activer
+                  globalement <code className="rounded bg-muted px-1">OPENAI_SCENE_DIALOGUE_ENRICH=1</code>.
+                </p>
+              </div>
+              <Switch
+                id="scene-dialogue-enrich"
+                checked={Boolean(sceneDialogueEnrichPreferred)}
+                onCheckedChange={(v) => onSceneDialogueEnrichPreferredChange(v)}
+                data-testid="studio-scene-dialogue-enrich"
+              />
+            </div>
+          ) : null}
           <ChapterGenerateLauncher
             projectId={projectId}
             chapterId={chapterId}

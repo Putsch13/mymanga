@@ -12,7 +12,7 @@ import {
   isPipelineV3StoryboardEnabled,
   isPipelineV3PremiumOnlyEnabled,
 } from "./pipeline-feature-flags";
-import { extractDialogueSnippetsFromChapterOutline } from "./load-prior-chapter-dialogue-snippets";
+import { extractPriorChapterDialogueSnippets } from "./load-prior-chapter-dialogue-snippets";
 import { runPremiumV3Pipeline } from "./run-premium-v3-pipeline";
 import { runLegacyCompatibleChapterPipeline } from "./legacy/run-legacy-compatible-chapter-pipeline";
 
@@ -95,7 +95,9 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       .map((profile) => [profile.characterId, profile]),
   );
   const intensityLayer = (project?.intensityLayer as string | null) ?? "TEEN";
-  const jobInput = ((job.input as Record<string, unknown>) ?? {}) as PipelineJobInput;
+  const rawJobInput = (job.input as Record<string, unknown>) ?? {};
+  const jobInput = rawJobInput as PipelineJobInput;
+  const sceneDialogueEnrichFromJob = rawJobInput.sceneDialogueEnrich === true;
   const heroCharacterId = typeof jobInput.heroCharacterId === "string" && jobInput.heroCharacterId.length > 0
     ? jobInput.heroCharacterId
     : null;
@@ -157,9 +159,9 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
   if (chapter.chapterNumber > 1) {
     const prevChapter = await prisma.chapter.findFirst({
       where: { projectId, chapterNumber: chapter.chapterNumber - 1 },
-      select: { outline: true },
+      select: { outline: true, summary: true, userIntent: true },
     });
-    priorChapterDialogueSnippets = extractDialogueSnippetsFromChapterOutline(prevChapter?.outline, 48);
+    priorChapterDialogueSnippets = extractPriorChapterDialogueSnippets(prevChapter, 48);
     if (priorChapterDialogueSnippets?.length) {
       console.info(
         `[pipeline:v3:prior-dialogue] snippets_from_chapter_n_minus_1=${priorChapterDialogueSnippets.length}`,
@@ -205,6 +207,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         : undefined,
       chapterLocationName,
       priorChapterDialogueSnippets,
+      sceneDialogueEnrich: sceneDialogueEnrichFromJob,
     });
 
     // P3 — gate : en mode premium-only, on SAUTE la pipeline legacy

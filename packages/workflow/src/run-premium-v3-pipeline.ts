@@ -100,6 +100,8 @@ export interface RunPremiumV3PipelineInput {
   chapterLocationName?: string | null;
   /** Répliques du chapitre précédent (normalisées) — alimente le dialoguiste scène si activé. */
   priorChapterDialogueSnippets?: string[] | null;
+  /** Studio : forcer le dialoguiste scène pour ce run (cumulable avec OPENAI_SCENE_DIALOGUE_ENRICH). */
+  sceneDialogueEnrich?: boolean;
 }
 
 export interface RunPremiumV3PipelineResult {
@@ -364,6 +366,7 @@ export async function runPremiumV3Pipeline(
           projectTone: typeof input.project?.tone === "string" ? input.project.tone : null,
           contentRating: typeof input.project?.contentRating === "string" ? input.project.contentRating : null,
           avoidDialogueSnippets: input.priorChapterDialogueSnippets ?? undefined,
+          forceSceneDialogueEnrich: input.sceneDialogueEnrich === true,
         });
         if (sceneDialogue.linesWritten > 0 || sceneDialogue.warnings.length > 0) {
           console.info(

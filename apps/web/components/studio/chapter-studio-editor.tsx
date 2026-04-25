@@ -679,6 +679,20 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
             onIssueAction={handleIssueAction}
             chapterVisualContract={chapterVisualContract ?? undefined}
             onNavigateToPlan={() => goToFlowStep("plan", null, "production_plan")}
+            sceneDialogueEnrichPreferred={draft?.pipelinePreferences?.sceneDialogueEnrich === true}
+            onSceneDialogueEnrichPreferredChange={(value) => {
+              if (!draft) return;
+              updateDraft(
+                {
+                  ...draft,
+                  pipelinePreferences: {
+                    ...draft.pipelinePreferences,
+                    sceneDialogueEnrich: value,
+                  },
+                },
+                activeStudioStep,
+              );
+            }}
           />
         ) : null}
       </div>

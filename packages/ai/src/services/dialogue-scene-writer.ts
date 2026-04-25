@@ -1,7 +1,7 @@
 /**
  * Dialoguiste IA par beat (blueprints premium) — optionnel, activé explicitement.
  *
- * Variable : `OPENAI_SCENE_DIALOGUE_ENRICH=1` + `OPENAI_API_KEY`.
+ * Activation : `OPENAI_SCENE_DIALOGUE_ENRICH=1` **ou** `forceSceneDialogueEnrich` (studio / job) + `OPENAI_API_KEY`.
  * Modèle : `OPENAI_SCENE_DIALOGUE_MODEL` (défaut `gpt-4o-mini`).
  */
 
@@ -34,6 +34,8 @@ export interface EnrichPremiumBlueprintsSceneDialogueInput {
   contentRating?: string | null;
   /** Snippets normalisés (ex. chapitre n-1) à ne pas recopier — optionnel. */
   avoidDialogueSnippets?: string[] | null;
+  /** Studio / job : activer même si OPENAI_SCENE_DIALOGUE_ENRICH n’est pas à 1. */
+  forceSceneDialogueEnrich?: boolean;
 }
 
 function beatText(outline: ProductionOutline | null | undefined, beatId: string): string {
@@ -59,8 +61,10 @@ export async function enrichPremiumBlueprintsSceneDialogue(
   input: EnrichPremiumBlueprintsSceneDialogueInput,
 ): Promise<{ beatsTouched: number; linesWritten: number; warnings: string[] }> {
   const warnings: string[] = [];
-  if (process.env.OPENAI_SCENE_DIALOGUE_ENRICH !== "1") {
-    warnings.push("scene_dialogue_skipped_env_disabled");
+  const envScene = process.env.OPENAI_SCENE_DIALOGUE_ENRICH === "1";
+  const allowScene = input.forceSceneDialogueEnrich === true || envScene;
+  if (!allowScene) {
+    warnings.push("scene_dialogue_skipped_not_enabled");
     return { beatsTouched: 0, linesWritten: 0, warnings };
   }
   if (!process.env.OPENAI_API_KEY) {

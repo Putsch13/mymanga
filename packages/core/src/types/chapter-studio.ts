@@ -639,6 +639,13 @@ export const chapterLookProfileSchema = z.object({
 
 export type ChapterLookProfileStudio = z.infer<typeof chapterLookProfileSchema>;
 
+export const chapterPipelinePreferencesSchema = z.object({
+  /** Active le dialoguiste scène OpenAI pour ce chapitre (en plus de OPENAI_SCENE_DIALOGUE_ENRICH côté serveur). */
+  sceneDialogueEnrich: z.boolean().optional(),
+});
+
+export type ChapterPipelinePreferences = z.infer<typeof chapterPipelinePreferencesSchema>;
+
 export const chapterStudioDataSchema = z.object({
   intent: chapterIntentSchema.optional(),
   narrativeContract: chapterNarrativeContractSchema.optional(),
@@ -660,6 +667,8 @@ export const chapterStudioDataSchema = z.object({
   entityRegistry: chapterEntityRegistrySchema.optional(),
   /** Profil look visuel autoritaire du chapitre — source de vérité style */
   chapterLookProfile: chapterLookProfileSchema.optional(),
+  /** Préférences pipeline (flags optionnels persistés avec le snapshot studio). */
+  pipelinePreferences: chapterPipelinePreferencesSchema.optional(),
 });
 
 export type ChapterStudioData = z.infer<typeof chapterStudioDataSchema>;

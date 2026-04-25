@@ -20,6 +20,8 @@ export type PipelineJobInput = {
   productionPlanPages?: unknown[];
   productionPlan?: unknown;
   premiumReadinessScore?: number;
+  /** Persistance studio : dialoguiste scène pour ce run (s’ajoute à OPENAI_SCENE_DIALOGUE_ENRICH). */
+  sceneDialogueEnrich?: boolean;
 };
 
 export function resolveEffectivePanelBlueprints(opts: {

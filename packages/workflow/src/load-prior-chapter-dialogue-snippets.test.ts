@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { extractDialogueSnippetsFromChapterOutline } from "./load-prior-chapter-dialogue-snippets";
+import {
+  extractDialogueSnippetsFromChapterOutline,
+  extractPriorChapterDialogueSnippets,
+} from "./load-prior-chapter-dialogue-snippets";
 
 describe("extractDialogueSnippetsFromChapterOutline", () => {
   it("lit productionPlan.panelBlueprints sous studio.data", () => {
@@ -26,5 +29,16 @@ describe("extractDialogueSnippetsFromChapterOutline", () => {
       },
     };
     expect(extractDialogueSnippetsFromChapterOutline(outline)).toEqual(["partez !"]);
+  });
+});
+
+describe("extractPriorChapterDialogueSnippets", () => {
+  it("retombe sur les guillemets du résumé si pas de blueprints", () => {
+    const sn = extractPriorChapterDialogueSnippets({
+      outline: {},
+      summary: 'Il cria "Attendez-moi !" puis partit.',
+      userIntent: null,
+    });
+    expect(sn).toContain("attendez-moi !");
   });
 });
