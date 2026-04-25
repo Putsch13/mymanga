@@ -79,6 +79,7 @@ export function deriveRenderMode(bp: PanelBlueprintPremium): StoryboardRenderMod
   const cutaway = toCutawayType(bp.cutawayType);
   const focus = toSubjectFocus(bp.subjectFocus, bp);
   const shot = toShotType(bp.shotType);
+  const visibleCharacterCount = resolveCharacters(bp).length;
 
   const requiredSubjects = ((bp.requiredSubjects as string[] | undefined) ?? []).join(" ").toLowerCase();
   const purpose = (bp.purpose ?? "").toLowerCase();
@@ -95,14 +96,22 @@ export function deriveRenderMode(bp: PanelBlueprintPremium): StoryboardRenderMod
   if (cutaway === "prop_insert") return "insert_object";
   if (cutaway === "reaction") return "reaction_closeup";
   if (cutaway === "surveillance") return "surveillance_reveal";
-  if (cutaway === "crowd") return "group_tension";
+  if (cutaway === "crowd") return visibleCharacterCount >= 2 ? "group_tension" : "character_focus";
   if (cutaway === "aftermath") return "combat_aftermath";
   if (focus === "threat") return "creature_reveal";
   if (focus === "enemy") return shot === "closeup" || shot === "extreme_closeup" ? "enemy_closeup" : "enemy_reveal";
   if (focus === "important_npc") return "npc_closeup";
   if (focus === "reaction") return "reaction_closeup";
-  if (focus === "group") return shot === "over_shoulder" ? "dialogue_over_shoulder" : "group_tension";
-  return shot === "closeup" || shot === "extreme_closeup" ? "hero_closeup" : "dialogue_two_shot";
+  if (focus === "group") {
+    if (visibleCharacterCount >= 2) {
+      return shot === "over_shoulder" ? "dialogue_over_shoulder" : "group_tension";
+    }
+    return visibleCharacterCount === 1 ? "character_focus" : "silent_transition";
+  }
+  if (shot === "closeup" || shot === "extreme_closeup") return "hero_closeup";
+  if (visibleCharacterCount >= 2) return "dialogue_two_shot";
+  if (visibleCharacterCount === 1) return "character_focus";
+  return "silent_transition";
 }
 
 export function derivePanelPurpose(bp: PanelBlueprintPremium): PanelPurpose {
@@ -298,16 +307,44 @@ export function buildEditorialDiagnostics(pages: StoryboardPage[]): StoryboardPl
   };
 }
 
+/**
+ * Location résolue pour le branchement décor.
+ */
+export interface ResolvedLocation {
+  id: string;
+  name: string;
+  visualDNA?: Record<string, unknown> | null;
+}
+
+/**
+ * P1.8 — Résout l'anchorId de l'environnement à partir du nom de location.
+ * Utilise une comparaison normalisée (lowercase, trim).
+ */
+function resolveEnvironmentAnchorId(
+  locationName: string | null | undefined,
+  locations: ResolvedLocation[],
+): string | null {
+  if (!locationName?.trim()) return null;
+  const normalized = locationName.toLowerCase().trim();
+  const match = locations.find(
+    (loc) => loc.name.toLowerCase().trim() === normalized,
+  );
+  return match?.id ?? null;
+}
+
 export function buildStoryboardPlanFromPremiumBlueprints(args: {
   chapterId: string;
   projectFormat: "manga" | "webtoon";
   panelBlueprints: PanelBlueprintPremium[];
   pages?: Array<{ pageNumber: number; panelCount: number; beatIds?: string[] | null }>;
   chapterLocationName?: string | null;
+  /** P1.8 — Locations résolues pour brancher environmentAnchorId. */
+  locations?: ResolvedLocation[];
 }): StoryboardPlan {
   const pageSize = args.projectFormat === "webtoon" ? 3 : 5;
   const maxPanelsPerPage = getMaxPanelsPerPage(args.projectFormat);
   const explicitPages = args.pages ?? [];
+  const locations = args.locations ?? [];
 
   const panelsByPage = assignBlueprintsToPages({
     panelBlueprints: args.panelBlueprints,
@@ -351,7 +388,10 @@ export function buildStoryboardPlanFromPremiumBlueprints(args: {
         subjectFocus: toSubjectFocus(bp.subjectFocus, bp),
         cutawayType: toCutawayType(bp.cutawayType),
         characters: resolveCharacters(bp),
-        locationId: null,
+        locationId: resolveEnvironmentAnchorId(
+          resolveBlueprintLocationName(bp, args.chapterLocationName),
+          locations,
+        ),
         locationName: resolveBlueprintLocationName(bp, args.chapterLocationName),
         actionLine: bp.purpose,
         emotionLine: "",
@@ -366,7 +406,10 @@ export function buildStoryboardPlanFromPremiumBlueprints(args: {
         continuityNotes: bp.notes ?? [],
         visualAnchors: {
           characterIds: resolveCharacters(bp),
-          environmentAnchorId: null,
+          environmentAnchorId: resolveEnvironmentAnchorId(
+            resolveBlueprintLocationName(bp, args.chapterLocationName),
+            locations,
+          ),
           previousPanelAnchorId: idx > 0 ? rawPanels[idx - 1]!.panelId : null,
         },
         sceneContextLabel: bp.sceneContextLabel ?? null,

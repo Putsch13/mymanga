@@ -74,6 +74,13 @@ const RENDER_MODE_ROUTE_TABLE: Record<StoryboardRenderMode, RouteBase> = {
     sizePreset: "square",
     retryPolicy: "strict_character",
   },
+  character_focus: {
+    modelId: FAL_RENDER_ROUTE_MODEL_IDS.characterFocused,
+    panelCategory: "CHARACTER_FOCUS",
+    referencePolicy: "STRONG",
+    sizePreset: "square",
+    retryPolicy: "strict_character",
+  },
   reaction_closeup: {
     modelId: FAL_RENDER_ROUTE_MODEL_IDS.characterFocused,
     panelCategory: "REACTION_CLOSEUP",

@@ -9,6 +9,11 @@
  * renderMode.
  */
 
+import {
+  isHeroRole,
+  isAntagonistRole,
+  isSupportingRole,
+} from "@manga-ai-studio/core";
 import type { ChapterStyleBible } from "../contracts/chapter-style-bible";
 import type {
   PanelRenderCharacterRole,
@@ -43,6 +48,7 @@ export interface BuildPanelRenderSpecInput {
 const DIALOGUE_FORWARD_RENDER_MODES = new Set<StoryboardPanel["renderMode"]>([
   "dialogue_two_shot",
   "dialogue_over_shoulder",
+  "character_focus",
   "aftermath_dialogue",
 ]);
 
@@ -135,14 +141,16 @@ export function buildPanelRenderSpec(
   };
 }
 
+/**
+ * P0.2 — Utilise le normaliseur centralisé pour les rôles personnages.
+ */
 function deriveRole(
   roleType: string | null | undefined,
   isMain: boolean,
 ): PanelRenderCharacterRole {
   if (isMain) return "hero";
-  const normalized = (roleType ?? "").toLowerCase();
-  if (normalized.includes("main") || normalized.includes("protagon")) return "hero";
-  if (normalized.includes("support") || normalized.includes("ally")) return "support";
-  if (normalized.includes("antagon") || normalized.includes("enemy") || normalized.includes("villain")) return "enemy";
+  if (isHeroRole(roleType)) return "hero";
+  if (isSupportingRole(roleType)) return "support";
+  if (isAntagonistRole(roleType)) return "enemy";
   return "npc";
 }

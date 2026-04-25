@@ -1,0 +1,192 @@
+import { describe, expect, it } from "vitest";
+import {
+  validateChapterCastContract,
+  buildChapterCastContract,
+  formatCastContractLog,
+  assertValidChapterCastContract,
+  ChapterCastContractError,
+  CAST_CONTRACT_ERROR_CODES,
+  type ChapterCastContract,
+} from "./chapter-cast-contract";
+
+describe("ChapterCastContract", () => {
+  const validContract: ChapterCastContract = {
+    chapterId: "ch-1",
+    heroCharacterId: "marius",
+    activeCharacterIds: ["marius", "maya"],
+    supportCharacterIds: ["maya"],
+    antagonistCharacterIds: [],
+    npcGroups: [
+      {
+        groupId: "pecheurs",
+        label: "pêcheurs du port",
+        visualDescription: "marins au travail",
+        memberCountHint: 5,
+        requiredInBeatIds: ["beat-2"],
+        optionalInBeatIds: ["beat-1", "beat-3"],
+      },
+    ],
+    members: [
+      {
+        characterId: "marius",
+        name: "Marius",
+        role: "hero",
+        allowsCloseup: true,
+        canSpeak: true,
+        requiredInBeatIds: [],
+        forbiddenInBeatIds: [],
+      },
+      {
+        characterId: "maya",
+        name: "Maya",
+        role: "support",
+        allowsCloseup: true,
+        canSpeak: true,
+        requiredInBeatIds: ["beat-3"],
+        forbiddenInBeatIds: [],
+      },
+    ],
+  };
+
+  describe("validateChapterCastContract", () => {
+    it("accepte un contrat valide", () => {
+      const result = validateChapterCastContract(validContract);
+      expect(result.ok).toBe(true);
+      expect(result.issues).toHaveLength(0);
+    });
+
+    it("refuse un contrat sans heroCharacterId", () => {
+      const contract = { ...validContract, heroCharacterId: "" };
+      const result = validateChapterCastContract(contract);
+      expect(result.ok).toBe(false);
+      expect(result.issues.some((i) => i.code === CAST_CONTRACT_ERROR_CODES.HERO_MISSING)).toBe(true);
+    });
+
+    it("refuse un contrat où le héros n'est pas dans activeCharacterIds", () => {
+      const contract = {
+        ...validContract,
+        heroCharacterId: "marius",
+        activeCharacterIds: ["maya"], // marius absent
+      };
+      const result = validateChapterCastContract(contract);
+      expect(result.ok).toBe(false);
+      expect(result.issues.some((i) => i.code === CAST_CONTRACT_ERROR_CODES.HERO_NOT_IN_ACTIVE)).toBe(true);
+    });
+
+    it("refuse un contrat avec activeCharacterIds vide", () => {
+      const contract = { ...validContract, activeCharacterIds: [] };
+      const result = validateChapterCastContract(contract);
+      expect(result.ok).toBe(false);
+      expect(result.issues.some((i) => i.code === CAST_CONTRACT_ERROR_CODES.ACTIVE_EMPTY)).toBe(true);
+    });
+
+    it("refuse un support qui n'est pas dans activeCharacterIds", () => {
+      const contract = {
+        ...validContract,
+        supportCharacterIds: ["maya", "unknown-char"],
+      };
+      const result = validateChapterCastContract(contract);
+      expect(result.ok).toBe(false);
+      expect(result.issues.some((i) => i.code === CAST_CONTRACT_ERROR_CODES.SUPPORT_NOT_IN_ACTIVE)).toBe(true);
+    });
+
+    it("refuse plusieurs héros dans members", () => {
+      const contract = {
+        ...validContract,
+        members: [
+          { ...validContract.members[0]!, role: "hero" as const },
+          { ...validContract.members[1]!, role: "hero" as const },
+        ],
+      };
+      const result = validateChapterCastContract(contract);
+      expect(result.ok).toBe(false);
+      expect(result.issues.some((i) => i.code === CAST_CONTRACT_ERROR_CODES.DUPLICATE_HERO)).toBe(true);
+    });
+  });
+
+  describe("assertValidChapterCastContract", () => {
+    it("ne lance pas d'erreur pour un contrat valide", () => {
+      expect(() => assertValidChapterCastContract(validContract)).not.toThrow();
+    });
+
+    it("lance ChapterCastContractError pour un contrat invalide", () => {
+      const contract = { ...validContract, heroCharacterId: "" };
+      expect(() => assertValidChapterCastContract(contract)).toThrow(ChapterCastContractError);
+    });
+  });
+
+  describe("buildChapterCastContract", () => {
+    it("construit un contrat à partir des inputs pipeline", () => {
+      const contract = buildChapterCastContract({
+        chapterId: "ch-1",
+        heroCharacterId: "marius",
+        focusCharacterIds: ["marius", "maya"],
+        characters: [
+          { id: "marius", name: "Marius", roleType: "main_hero" },
+          { id: "maya", name: "Maya", roleType: "support" },
+        ],
+        npcGroups: [
+          { id: "pecheurs", label: "pêcheurs du port" },
+        ],
+      });
+
+      expect(contract.heroCharacterId).toBe("marius");
+      expect(contract.activeCharacterIds).toContain("marius");
+      expect(contract.activeCharacterIds).toContain("maya");
+      expect(contract.members.find((m) => m.characterId === "marius")?.role).toBe("hero");
+      expect(contract.members.find((m) => m.characterId === "maya")?.role).toBe("support");
+      expect(contract.npcGroups).toHaveLength(1);
+    });
+
+    it("utilise focusCharacterIds[0] si heroCharacterId absent", () => {
+      const contract = buildChapterCastContract({
+        chapterId: "ch-1",
+        heroCharacterId: null,
+        focusCharacterIds: ["marius", "maya"],
+        characters: [
+          { id: "marius", name: "Marius" },
+          { id: "maya", name: "Maya" },
+        ],
+      });
+
+      expect(contract.heroCharacterId).toBe("marius");
+    });
+
+    it("lance une erreur si aucun héros ne peut être déduit", () => {
+      expect(() =>
+        buildChapterCastContract({
+          chapterId: "ch-1",
+          heroCharacterId: null,
+          focusCharacterIds: [],
+          characters: [],
+        }),
+      ).toThrow(ChapterCastContractError);
+    });
+
+    it("ajoute automatiquement le héros dans activeCharacterIds", () => {
+      const contract = buildChapterCastContract({
+        chapterId: "ch-1",
+        heroCharacterId: "marius",
+        activeCharacterIds: ["maya"], // marius absent
+        characters: [
+          { id: "marius", name: "Marius" },
+          { id: "maya", name: "Maya" },
+        ],
+      });
+
+      expect(contract.activeCharacterIds).toContain("marius");
+      expect(contract.activeCharacterIds[0]).toBe("marius"); // en premier
+    });
+  });
+
+  describe("formatCastContractLog", () => {
+    it("produit le format de log attendu", () => {
+      const log = formatCastContractLog(validContract);
+      expect(log).toContain("[cast-contract]");
+      expect(log).toContain("hero=marius");
+      expect(log).toContain("active=marius,maya");
+      expect(log).toContain("support=maya");
+      expect(log).toContain("npcGroups=pêcheurs du port");
+    });
+  });
+});

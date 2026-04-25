@@ -3,6 +3,12 @@
  */
 
 import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
+import {
+  canonicalizeCharacterRoleType,
+  isHeroRole,
+  isAntagonistRole,
+  isSupportingRole,
+} from "@manga-ai-studio/core";
 
 export type VisualEntityRole =
   | "protagonist"
@@ -84,11 +90,16 @@ function emptyDna(): VisualEntityVisualDna {
   return { colors: [], props: [], symbols: [], forbiddenDrift: [] };
 }
 
+/**
+ * P0.2 — Utilise le normaliseur centralisé pour les rôles personnages.
+ * Plus de checks fragiles `includes("hero")` / `includes("protagon")`.
+ */
 function roleFromCharacter(roleType: string | null | undefined): VisualEntityRole {
-  const r = (roleType ?? "").toLowerCase();
-  if (r.includes("hero") || r.includes("protagonist")) return "protagonist";
-  if (r.includes("enemy") || r.includes("antagonist") || r.includes("villain")) return "antagonist";
-  if (r.includes("ally") || r.includes("support")) return "ally";
+  if (isHeroRole(roleType)) return "protagonist";
+  if (isAntagonistRole(roleType)) return "antagonist";
+  if (isSupportingRole(roleType)) return "ally";
+  const canon = canonicalizeCharacterRoleType(roleType);
+  if (canon === "npc" || canon === "recurring_npc") return "neutral";
   return "neutral";
 }
 
@@ -112,16 +123,14 @@ export function buildVisualEntitiesFromPremiumV3Input(input: BuildVisualEntities
   const heroId = input.heroCharacterId ?? input.focusCharacterIds[0] ?? null;
 
   for (const c of input.rawCharacters) {
-    const roleTypeLower = (c.roleType ?? "").toLowerCase();
-
-    const isHero =
+    // P0.2 — Utilise isHeroRole au lieu de includes fragiles
+    const isCharHero =
       heroId === c.id ||
       input.focusCharacterIds.includes(c.id) ||
-      roleTypeLower.includes("hero") ||
-      roleTypeLower.includes("protagonist");
+      isHeroRole(c.roleType);
 
     const rawRole = roleFromCharacter(c.roleType);
-    const role: VisualEntityRole = isHero ? "protagonist" : rawRole;
+    const role: VisualEntityRole = isCharHero ? "protagonist" : rawRole;
 
     const colors: string[] = [];
     if (c.hairColor) colors.push(`hair:${c.hairColor}`);
@@ -136,8 +145,8 @@ export function buildVisualEntitiesFromPremiumV3Input(input: BuildVisualEntities
       projectId: input.projectId,
       name: c.name,
       aliases: [],
-      userDefinedKind: isHero ? "main protagonist" : "story character",
-      semanticTags: tags.length ? tags : [isHero ? "hero" : "cast"],
+      userDefinedKind: isCharHero ? "main protagonist" : "story character",
+      semanticTags: tags.length ? tags : [isCharHero ? "hero" : "cast"],
       role,
       scale: "individual",
       isOpponent: role === "antagonist" || role === "obstacle",
@@ -154,7 +163,7 @@ export function buildVisualEntitiesFromPremiumV3Input(input: BuildVisualEntities
         forbiddenDrift: [],
       },
       referenceImageUrls: [],
-      consistencyLevel: isHero ? "strict" : "medium",
+      consistencyLevel: isCharHero ? "strict" : "medium",
       createdFrom: "character_sheet",
       beatIds: [],
     });

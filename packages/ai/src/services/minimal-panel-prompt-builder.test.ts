@@ -3,6 +3,7 @@ import {
   buildMinimalPanelPrompt,
   buildPromptNegativeBlock,
   describeCharacterWithCanon,
+  detectNegationsInPositive,
 } from "./minimal-panel-prompt-builder";
 import { createDefaultChapterStyleBible } from "../contracts/chapter-style-bible";
 import type { PanelRenderSpec } from "../contracts/panel-render-spec";
@@ -62,6 +63,7 @@ describe("buildMinimalPanelPrompt", () => {
       }),
     );
     expect(r.positive.toLowerCase()).not.toContain("tight face");
+    expect(r.positive.toLowerCase()).not.toContain("hero portrait");
     expect(r.negative.toLowerCase()).toContain("tight face");
   });
 
@@ -367,5 +369,43 @@ describe("buildMinimalPanelPrompt", () => {
     );
     expect(r.positive).toContain("Clairière magique");
     expect(r.positive.toLowerCase()).not.toContain("environment: unknown");
+  });
+});
+
+describe("P0.5 — detectNegationsInPositive", () => {
+  it("détecte 'no hero portrait' comme négation problématique", () => {
+    const result = detectNegationsInPositive("wide view of the port, no hero portrait in frame");
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  it("détecte 'without any characters' comme négation problématique", () => {
+    const result = detectNegationsInPositive("establishing shot without any characters visible");
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  it("détecte 'avoid showing hero' comme négation problématique", () => {
+    const result = detectNegationsInPositive("environment panel, avoid showing hero or faces");
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  it("tolère 'no dominant solo portrait' dans un contexte dialogue structuré", () => {
+    const result = detectNegationsInPositive(
+      "SUBJECT: dialogue staging, balanced framing, no dominant solo portrait",
+    );
+    expect(result).toHaveLength(0);
+  });
+
+  it("tolère 'composition excludes people' (formulation positive)", () => {
+    const result = detectNegationsInPositive(
+      "SUBJECT: isolated object, composition excludes people and faces",
+    );
+    expect(result).toHaveLength(0);
+  });
+
+  it("ne détecte rien dans un prompt positif propre", () => {
+    const result = detectNegationsInPositive(
+      "wide establishing shot of the port, morning light, fishing boats, atmospheric perspective",
+    );
+    expect(result).toHaveLength(0);
   });
 });

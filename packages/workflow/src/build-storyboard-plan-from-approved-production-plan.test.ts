@@ -160,6 +160,44 @@ describe("buildStoryboardPlanFromApprovedProductionPlan", () => {
     expect(panel.visualAnchors.characterIds).toEqual(["char-hero", "char-npc"]);
   });
 
+  it("mappe un héros solo en cadrage moyen vers character_focus, pas dialogue_two_shot", () => {
+    const bp = minimalBp({
+      panelId: "p-solo",
+      panelNumber: 1,
+      subjectFocus: "hero",
+      shotType: "medium",
+      mustShowCharacterIds: ["char-marius"],
+    });
+    const plan = buildStoryboardPlanFromApprovedProductionPlan({
+      chapterId: "c1",
+      projectId: "proj-1",
+      chapterNumber: 1,
+      projectFormat: "manga",
+      productionPlan: { panelBlueprints: [bp] },
+    });
+    const panel = plan.pages[0]!.panels[0]!;
+    expect(panel.renderMode).toBe("character_focus");
+    expect(panel.characters).toEqual(["char-marius"]);
+  });
+
+  it("garde dialogue_two_shot quand deux personnages sont visibles", () => {
+    const bp = minimalBp({
+      panelId: "p-duo",
+      panelNumber: 1,
+      subjectFocus: "hero",
+      shotType: "medium",
+      mustShowCharacterIds: ["char-marius", "char-maya"],
+    });
+    const plan = buildStoryboardPlanFromApprovedProductionPlan({
+      chapterId: "c1",
+      projectId: "proj-1",
+      chapterNumber: 1,
+      projectFormat: "manga",
+      productionPlan: { panelBlueprints: [bp] },
+    });
+    expect(plan.pages[0]!.panels[0]!.renderMode).toBe("dialogue_two_shot");
+  });
+
   it("expose totalTargetPanels = nombre de blueprints valides", () => {
     const plan = buildStoryboardPlanFromApprovedProductionPlan({
       chapterId: "c1",

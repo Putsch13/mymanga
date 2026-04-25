@@ -88,6 +88,18 @@ describe("validateRenderSpec", () => {
     expect(validateRenderSpec(makeSpec()).ok).toBe(true);
   });
 
+  it("accepte character_focus avec un héros et des refs", () => {
+    const r = validateRenderSpec(
+      makeSpec({
+        renderMode: "character_focus",
+        panelPurpose: "hero_focus",
+        shotType: "medium",
+        subjectFocus: "hero",
+      }),
+    );
+    expect(r.ok).toBe(true);
+  });
+
   it("refuse un reaction_closeup sans personnage visible", () => {
     const r = validateRenderSpec(makeSpec({ visibleCharacters: [] }));
     expect(r.ok).toBe(false);

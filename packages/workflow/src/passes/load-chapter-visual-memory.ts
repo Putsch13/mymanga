@@ -21,6 +21,11 @@ import {
   type ChapterVisualMemory,
   type ChapterVisualMemoryCharacterEntry,
 } from "@manga-ai-studio/ai";
+import {
+  isHeroRole,
+  isAntagonistRole,
+  isSupportingRole,
+} from "@manga-ai-studio/core";
 
 export interface LoadChapterVisualMemoryInput {
   chapterId: string;
@@ -53,16 +58,18 @@ function isCloseupMeta(meta: unknown): boolean {
   return false;
 }
 
+/**
+ * P0.2 — Utilise le normaliseur centralisé pour les rôles personnages.
+ */
 function deriveRole(
   characterId: string,
   roleType: string | null | undefined,
   mainIds: Set<string>,
 ): ChapterVisualMemoryCharacterEntry["role"] {
   if (mainIds.has(characterId)) return "hero";
-  const r = (roleType ?? "").toLowerCase();
-  if (r.includes("main") || r.includes("protagon")) return "hero";
-  if (r.includes("support") || r.includes("ally") || r.includes("deuter")) return "support";
-  if (r.includes("antagon") || r.includes("enemy") || r.includes("villain")) return "enemy";
+  if (isHeroRole(roleType)) return "hero";
+  if (isSupportingRole(roleType)) return "support";
+  if (isAntagonistRole(roleType)) return "enemy";
   return "npc";
 }
 

@@ -46,6 +46,12 @@ export type StoryboardRenderMode =
   | "silent_transition"
   | "dialogue_two_shot"
   | "dialogue_over_shoulder"
+  /**
+   * Plan personnage solo en cadrage moyen / action légère.
+   * Évite de recycler `dialogue_two_shot` pour un seul personnage, ce qui
+   * cassait le preflight (`insufficient_visible_characters`).
+   */
+  | "character_focus"
   | "reaction_closeup"
   | "hero_closeup"
   | "npc_closeup"
@@ -338,6 +344,7 @@ export const STORYBOARD_RENDER_MODES: readonly StoryboardRenderMode[] = [
   "silent_transition",
   "dialogue_two_shot",
   "dialogue_over_shoulder",
+  "character_focus",
   "reaction_closeup",
   "hero_closeup",
   "npc_closeup",

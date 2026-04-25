@@ -62,10 +62,10 @@ export function buildPromptSubjectBlock(spec: PanelRenderSpec): string {
     spec.renderMode === "establishing_environment" ||
     spec.renderMode === "silent_transition"
   ) {
-    return `SUBJECT: environment-first panel, no dominant face, no hero portrait.`;
+    return `SUBJECT: environment-first panel focused on place, atmosphere, and spatial context; any characters remain secondary.`;
   }
   if (spec.renderMode === "insert_object") {
-    return `SUBJECT: isolated object insert, object fills frame, no character body or face in shot.`;
+    return `SUBJECT: isolated object insert, object fills frame, composition excludes people and faces.`;
   }
   if (spec.renderMode === "creature_reveal") {
     return `SUBJECT: non-human creature(s) as primary subject, species-consistent silhouette and proportions, characters (if present) relegated to observer role in midground.`;
@@ -82,6 +82,13 @@ export function buildPromptSubjectBlock(spec: PanelRenderSpec): string {
   }
   if (spec.renderMode === "dialogue_over_shoulder") {
     return buildDialogueOverShoulderSubject(chars);
+  }
+  if (spec.renderMode === "character_focus") {
+    if (chars.length === 0) {
+      return `SUBJECT: single-character medium framing, readable posture and costume, no implied second speaker.`;
+    }
+    const primary = chars[0]!;
+    return `SUBJECT: ${describeCharacterWithCanon(primary)} as sole focal figure in medium shot, clear pose and costume continuity; environment remains secondary.`;
   }
   if (spec.renderMode === "group_tension") {
     return buildGroupTensionSubject(chars);
@@ -138,7 +145,8 @@ export function buildPromptEnvironmentBlock(spec: PanelRenderSpec): string {
     spec.renderMode === "reaction_closeup" ||
     spec.renderMode === "hero_closeup" ||
     spec.renderMode === "npc_closeup" ||
-    spec.renderMode === "enemy_closeup"
+    spec.renderMode === "enemy_closeup" ||
+    spec.renderMode === "character_focus"
   ) {
     const lockLine = environmentLocks.length > 0
       ? ` Continuity cues remain readable: ${environmentLocks.join("; ")}.`
@@ -282,6 +290,12 @@ export const FORBIDDEN_BY_RENDER_MODE: Record<PanelRenderSpec["renderMode"], str
     "extreme close-up on object",
   ],
   dialogue_over_shoulder: [
+    "prop insert as primary subject",
+    "object insert as primary subject",
+  ],
+  character_focus: [
+    "wide establishing shot",
+    "environment only",
     "prop insert as primary subject",
     "object insert as primary subject",
   ],
@@ -436,6 +450,36 @@ const HARD_LOCK_TOKENS = [
   "character lock: hard",
 ];
 
+/**
+ * P0.5 — Tokens de négation problématiques dans le prompt positif.
+ *
+ * Ces patterns indiquent une intention de ne pas montrer quelque chose
+ * d'une manière trop directe/contradictoire. Par exemple :
+ *
+ *   BAD: "wide view of the port, no hero portrait"
+ *   GOOD: positivePrompt: "wide view of the port, environment focus"
+ *         negativePrompt: "hero portrait, close-up face"
+ *
+ * NOTE: On tolère "no dominant solo portrait" dans les blocs SUBJECT
+ * structurés (dialogue/group) car c'est une directive de style intentionnelle,
+ * pas une négation contradictoire. Les patterns ci-dessous ciblent les
+ * négations ambiguës hors contexte SUBJECT: structuré.
+ */
+const NEGATION_PATTERNS_IN_POSITIVE = [
+  // "no hero" ou "no character" en début ou milieu de phrase (hors SUBJECT:)
+  /(?<!SUBJECT:.{0,100})\bno\s+(?:hero|main\s+character)\s+(?:portrait|close-?up|in\s+frame)/i,
+  // "without any characters/faces" — ambigu
+  /\bwithout\s+any\s+(?:characters?|faces?|people)/i,
+  // "avoid showing" suivi d'un sujet
+  /\bavoid\s+showing\s+(?:hero|character|face|portrait)/i,
+  // "not showing/featuring" explicitement
+  /\bnot\s+(?:showing|featuring)\s+(?:hero|character|face)/i,
+  // "excludes characters" hors contexte composition
+  /(?<!composition\s+)\bexcludes?\s+(?:hero|main\s+character|protagonist)/i,
+  // "no face visible" ou "no faces in shot"
+  /\bno\s+(?:face|faces)\s+(?:visible|in\s+(?:shot|frame))/i,
+];
+
 export function detectHardLockInvocationWithoutRefs(
   spec: PanelRenderSpec,
   positive: string,
@@ -444,6 +488,50 @@ export function detectHardLockInvocationWithoutRefs(
   if (hasRefs) return false;
   const hay = positive.toLowerCase();
   return HARD_LOCK_TOKENS.some((t) => hay.includes(t));
+}
+
+/**
+ * P0.5 — Détecte les négations inappropriées dans le prompt positif.
+ *
+ * Un prompt positif ne doit JAMAIS contenir de négations comme :
+ *   "no hero portrait", "without faces", "avoid characters"
+ *
+ * Ces éléments doivent être dans le negative prompt.
+ * Retourne la liste des matches trouvés (vide si OK).
+ */
+export function detectNegationsInPositive(positive: string): string[] {
+  const matches: string[] = [];
+  for (const pattern of NEGATION_PATTERNS_IN_POSITIVE) {
+    const match = positive.match(pattern);
+    if (match) {
+      matches.push(match[0]);
+    }
+  }
+  return matches;
+}
+
+/**
+ * P0.5 — Erreur levée quand le prompt positif contient des négations.
+ */
+export class NegationInPositivePromptError extends Error {
+  readonly panelId: string;
+  readonly renderMode: PanelRenderSpec["renderMode"];
+  readonly negations: string[];
+  constructor(
+    panelId: string,
+    renderMode: PanelRenderSpec["renderMode"],
+    negations: string[],
+  ) {
+    super(
+      `negation_in_positive_prompt panel=${panelId} renderMode=${renderMode} — ` +
+        `le prompt positif contient des négations qui devraient être dans le negative: ${negations.join(", ")}. ` +
+        `Réécrivez le prompt pour exprimer ce que vous VOULEZ, pas ce que vous ne voulez pas.`,
+    );
+    this.name = "NegationInPositivePromptError";
+    this.panelId = panelId;
+    this.renderMode = renderMode;
+    this.negations = negations;
+  }
 }
 
 /**
@@ -462,6 +550,11 @@ export function buildMinimalPanelPromptStrict(
   // COMMIT P7.C — plus d'incantation textuelle de hard_lock sans refs.
   if (detectHardLockInvocationWithoutRefs(spec, built.positive)) {
     throw new HardLockWithoutReferencesError(spec.panelId, spec.renderMode);
+  }
+  // P0.5 — détecter les négations dans le prompt positif
+  const negations = detectNegationsInPositive(built.positive);
+  if (negations.length > 0) {
+    throw new NegationInPositivePromptError(spec.panelId, spec.renderMode, negations);
   }
   return built;
 }

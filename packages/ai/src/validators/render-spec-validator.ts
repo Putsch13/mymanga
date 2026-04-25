@@ -40,6 +40,7 @@ const FORBIDDEN_FIELD_SENTINELS = new Set<string>([
 ]);
 
 const CHARACTER_REQUIRED_RENDER_MODES = new Set<PanelRenderSpec["renderMode"]>([
+  "character_focus",
   "reaction_closeup",
   "hero_closeup",
   "npc_closeup",

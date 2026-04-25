@@ -63,36 +63,53 @@ const CANONICAL_SET = new Set<string>(
 );
 
 const ALIAS_TABLE: Record<string, CanonicalCharacterRoleValue> = {
-  // Hero variants
+  // Hero variants (EN + FR)
   hero: "hero",
   main_hero: "hero",
   "main-hero": "hero",
   protagonist: "hero",
+  protagoniste: "hero",
+  héros: "hero",
+  heros: "hero",
   main: "hero",
   main_character: "hero",
   main_protagonist: "hero",
-  // Antagonist variants
+  personnage_principal: "hero",
+  // Antagonist variants (EN + FR)
   antagonist: "antagonist",
+  antagoniste: "antagonist",
   villain: "antagonist",
   enemy: "antagonist",
+  ennemi: "antagonist",
   boss: "antagonist",
+  méchant: "antagonist",
+  mechant: "antagonist",
   // Rival — proche d'antagonist mais distinct
   rival: "rival",
-  // Ally
+  // Ally (EN + FR)
   ally: "ally",
+  allié: "ally",
+  allie: "ally",
   companion: "ally",
-  // Support
+  compagnon: "ally",
+  // Support (EN + FR)
   support: "support",
   supporting: "support",
+  soutien: "support",
   important_supporting_character: "support",
-  // Secondary
+  // Secondary (EN + FR)
   secondary: "secondary",
+  secondaire: "secondary",
   secondary_core: "secondary",
-  // NPCs
+  personnage_secondaire: "secondary",
+  // NPCs (EN + FR)
   recurring_npc: "recurring_npc",
   recurring: "recurring_npc",
+  récurrent: "recurring_npc",
+  recurrent: "recurring_npc",
   npc: "npc",
   pnj: "npc",
+  figurant: "npc",
 };
 
 function toLookupKey(value: string): string {

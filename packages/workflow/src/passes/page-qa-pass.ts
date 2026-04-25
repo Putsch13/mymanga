@@ -48,7 +48,10 @@ export async function runPageQaPass(plan: StoryboardPlan): Promise<PageQaPassOut
 
     if (page.dramaticRole === "dialogue_tension") {
       const hasDialoguePanel = page.panels.some(
-        (p) => p.renderMode === "dialogue_two_shot" || p.renderMode === "dialogue_over_shoulder",
+        (p) =>
+          p.renderMode === "dialogue_two_shot" ||
+          p.renderMode === "dialogue_over_shoulder" ||
+          p.renderMode === "character_focus",
       );
       if (!hasDialoguePanel) warnings.push("dialogue_tension_page_without_dialogue_panel");
     }

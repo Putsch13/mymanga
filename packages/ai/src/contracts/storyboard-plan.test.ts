@@ -24,6 +24,7 @@ describe("StoryboardPlan contract", () => {
     expect(STORYBOARD_RENDER_MODES).toContain("threat_silhouette");
     expect(STORYBOARD_RENDER_MODES).toContain("enemy_reveal");
     expect(STORYBOARD_RENDER_MODES).toContain("aftermath_dialogue");
+    expect(STORYBOARD_RENDER_MODES).toContain("character_focus");
   });
 
   it("expose shotTypes, subjectFocuses, cutawayTypes", () => {

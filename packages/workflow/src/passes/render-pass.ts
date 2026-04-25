@@ -26,6 +26,8 @@ import {
   assertDedicatedFaceCloseupForPanel,
   buildMinimalPanelPromptStrict,
   ContradictoryPanelPromptError,
+  HardLockWithoutReferencesError,
+  NegationInPositivePromptError,
   HeroWithoutReferencesError,
   MissingDedicatedFaceCloseupRefError,
   buildPanelRenderSpec,
@@ -424,6 +426,26 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
         previousPanel = panel;
         continue;
       }
+      // P0.5 — Capture des erreurs de négation dans le positif
+      if (err instanceof NegationInPositivePromptError) {
+        preflightErrors.push({
+          panelId: panel.panelId,
+          error: `negation_in_positive:${err.renderMode}:${err.negations.join("|")}`,
+        });
+        failedCount += 1;
+        previousPanel = panel;
+        continue;
+      }
+      // P7.C — Capture des erreurs de hard lock sans références
+      if (err instanceof HardLockWithoutReferencesError) {
+        preflightErrors.push({
+          panelId: panel.panelId,
+          error: `hard_lock_without_refs:${err.renderMode}`,
+        });
+        failedCount += 1;
+        previousPanel = panel;
+        continue;
+      }
       throw err;
     }
 
@@ -435,6 +457,24 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
     `[pipeline:v3:render-preflight] specs=${preflightQueue.length}/${allPanels.length} ` +
       `preflightErrors=${preflightErrors.length}`,
   );
+  if (preflightErrors.length > 0) {
+    const grouped = new Map<string, number>();
+    for (const e of preflightErrors) {
+      const key = e.error
+        .replace(/panel_render_spec\[[^\]]+\]\./g, "panel_render_spec[].")
+        .replace(/https?:\/\/\S+/g, "<url>")
+        .slice(0, 180);
+      grouped.set(key, (grouped.get(key) ?? 0) + 1);
+    }
+    console.warn(
+      `[pipeline:v3:render-preflight:errors] ` +
+        [...grouped.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 8)
+          .map(([error, count]) => `${count}x ${error}`)
+          .join(" || "),
+    );
+  }
 
   // PHASE A.2 — Check preflight : si queue incomplète, fail AVANT FAL
   if (preflightErrors.length > 0 && input.generatePanelImage) {

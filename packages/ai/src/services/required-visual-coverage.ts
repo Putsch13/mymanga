@@ -221,6 +221,7 @@ export function extractRequiredVisualCoverageFromProductionPlan(
             "hero_closeup",
             "dialogue_two_shot",
             "dialogue_over_shoulder",
+            "character_focus",
             "reaction_closeup",
             "npc_closeup",
             "enemy_closeup",

@@ -170,7 +170,15 @@ export function validatePanelsAgainstContracts(
       .map((l) => l.toLowerCase());
 
     const panelCharacters = beatPanels
-      .flatMap((bp) => bp.requiredEntityIds ?? [])
+      .flatMap((bp) => [
+        ...(bp.requiredCharacterIds ?? []),
+        ...(bp.requiredCharacters ?? []),
+        ...(bp.mustShowCharacterIds ?? []),
+        ...(bp.mayShowCharacterIds ?? []),
+        ...(bp.speakerAnchorCharacterId ? [bp.speakerAnchorCharacterId] : []),
+        ...(bp.speakerAnchorCharacterName ? [bp.speakerAnchorCharacterName] : []),
+        ...((bp.dialogueLines ?? []).map((d) => d.speaker)),
+      ])
       .map((c) => c.toLowerCase());
 
     const panelText = beatPanels

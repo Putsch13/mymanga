@@ -54,6 +54,7 @@ export function inferStoryboardPanelLayoutMeta(renderMode: StoryboardRenderMode)
   if (
     renderMode === "dialogue_two_shot" ||
     renderMode === "dialogue_over_shoulder" ||
+    renderMode === "character_focus" ||
     renderMode === "aftermath_dialogue"
   ) {
     return { layoutHint: "dialogue_balance", targetAspectRatio: "square", slotType: renderMode };

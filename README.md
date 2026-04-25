@@ -413,6 +413,56 @@ Contrat canonique de generation d'image du chemin de convergence :
 - reroll plans ;
 - validation.
 
+### `ChapterCastContract` (P0.1)
+
+Contrat de cast verifie avant tout traitement :
+
+- `heroCharacterId` : identifiant unique du heros (obligatoire) ;
+- `activeCharacterIds` : personnages actifs dans le chapitre ;
+- `supportCharacterIds` : personnages secondaires ;
+- `antagonistCharacterIds` : antagonistes ;
+- `npcGroups` : groupes PNJ / ambiance ;
+- `members` : liste complete avec roles canoniques.
+
+Validation stricte : le heros doit etre identifie, les roles normalises via `character-role.ts`.
+
+### `ChapterStoryContract` (P1.6)
+
+Contrat d'histoire verifie avant le storyboard :
+
+- `chapterGoal` : objectif narratif du chapitre ;
+- `heroCharacterId` : heros du chapitre ;
+- `requiredCharacterIds` : personnages obligatoires ;
+- `requiredLocations` : lieux obligatoires ;
+- `requiredNpcGroups` : groupes PNJ requis ;
+- `allowedProps` / `forbiddenProps` : props autorises / interdits ;
+- `emotionalArc` : etapes de l'arc emotionnel.
+
+Validation : le heros doit etre dans les personnages requis, au moins un lieu requis.
+
+### `DialogueContract` (P2.12)
+
+Contrat de dialogues verifie apres enrichissement :
+
+- `lines` : toutes les lignes de dialogue ;
+- `totalLines` : nombre total ;
+- `panelsWithDialogue` : panels contenant des dialogues ;
+- `uniqueSpeakers` : speakers uniques.
+
+Validation : chaque dialogue doit avoir un speaker identifie et ancre (visible dans le panel).
+
+### `PipelineErrorCodes` (P4.18)
+
+Codes d'erreur stables pour le pipeline (40+ codes) :
+
+- `E_CAST_*` : erreurs de cast (heros manquant, role ambigu) ;
+- `E_RENDER_*` : erreurs de rendu (spec invalide, FAL failed) ;
+- `E_PROMPT_*` : erreurs de prompt (contradictions, negations) ;
+- `E_VISUAL_*` : erreurs de couverture visuelle ;
+- `E_DIALOGUE_*` : erreurs de dialogue (floating, speaker manquant) ;
+- `E_STORY_*` : erreurs narratives (beat non couvert, arc brise) ;
+- `E_ENTITY_*` : erreurs d'entites (prop fantome, groupe non resolu).
+
 ## Par quelles APIs ca passe
 
 ## Routes coeur produit
@@ -638,15 +688,42 @@ Principe commun (storyboard) :
 
 ## QA, observabilite et rerolls
 
-QA importante :
+### QA passes du pipeline premium v3
+
+QA contractuelles (P3) :
 
 - **QA pre-rendu premium** (`packages/workflow/src/passes/pre-render-premium-qa.ts`), executee **avant** FAL dans `run-premium-v3-pipeline` : bloque les plans trop generiques (action lines type « visible character advances the scene »), les closeups excessifs, les heros etiquetes NPC, les chapitres d'action sans dialogue/SFX, les references STRONG vides, les mentions de lieu attendu absentes, et les **empreintes de prompt dupliquees** (fingerprint par panel derive de `actionLine` + modes + refs via `packages/workflow/src/passes/panel-prompt-fingerprint.ts`). Si `repeated_prompts` est detecte, une passe **`repairStoryboardPlanRepeatedPromptFingerprints`** (`packages/workflow/src/passes/repair-repeated-prompt-fingerprints.ts`) prefixe les `actionLine` en conflit, puis la QA est relancee. Si le seul probleme restant est `repeated_prompts` avec **au plus 5** repetitions residuelles, la pipeline **tolere** avec un issue `tolerated_repeated_prompts_after_repair` (sinon throw `PreRenderPremiumQaError`). Le storyboard repare est **re-persiste** via `saveStoryboardPlan` apres cette etape.
+- **QA beat coverage** (`packages/workflow/src/passes/beat-coverage-qa-pass.ts`) : verifie que chaque beat narratif est couvert par au moins un panel. Un beat non couvert = partie de l'histoire non visualisee.
+- **QA props fantomes** (`packages/workflow/src/passes/props-qa-pass.ts`) : detecte les props non autorises ou anachroniques (smartphone dans univers medieval, etc.). Utilise `ChapterStoryContract.forbiddenProps`.
+- **QA dialogues** (`packages/workflow/src/passes/dialogue-qa-pass.ts`) : verifie que chaque dialogue a un speaker identifie et ancre (visible dans le panel). Interdit les dialogues flottants en mode strict.
+- **QA arc emotionnel** (`packages/workflow/src/passes/emotional-arc-qa-pass.ts`) : verifie que l'arc emotionnel survit au decoupage en panels. Detecte les sauts d'intensite brusques et les etapes non couvertes.
+- **QA interactions** (`packages/workflow/src/passes/interaction-qa-pass.ts`) : verifie la coherence des interactions entre personnages (regard, distance, reaction). Detecte les panels dialogue sans personnages visibles.
+
+QA existantes :
+
 - panel QA dans `render-pass`
 - page QA dans `render-pass`
 - **QA visuelle** : un echec bloquant sur panel critique (ou revue manuelle requise) empeche de compter le rendu comme reussi ; agrege dans les metriques V3 (`visualQaFailedCount`, etc.) et dans `run-premium-v3-pipeline` pour le succes global.
 - quality report dans le chemin legacy
 - traces provider FAL dans `FalTrace`
 - `promptDebug`, `canonicalPacket`, `packetRerollPlans` dans `SceneImage.metadata`
+
+### Audit bundle par job (P4.17)
+
+Chaque job de generation peut produire un bundle d'audit de 12 fichiers JSON (`packages/workflow/src/audit/job-audit-bundle.ts`) :
+
+1. `job-meta.json` — metadonnees du job
+2. `cast-contract.json` — contrat de cast valide
+3. `story-contract.json` — contrat d'histoire valide
+4. `dialogue-contract.json` — contrat de dialogues
+5. `storyboard-plan.json` — plan du storyboard
+6. `panel-specs.json` — specifications des panels
+7. `visual-memory.json` — memoire visuelle chargee
+8. `render-results.json` — resultats du rendu
+9. `qa-results.json` — resultats des QA passes
+10. `error-log.json` — erreurs et warnings
+11. `timings.json` — temps d'execution par phase
+12. `coverage-report.json` — rapport de couverture visuelle
 
 Le retry est maintenant volontairement plus strict :
 

@@ -17,8 +17,16 @@ import {
   canonicalPlanToPanelBlueprints,
   ensureCanonicalProductionPlan,
   resolveProductionOutlineForPremiumPipeline,
+  buildChapterCastContract,
+  assertValidChapterCastContract,
+  formatCastContractLog,
+  buildChapterStoryContract,
+  assertValidChapterStoryContract,
+  formatStoryContractLog,
   type CanonicalChapterProductionPlan,
   type PanelBlueprintPremium,
+  type ChapterCastContract,
+  type ChapterStoryContract,
 } from "@manga-ai-studio/core";
 import { createDefaultPanelImageGenerator } from "./passes/default-panel-image-generator";
 import { loadChapterVisualMemory } from "./passes/load-chapter-visual-memory";
@@ -123,6 +131,62 @@ function assertPremiumOnlyV3Config(input: Pick<RunPremiumV3PipelineInput, "pipel
   }
 }
 
+/**
+ * P1.9 — Extrait les groupes NPC depuis les blueprints premium.
+ * Identifie les panels de foule et les PNJ nommés.
+ */
+function extractNpcGroupsFromBlueprints(
+  blueprints: PanelBlueprintPremium[] | null | undefined,
+): Array<{ id: string; label: string; visualDescription?: string; requiredInBeatIds?: string[] }> {
+  if (!blueprints || blueprints.length === 0) return [];
+
+  const groups = new Map<
+    string,
+    { id: string; label: string; visualDescription: string; requiredInBeatIds: Set<string> }
+  >();
+
+  for (const bp of blueprints) {
+    if (bp.cutawayType === "crowd" || bp.cutawayType === "npc_group") {
+      const groupId = "crowd_" + (bp.sceneContextLabel?.toLowerCase().replace(/\s+/g, "_") ?? "generic");
+      if (!groups.has(groupId)) {
+        groups.set(groupId, {
+          id: groupId,
+          label: bp.sceneContextLabel ?? "foule d'ambiance",
+          visualDescription: "",
+          requiredInBeatIds: new Set(),
+        });
+      }
+      if (bp.beatId) {
+        groups.get(groupId)!.requiredInBeatIds.add(bp.beatId);
+      }
+    }
+
+    if (bp.npcVisualDna && Array.isArray(bp.npcVisualDna)) {
+      for (const npc of bp.npcVisualDna) {
+        const npcId = npc.continuityId ?? `npc_${npc.displayName?.toLowerCase().replace(/\s+/g, "_") ?? "anon"}`;
+        if (!groups.has(npcId)) {
+          groups.set(npcId, {
+            id: npcId,
+            label: npc.displayName ?? "PNJ anonyme",
+            visualDescription: npc.visualMarkers?.join(", ") ?? "",
+            requiredInBeatIds: new Set(),
+          });
+        }
+        if (bp.beatId) {
+          groups.get(npcId)!.requiredInBeatIds.add(bp.beatId);
+        }
+      }
+    }
+  }
+
+  return Array.from(groups.values()).map((g) => ({
+    id: g.id,
+    label: g.label,
+    visualDescription: g.visualDescription || undefined,
+    requiredInBeatIds: g.requiredInBeatIds.size > 0 ? Array.from(g.requiredInBeatIds) : undefined,
+  }));
+}
+
 function resolveProjectFormat(project: Record<string, unknown> | null, projectId: string): "manga" | "webtoon" {
   const projectFormatRaw = typeof project?.format === "string" ? project.format : null;
   const projectFormat: "manga" | "webtoon" = projectFormatRaw === "webtoon" ? "webtoon" : "manga";
@@ -207,6 +271,58 @@ export async function runPremiumV3Pipeline(
   const timings: Record<string, number> = {};
 
   try {
+    // P1.9 — Extraire les groupes NPC depuis les blueprints s'ils sont disponibles.
+    const npcGroupsFromBlueprints = extractNpcGroupsFromBlueprints(input.panelBlueprints);
+    if (npcGroupsFromBlueprints.length > 0) {
+      console.info(
+        `[pipeline:v3:npc-groups] extracted ${npcGroupsFromBlueprints.length} groups from blueprints: ` +
+          npcGroupsFromBlueprints.map((g) => g.label).join(", "),
+      );
+    }
+
+    // P0.1 — Construire et valider le ChapterCastContract AVANT tout traitement.
+    // C'est la source de vérité pour l'identité des personnages.
+    const castContract: ChapterCastContract = buildChapterCastContract({
+      chapterId: input.chapterId,
+      heroCharacterId: input.heroCharacterId ?? null,
+      focusCharacterIds: input.focusCharacterIds,
+      characters: input.rawCharacters.map((c) => ({
+        id: c.id,
+        name: c.name,
+        roleType: c.roleType ?? null,
+      })),
+      npcGroups: npcGroupsFromBlueprints,
+    });
+    assertValidChapterCastContract(castContract);
+    console.info(formatCastContractLog(castContract));
+
+    // P1.6 — Construire et valider le ChapterStoryContract AVANT le storyboard.
+    // Ce contrat définit les éléments narratifs et visuels REQUIS pour le chapitre.
+    const storyContract: ChapterStoryContract = buildChapterStoryContract({
+      chapterId: input.chapterId,
+      chapterNumber: input.chapterNumber,
+      chapterTitle: input.chapterTitle,
+      chapterSummary: input.chapterSummary,
+      chapterUserIntent: input.chapterUserIntent,
+      heroCharacterId: castContract.heroCharacterId,
+      characters: input.rawCharacters.map((c) => ({
+        id: c.id,
+        name: c.name,
+        roleType: c.roleType ?? null,
+      })),
+      locations: (input.locations ?? []).map((loc) => ({
+        id: loc.id,
+        name: loc.name ?? loc.id,
+        visualDescription:
+          typeof loc.visualDNA?.description === "string" ? loc.visualDNA.description : "",
+      })),
+      npcGroups: npcGroupsFromBlueprints,
+      beatIds: [], // sera rempli après résolution du plan
+      tone: "neutral",
+    });
+    assertValidChapterStoryContract(storyContract);
+    console.info(formatStoryContractLog(storyContract));
+
     const approvedPlanDriven = hasApprovedPlanDrivenInput(input);
     const projectFormat = resolveProjectFormat(input.project, input.projectId);
     const resolvedProductionOutline = resolveProductionOutlineForPremiumPipeline({
@@ -281,8 +397,8 @@ export async function runPremiumV3Pipeline(
         const visualEntities = buildVisualEntitiesFromPremiumV3Input({
           projectId: input.projectId,
           rawCharacters: input.rawCharacters,
-          focusCharacterIds: input.focusCharacterIds,
-          heroCharacterId: input.heroCharacterId ?? null,
+          focusCharacterIds: castContract.activeCharacterIds,
+          heroCharacterId: castContract.heroCharacterId,
           activeCreatureIds: input.activeCreatureIds,
         });
 
@@ -292,7 +408,7 @@ export async function runPremiumV3Pipeline(
           projectFormat: "manga",
           maxCutawayRatio: mangaMaxCutawayRatio,
           minActorDrivenRatio: mangaMinActorDrivenRatio,
-          fallbackHeroId: input.heroCharacterId ?? input.focusCharacterIds[0] ?? null,
+          fallbackHeroId: castContract.heroCharacterId,
           projectId: input.projectId,
         });
 
@@ -356,6 +472,9 @@ export async function runPremiumV3Pipeline(
           console.info(`[pipeline:v3:narrative-variation] panelsAdjusted=${narrativeVar.panelsAdjusted}`);
         }
 
+        // P2.11 — Le dialoguiste IA s'active automatiquement en mode premium,
+        // ou explicitement via input.sceneDialogueEnrich.
+        const enableDialoguist = input.sceneDialogueEnrich === true || input.premiumV3OnlyEnabled;
         const sceneDialogue = await enrichPremiumBlueprintsSceneDialogue({
           blueprints: rebal.blueprints,
           productionOutline: resolvedProductionOutline ?? null,
@@ -366,7 +485,7 @@ export async function runPremiumV3Pipeline(
           projectTone: typeof input.project?.tone === "string" ? input.project.tone : null,
           contentRating: typeof input.project?.contentRating === "string" ? input.project.contentRating : null,
           avoidDialogueSnippets: input.priorChapterDialogueSnippets ?? undefined,
-          forceSceneDialogueEnrich: input.sceneDialogueEnrich === true,
+          forceSceneDialogueEnrich: enableDialoguist,
         });
         if (sceneDialogue.linesWritten > 0 || sceneDialogue.warnings.length > 0) {
           console.info(
@@ -377,7 +496,7 @@ export async function runPremiumV3Pipeline(
         ensureDialogueBeatsHaveAnchors({
           blueprints: rebal.blueprints,
           visualEntities,
-          fallbackHeroId: input.heroCharacterId ?? input.focusCharacterIds[0] ?? null,
+          fallbackHeroId: castContract.heroCharacterId,
         });
         const dialogueQa = runDialogueQaOnBlueprints(rebal.blueprints);
         console.info(
@@ -530,13 +649,18 @@ export async function runPremiumV3Pipeline(
                 panelBlueprints: panelBlueprintsForPremiumPath,
                 pages: input.productionPlanPages,
                 chapterLocationName: input.chapterLocationName ?? null,
+                locations: locationsForStory.map((l) => ({
+                  id: l.id,
+                  name: l.name,
+                  visualDNA: l.visualDNA,
+                })),
               }),
               warnings: ["storyboard_plan.source=premium_production_plan"],
               blockers: [],
             }
           : await runStoryboardPass({
               storyArc: storyPassResult.storyArc,
-              heroCharacterIds: input.focusCharacterIds,
+              heroCharacterIds: castContract.activeCharacterIds,
               projectFormat,
               targetPanelCount: PREMIUM_PANEL_RANGE.target,
             });
@@ -747,8 +871,8 @@ export async function runPremiumV3Pipeline(
       outlineText,
       canonicalPlan: canonicalRuntimePlan,
       rawCharacters: input.rawCharacters,
-      focusCharacterIds: input.focusCharacterIds,
-      heroCharacterId: input.heroCharacterId ?? null,
+      focusCharacterIds: castContract.activeCharacterIds,
+      heroCharacterId: castContract.heroCharacterId,
       contractMainLocationName: chapterVisualContractResult.contract.mainLocation?.name ?? null,
     });
     const firstClass = classifyVisualCoverageGaps(coverageReport.gaps, gapClassificationContext);
@@ -842,7 +966,7 @@ export async function runPremiumV3Pipeline(
       const visualMemoryResult = await loadChapterVisualMemory({
         chapterId: input.chapterId,
         projectId: input.projectId,
-        mainCharacterIds: input.focusCharacterIds,
+        mainCharacterIds: castContract.activeCharacterIds,
       });
       timings.visual_memory_ms = Date.now() - memoryStart;
       if (visualMemoryResult.warnings.length > 0) {
@@ -855,7 +979,7 @@ export async function runPremiumV3Pipeline(
       );
 
       const mainCharacterNames = input.rawCharacters
-        .filter((c) => input.focusCharacterIds.includes(c.id) || c.id === input.heroCharacterId)
+        .filter((c) => castContract.activeCharacterIds.includes(c.id))
         .map((c) => c.name);
 
       runPreRenderPremiumQaOrThrow({
@@ -891,7 +1015,7 @@ export async function runPremiumV3Pipeline(
           canonSignatureText: c.canonSignatureText ?? null,
           forbiddenVisualDrift: c.forbiddenVisualDrift ?? [],
         })),
-        mainCharacterIds: input.focusCharacterIds,
+        mainCharacterIds: castContract.activeCharacterIds,
         generatePanelImage: renderFalEnabled
           ? createDefaultPanelImageGenerator({
               forbidMock:
