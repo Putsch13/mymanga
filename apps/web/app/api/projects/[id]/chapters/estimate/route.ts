@@ -211,7 +211,11 @@ export async function POST(req: Request, ctx: Ctx) {
 
   const rawBlueprints = enrichedBeats.flatMap((b) => b._blueprints);
 
-  const rawProductionBeats = enrichedBeats.map(({ _blueprints: _b, ...beat }) => beat);
+  const rawProductionBeats = enrichedBeats.map((b) => {
+    const { _blueprints, ...beat } = b;
+    void _blueprints;
+    return beat;
+  });
 
   const progressionCheck = validateNarrativeProgression(rawProductionBeats as ProductionBeatLike[]);
   if (!progressionCheck.ok) {
