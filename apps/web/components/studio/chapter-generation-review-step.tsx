@@ -8,6 +8,24 @@ import { ChapterGenerateLauncher } from "./chapter-generate-launcher";
 import { ChapterReviewBoard } from "./chapter-review-board";
 import { StudioInlineIssues } from "./studio-inline-issues";
 
+function readVisualContractLaunchHints(snapshot: unknown): {
+  rejectedCount: number;
+  needsClarification: boolean;
+} {
+  if (!snapshot || typeof snapshot !== "object") return { rejectedCount: 0, needsClarification: false };
+  const o = snapshot as Record<string, unknown>;
+  const contract =
+    o.contract && typeof o.contract === "object" && !Array.isArray(o.contract)
+      ? (o.contract as Record<string, unknown>)
+      : null;
+  if (!contract) return { rejectedCount: 0, needsClarification: false };
+  const rejected = Array.isArray(contract.rejectedOrUnrelated) ? contract.rejectedOrUnrelated.length : 0;
+  return {
+    rejectedCount: rejected,
+    needsClarification: contract.needsClarification === true,
+  };
+}
+
 export function ChapterGenerationReviewStep({
   projectId,
   chapterId,
@@ -23,6 +41,8 @@ export function ChapterGenerationReviewStep({
   canAccessReview,
   disabledMessage,
   onIssueAction,
+  chapterVisualContract,
+  onNavigateToPlan,
 }: {
   projectId: string;
   chapterId: string;
@@ -38,7 +58,11 @@ export function ChapterGenerationReviewStep({
   canAccessReview: boolean;
   disabledMessage: string | null;
   onIssueAction: (issue: ChapterReadinessIssue) => void | Promise<void>;
+  /** Snapshot issu du dernier run (GET studio) — avertissements avant lancement. */
+  chapterVisualContract?: unknown;
+  onNavigateToPlan?: () => void;
 }) {
+  const vcHints = readVisualContractLaunchHints(chapterVisualContract ?? null);
   const launchBlockedByReadiness = blockerItems.length > 0 && generatedImages === 0;
   const planReady = blockerItems.length === 0;
   const minimumReached = generatedImages >= minimumImages && minimumImages > 0;
@@ -129,6 +153,49 @@ export function ChapterGenerationReviewStep({
       {warningItems.length > 0 ? (
         <StudioInlineIssues title="Points à surveiller" issues={warningItems} tone="neutral" onAction={onIssueAction} testIdPrefix={null} />
       ) : null}
+
+      {(vcHints.needsClarification || vcHints.rejectedCount > 0) && (
+        <Card className="border-amber-500/25 bg-amber-500/5">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2 text-amber-100">
+              <AlertTriangle className="h-4 w-4" />
+              Contrat visuel du chapitre
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm text-amber-50/95">
+            {vcHints.needsClarification ? (
+              <p>
+                Le lieu principal reste <strong>ambigu</strong> pour l&apos;extraction IA. Précise le décor dans
+                l&apos;intent ou les beats avant de lancer, ou continue si tu assumes le flou.
+              </p>
+            ) : null}
+            {vcHints.rejectedCount > 0 ? (
+              <p>
+                {vcHints.rejectedCount} élément{vcHints.rejectedCount > 1 ? "s ont été" : " a été"} classé
+                {vcHints.rejectedCount > 1 ? "s" : ""} <strong>hors chapitre</strong> par le contrat visuel (ancien contexte
+                ou inférence trop large). Ils ne sont <strong>pas</strong> imposés comme obligations de rendu.
+              </p>
+            ) : null}
+            <p className="text-xs text-amber-200/80">
+              Par défaut le pipeline <strong>ne bloque pas</strong> sur ces entrées : tu peux lancer tel quel. Pour
+              ajuster le texte ou l&apos;outline, retourne au plan.
+            </p>
+            {onNavigateToPlan ? (
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="border-amber-400/40 text-amber-100 hover:bg-amber-500/15"
+                  onClick={() => onNavigateToPlan()}
+                >
+                  Retour au plan du chapitre
+                </Button>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="border-border/60 bg-card/40">
         <CardHeader>

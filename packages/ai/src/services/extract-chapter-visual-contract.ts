@@ -417,6 +417,7 @@ export async function extractChapterVisualContract(
   }
 
   try {
+    /** @see process.env.OPENAI_CHAPTER_VISUAL_CONTRACT_MODEL — ex. `gpt-4o-mini` (défaut) ou `gpt-4o` pour plus de précision. */
     const response = await openai.chat.completions.create({
       model: process.env.OPENAI_CHAPTER_VISUAL_CONTRACT_MODEL ?? "gpt-4o-mini",
       messages: [

@@ -656,6 +656,8 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
             canAccessReview={canAccessReview}
             disabledMessage={launchDisabledMessage}
             onIssueAction={handleIssueAction}
+            chapterVisualContract={chapterVisualContract ?? undefined}
+            onNavigateToPlan={() => goToFlowStep("plan", null, "production_plan")}
           />
         ) : null}
       </div>
