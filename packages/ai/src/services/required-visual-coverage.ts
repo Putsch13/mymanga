@@ -43,6 +43,8 @@ export interface RequiredVisualCoverage {
   entity: string;
   entityType: RequiredVisualCoverageEntityType;
   sourceBeatId: string;
+  /** Marqueur post-sanitation : entité exclue du contrat strict. */
+  rejected?: boolean;
   requiresDedicatedPanel: boolean;
   /**
    * Modes de rendu acceptables pour considérer l'obligation remplie.

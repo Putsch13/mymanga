@@ -7,6 +7,7 @@ import { notFound, unauthorized, validationError } from "@/lib/api-response";
 import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
 import { toProxiedServerUrl } from "@/lib/images/proxy-url.server";
 import { patchChapterStudioSnapshot } from "@/lib/chapter-studio";
+import { extractChapterVisualContractFromOutline } from "@manga-ai-studio/workflow";
 import { toPrismaInputJson } from "@/lib/to-prisma-input-json";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
@@ -445,6 +446,8 @@ export async function GET(_req: Request, ctx: Ctx) {
     projectFormat,
     isStaleReady,
     narrativeCommitId: chapterNarrativeCommitId,
+    /** Contrat visuel chapitre (LLM), si présent dans `chapter.outline`. */
+    chapterVisualContract: extractChapterVisualContractFromOutline(outlineRecord),
     studio: studioSnapshot,
     memorySnapshot,
     activeJob,

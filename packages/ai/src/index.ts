@@ -160,8 +160,11 @@ export * from "./services/storyboard-panel-layout-meta";
 export * from "./services/minimal-panel-prompt-builder";
 export * from "./services/fal-render-route-v3";
 export * from "./services/required-visual-coverage";
+export * from "./services/sanitize-visual-contract";
+export * from "./services/extract-chapter-visual-contract";
 export * from "./validators/storyboard-validator";
 export * from "./validators/render-spec-validator";
 export * from "./validators/visual-coverage-validator";
+export * from "./validators/visual-coverage-gap-classifier";
 // Quality module — Visual QA and auto-retry
 export * from "./quality";

@@ -176,8 +176,115 @@ function BeatList({
   );
 }
 
+function ChapterVisualContractReadout({ snapshot }: { snapshot: unknown }) {
+  if (!snapshot || typeof snapshot !== "object") return null;
+  const o = snapshot as Record<string, unknown>;
+  const contract =
+    o.contract && typeof o.contract === "object" && !Array.isArray(o.contract)
+      ? (o.contract as Record<string, unknown>)
+      : null;
+  if (!contract) return null;
+
+  const main =
+    contract.mainLocation && typeof contract.mainLocation === "object"
+      ? (contract.mainLocation as Record<string, unknown>)
+      : null;
+  const mainName = typeof main?.name === "string" && main.name.trim() ? main.name : null;
+  const needsClarification = contract.needsClarification === true;
+  const usedOpenAI = o.usedOpenAI === true;
+  const requiredCount =
+    typeof o.requiredFromContractCount === "number" ? o.requiredFromContractCount : 0;
+  const warnings = Array.isArray(o.warnings) ? (o.warnings as string[]) : [];
+  const props = Array.isArray(contract.props) ? (contract.props as Record<string, unknown>[]) : [];
+  const creatures = Array.isArray(contract.creatures)
+    ? (contract.creatures as Record<string, unknown>[])
+    : [];
+  const rejected = Array.isArray(contract.rejectedOrUnrelated)
+    ? (contract.rejectedOrUnrelated as Record<string, unknown>[])
+    : [];
+
+  const requiredProps = props.filter((p) => p.importance === "required");
+  const optionalProps = props.filter((p) => p.importance !== "required");
+
+  return (
+    <Card className="border-border/60 bg-card/30">
+      <CardHeader>
+        <CardTitle className="text-base">Contrat visuel du chapitre</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Extrait lors du pipeline premium (IA locale au chapitre). Sert de référence pour la couverture
+          visuelle.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <span>Source IA : {usedOpenAI ? "oui" : "non"}</span>
+          <span>Obligations « required » : {requiredCount}</span>
+        </div>
+        {needsClarification ? (
+          <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-200">
+            Lieu principal encore ambigu — précise le décor dans l’intent ou les beats si besoin.
+          </p>
+        ) : null}
+        <div>
+          <p className="text-xs font-medium text-muted-foreground">Lieu principal détecté</p>
+          <p className="mt-0.5">{mainName ?? "— (non spécifié)"}</p>
+        </div>
+        {creatures.length > 0 ? (
+          <div>
+            <p className="text-xs font-medium text-muted-foreground">Créatures / hybrides / robots</p>
+            <ul className="mt-1 list-inside list-disc text-muted-foreground">
+              {creatures.slice(0, 8).map((c, i) => (
+                <li key={i}>{typeof c.name === "string" ? c.name : "—"}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {requiredProps.length > 0 ? (
+          <div>
+            <p className="text-xs font-medium text-muted-foreground">Props obligatoires (contrat)</p>
+            <ul className="mt-1 list-inside list-disc text-muted-foreground">
+              {requiredProps.map((p, i) => (
+                <li key={i}>{typeof p.name === "string" ? p.name : "—"}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {optionalProps.length > 0 ? (
+          <div>
+            <p className="text-xs font-medium text-muted-foreground">Props optionnels / ambiance</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {optionalProps
+                .slice(0, 12)
+                .map((p) => (typeof p.name === "string" ? p.name : ""))
+                .filter(Boolean)
+                .join(", ") || "—"}
+            </p>
+          </div>
+        ) : null}
+        {rejected.length > 0 ? (
+          <div>
+            <p className="text-xs font-medium text-amber-600/90">Entités écartées (hors chapitre)</p>
+            <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
+              {rejected.slice(0, 6).map((r, i) => (
+                <li key={i}>
+                  <span className="font-medium">{typeof r.name === "string" ? r.name : "?"}</span>
+                  {typeof r.reason === "string" ? ` — ${r.reason}` : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {warnings.length > 0 ? (
+          <p className="text-xs text-muted-foreground">Avertissements : {warnings.slice(0, 3).join(" · ")}</p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function ChapterPlanStep({
   draft,
+  chapterVisualContract,
   preparationScore,
   issues,
   warningItems,
@@ -192,6 +299,8 @@ export function ChapterPlanStep({
   rewritingBeat,
 }: {
   draft: ChapterStudioData;
+  /** Snapshot `chapter.outline.chapterVisualContract` (GET studio). */
+  chapterVisualContract?: unknown;
   preparationScore: number;
   issues: ChapterReadinessIssue[];
   warningItems: ChapterReadinessIssue[];
@@ -234,6 +343,7 @@ export function ChapterPlanStep({
 
   return (
     <div data-studio-section="plan" className="space-y-6">
+      {chapterVisualContract ? <ChapterVisualContractReadout snapshot={chapterVisualContract} /> : null}
 
       {/* UX-FIX-4 : CTA proéminent si outline absente */}
       {!hasOutline && !generatingOutline && (

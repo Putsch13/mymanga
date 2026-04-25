@@ -207,6 +207,40 @@ function firstNamedCharacter(text: string): string | null {
   return match.find((token) => !common.has(token)) ?? null;
 }
 
+export type InferredPanelTextMode = "dialogue" | "thought" | "narration" | "silent";
+
+export function inferPanelTextFromBeatSummary(
+  summary: string,
+  _panelRole: "speaker" | "reaction" | "generic",
+  speakerHint?: string | null,
+): { mode: InferredPanelTextMode; speaker?: string; text?: string } {
+  const cleaned = normalizeBeatText(summary);
+  if (!cleaned) return { mode: "silent" };
+  const lower = cleaned.toLowerCase();
+  const speaker = (speakerHint ?? "").trim();
+
+  if (/(s['’]approche|approche pour|aller vers|discuter|parler à|talk to)/i.test(lower)) {
+    return {
+      mode: "dialogue",
+      speaker,
+      text: speaker ? "Je… je voulais te parler." : "Il faut que je lui parle.",
+    };
+  }
+  if (/(hésite|hesite|nerveux|nerveuse|angoiss|stress|trouve pas les mots)/i.test(lower)) {
+    return { mode: "thought", speaker, text: "Respire. Encore un pas." };
+  }
+  if (/(interrompt|interrupt|coupe la parole|coupe dans)/i.test(lower)) {
+    return { mode: "dialogue", speaker, text: "Attends —" };
+  }
+  if (/(regard.*crois|œil|oeil|coeur|cœur|emballe|battre)/i.test(lower)) {
+    return { mode: "thought", speaker, text: "Pourquoi est-ce si difficile de détacher les yeux ?" };
+  }
+  if (/(décision|decision|choix|détermin|determin|tranche|silence lourd)/i.test(lower)) {
+    return { mode: "narration", text: "Un silence lourd, puis le geste qui tranche." };
+  }
+  return { mode: "silent" };
+}
+
 function inferDialogueFromBeatSummary(summary: string): { speaker: string; text: string } | null {
   const cleaned = normalizeBeatText(summary);
   if (!cleaned) return null;
@@ -271,6 +305,8 @@ export interface EnsureDialogueAndSfxInput {
   chapterUserIntent: string | null;
   productionOutline?: ProductionOutline | null;
   chapterSummary?: string | null;
+  /** id → nom affichable pour dialogues inférés sans heuristique de capitales. */
+  characterNameById?: Record<string, string>;
 }
 
 /**
@@ -314,7 +350,38 @@ export function ensureDialogueAndSfxForPremiumBlueprints(input: EnsureDialogueAn
       && !bp.narrationText
       && beatSummary
     ) {
+      const speakerId =
+        bp.speakerAnchorCharacterId
+        ?? bp.mustShowCharacterIds?.[0]
+        ?? bp.requiredCharacterIds?.[0];
+      const speakerHint = speakerId && input.characterNameById?.[speakerId]
+        ? input.characterNameById[speakerId]
+        : null;
+
       if (bp.dialogueCarrier === "speaker_visible" || bp.subjectFocus === "speaker") {
+        const contextual = inferPanelTextFromBeatSummary(beatSummary, "speaker", speakerHint);
+        if (contextual.mode === "dialogue" && contextual.text) {
+          bp.dialogueLines = [{ speaker: contextual.speaker ?? "", text: contextual.text }];
+          bp.dialogueLinesAnchored = Math.max(1, bp.dialogueLinesAnchored ?? 0);
+          bp.notes = [...(bp.notes ?? []), "auto_dialogue_from_beat_context"];
+          dialogueEnriched += 1;
+          continue;
+        }
+        if (contextual.mode === "thought" && contextual.text) {
+          bp.narrationText = contextual.text;
+          bp.notes = [...(bp.notes ?? []), "auto_thought_from_beat_context"];
+          narrativeContextAdded += 1;
+          continue;
+        }
+        if (contextual.mode === "narration" && contextual.text) {
+          bp.narrationText = contextual.text;
+          const bundle = ensureTextBundle(bp);
+          bundle.narration = contextual.text;
+          bp.notes = [...(bp.notes ?? []), "auto_narration_from_beat_context"];
+          narrativeContextAdded += 1;
+          continue;
+        }
+
         const inferred = inferDialogueFromBeatSummary(beatSummary);
         if (inferred) {
           bp.dialogueLines = [inferred];

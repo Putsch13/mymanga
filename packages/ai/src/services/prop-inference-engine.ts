@@ -149,7 +149,7 @@ const URBAN_TECH_PROPS: PropTemplate[] = [
     category: "device",
     narrativeRole: "computation",
     defaultVisibilityMode: "on_surface",
-    triggers: ["ordinateur", "laptop", "computer", "tape", "types", "code", "programme"],
+    triggers: ["ordinateur", "laptop", "computer", "code", "coding", "programme informatique"],
     confidence: 0.88,
   },
   {
@@ -206,7 +206,7 @@ const SURVEILLANCE_HACKING_PROPS: PropTemplate[] = [
     category: "device",
     narrativeRole: "evidence",
     defaultVisibilityMode: "background_support",
-    triggers: ["surveillance", "caméra", "camera", "moniteur", "monitor", "observe", "watch"],
+    triggers: ["surveillance", "caméra", "camera", "cctv", "moniteur de surveillance", "filme secrètement"],
     confidence: 0.85,
   },
   {
@@ -215,7 +215,7 @@ const SURVEILLANCE_HACKING_PROPS: PropTemplate[] = [
     category: "device",
     narrativeRole: "computation",
     defaultVisibilityMode: "on_surface",
-    triggers: ["clavier", "keyboard", "tape", "types", "hack", "pirate"],
+    triggers: ["clavier", "keyboard", "hack", "pirate informatique", "pirate"],
     confidence: 0.8,
   },
   {
@@ -311,7 +311,7 @@ const MYSTICAL_PROPS: PropTemplate[] = [
     category: "mystical",
     narrativeRole: "ritual",
     defaultVisibilityMode: "in_hand",
-    triggers: ["talisman", "charm", "magie", "magic", "sort", "spell", "rituel", "ritual"],
+    triggers: ["talisman", "charm", "magie", "magic", "sort", "spell", "rituel", "ritual", "parchemin", "mystique"],
     confidence: 0.85,
   },
   {
@@ -490,8 +490,39 @@ function getUniverseProps(universeType: UniverseType): PropTemplate[] {
     case "medical":
       return MEDICAL_PROPS;
     default:
-      return [...URBAN_TECH_PROPS.slice(0, 2), ...OFFICE_SCHOOL_LAB_PROPS.slice(0, 2)];
+      return [];
   }
+}
+
+function getAdditionalDomainsOnlyIfExplicitlySignaled(text: string): PropTemplate[][] {
+  const lower = text.toLowerCase();
+  const domains: PropTemplate[][] = [];
+
+  if (/(téléphone|telephone|smartphone|mobile|appelle|calls|sonne|rings|sms|message texte)/i.test(lower)) {
+    domains.push(URBAN_TECH_PROPS);
+  }
+
+  if (/(ordinateur|laptop|clavier|keyboard|terminal|hack|pirate|code|serveur|surveillance|caméra|camera|moniteur|monitor)/.test(lower)) {
+    domains.push(URBAN_TECH_PROPS, SURVEILLANCE_HACKING_PROPS);
+  }
+
+  if (/(pistolet|fusil|soldat|militaire|arme|guerre|bataille)/.test(lower)) {
+    domains.push(MILITARY_PROPS);
+  }
+
+  if (/(magie|sort|rituel|grimoire|artefact|talisman|mana)/.test(lower)) {
+    domains.push(MYSTICAL_PROPS);
+  }
+
+  if (/(hôpital|hopital|médecin|medecin|seringue|bandage|blessure)/.test(lower)) {
+    domains.push(MEDICAL_PROPS);
+  }
+
+  if (/(lycée|lycee|école|ecole|laboratoire|laboratory|bureau open space)/.test(lower)) {
+    domains.push(OFFICE_SCHOOL_LAB_PROPS);
+  }
+
+  return domains;
 }
 
 function detectUniverseFromContext(
@@ -630,16 +661,9 @@ export function inferRequiredPropsFromBeat(
   const props: RequiredProp[] = [];
   const seenNames = new Set<string>();
 
-  // Domaines à tester selon le contexte
   const allDomains: PropTemplate[][] = [
     getUniverseProps(universeType),
-    COMBAT_NINJA_PROPS,
-    URBAN_TECH_PROPS,
-    SURVEILLANCE_HACKING_PROPS,
-    MEDICAL_PROPS,
-    MYSTICAL_PROPS,
-    MILITARY_PROPS,
-    OFFICE_SCHOOL_LAB_PROPS,
+    ...getAdditionalDomainsOnlyIfExplicitlySignaled(text),
   ];
 
   // Dédupliquer les domaines

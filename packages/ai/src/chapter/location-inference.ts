@@ -21,6 +21,16 @@ export function inferLocations(context: ProjectContextForChapter, userIntent?: s
       return [canonical, canonical, canonical, canonical];
     }
   }
+  const portTokens = ["port", "quai", "bateau", "navire", "mer", "océan", "ocean", "pecheur", "pêcheur", "pêcheurs", "marin", "marché aux poissons", "marche aux poissons"];
+  if (portTokens.some((t) => intent.includes(t))) {
+    return [
+      "port animé au bord de l'eau",
+      "quai avec filets et caisses",
+      "bateau amarré près du quai",
+      "marché aux poissons près du quai",
+    ];
+  }
+
   const explicitMatches = [
     "banque",
     "café",
@@ -42,10 +52,34 @@ export function inferLocations(context: ProjectContextForChapter, userIntent?: s
     if (normalized === "banque") return ["banque centrale sous haute sécurité", "banque centrale sous haute sécurité", "banque centrale sous haute sécurité", "sortie de la banque"];
     if (normalized === "café" || normalized === "cafe") return ["café calme en soirée", "café calme en soirée", "rue devant le café", "arrière-salle du café"];
     if (normalized === "taverne") return ["taverne enfumée aux lumières basses", "taverne enfumée aux lumières basses", "taverne enfumée aux lumières basses", "entrée de la taverne"];
-    if (normalized === "forêt" || normalized === "foret") return ["forêt de cendres", "forêt de cendres", "clairière silencieuse", "lisière de la forêt"];
-    if (normalized === "ville" || normalized === "rue" || normalized === "ruelle") return ["centre-ville cyberpunk", "ruelle néon sous la pluie", "rue commerçante cyberpunk", "toit d'immeuble au-dessus de la ville"];
+    if (normalized === "forêt" || normalized === "foret") {
+      return [
+        "forêt telle que décrite dans le chapitre",
+        "lisière ouverte sur le même décor",
+        "clairière du même environnement boisé",
+        "détail végétal du décor forestier",
+      ];
+    }
+    if (normalized === "ville" || normalized === "rue" || normalized === "ruelle") {
+      return ["centre-ville cyberpunk", "ruelle néon sous la pluie", "rue commerçante cyberpunk", "toit d'immeuble au-dessus de la ville"];
+    }
     if (normalized === "toit") return ["toit d'immeuble au-dessus de la ville", "toit d'immeuble au-dessus de la ville", "escalier de service", "toit d'immeuble au-dessus de la ville"];
-    if (normalized === "palais" || normalized === "trône" || normalized === "trone") return ["salle du trône en ruines", "salle du trône en ruines", "couloir du palais", "salle du trône en ruines"];
+    if (normalized === "palais" || normalized === "trône" || normalized === "trone") {
+      return [
+        "palais ou grande salle cohérente avec le récit",
+        "couloir monumental du même édifice",
+        "plan large du trône ou du siège du pouvoir",
+        "détail architectural du même lieu",
+      ];
+    }
+    if (normalized === "falaise") {
+      return [
+        "falaise ou hauteur vertigineuse évoquée par le chapitre",
+        "plan large du vide ou du précipice",
+        "zone de transition le long du bord",
+        "détail rocheux du même site",
+      ];
+    }
   }
 
   const genre = (context.project.primaryGenre?.trim() || "generic").toLowerCase();
@@ -73,12 +107,7 @@ export function inferLocations(context: ProjectContextForChapter, userIntent?: s
       "couloir désert après les cours",
     ];
   }
-  return [
-    "porte de la ville fissurée",
-    "salle du trône en ruines",
-    "forêt de cendres",
-    "falaise au-dessus du vide",
-  ];
+  return ["unknown"];
 }
 
 export function resolveCanonicalLocation(

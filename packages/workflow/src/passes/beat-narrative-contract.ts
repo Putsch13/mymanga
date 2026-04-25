@@ -91,16 +91,6 @@ function extractLocationsFromIntent(intent: string): string[] {
   return [...new Set(found)];
 }
 
-function extractNamesFromIntent(intent: string): string[] {
-  const capitalizedWords = intent.match(/\b[A-Z][a-z]+\b/g) ?? [];
-  const commonWords = new Set([
-    "Le", "La", "Les", "Un", "Une", "Des", "Ce", "Cette",
-    "The", "A", "An", "This", "That", "Chapter", "Beat",
-    "Il", "Elle", "Ils", "Elles", "He", "She", "They",
-  ]);
-  return capitalizedWords.filter((w) => !commonWords.has(w));
-}
-
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
@@ -119,21 +109,26 @@ export function buildNarrativeContractsFromOutline(
   const intentText = `${chapterUserIntent ?? ""} ${chapterSummary ?? ""}`;
   const globalEntities = extractEntitiesFromIntent(intentText);
   const globalLocations = extractLocationsFromIntent(intentText);
-  const globalNames = extractNamesFromIntent(intentText);
 
   const beats = Array.isArray(outline.beats) ? outline.beats : [];
 
   for (const beat of beats) {
     const involvedCharacters = asStringArray((beat as { involvedCharacters?: unknown }).involvedCharacters);
+    const characterIds = asStringArray((beat as { characterIds?: unknown }).characterIds);
+    const beatCharacters = asStringArray((beat as { characters?: unknown }).characters);
     const beatText = `${asString(beat.summary)} ${asString(beat.whyThisBeatExists)} ${asString(beat.dramaticChange)}`;
     const beatEntities = extractEntitiesFromIntent(beatText);
     const beatLocations = extractLocationsFromIntent(beatText);
-    const beatNames = extractNamesFromIntent(beatText);
+
+    const structuredChars =
+      involvedCharacters.length > 0 || characterIds.length > 0
+        ? [...involvedCharacters, ...characterIds]
+        : beatCharacters;
 
     const contract: BeatNarrativeContract = {
       beatId: asString(beat.beatId) || `beat_${contracts.length + 1}`,
       location: chapterLocationName ?? beatLocations[0] ?? globalLocations[0] ?? "",
-      requiredCharacters: [...new Set([...involvedCharacters, ...beatNames])],
+      requiredCharacters: [...new Set(structuredChars)],
       requiredEntities: [...new Set([...beatEntities, ...(involvedCharacters.length === 0 ? globalEntities : [])])],
       requiredProps: [],
       requiredActions: [],

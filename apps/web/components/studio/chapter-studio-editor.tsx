@@ -52,6 +52,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
   const [autofillResult, setAutofillResult] = useState<{ meta: AutofillMeta; appliedFields: string[]; unresolvedQuestions: string[] } | null>(null);
   const [characterCatalog, setCharacterCatalog] = useState<CharacterCatalogEntry[]>([]);
   const [progressionIssues, setProgressionIssues] = useState<OutlineProgressionIssue[]>([]);
+  const [chapterVisualContract, setChapterVisualContract] = useState<unknown>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const hasExistingContent = Boolean(
     snapshot?.data?.intent?.shortPitch ||
@@ -64,6 +65,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
     setLoading(true);
     const response = await fetch(`/api/projects/${projectId}/chapters/${chapterId}/studio`, { cache: "no-store" });
     const json = (await response.json()) as StudioResponse & { characterCatalog?: CharacterCatalogEntry[] };
+    setChapterVisualContract(json.chapterVisualContract ?? null);
     setProjectTitle(json.project.title);
     setChapterTitle(json.chapter.title ?? `Chapitre ${json.chapter.chapterNumber}`);
     setSnapshot(json.snapshot);
@@ -586,6 +588,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
         {activeFlowStep === "plan" ? (
           <ChapterPlanStep
             draft={draft}
+            chapterVisualContract={chapterVisualContract}
             preparationScore={readiness?.preparationScore ?? 0}
             issues={planIssues}
             warningItems={planWarnings}

@@ -41,6 +41,8 @@ export type StudioResponse = {
       pending: number;
     };
   };
+  /** Snapshot persistant (`chapter.outline.chapterVisualContract`) après run premium V3. */
+  chapterVisualContract?: unknown;
 };
 
 export type ChapterFlowStepId = "brief" | "cast_canon" | "plan" | "generation_review";

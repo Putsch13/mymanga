@@ -19,6 +19,7 @@ import {
   readChapterStudioSnapshotFromOutline,
 } from "@/lib/chapter-studio";
 import { mergePremiumProductionPlan } from "@/lib/premium-chapter-contract";
+import { extractChapterVisualContractFromOutline } from "@manga-ai-studio/workflow";
 import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
 import { toProxiedServerUrl } from "@/lib/images/proxy-url.server";
 
@@ -178,6 +179,8 @@ export async function GET(_req: Request, ctx: Ctx) {
   const stack = getGenerationStackStatus();
   const allImages = chapter.scenes.flatMap((scene) => scene.images);
 
+  const chapterVisualContract = extractChapterVisualContractFromOutline(asRecord(chapter.outline));
+
   return NextResponse.json({
     project: {
       id: chapter.project.id,
@@ -207,6 +210,7 @@ export async function GET(_req: Request, ctx: Ctx) {
         pending: allImages.filter((image) => image.status === "pending" || image.status === "planned").length,
       },
     },
+    chapterVisualContract,
     characterCatalog: await Promise.all(
       chapter.project.characters.map(async (c) => {
         // P0.7 : bucket Supabase privé → `mediaAsset.publicUrl` renvoie 403.

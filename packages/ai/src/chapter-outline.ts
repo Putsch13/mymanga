@@ -357,11 +357,11 @@ function fallbackOutline(ctx: ChapterOutlineContext): ChapterOutlineResult {
       ["ruelle", "ruelle néon sous la pluie"],
       ["ville", "centre-ville cyberpunk"],
       ["toit", "toit d'immeuble au-dessus de la ville"],
-      ["forêt", "forêt de cendres"],
-      ["foret", "forêt de cendres"],
-      ["falaise", "falaise au-dessus du vide"],
-      ["palais", "salle du trône en ruines"],
-      ["trône", "salle du trône en ruines"],
+      ["forêt", "forêt telle que décrite dans le scénario"],
+      ["foret", "forêt telle que décrite dans le scénario"],
+      ["falaise", "hauteur vertigineuse cohérente avec le récit"],
+      ["palais", "palais ou grande salle cohérente avec le récit"],
+      ["trône", "palais ou grande salle cohérente avec le récit"],
     ] as const;
     for (const [needle, value] of matches) {
       if (text.includes(needle)) return value;
@@ -369,7 +369,7 @@ function fallbackOutline(ctx: ChapterOutlineContext): ChapterOutlineResult {
     if (genre.includes("cyber") || genre.includes("sci")) return "quartier financier cyberpunk";
     if (genre.includes("romance") || genre.includes("shojo")) return "café calme en soirée";
     if (genre.includes("horror") || genre.includes("horreur")) return "couloir sans fenêtres";
-    return "porte de la ville fissurée";
+    return "lieu principal non spécifié";
   };
 
   const intent = ctx.userIntent.slice(0, 400);

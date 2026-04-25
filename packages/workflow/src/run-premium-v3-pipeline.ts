@@ -1,6 +1,11 @@
 import {
+  buildOutlineTextForSanitizer,
+  classifyVisualCoverageGaps,
   extractRequiredVisualCoverage,
   extractRequiredVisualCoverageFromProductionPlan,
+  sanitizeVisualContractBeforeCoverage,
+  extractChapterVisualContract,
+  mergeRequiredVisualCoverageWithContract,
   validateVisualCoverage,
   type StoryArc,
 } from "@manga-ai-studio/ai";
@@ -26,6 +31,7 @@ import { runStoryboardPass } from "./passes/storyboard-pass";
 import { buildStyleBibleFromUserProject } from "./chapter-style-bible-resolver";
 import { isPipelineV3RenderFalEnabled } from "./pipeline-feature-flags";
 import { loadLocationsForV3StoryPass, type PremiumV3PipelineLocation } from "./load-locations-for-v3-story-pass";
+import { saveChapterVisualContractSnapshot } from "./persistence/chapter-visual-contract-persistence";
 import { saveStoryboardPlan } from "./persistence/storyboard-persistence";
 import { computeEntityCoverageTelemetry, formatEntityCoverageTypesLine } from "./passes/entity-coverage-telemetry";
 import {
@@ -41,6 +47,7 @@ import {
 import { runMangaStructureQaOnBlueprints } from "./passes/manga-structure-qa";
 import { runPreRenderPremiumQaOrThrow } from "./passes/pre-render-premium-qa";
 import { runNarrativeContractQa } from "./passes/beat-narrative-contract";
+import { repairStoryboardVisualCoverage } from "./passes/repair-storyboard-visual-coverage";
 import {
   assertPremiumVisualQaConfig,
   getPremiumVisualQaConfigStatus,
@@ -311,11 +318,15 @@ export async function runPremiumV3Pipeline(
           console.info(`[pipeline:v3:entity-coverage:types] ${typesLine}`);
         }
 
+        const characterNameById = Object.fromEntries(
+          input.rawCharacters.map((c) => [c.id, c.name] as const),
+        );
         const sfxEnrichment = ensureDialogueAndSfxForPremiumBlueprints({
           blueprints: rebal.blueprints,
           chapterUserIntent: input.chapterUserIntent,
           productionOutline: resolvedProductionOutline ?? undefined,
           chapterSummary: input.chapterSummary,
+          characterNameById,
         });
         if (
           sfxEnrichment.combatSfxAdded > 0
@@ -539,8 +550,8 @@ export async function runPremiumV3Pipeline(
       }
     }
 
-    // P1.9 — Extraire le coverage depuis productionPlan si approved_plan_driven
-    const requiredCoverage = storyArc
+    // P1.9 — Coverage brut puis contrat visuel nettoyé (outline + canon, pas de pollution seule)
+    const rawCoverage = storyArc
       ? extractRequiredVisualCoverage(storyArc)
       : approvedPlanDriven && input.productionPlan?.panelBlueprints
         ? extractRequiredVisualCoverageFromProductionPlan(
@@ -559,13 +570,159 @@ export async function runPremiumV3Pipeline(
             }>,
           )
         : [];
-    const coverageReport = validateVisualCoverage(
+
+    const knownLocsForSanitize =
+      Array.isArray(input.locations) && input.locations.length > 0
+        ? input.locations
+        : await resolveLocationsForStoryPass(input);
+
+    const outlineText = buildOutlineTextForSanitizer({
+      approvedOutline: input.approvedOutline ?? undefined,
+      productionOutline: resolvedProductionOutline ?? undefined,
+      chapterSummary: input.chapterSummary,
+      chapterUserIntent: input.chapterUserIntent,
+    });
+
+    const storyBibleSummary =
+      input.project?.storyBible && typeof input.project.storyBible === "object"
+        ? (() => {
+            const s = (input.project.storyBible as Record<string, unknown>).summary;
+            return typeof s === "string" ? s.slice(0, 4000) : null;
+          })()
+        : null;
+
+    const chapterVisualContractResult = await extractChapterVisualContract({
+      chapterId: input.chapterId,
+      chapterTitle: input.chapterTitle,
+      chapterSummary: input.chapterSummary,
+      chapterUserIntent: input.chapterUserIntent,
+      productionOutline: resolvedProductionOutline,
+      knownCharacters: input.rawCharacters,
+      knownLocations: knownLocsForSanitize,
+      projectGenre: typeof input.project?.primaryGenre === "string" ? input.project.primaryGenre : null,
+      projectTone: typeof input.project?.tone === "string" ? input.project.tone : null,
+      storyBibleSummary,
+    });
+    if (chapterVisualContractResult.warnings.length > 0) {
+      console.warn(
+        `[pipeline:v3:chapter-visual-contract] ${chapterVisualContractResult.warnings.join(" | ")}`,
+      );
+    }
+    console.log(
+      `[pipeline:v3:chapter-visual-contract] openai=${chapterVisualContractResult.usedOpenAI} ` +
+        `requiredSlices=${chapterVisualContractResult.requiredFromContract.length} ` +
+        `props=${chapterVisualContractResult.contract.props.length} ` +
+        `creatures=${chapterVisualContractResult.contract.creatures.length} ` +
+        `needsClarification=${Boolean(chapterVisualContractResult.contract.needsClarification)}`,
+    );
+
+    try {
+      await saveChapterVisualContractSnapshot(input.chapterId, {
+        usedOpenAI: chapterVisualContractResult.usedOpenAI,
+        warnings: chapterVisualContractResult.warnings,
+        contract: chapterVisualContractResult.contract,
+        requiredFromContractCount: chapterVisualContractResult.requiredFromContract.length,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[pipeline:v3:chapter-visual-contract] persist_failed chapterId=${input.chapterId} ${msg}`);
+    }
+
+    const sanitizedCoverage = sanitizeVisualContractBeforeCoverage({
+      requiredCoverage: rawCoverage,
+      outlineText,
+      canonicalPlan: canonicalRuntimePlan,
+      knownCharacters: input.rawCharacters,
+      knownLocations: knownLocsForSanitize,
+      projectGenre: typeof input.project?.primaryGenre === "string" ? input.project.primaryGenre : null,
+      projectTone: typeof input.project?.tone === "string" ? input.project.tone : null,
+    });
+
+    let requiredCoverage =
+      chapterVisualContractResult.requiredFromContract.length > 0
+        ? mergeRequiredVisualCoverageWithContract(
+            chapterVisualContractResult.requiredFromContract,
+            sanitizedCoverage.requiredConfirmed,
+          )
+        : sanitizedCoverage.requiredConfirmed;
+
+    console.log(
+      "[pipeline:v3:visual-contract] confirmed=%d optional=%d suspicious=%d rejected=%d",
+      sanitizedCoverage.requiredConfirmed.length,
+      sanitizedCoverage.optional.length,
+      sanitizedCoverage.suspicious.length,
+      sanitizedCoverage.rejected.length,
+    );
+
+    let coverageReport = validateVisualCoverage(
       requiredCoverage,
       storyboardPassResult.storyboardPlan,
     );
+    let visualCoverageStatus: "ok" | "soft_gaps" = "ok";
+
     console.log(
-      `[pipeline:v3:visual-coverage] required=${requiredCoverage.length} fulfilled=${coverageReport.fulfilled.length} gaps=${coverageReport.gaps.length} source=${storyArc ? "storyArc" : approvedPlanDriven ? "productionPlan" : "none"}`,
+      `[pipeline:v3:visual-coverage] required=${requiredCoverage.length} fulfilled=${coverageReport.fulfilled.length} gaps=${coverageReport.gaps.length} source=${storyArc ? "storyArc" : approvedPlanDriven ? "productionPlan" : "none"} (raw=${rawCoverage.length})`,
     );
+
+    const firstClass = classifyVisualCoverageGaps(coverageReport.gaps);
+
+    if (firstClass.repairableGaps.length > 0) {
+      storyboardPassResult = {
+        ...storyboardPassResult,
+        storyboardPlan: repairStoryboardVisualCoverage({
+          storyboardPlan: storyboardPassResult.storyboardPlan,
+          gaps: firstClass.repairableGaps,
+          productionPlan: input.productionPlan,
+          canonicalPlan: canonicalRuntimePlan,
+        }),
+      };
+      await saveStoryboardPlan(input.chapterId, storyboardPassResult.storyboardPlan);
+      coverageReport = validateVisualCoverage(
+        requiredCoverage,
+        storyboardPassResult.storyboardPlan,
+      );
+      console.log(
+        `[pipeline:v3:visual-coverage] after_repair gaps=${coverageReport.gaps.length} repairable_applied=${firstClass.repairableGaps.length}`,
+      );
+    }
+
+    const remaining = classifyVisualCoverageGaps(coverageReport.gaps);
+
+    if (remaining.rejectedGaps.length > 0) {
+      console.warn("[pipeline:v3:visual-coverage] rejected gaps (ignored)", {
+        gaps: remaining.rejectedGaps.map(
+          (g) => `${g.coverage.entityType}:${g.coverage.entity}@${g.coverage.sourceBeatId}`,
+        ),
+      });
+    }
+
+    if (remaining.fatalGaps.length > 0) {
+      const gapSummary = remaining.fatalGaps
+        .slice(0, 8)
+        .map((g) => `${g.coverage.entityType}:${g.coverage.entity}@${g.coverage.sourceBeatId}`)
+        .join(" | ");
+      console.error(
+        `[pipeline:v3:visual-coverage] fatal_gaps=${remaining.fatalGaps.length} ${gapSummary}`,
+      );
+      if (input.premiumV3OnlyEnabled) {
+        throw new Error(
+          `premium_v3_only_visual_coverage_fatal_gaps: ${remaining.fatalGaps.length} critical entities uncovered [${gapSummary}]`,
+        );
+      }
+    }
+
+    if (remaining.repairableGaps.length > 0 || remaining.softGaps.length > 0) {
+      console.warn("[pipeline:v3:visual-coverage] soft gaps after repair", {
+        gaps: [...remaining.repairableGaps, ...remaining.softGaps].map(
+          (g) => `${g.coverage.entityType}:${g.coverage.entity}@${g.coverage.sourceBeatId}`,
+        ),
+      });
+      visualCoverageStatus = "soft_gaps";
+    }
+
+    if (visualCoverageStatus !== "ok") {
+      console.info(`[pipeline:v3:visual-coverage] status=${visualCoverageStatus}`);
+    }
     // P1.10 — Valider le cutaway ratio (max 35% sauf chapitre expérimental)
     const allPanels = storyboardPassResult.storyboardPlan.pages.flatMap((p) => p.panels);
     const cutawayPanels = allPanels.filter(
@@ -591,21 +748,6 @@ export async function runPremiumV3Pipeline(
       throw new Error(
         `premium_v3_only_cutaway_ratio_exceeded: ${(cutawayRatio * 100).toFixed(1)}% > ${(maxCutawayRatio * 100).toFixed(0)}% — trop de cutaways, pas assez de personnages/action`,
       );
-    }
-
-    if (!coverageReport.ok) {
-      const gapSummary = coverageReport.gaps
-        .slice(0, 8)
-        .map((g) => `${g.coverage.entityType}:${g.coverage.entity}@${g.coverage.sourceBeatId}`)
-        .join(" | ");
-      console.error(
-        `[pipeline:v3:visual-coverage] gaps=${coverageReport.gaps.length} ${gapSummary}`,
-      );
-      if (input.premiumV3OnlyEnabled) {
-        throw new Error(
-          `premium_v3_only_visual_coverage_gaps: ${coverageReport.gaps.length} entities uncovered [${gapSummary}]`,
-        );
-      }
     }
 
     try {

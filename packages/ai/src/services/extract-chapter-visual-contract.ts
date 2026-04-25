@@ -1,0 +1,464 @@
+/**
+ * Extraction du contrat visuel **local au chapitre** via LLM (JSON strict),
+ * avec repli sûr si pas de clé OpenAI ou parse invalide.
+ */
+
+import OpenAI from "openai";
+import { z } from "zod";
+import type { ChapterVisualContract } from "../contracts/chapter-visual-contract";
+import type { RequiredVisualCoverage } from "./required-visual-coverage";
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+const importanceSchema = z.enum(["required", "optional", "ambient"]);
+
+const locationSliceSchema = z.object({
+  name: z.string(),
+  description: z.string().default(""),
+  confidence: z.number().min(0).max(1).default(0.7),
+  sourceBeatIds: z.array(z.string()).default([]),
+  importance: importanceSchema.default("optional"),
+});
+
+const characterSliceSchema = z.object({
+  name: z.string(),
+  role: z.enum(["main", "secondary", "npc", "unknown"]).default("unknown"),
+  knownCharacterId: z.string().optional(),
+  confidence: z.number().min(0).max(1).default(0.7),
+  sourceBeatIds: z.array(z.string()).default([]),
+  importance: importanceSchema.default("optional"),
+});
+
+const groupSliceSchema = z.object({
+  name: z.string(),
+  kind: z.enum(["npc_group", "species", "crowd", "faction"]).default("npc_group"),
+  description: z.string().default(""),
+  confidence: z.number().min(0).max(1).default(0.6),
+  sourceBeatIds: z.array(z.string()).default([]),
+  importance: importanceSchema.default("optional"),
+});
+
+const creatureSliceSchema = z.object({
+  name: z.string(),
+  kind: z.enum(["monster", "hybrid", "robot", "animal", "spirit", "unknown"]).default("unknown"),
+  description: z.string().default(""),
+  confidence: z.number().min(0).max(1).default(0.7),
+  sourceBeatIds: z.array(z.string()).default([]),
+  importance: importanceSchema.default("optional"),
+});
+
+const propSliceSchema = z.object({
+  name: z.string(),
+  description: z.string().default(""),
+  importance: importanceSchema.default("optional"),
+  confidence: z.number().min(0).max(1).default(0.65),
+  sourceBeatIds: z.array(z.string()).default([]),
+});
+
+const rejectedSliceSchema = z.object({
+  name: z.string(),
+  reason: z.string(),
+});
+
+const chapterVisualContractLlmSchema = z.object({
+  mainLocation: locationSliceSchema.nullable().optional(),
+  secondaryLocations: z.array(locationSliceSchema).default([]),
+  characters: z.array(characterSliceSchema).default([]),
+  groups: z.array(groupSliceSchema).default([]),
+  creatures: z.array(creatureSliceSchema).default([]),
+  props: z.array(propSliceSchema).default([]),
+  ambientElements: z.array(propSliceSchema).default([]),
+  rejectedOrUnrelated: z.array(rejectedSliceSchema).default([]),
+  needsClarification: z.boolean().optional(),
+});
+
+export interface ExtractChapterVisualContractInput {
+  chapterId: string;
+  chapterTitle: string | null;
+  chapterSummary: string | null;
+  chapterUserIntent: string | null;
+  productionOutline: {
+    beats: Array<{
+      beatId: string;
+      summary?: string | null;
+      whyThisBeatExists?: string | null;
+      dramaticChange?: string | null;
+      involvedCharacters?: string[] | null;
+      environmentContext?: string[] | null;
+    }>;
+  } | null;
+  knownCharacters: Array<{ id: string; name: string; roleType?: string | null }>;
+  knownLocations?: Array<{ id?: string; name: string; aliases?: string[] }>;
+  projectGenre?: string | null;
+  projectTone?: string | null;
+  storyBibleSummary?: string | null;
+}
+
+export interface ExtractChapterVisualContractResult {
+  contract: ChapterVisualContract;
+  usedOpenAI: boolean;
+  warnings: string[];
+  /** Obligations visuelles dérivées du contrat (importance required + beats valides). */
+  requiredFromContract: RequiredVisualCoverage[];
+}
+
+const SYSTEM_PROMPT = `Tu es le directeur visuel d'un chapitre de manga.
+Tu extrais un CONTRAT VISUEL LOCAL à partir du texte du chapitre (outline / intent).
+Règles strictes :
+- Chaque entité DOIT avoir au moins un sourceBeatId parmi les beatId fournis. Sinon n'inclus pas l'entité.
+- N'invente pas de lieux ou props "fantasy génériques" : seulement ce qui est supporté par le texte.
+- Les lieux / persos / props du canon projet listés en référence ne sont obligatoires QUE s'ils apparaissent explicitement dans le chapitre.
+- importance "required" uniquement si l'élément est centrale à la compréhension visuelle du chapitre.
+- needsClarification=true si le lieu principal reste ambigu après lecture.
+Réponds UNIQUEMENT en JSON valide selon le schéma demandé (objet racine).`;
+
+function normalizeBeatIds(ids: string[], valid: Set<string>): string[] {
+  return ids.map((id) => id.trim()).filter((id) => valid.has(id));
+}
+
+function sanitizeContractForValidBeats(
+  raw: z.infer<typeof chapterVisualContractLlmSchema>,
+  validBeatIds: Set<string>,
+): ChapterVisualContract {
+  const filterLoc = (s: z.infer<typeof locationSliceSchema> | null | undefined) => {
+    if (!s || !s.name.trim()) return null;
+    const sourceBeatIds = normalizeBeatIds(s.sourceBeatIds, validBeatIds);
+    if (sourceBeatIds.length === 0 && s.importance === "required") return null;
+    return { ...s, sourceBeatIds };
+  };
+
+  const main = filterLoc(raw.mainLocation ?? null);
+
+  return {
+    mainLocation: main,
+    secondaryLocations: (raw.secondaryLocations ?? [])
+      .map((s) => filterLoc(s))
+      .filter((x): x is NonNullable<typeof x> => Boolean(x)),
+    characters: (raw.characters ?? [])
+      .map((c) => ({
+        ...c,
+        sourceBeatIds: normalizeBeatIds(c.sourceBeatIds, validBeatIds),
+      }))
+      .filter((c) => c.name.trim().length > 0 && c.sourceBeatIds.length > 0),
+    groups: (raw.groups ?? [])
+      .map((g) => ({
+        ...g,
+        sourceBeatIds: normalizeBeatIds(g.sourceBeatIds, validBeatIds),
+      }))
+      .filter((g) => g.name.trim().length > 0 && g.sourceBeatIds.length > 0),
+    creatures: (raw.creatures ?? [])
+      .map((c) => ({
+        ...c,
+        sourceBeatIds: normalizeBeatIds(c.sourceBeatIds, validBeatIds),
+      }))
+      .filter((c) => c.name.trim().length > 0 && c.sourceBeatIds.length > 0),
+    props: (raw.props ?? [])
+      .map((p) => ({
+        ...p,
+        sourceBeatIds: normalizeBeatIds(p.sourceBeatIds, validBeatIds),
+      }))
+      .filter((p) => p.name.trim().length > 0 && p.sourceBeatIds.length > 0),
+    ambientElements: (raw.ambientElements ?? [])
+      .map((p) => ({
+        ...p,
+        sourceBeatIds: normalizeBeatIds(p.sourceBeatIds, validBeatIds),
+      }))
+      .filter((p) => p.name.trim().length > 0 && p.sourceBeatIds.length > 0),
+    rejectedOrUnrelated: raw.rejectedOrUnrelated ?? [],
+    needsClarification: raw.needsClarification,
+  };
+}
+
+type LocationSlice = NonNullable<ChapterVisualContract["mainLocation"]>;
+
+function emptyContract(needsClarification?: boolean): ChapterVisualContract {
+  return {
+    mainLocation: null,
+    secondaryLocations: [],
+    characters: [],
+    groups: [],
+    creatures: [],
+    props: [],
+    ambientElements: [],
+    rejectedOrUnrelated: [],
+    needsClarification,
+  };
+}
+
+function buildUserPrompt(input: ExtractChapterVisualContractInput, validBeatIds: string[]): string {
+  const beats = input.productionOutline?.beats ?? [];
+  const beatLines = beats
+    .map((b) => {
+      const parts = [
+        `beatId=${b.beatId}`,
+        b.summary ? `summary=${b.summary}` : null,
+        b.whyThisBeatExists ? `why=${b.whyThisBeatExists}` : null,
+        b.dramaticChange ? `turn=${b.dramaticChange}` : null,
+        b.environmentContext?.length ? `environment=${b.environmentContext.join(";")}` : null,
+        b.involvedCharacters?.length ? `involved=${b.involvedCharacters.join(",")}` : null,
+      ].filter(Boolean);
+      return `- ${parts.join(" | ")}`;
+    })
+    .join("\n");
+
+  const chars = input.knownCharacters
+    .map((c) => `${c.id}:${c.name}${c.roleType ? ` (${c.roleType})` : ""}`)
+    .join("\n");
+
+  const locs = (input.knownLocations ?? [])
+    .map((l) => `${l.id ?? ""} ${l.name} ${(l.aliases ?? []).join(",")}`.trim())
+    .join("\n");
+
+  return [
+    `chapterId=${input.chapterId}`,
+    `title=${input.chapterTitle ?? ""}`,
+    `genre=${input.projectGenre ?? ""}`,
+    `tone=${input.projectTone ?? ""}`,
+    "",
+    "=== Résumé / intent ===",
+    input.chapterSummary ?? "",
+    input.chapterUserIntent ?? "",
+    "",
+    input.storyBibleSummary ? `=== Bible (extrait) ===\n${input.storyBibleSummary}\n` : "",
+    "=== Beats (sourceBeatIds UNIQUEMENT parmi ces beatId) ===",
+    beatLines || "(aucun beat)",
+    "",
+    `=== beatId autorisés (JSON sourceBeatIds) ===\n${JSON.stringify(validBeatIds)}`,
+    "",
+    "=== Personnages projet (référence id → nom) ===",
+    chars || "(aucun)",
+    "",
+    "=== Lieux projet (référence) ===",
+    locs || "(aucun)",
+    "",
+    "Schéma JSON racine :",
+    `{ "mainLocation": null | { name, description, confidence, sourceBeatIds, importance },`,
+    `  "secondaryLocations": [...],`,
+    `  "characters": [{ name, role, knownCharacterId?, confidence, sourceBeatIds, importance }],`,
+    `  "groups": [{ name, kind, description, confidence, sourceBeatIds, importance }],`,
+    `  "creatures": [{ name, kind, description, confidence, sourceBeatIds, importance }],`,
+    `  "props": [{ name, description, importance, confidence, sourceBeatIds }],`,
+    `  "ambientElements": [...],`,
+    `  "rejectedOrUnrelated": [{ name, reason }],`,
+    `  "needsClarification": boolean`,
+    `}`,
+  ].join("\n");
+}
+
+const MIN_CONF = 0.45;
+
+/**
+ * Convertit le contrat chapitre en obligations `RequiredVisualCoverage`
+ * (uniquement importance === "required" et confiance suffisante).
+ */
+export function requiredVisualCoverageFromChapterVisualContract(
+  contract: ChapterVisualContract,
+): RequiredVisualCoverage[] {
+  const out: RequiredVisualCoverage[] = [];
+
+  const pushLoc = (loc: LocationSlice | null) => {
+    if (!loc || loc.importance !== "required" || loc.confidence < MIN_CONF) return;
+    const bid = loc.sourceBeatIds[0];
+    if (!bid) return;
+    const entity = loc.name.toLowerCase().trim();
+    if (!entity || entity === "unknown") return;
+    out.push({
+      entity,
+      entityType: "location",
+      sourceBeatId: bid,
+      requiresDedicatedPanel: false,
+      acceptedRenderModes: ["establishing_environment", "silent_transition"],
+      acceptedSubjectFocuses: ["environment"],
+      tokensHint: [entity, ...entity.split(/\s+/).filter((w) => w.length > 2)],
+      fulfilledByPanelIds: [],
+    });
+  };
+
+  pushLoc(contract.mainLocation);
+  for (const loc of contract.secondaryLocations) {
+    pushLoc(loc);
+  }
+
+  for (const ch of contract.characters) {
+    if (ch.importance !== "required" || ch.confidence < MIN_CONF) continue;
+    const bid = ch.sourceBeatIds[0];
+    if (!bid) continue;
+    const entity = (ch.knownCharacterId ?? ch.name).toLowerCase().trim();
+    if (!entity) continue;
+    const hints = [entity, ch.name.toLowerCase()];
+    out.push({
+      entity,
+      entityType: "character",
+      sourceBeatId: bid,
+      requiresDedicatedPanel: ch.role === "main",
+      acceptedRenderModes: [
+        "hero_closeup",
+        "dialogue_two_shot",
+        "dialogue_over_shoulder",
+        "reaction_closeup",
+        "npc_closeup",
+        "enemy_closeup",
+        "group_tension",
+      ],
+      acceptedSubjectFocuses: ["hero", "group", "important_npc", "enemy", "reaction"],
+      tokensHint: [...new Set(hints)],
+      fulfilledByPanelIds: [],
+    });
+  }
+
+  for (const cr of contract.creatures) {
+    if (cr.importance !== "required" || cr.confidence < MIN_CONF) continue;
+    const bid = cr.sourceBeatIds[0];
+    if (!bid) continue;
+    const entity = cr.name.toLowerCase().trim();
+    out.push({
+      entity,
+      entityType: "creature",
+      sourceBeatId: bid,
+      requiresDedicatedPanel: true,
+      acceptedRenderModes: ["creature_reveal", "threat_silhouette"],
+      acceptedSubjectFocuses: ["creature", "threat"],
+      tokensHint: [entity, ...entity.split(/[\s-]+/).filter((w) => w.length > 2)],
+      fulfilledByPanelIds: [],
+    });
+  }
+
+  for (const g of contract.groups) {
+    if (g.importance !== "required" || g.confidence < MIN_CONF) continue;
+    if (g.kind !== "species" && g.kind !== "crowd") continue;
+    const bid = g.sourceBeatIds[0];
+    if (!bid) continue;
+    const entity = g.name.toLowerCase().trim();
+    out.push({
+      entity,
+      entityType: "creature",
+      sourceBeatId: bid,
+      requiresDedicatedPanel: false,
+      acceptedRenderModes: ["group_tension", "creature_reveal"],
+      acceptedSubjectFocuses: ["group", "creature"],
+      tokensHint: [entity],
+      fulfilledByPanelIds: [],
+    });
+  }
+
+  for (const p of [...contract.props, ...contract.ambientElements]) {
+    if (p.importance !== "required" || p.confidence < MIN_CONF) continue;
+    const bid = p.sourceBeatIds[0];
+    if (!bid) continue;
+    const entity = p.name.toLowerCase().trim();
+    out.push({
+      entity,
+      entityType: "prop",
+      sourceBeatId: bid,
+      requiresDedicatedPanel: false,
+      acceptedRenderModes: ["insert_object", "establishing_environment", "surveillance_reveal"],
+      acceptedSubjectFocuses: ["prop", "environment"],
+      tokensHint: [entity, ...entity.split(/\s+/).filter((w) => w.length > 2)],
+      fulfilledByPanelIds: [],
+    });
+  }
+
+  return out;
+}
+
+/**
+ * Fusionne les obligations : le contrat chapitre prime sur les doublons (même type + entité normalisée).
+ */
+export function mergeRequiredVisualCoverageWithContract(
+  contractCoverage: RequiredVisualCoverage[],
+  base: RequiredVisualCoverage[],
+): RequiredVisualCoverage[] {
+  const key = (c: RequiredVisualCoverage) => `${c.entityType}|${c.entity.toLowerCase().trim()}`;
+  const seen = new Set<string>();
+  const merged: RequiredVisualCoverage[] = [];
+  for (const c of contractCoverage) {
+    const k = key(c);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    merged.push(c);
+  }
+  for (const c of base) {
+    const k = key(c);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    merged.push(c);
+  }
+  return merged;
+}
+
+/**
+ * Extrait un `ChapterVisualContract` via OpenAI. Sans clé API, retourne un contrat vide et aucune obligation dérivée.
+ */
+export async function extractChapterVisualContract(
+  input: ExtractChapterVisualContractInput,
+): Promise<ExtractChapterVisualContractResult> {
+  const warnings: string[] = [];
+  const beats = input.productionOutline?.beats ?? [];
+  const validBeatIds = [...new Set(beats.map((b) => b.beatId).filter(Boolean))];
+
+  if (!process.env.OPENAI_API_KEY) {
+    warnings.push("chapter_visual_contract.openai_missing");
+    return {
+      contract: emptyContract(true),
+      usedOpenAI: false,
+      warnings,
+      requiredFromContract: [],
+    };
+  }
+
+  if (validBeatIds.length === 0) {
+    warnings.push("chapter_visual_contract.no_beats");
+    return {
+      contract: emptyContract(true),
+      usedOpenAI: false,
+      warnings,
+      requiredFromContract: [],
+    };
+  }
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: process.env.OPENAI_CHAPTER_VISUAL_CONTRACT_MODEL ?? "gpt-4o-mini",
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: buildUserPrompt(input, validBeatIds) },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.35,
+      max_tokens: 4096,
+    });
+
+    const raw = response.choices[0]?.message?.content ?? "{}";
+    const json = JSON.parse(raw) as unknown;
+    const parsed = chapterVisualContractLlmSchema.safeParse(json);
+    if (!parsed.success) {
+      warnings.push(`chapter_visual_contract.parse_failed=${parsed.error.message.slice(0, 200)}`);
+      return {
+        contract: emptyContract(true),
+        usedOpenAI: true,
+        warnings,
+        requiredFromContract: [],
+      };
+    }
+
+    const validSet = new Set(validBeatIds);
+    const contract = sanitizeContractForValidBeats(parsed.data, validSet);
+    const requiredFromContract = requiredVisualCoverageFromChapterVisualContract(contract);
+
+    return {
+      contract,
+      usedOpenAI: true,
+      warnings,
+      requiredFromContract,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    warnings.push(`chapter_visual_contract.error=${msg.slice(0, 240)}`);
+    return {
+      contract: emptyContract(true),
+      usedOpenAI: false,
+      warnings,
+      requiredFromContract: [],
+    };
+  }
+}

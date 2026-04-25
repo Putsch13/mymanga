@@ -60,6 +60,12 @@ export {
   STORYBOARD_PLAN_OUTLINE_KEY,
 } from "./persistence/storyboard-persistence";
 export {
+  saveChapterVisualContractSnapshot,
+  extractChapterVisualContractFromOutline,
+  CHAPTER_VISUAL_CONTRACT_OUTLINE_KEY,
+} from "./persistence/chapter-visual-contract-persistence";
+export type { ChapterVisualContractSnapshot } from "./persistence/chapter-visual-contract-persistence";
+export {
   saveRenderPassResult,
   loadRenderPassResult,
 } from "./persistence/render-persistence";
