@@ -16,6 +16,7 @@ import {
   buildCanonicalChapterProductionPlan,
   canonicalPlanToPanelBlueprints,
   classifyPremiumPanelCount,
+  isHeroRole,
 } from "@manga-ai-studio/core";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { buildApprovedOutlineVersion, buildProductionPlanFromOutline } from "@manga-ai-studio/core";
@@ -147,7 +148,7 @@ export async function POST(req: Request, ctx: Ctx) {
     })),
     source: "estimate_preview",
   });
-  const heroCharacterId = context.characters?.find((c) => c.roleType === "MAIN_CHARACTER")?.id ?? null;
+  const heroCharacterId = context.characters?.find((c) => isHeroRole(c.roleType))?.id ?? null;
   const universeContext = {
     projectGenre: context.project.primaryGenre ?? null,
     projectTone: context.project.tone ?? null,

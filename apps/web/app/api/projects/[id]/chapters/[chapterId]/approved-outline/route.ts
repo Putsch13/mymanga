@@ -4,6 +4,7 @@ import {
   PREMIUM_PANEL_RANGE,
   productionOutlineSchema,
   productionPlanSchema,
+  isHeroRole,
   type ProductionOutline,
   type ProductionPlan,
 } from "@manga-ai-studio/core";
@@ -75,7 +76,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
   }
 
   const fallbackHeroCharacterId =
-    projectCharacters.find((c) => /hero|protagon|main/i.test(c.roleType ?? ""))?.id ?? null;
+    projectCharacters.find((c) => isHeroRole(c.roleType))?.id ?? null;
   const heroCharacterId = snapshotHeroCharacterId ?? fallbackHeroCharacterId;
   const usedFallbackHeroCharacterId =
     snapshotHeroCharacterId === null
@@ -239,6 +240,40 @@ export async function PATCH(req: Request, ctx: Ctx) {
     `heroCenterRatio=${(premiumMeta as Record<string, unknown>).heroCenterRatio ?? "n/a"}`,
   );
 
+  // ─── Construire characterSelection canonique pour persistance ───────────────
+  // Si le héros a été déterminé (snapshot ou fallback), on le persiste pour que
+  // les routes de lancement le retrouvent sans fallback à chaque fois.
+  const resolvedActiveCharacterIds = activeCharacterIds.length > 0
+    ? activeCharacterIds
+    : [...new Set(approvedOutline.beats.flatMap((b) => b.characters ?? []))].filter(Boolean);
+
+  const persistedCharacterSelection = {
+    heroCharacterId: heroCharacterId ?? undefined,
+    activeCharacterIds: resolvedActiveCharacterIds,
+    lockedCharacterIds: Array.isArray(characterSelection.lockedCharacterIds)
+      ? characterSelection.lockedCharacterIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+      : [],
+    speakingCharacterIds: Array.isArray(characterSelection.speakingCharacterIds)
+      ? characterSelection.speakingCharacterIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+      : [],
+    evolvingCharacterIds: Array.isArray(characterSelection.evolvingCharacterIds)
+      ? characterSelection.evolvingCharacterIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+      : [],
+    antagonistCharacterIds: Array.isArray(characterSelection.antagonistCharacterIds)
+      ? characterSelection.antagonistCharacterIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+      : [],
+    recurringNpcIds: Array.isArray(characterSelection.recurringNpcIds)
+      ? characterSelection.recurringNpcIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+      : [],
+  };
+
+  console.info(
+    `[approved-outline] persisting_character_selection chapterId=${chapterId} ` +
+    `heroCharacterId=${persistedCharacterSelection.heroCharacterId ?? "none"} ` +
+    `activeCharacterIds=${persistedCharacterSelection.activeCharacterIds.length} ` +
+    `usedFallback=${usedFallbackHeroCharacterId}`,
+  );
+
   const studioSnapshot = patchChapterStudioSnapshot(
     chapter.outline,
     {
@@ -257,6 +292,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
       },
       productionOutline: resolvedProductionOutline,
       productionPlan: resolvedProductionPlan,
+      characterSelection: persistedCharacterSelection,
     },
     {
       chapterNumber: chapter.chapterNumber,

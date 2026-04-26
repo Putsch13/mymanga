@@ -6,6 +6,7 @@ import {
   chapterStudioDataSchema,
   PREMIUM_PANEL_RANGE,
   type ApprovedChapterOutline,
+  isHeroRole,
 } from "@manga-ai-studio/core";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
@@ -104,6 +105,36 @@ export async function POST(req: Request, ctx: Ctx) {
   const project = await prisma.project.findFirst({ where: { id: projectId, userId: user.id } });
   if (!project) return notFound();
   const body = createSchema.parse(await req.json());
+
+  // ─── Récupérer les personnages du projet pour identifier le héros ──────────
+  const projectCharacters = await prisma.character.findMany({
+    where: { projectId },
+    select: { id: true, roleType: true },
+  });
+
+  // Trouver le héros parmi focusCharacterIds ou fallback sur le projet
+  const focusCharacterIds = body.focusCharacterIds ?? [];
+  const heroFromFocus = focusCharacterIds.length > 0
+    ? projectCharacters.find((c) => focusCharacterIds.includes(c.id) && isHeroRole(c.roleType))?.id ?? null
+    : null;
+  const fallbackHeroCharacterId = projectCharacters.find((c) => isHeroRole(c.roleType))?.id ?? null;
+  const resolvedHeroCharacterId = heroFromFocus ?? fallbackHeroCharacterId;
+
+  // Construire characterSelection si focusCharacterIds fourni
+  const initialCharacterSelection = focusCharacterIds.length > 0 || resolvedHeroCharacterId
+    ? {
+        heroCharacterId: resolvedHeroCharacterId ?? undefined,
+        activeCharacterIds: focusCharacterIds,
+        lockedCharacterIds: [] as string[],
+        speakingCharacterIds: [] as string[],
+        evolvingCharacterIds: [] as string[],
+        antagonistCharacterIds: projectCharacters
+          .filter((c) => focusCharacterIds.includes(c.id) && /antagonist|villain|enemy/i.test(c.roleType ?? ""))
+          .map((c) => c.id),
+        recurringNpcIds: [] as string[],
+      }
+    : undefined;
+
   const last = await prisma.chapter.findFirst({
     where: { projectId },
     orderBy: { chapterNumber: "desc" },
@@ -124,6 +155,8 @@ export async function POST(req: Request, ctx: Ctx) {
             endingMode: body.studioDraft.intent?.endingMode ?? null,
             arcImportance: body.studioDraft.intent?.arcImportance ?? null,
           },
+          // Persister characterSelection dès la création
+          characterSelection: initialCharacterSelection ?? body.studioDraft.characterSelection,
         },
         {
           chapterNumber,
@@ -139,7 +172,31 @@ export async function POST(req: Request, ctx: Ctx) {
           transitionReason: "chapter_created_from_studio",
         },
       )
-    : null;
+    : initialCharacterSelection
+      ? patchChapterStudioSnapshot(
+          {},
+          {
+            characterSelection: initialCharacterSelection,
+            intent: {
+              chapterNumber,
+              workingTitle: body.title ?? `Chapitre ${chapterNumber}`,
+              shortPitch: body.userIntent ?? null,
+              mainConflict: null,
+              arcPosition: null,
+              emotionalGoal: null,
+              endingMode: null,
+              arcImportance: null,
+            },
+          },
+          {
+            chapterNumber,
+            chapterTitle: body.title ?? `Chapitre ${chapterNumber}`,
+            userIntent: body.userIntent ?? null,
+            currentStep: "intent",
+            transitionReason: "chapter_created_with_cast",
+          },
+        )
+      : null;
   // Si studioDraft.productionOutline premium est fourni, reconstruire l'approvedOutline depuis lui
   // Ne jamais utiliser buildLegacyApprovedOutlineFromStudio
   let effectiveApprovedOutline: ApprovedChapterOutline | undefined = body.approvedOutline;

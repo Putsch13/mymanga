@@ -123,6 +123,34 @@ export async function POST(req: Request, ctx: Ctx) {
     return validationError("Le chapitre n'est pas prêt pour la génération.", readiness);
   }
 
+  // ─── Extraction des données canoniques du cast (aligné avec /launch) ───────
+  const chapterCharacterSelection = asRecord(snapshot.data.characterSelection);
+  const snapshotDataRecord = asRecord(snapshot.data);
+  const extractedFocusCharacterIds = Array.isArray(chapterCharacterSelection.activeCharacterIds)
+    ? chapterCharacterSelection.activeCharacterIds.filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      )
+    : [];
+  const heroCharacterId =
+    typeof chapterCharacterSelection.heroCharacterId === "string" && chapterCharacterSelection.heroCharacterId.length > 0
+      ? chapterCharacterSelection.heroCharacterId
+      : null;
+  const activeNpcIds = Array.isArray(snapshotDataRecord.activeNpcIds)
+    ? snapshotDataRecord.activeNpcIds.filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      )
+    : [];
+  const activeCreatureIds = Array.isArray(snapshotDataRecord.activeCreatureIds)
+    ? snapshotDataRecord.activeCreatureIds.filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      )
+    : [];
+  const locationIds = Array.isArray(snapshotDataRecord.locationIds)
+    ? snapshotDataRecord.locationIds.filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      )
+    : [];
+
   // Résoudre l'approvedOutline depuis le contrat premium — jamais de builder legacy
   const approvedOutline = resolveApprovedOutlineFromSnapshot(snapshot, chapterOutlineRecord);
   if (!approvedOutline) {
@@ -172,16 +200,28 @@ export async function POST(req: Request, ctx: Ctx) {
   }
 
   const draftSetup = draftSetupSchema.safeParse(chapterOutlineRecord.draftSetup);
+  // Priorité : body > snapshot characterSelection > draftSetup
   const focusCharacterIds =
     body.focusCharacterIds && body.focusCharacterIds.length > 0
       ? body.focusCharacterIds
-      : draftSetup.success
-        ? (draftSetup.data.focusCharacterIds ?? [])
-        : [];
+      : extractedFocusCharacterIds.length > 0
+        ? extractedFocusCharacterIds
+        : draftSetup.success
+          ? (draftSetup.data.focusCharacterIds ?? [])
+          : [];
   const selectedPlotLabel =
     body.selectedPlotLabel ?? (draftSetup.success ? draftSetup.data.selectedPlotLabel ?? undefined : undefined);
   const creativityControls =
     body.creativityControls ?? (draftSetup.success ? draftSetup.data.creativityControls ?? undefined : undefined);
+
+  // Log cast canonique (aligné avec les logs attendus)
+  console.log(
+    `[pipeline] cast_contract_input chapterId=${body.chapterId} ` +
+    `hero=${heroCharacterId ?? "none"} ` +
+    `focus=${focusCharacterIds.length} ` +
+    `activeNpc=${activeNpcIds.length} ` +
+    `locations=${locationIds.length}`,
+  );
 
   // Logs premium structurés
   const _pp = snapshot.data.productionPlan;
@@ -202,6 +242,7 @@ export async function POST(req: Request, ctx: Ctx) {
   );
 
   // Construire le job input premium — même helper que /launch
+  // Alignement complet avec /launch : on passe le cast canonique
   let jobInput: Record<string, unknown>;
   try {
     jobInput = buildGenerationJobInputFromSnapshot({
@@ -211,7 +252,11 @@ export async function POST(req: Request, ctx: Ctx) {
       approvedOutline,
       selectedPlotLabel: selectedPlotLabel ?? "bold",
       creativityControls: (creativityControls ?? null) as Record<string, unknown> | null,
+      heroCharacterId,
       focusCharacterIds,
+      activeNpcIds,
+      activeCreatureIds,
+      locationIds,
       estimateContext: null,
     });
   } catch (err) {

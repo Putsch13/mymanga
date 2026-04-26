@@ -70,6 +70,22 @@ const ANACHRONISTIC_PROPS = new Set([
 ]);
 
 /**
+ * P8 — Props génériques/suspects qui sentent le fallback du moteur narratif.
+ * Ces termes sont souvent insérés automatiquement quand le système manque de contexte.
+ */
+const SUSPICIOUS_GENERIC_PROPS = new Set([
+  "document",
+  "evidence",
+  "document/evidence",
+  "obstacle",
+  "generic_object",
+  "item",
+  "thing",
+  "object",
+  "macguffin",
+]);
+
+/**
  * Extrait les props potentiels d'un texte.
  */
 export function extractPotentialProps(text: string): string[] {
@@ -92,6 +108,14 @@ export function extractPotentialProps(text: string): string[] {
 export function isAnachronisticProp(propName: string): boolean {
   const normalized = propName.toLowerCase().trim();
   return ANACHRONISTIC_PROPS.has(normalized);
+}
+
+/**
+ * P8 — Vérifie si un prop est un fallback générique suspect.
+ */
+export function isSuspiciousGenericProp(propName: string): boolean {
+  const normalized = propName.toLowerCase().trim();
+  return SUSPICIOUS_GENERIC_PROPS.has(normalized);
 }
 
 /**
@@ -124,6 +148,7 @@ export function runPropsQaPass(input: PropsQaPassInput): PropsQaPassOutput {
       reportedProps.add(propName);
       const isForbidden = isPropForbidden(storyContract, propName);
       const isAnachronistic = isAnachronisticProp(propName);
+      const isSuspiciousGeneric = isSuspiciousGenericProp(propName);
 
       if (isForbidden) {
         issues.push({
@@ -140,6 +165,15 @@ export function runPropsQaPass(input: PropsQaPassInput): PropsQaPassOutput {
           code: PIPELINE_ERROR_CODES.E_ENTITY_PHANTOM_PROP,
           message: `Anachronistic prop "${propName}" detected — likely a phantom prop`,
           severity: strictMode ? "error" : "warning",
+        });
+      } else if (isSuspiciousGeneric) {
+        // P8 — Props génériques suspects = fallback du moteur narratif
+        issues.push({
+          panelId: spec.panelId,
+          propName,
+          code: PIPELINE_ERROR_CODES.E_ENTITY_PHANTOM_PROP,
+          message: `Suspicious generic prop "${propName}" detected — likely a narrative engine fallback`,
+          severity: "warning",
         });
       } else if (strictMode && allowedPropNames.size > 0 && !allowedPropNames.has(propName)) {
         issues.push({

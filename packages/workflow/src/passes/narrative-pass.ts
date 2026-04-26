@@ -22,6 +22,7 @@ import {
   resolveCharacterImportanceTier,
   resolveChapterLookProfile,
   enforceShotDiversity,
+  isHeroRole,
   type StableImageReference,
   type ChapterLookProfile,
 } from "@manga-ai-studio/core";
@@ -653,7 +654,7 @@ export async function runNarrativePass(
     if (finalPanelBlueprints.length === 0 && revisedBundle.outline.beats.length > 0) {
       console.log(`[pipeline] b3-1 generating panel blueprints dynamically for ${revisedBundle.outline.beats.length} beats`);
       const { buildPanelBlueprintsFromBeat, inferNarrativeFactsFromBeat, inferRequiredPropsFromBeat } = await import("@manga-ai-studio/ai");
-      const heroCharacterId = rawCharacters.find((c) => /hero|protagon|main/i.test(c.roleType ?? ""))?.id ?? null;
+      const heroCharacterId = rawCharacters.find((c) => isHeroRole(c.roleType))?.id ?? null;
       const knownUniverseTypes = ["ninja","cyberpunk","post_apo","school_life","mecha","fantasy","military","medical","urban","generic"] as const;
       type UniverseType = (typeof knownUniverseTypes)[number];
       const rawGenre = context.project.primaryGenre ?? "";
@@ -883,7 +884,7 @@ export async function runNarrativePass(
         .filter((c: any) => /antagonist|villain|rival/i.test(c.roleType ?? ""))
         .map((c: any) => ({ characterId: c.id, name: c.name, role: "antagonist" as const }));
       const heroes = rawCharacters
-        .filter((c: any) => /hero|protagon|main/i.test(c.roleType ?? ""))
+        .filter((c: any) => isHeroRole(c.roleType))
         .map((c: any) => ({ characterId: c.id, name: c.name, role: "hero" as const }));
       // Inclut tous les PNJ importants et récurrents (pas seulement mentor/deuteragonist)
       // firstAppearanceSceneIndex = index du premier beat où ce personnage est cité (pas l'index tableau)

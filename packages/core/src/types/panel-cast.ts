@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isHeroRole } from "./character-role";
 
 export const panelCastRoleSchema = z.enum([
   "protagonist",
@@ -58,7 +59,7 @@ export function inferCastRole(roleType: string | null | undefined): PanelCastRol
   if (!roleType) return "extra";
   const lower = roleType.toLowerCase().trim();
   return ROLE_TYPE_TO_CAST_ROLE[lower]
-    ?? (/hero|protagon|main/i.test(lower) ? "protagonist" : undefined)
+    ?? (isHeroRole(lower) ? "protagonist" : undefined)
     ?? (/antagon|villain|rival/i.test(lower) ? "antagonist" : undefined)
     ?? (/deuterag|secondary|support/i.test(lower) ? "deuteragonist" : undefined)
     ?? (/mentor|oracle|guide|sensei/i.test(lower) ? "important_npc" : undefined)

@@ -18,6 +18,7 @@ import {
   resolveCharacterImportanceTier,
   resolveChapterLookProfile,
   validateShotCompliance,
+  isHeroRole,
   PREMIUM_PANEL_RANGE,
   type StableImageReference,
   type PanelBlueprintPremium,
@@ -482,8 +483,8 @@ export async function runImageGenerationPass(
       const heroCanonRef = panelCharacterNames
         .map((n) => {
           const c = rawCharacters.find((rc: any) => rc.name === n);
-          const isHero = typeof c?.roleType === "string" && /hero|protagon|main/i.test(c.roleType);
-          return isHero ? canonRefByName.get(n) : null;
+          const isHeroChar = isHeroRole(c?.roleType);
+          return isHeroChar ? canonRefByName.get(n) : null;
         })
         .find(Boolean) ?? null;
       let canonRef: any = null;

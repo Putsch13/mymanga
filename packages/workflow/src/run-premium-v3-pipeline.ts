@@ -67,6 +67,10 @@ import {
   getPremiumVisualQaConfigStatus,
   isPremiumVisualQaStrictlyRequired,
 } from "./passes/assert-premium-visual-qa-config";
+import { runBeatCoverageQaPass, formatBeatCoverageQaLog } from "./passes/beat-coverage-qa-pass";
+import { runEmotionalArcQaPass, formatEmotionalArcQaLog } from "./passes/emotional-arc-qa-pass";
+import { runInteractionQaPass, formatInteractionQaLog } from "./passes/interaction-qa-pass";
+import { runPropsQaPass, formatPropsQaLog } from "./passes/props-qa-pass";
 
 export type { PremiumV3PipelineLocation } from "./load-locations-for-v3-story-pass";
 
@@ -129,6 +133,58 @@ function assertPremiumOnlyV3Config(input: Pick<RunPremiumV3PipelineInput, "pipel
         "Le render-pass v3 doit générer et persister les images ; aucun fallback legacy n'est autorisé.",
     );
   }
+}
+
+/**
+ * P1.9 + P7 — Patterns pour détecter les groupes humains dans le texte narratif.
+ * Ces mots déclenchent la création d'un npcGroup s'ils sont trouvés dans le résumé/beats.
+ */
+const NPC_GROUP_DETECTION_PATTERNS: Array<{ pattern: RegExp; label: string; visualHint?: string }> = [
+  { pattern: /\bp[eê]cheurs?\b/gi, label: "pêcheurs", visualHint: "fishermen at work, fishing nets, boats" },
+  { pattern: /\bmarins?\b/gi, label: "marins", visualHint: "sailors in uniform, naval attire" },
+  { pattern: /\bfoule\b/gi, label: "foule", visualHint: "crowd of people, busy scene" },
+  { pattern: /\bpassants?\b/gi, label: "passants", visualHint: "passersby, people walking" },
+  { pattern: /\bclients?\b/gi, label: "clients", visualHint: "customers, patrons" },
+  { pattern: /\bsoldats?\b/gi, label: "soldats", visualHint: "soldiers in uniform" },
+  { pattern: /\bgardes?\b/gi, label: "gardes", visualHint: "guards, sentries" },
+  { pattern: /\bvillageois\b/gi, label: "villageois", visualHint: "villagers, rural people" },
+  { pattern: /\bmarchands?\b/gi, label: "marchands", visualHint: "merchants, traders with goods" },
+  { pattern: /\bouvriers?\b/gi, label: "ouvriers", visualHint: "workers, laborers" },
+  { pattern: /\benfants?\b/gi, label: "enfants", visualHint: "children playing" },
+  { pattern: /\bserveurs?\b/gi, label: "serveurs", visualHint: "waiters, servers" },
+  { pattern: /\bpoliciers?\b/gi, label: "policiers", visualHint: "police officers" },
+  // English equivalents
+  { pattern: /\bfishermen?\b/gi, label: "pêcheurs", visualHint: "fishermen at work" },
+  { pattern: /\bsailors?\b/gi, label: "marins", visualHint: "sailors" },
+  { pattern: /\bcrowd\b/gi, label: "foule", visualHint: "crowd of people" },
+  { pattern: /\bworkers?\b/gi, label: "ouvriers", visualHint: "workers" },
+  { pattern: /\bguards?\b/gi, label: "gardes", visualHint: "guards" },
+  { pattern: /\bsoldiers?\b/gi, label: "soldats", visualHint: "soldiers" },
+];
+
+/**
+ * P7 — Détecte les groupes NPC depuis le texte narratif (résumé, intent, beats).
+ */
+function detectNpcGroupsFromText(
+  texts: Array<string | null | undefined>,
+): Array<{ id: string; label: string; visualDescription?: string }> {
+  const combined = texts.filter(Boolean).join(" ").toLowerCase();
+  const detected = new Map<string, { id: string; label: string; visualDescription: string }>();
+
+  for (const { pattern, label, visualHint } of NPC_GROUP_DETECTION_PATTERNS) {
+    if (pattern.test(combined)) {
+      const groupId = `text_${label.toLowerCase().replace(/\s+/g, "_")}`;
+      if (!detected.has(groupId)) {
+        detected.set(groupId, {
+          id: groupId,
+          label,
+          visualDescription: visualHint ?? "",
+        });
+      }
+    }
+  }
+
+  return Array.from(detected.values());
 }
 
 /**
@@ -280,6 +336,37 @@ export async function runPremiumV3Pipeline(
       );
     }
 
+    // P7 — Détecter les groupes NPC depuis le texte narratif (résumé, intent).
+    const beatTexts = input.panelBlueprints?.map((bp) => bp.purpose ?? bp.sceneContextLabel) ?? [];
+    const npcGroupsFromText = detectNpcGroupsFromText([
+      input.chapterSummary,
+      input.chapterUserIntent,
+      ...beatTexts,
+    ]);
+    if (npcGroupsFromText.length > 0) {
+      console.info(
+        `[pipeline:v3:npc-groups] detected ${npcGroupsFromText.length} groups from text: ` +
+          npcGroupsFromText.map((g) => g.label).join(", "),
+      );
+    }
+
+    // Fusionner les groupes NPC (blueprints + texte), sans doublons
+    const mergedNpcGroupsMap = new Map<string, { id: string; label: string; visualDescription?: string; requiredInBeatIds?: string[] }>();
+    for (const g of npcGroupsFromBlueprints) {
+      mergedNpcGroupsMap.set(g.label.toLowerCase(), g);
+    }
+    for (const g of npcGroupsFromText) {
+      if (!mergedNpcGroupsMap.has(g.label.toLowerCase())) {
+        mergedNpcGroupsMap.set(g.label.toLowerCase(), g);
+      }
+    }
+    const mergedNpcGroups = Array.from(mergedNpcGroupsMap.values());
+    if (mergedNpcGroups.length > 0) {
+      console.info(
+        `[pipeline:v3:npc-contract] groups=${mergedNpcGroups.length} labels=${mergedNpcGroups.map((g) => g.label).join(",")}`,
+      );
+    }
+
     // P0.1 — Construire et valider le ChapterCastContract AVANT tout traitement.
     // C'est la source de vérité pour l'identité des personnages.
     const castContract: ChapterCastContract = buildChapterCastContract({
@@ -291,13 +378,36 @@ export async function runPremiumV3Pipeline(
         name: c.name,
         roleType: c.roleType ?? null,
       })),
-      npcGroups: npcGroupsFromBlueprints,
+      npcGroups: mergedNpcGroups,
     });
     assertValidChapterCastContract(castContract);
     console.info(formatCastContractLog(castContract));
 
-    // P1.6 — Construire et valider le ChapterStoryContract AVANT le storyboard.
+    const approvedPlanDriven = hasApprovedPlanDrivenInput(input);
+    const projectFormat = resolveProjectFormat(input.project, input.projectId);
+    const resolvedProductionOutline = resolveProductionOutlineForPremiumPipeline({
+      approvedOutlineRaw: input.approvedOutline ?? null,
+      productionPlanRaw: input.productionPlan ?? null,
+      chapterSummary: input.chapterSummary,
+      cliffhangerOverride: null,
+    });
+
+    // P1.6 + P9 — Construire le ChapterStoryContract APRÈS résolution du plan.
     // Ce contrat définit les éléments narratifs et visuels REQUIS pour le chapitre.
+    // On extrait les beatIds depuis le resolvedProductionOutline pour un contrat complet.
+    const resolvedBeatIds = resolvedProductionOutline?.beats?.map((b: { beatId?: string }) => b.beatId).filter(Boolean) as string[] ?? [];
+    const resolvedLocations = await (async () => {
+      const locs = input.locations ?? [];
+      if (locs.length > 0) return locs;
+      if (input.locationIds?.length) {
+        return loadLocationsForV3StoryPass({
+          projectId: input.projectId,
+          locationIds: input.locationIds,
+        });
+      }
+      return [];
+    })();
+
     const storyContract: ChapterStoryContract = buildChapterStoryContract({
       chapterId: input.chapterId,
       chapterNumber: input.chapterNumber,
@@ -310,27 +420,18 @@ export async function runPremiumV3Pipeline(
         name: c.name,
         roleType: c.roleType ?? null,
       })),
-      locations: (input.locations ?? []).map((loc) => ({
+      locations: resolvedLocations.map((loc) => ({
         id: loc.id,
         name: loc.name ?? loc.id,
         visualDescription:
           typeof loc.visualDNA?.description === "string" ? loc.visualDNA.description : "",
       })),
-      npcGroups: npcGroupsFromBlueprints,
-      beatIds: [], // sera rempli après résolution du plan
+      npcGroups: mergedNpcGroups,
+      beatIds: resolvedBeatIds,
       tone: "neutral",
     });
     assertValidChapterStoryContract(storyContract);
     console.info(formatStoryContractLog(storyContract));
-
-    const approvedPlanDriven = hasApprovedPlanDrivenInput(input);
-    const projectFormat = resolveProjectFormat(input.project, input.projectId);
-    const resolvedProductionOutline = resolveProductionOutlineForPremiumPipeline({
-      approvedOutlineRaw: input.approvedOutline ?? null,
-      productionPlanRaw: input.productionPlan ?? null,
-      chapterSummary: input.chapterSummary,
-      cliffhangerOverride: null,
-    });
     let storyArc: StoryArc | null = null;
 
     let storyboardPassResult: Awaited<ReturnType<typeof runStoryboardPass>>;
@@ -710,6 +811,61 @@ export async function runPremiumV3Pipeline(
       }
     }
 
+    // ─── QA passes additionnelles (P3.14, P3.15, P3.16) ────────────────────────
+    const storyboardPanels = storyboardPassResult.storyboardPlan.pages.flatMap((p) => p.panels) ?? [];
+    const beatIdsFromPlan = resolvedProductionOutline?.beats?.map((b: { beatId?: string }) => b.beatId).filter(Boolean) as string[] ?? [];
+
+    // P3.14 — Beat Coverage QA
+    const beatCoverageQa = runBeatCoverageQaPass({
+      expectedBeatIds: beatIdsFromPlan,
+      panels: storyboardPanels.map((p: { panelId: string; sourceBeatId?: string; beatId?: string }) => ({
+        panelId: p.panelId,
+        sourceBeatId: p.sourceBeatId,
+        beatId: p.beatId,
+      })),
+      strictMode: input.premiumV3OnlyEnabled ?? false,
+    });
+    console.log(`[pipeline:v3:beat-coverage-qa] ${formatBeatCoverageQaLog(beatCoverageQa)}`);
+    if (!beatCoverageQa.ok && input.premiumV3OnlyEnabled) {
+      console.error(`[pipeline:v3:beat-coverage-qa] BLOCKED — uncovered beats detected`);
+    }
+
+    // P3.15 — Emotional Arc QA (si arc émotionnel disponible)
+    const emotionalArcSteps = storyArc?.beats?.map((b, idx: number) => ({
+      stepId: b.beatId,
+      label: b.emotionalTurn ?? `Step ${idx + 1}`,
+      intensity: 50 + (b.dangerLevel === "critical" ? 30 : b.dangerLevel === "high" ? 20 : b.dangerLevel === "medium" ? 10 : 0),
+      beatIds: [b.beatId],
+    })) ?? [];
+
+    if (emotionalArcSteps.length > 0) {
+      const emotionalArcQa = runEmotionalArcQaPass({
+        expectedArc: emotionalArcSteps,
+        panels: storyboardPanels.map((p: { panelId: string; beatId?: string; emotionLine?: string; emotionalTone?: string }) => ({
+          panelId: p.panelId,
+          beatId: p.beatId,
+          emotionLine: p.emotionLine,
+          emotionalTone: p.emotionalTone,
+        })),
+        strictMode: false,
+      });
+      console.log(`[pipeline:v3:emotional-arc-qa] ${formatEmotionalArcQaLog(emotionalArcQa)}`);
+    }
+
+    // P3.16 — Interaction QA
+    const interactionQa = runInteractionQaPass({
+      panels: storyboardPanels.map((p: { panelId: string; renderMode?: string; visibleCharacterIds?: string[]; dialogueLines?: Array<{ speaker?: string; text: string }>; actionLine?: string; shotType?: string }) => ({
+        panelId: p.panelId,
+        renderMode: p.renderMode,
+        visibleCharacterIds: p.visibleCharacterIds,
+        dialogueLines: p.dialogueLines,
+        actionLine: p.actionLine,
+        shotType: p.shotType,
+      })),
+      strictMode: false,
+    });
+    console.log(`[pipeline:v3:interaction-qa] ${formatInteractionQaLog(interactionQa)}`);
+
     // P1.9 — Coverage brut puis contrat visuel nettoyé (outline + canon, pas de pollution seule)
     const rawCoverage = storyArc
       ? extractRequiredVisualCoverage(storyArc)
@@ -978,6 +1134,18 @@ export async function runPremiumV3Pipeline(
         `[pipeline:v3:visual-memory] chars=${visualMemoryResult.stats.charactersLoaded} missing_face=${visualMemoryResult.stats.charactersMissingFaceRef} env=${visualMemoryResult.stats.environmentsLoaded} style=${visualMemoryResult.stats.styleRefsLoaded}`,
       );
 
+      // P10 — Vérifier que la visual memory contient au moins un environnement
+      if (visualMemoryResult.stats.environmentsLoaded === 0) {
+        console.warn(
+          `[pipeline:v3:visual-memory] env_missing — aucun environnement chargé, le render risque d'être générique`,
+        );
+        if (input.premiumV3OnlyEnabled) {
+          console.error(
+            `[pipeline:v3:visual-memory] BLOCKED — env>=1 required in premium mode`,
+          );
+        }
+      }
+
       const mainCharacterNames = input.rawCharacters
         .filter((c) => castContract.activeCharacterIds.includes(c.id))
         .map((c) => c.name);
@@ -1031,6 +1199,19 @@ export async function runPremiumV3Pipeline(
       if (renderPassResult.summary.warnings.length > 0) {
         console.warn(
           `[pipeline:v3:render] warnings=${renderPassResult.summary.warnings.slice(0, 5).join(" | ")}`,
+        );
+      }
+
+      // P1.7 — Props QA pass : détection des props fantômes dans les render specs
+      const propsQa = runPropsQaPass({
+        specs: renderPassResult.specs,
+        storyContract,
+        strictMode: false,
+      });
+      console.log(`[pipeline:v3:props-qa] ${formatPropsQaLog(propsQa)}`);
+      if (!propsQa.ok) {
+        console.warn(
+          `[pipeline:v3:props-qa] phantom_props_detected errorCount=${propsQa.errorCount} warningCount=${propsQa.warningCount}`,
         );
       }
 
