@@ -66,8 +66,11 @@ export interface PanelRenderCharacterRef {
 
 export interface PanelRenderEnvironmentRef {
   anchorId: string;
-  url: string;
+  /** P0.2 — url peut être null pour les lieux inférés sans image canonique */
+  url: string | null;
   weight: number;
+  /** P0.2 — Description visuelle pour guider le render sans image */
+  visualDescription?: string;
 }
 
 export interface PanelRenderPanelRef {

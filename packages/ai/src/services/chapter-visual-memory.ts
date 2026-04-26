@@ -36,8 +36,13 @@ export interface ChapterVisualMemoryEnvironmentEntry {
   anchorId: string;
   locationId: string | null;
   locationName: string;
-  refUrl: string;
+  /** P0.2 — refUrl peut être null pour les lieux inférés sans image canonique */
+  refUrl: string | null;
   defaultWeight: number;
+  /** P0.2 — Description visuelle pour guider le render sans image */
+  visualDescription?: string;
+  /** P0.2 — Source de l'entrée (db, story_text_inference, etc.) */
+  source?: string;
 }
 
 export interface ChapterVisualMemoryPanelEntry {
@@ -174,6 +179,7 @@ export function resolvePanelReferences(
         anchorId: env.anchorId,
         url: env.refUrl,
         weight: env.defaultWeight,
+        visualDescription: env.visualDescription,
       });
     } else {
       warnings.push(`environment_ref_missing=${input.environmentAnchorId}`);

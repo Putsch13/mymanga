@@ -60,6 +60,12 @@ import {
 } from "./passes/premium-manga-rebalance";
 import { runMangaStructureQaOnBlueprints } from "./passes/manga-structure-qa";
 import { runPreRenderPremiumQaOrThrow } from "./passes/pre-render-premium-qa";
+import {
+  runEnvironmentAnchorPass,
+  extractPrimaryEnvironmentAnchorId,
+} from "./passes/environment-anchor-pass";
+import { runRenderModeNormalizer } from "./passes/render-mode-normalizer";
+import { runCharacterIdentityFallback } from "./passes/character-identity-fallback";
 import { runNarrativeContractQa } from "./passes/beat-narrative-contract";
 import { repairStoryboardVisualCoverage } from "./passes/repair-storyboard-visual-coverage";
 import {
@@ -1215,10 +1221,19 @@ export async function runPremiumV3Pipeline(
 
     try {
       const memoryStart = Date.now();
+      // P0.2 + P0.6 — Passer heroCharacterId et temporaryLocations à la visual memory
       const visualMemoryResult = await loadChapterVisualMemory({
         chapterId: input.chapterId,
         projectId: input.projectId,
+        heroCharacterId: castContract.heroCharacterId,
         mainCharacterIds: castContract.activeCharacterIds,
+        temporaryLocations: canonResolverResult.contract.temporaryLocations.map((loc) => ({
+          id: loc.id,
+          label: loc.label,
+          visualDescription: loc.visualDescription,
+          confidence: loc.matchConfidence,
+          source: "canon_resolver",
+        })),
       });
       timings.visual_memory_ms = Date.now() - memoryStart;
       if (visualMemoryResult.warnings.length > 0) {
@@ -1230,14 +1245,30 @@ export async function runPremiumV3Pipeline(
         `[pipeline:v3:visual-memory] chars=${visualMemoryResult.stats.charactersLoaded} missing_face=${visualMemoryResult.stats.charactersMissingFaceRef} env=${visualMemoryResult.stats.environmentsLoaded} style=${visualMemoryResult.stats.styleRefsLoaded}`,
       );
 
-      // P10 — Vérifier que la visual memory contient au moins un environnement
+      // P0.5 — Appliquer les fallbacks pour les identités personnages manquantes
+      // Downgrade les closeups si pas de face ref (plutôt que bloquer)
+      const allPanelsBeforeFallback = storyboardPassResult.storyboardPlan.pages.flatMap((p) => p.panels);
+      const identityFallbackResult = runCharacterIdentityFallback({
+        memory: visualMemoryResult.memory,
+        panels: allPanelsBeforeFallback,
+        generateIdentitySeeds: false, // Pour l'instant, on downgrade plutôt que générer
+      });
+      if (identityFallbackResult.warnings.length > 0) {
+        console.warn(
+          `[pipeline:v3:identity-fallback] warnings=${identityFallbackResult.warnings.slice(0, 3).join(" | ")}`,
+        );
+      }
+
+      // P0.1 — Vérifier que la visual memory contient au moins un environnement
+      // En mode premium, c'est BLOQUANT - on refuse de continuer vers le render
       if (visualMemoryResult.stats.environmentsLoaded === 0) {
         console.warn(
           `[pipeline:v3:visual-memory] env_missing — aucun environnement chargé, le render risque d'être générique`,
         );
         if (input.premiumV3OnlyEnabled) {
-          console.error(
-            `[pipeline:v3:visual-memory] BLOCKED — env>=1 required in premium mode`,
+          throw new Error(
+            "E_VISUAL_MEMORY_ENV_REQUIRED: env>=1 required in premium mode. " +
+              "Assurez-vous qu'au moins un lieu est défini dans le projet ou détecté automatiquement.",
           );
         }
       }
@@ -1245,6 +1276,27 @@ export async function runPremiumV3Pipeline(
       const mainCharacterNames = input.rawCharacters
         .filter((c) => castContract.activeCharacterIds.includes(c.id))
         .map((c) => c.name);
+
+      // P0.3 — Injecter environmentAnchorId dans tous les panels
+      const primaryEnvAnchorId = extractPrimaryEnvironmentAnchorId(
+        enrichedLocations,
+        canonResolverResult.contract.temporaryLocations,
+      );
+      const allStoryboardPanels = storyboardPassResult.storyboardPlan.pages.flatMap((p) => p.panels);
+      const envAnchorResult = runEnvironmentAnchorPass({
+        panels: allStoryboardPanels,
+        primaryEnvironmentAnchorId: primaryEnvAnchorId,
+      });
+      if (envAnchorResult.missing > 0 && input.premiumV3OnlyEnabled) {
+        throw new Error(
+          `E_ENVIRONMENT_ANCHOR_MISSING: ${envAnchorResult.missing} panels without environment anchor`,
+        );
+      }
+
+      // P0.4 — Corriger les contradictions renderMode (character_focus + wide establishing)
+      runRenderModeNormalizer({
+        panels: allStoryboardPanels,
+      });
 
       runPreRenderPremiumQaOrThrow({
         storyboardPlan: storyboardPassResult.storyboardPlan,

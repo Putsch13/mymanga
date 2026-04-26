@@ -36,6 +36,7 @@ describe("loadChapterVisualMemory", () => {
     const res = await loadChapterVisualMemory({
       chapterId: "ch-1",
       projectId: "proj-1",
+      heroCharacterId: "hero-1", // P0.6 — heroCharacterId explicite requis
       mainCharacterIds: ["hero-1"],
     });
 
@@ -63,6 +64,7 @@ describe("loadChapterVisualMemory", () => {
     const res = await loadChapterVisualMemory({
       chapterId: "ch-1",
       projectId: "proj-1",
+      heroCharacterId: "hero-1", // P0.6 — heroCharacterId explicite requis
       mainCharacterIds: ["hero-1"],
     });
 

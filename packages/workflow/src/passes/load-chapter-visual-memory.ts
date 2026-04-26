@@ -27,10 +27,26 @@ import {
   isSupportingRole,
 } from "@manga-ai-studio/core";
 
+/**
+ * P0.2 — Lieu temporaire découvert par VisualDiscoveryPass / CanonResolver
+ * sans fiche utilisateur en DB.
+ */
+export interface TemporaryLocation {
+  id: string;
+  label: string;
+  visualDescription?: string | null;
+  confidence?: number;
+  source?: string;
+}
+
 export interface LoadChapterVisualMemoryInput {
   chapterId: string;
   projectId: string;
+  /** P0.6 — ID du héros officiel (seul personnage avec role=hero) */
+  heroCharacterId?: string | null;
   mainCharacterIds: string[];
+  /** P0.2 — Lieux temporaires détectés automatiquement */
+  temporaryLocations?: TemporaryLocation[];
 }
 
 export interface LoadChapterVisualMemoryResult {
@@ -59,17 +75,27 @@ function isCloseupMeta(meta: unknown): boolean {
 }
 
 /**
- * P0.2 — Utilise le normaliseur centralisé pour les rôles personnages.
+ * P0.6 — Dérive le rôle d'un personnage pour la visual memory.
+ * RÈGLE STRICTE : seul heroCharacterId peut avoir role="hero".
+ * Les autres personnages actifs sont "support", pas "hero".
  */
 function deriveRole(
   characterId: string,
   roleType: string | null | undefined,
-  mainIds: Set<string>,
+  heroCharacterId: string | null,
+  activeCharacterIds: Set<string>,
 ): ChapterVisualMemoryCharacterEntry["role"] {
-  if (mainIds.has(characterId)) return "hero";
-  if (isHeroRole(roleType)) return "hero";
-  if (isSupportingRole(roleType)) return "support";
+  // P0.6 — Un seul héros : celui explicitement désigné
+  if (heroCharacterId && characterId === heroCharacterId) {
+    return "hero";
+  }
+  // Les autres personnages actifs sont support, PAS hero
+  if (activeCharacterIds.has(characterId)) {
+    return "support";
+  }
+  // Fallback sur roleType pour les personnages non actifs
   if (isAntagonistRole(roleType)) return "enemy";
+  if (isSupportingRole(roleType)) return "support";
   return "npc";
 }
 
@@ -78,7 +104,8 @@ export async function loadChapterVisualMemory(
 ): Promise<LoadChapterVisualMemoryResult> {
   const warnings: string[] = [];
   const memory = createEmptyChapterVisualMemory(input.chapterId);
-  const mainIds = new Set(input.mainCharacterIds);
+  const activeIds = new Set(input.mainCharacterIds);
+  const heroId = input.heroCharacterId ?? null;
 
   const [characters, locations, stylePacks] = await Promise.all([
     prisma.character.findMany({
@@ -106,6 +133,7 @@ export async function loadChapterVisualMemory(
         id: true,
         name: true,
         canonImageUrl: true,
+        description: true,
       },
     }),
     prisma.stylePack.findMany({
@@ -127,7 +155,8 @@ export async function loadChapterVisualMemory(
     const faceRefUrl = faceRef?.imageUrl ?? null;
     const silhouetteRefUrl = primaryRef?.imageUrl ?? firstRef?.imageUrl ?? null;
     const outfitRefUrl = silhouetteRefUrl;
-    const role = deriveRole(c.id, c.roleType, mainIds);
+    // P0.6 — Utilise heroCharacterId pour déterminer le héros unique
+    const role = deriveRole(c.id, c.roleType, heroId, activeIds);
 
     if (!faceRefUrl && (role === "hero" || role === "support")) {
       charactersMissingFaceRef += 1;
@@ -148,6 +177,9 @@ export async function loadChapterVisualMemory(
   }
 
   let environmentsLoaded = 0;
+  const loadedLocationIds = new Set<string>();
+
+  // P0.2 — Charger les lieux depuis la DB (avec image canonique)
   for (const loc of locations) {
     if (!loc.canonImageUrl) continue;
     addEnvironmentEntry(memory, {
@@ -157,7 +189,55 @@ export async function loadChapterVisualMemory(
       refUrl: loc.canonImageUrl,
       defaultWeight: 0.7,
     });
+    loadedLocationIds.add(loc.id);
     environmentsLoaded += 1;
+  }
+
+  // P0.2 — Injecter les lieux temporaires découverts automatiquement
+  // même sans image canonique, on crée une entrée environnement utilisable
+  const temporaryLocations = input.temporaryLocations ?? [];
+  for (const tempLoc of temporaryLocations) {
+    // Éviter les doublons si le lieu existe déjà en DB
+    if (loadedLocationIds.has(tempLoc.id)) continue;
+    // Chercher si un lieu DB avec le même nom existe
+    const dbMatch = locations.find(
+      (l) => l.name.toLowerCase() === tempLoc.label.toLowerCase(),
+    );
+    if (dbMatch && loadedLocationIds.has(dbMatch.id)) continue;
+
+    // P0.2 — Créer une entrée environnement sans image canonique
+    // Le render utilisera la description visuelle comme guide
+    addEnvironmentEntry(memory, {
+      anchorId: tempLoc.id,
+      locationId: tempLoc.id,
+      locationName: tempLoc.label,
+      refUrl: null, // Pas d'image canonique
+      defaultWeight: tempLoc.confidence ?? 0.5,
+      // P0.2 — Métadonnées pour le render
+      visualDescription: tempLoc.visualDescription ?? undefined,
+      source: tempLoc.source ?? "story_text_inference",
+    });
+    loadedLocationIds.add(tempLoc.id);
+    environmentsLoaded += 1;
+  }
+
+  // P0.2 — Si toujours aucun environnement, créer un fallback depuis les lieux DB sans image
+  if (environmentsLoaded === 0) {
+    for (const loc of locations) {
+      if (loadedLocationIds.has(loc.id)) continue;
+      addEnvironmentEntry(memory, {
+        anchorId: loc.id,
+        locationId: loc.id,
+        locationName: loc.name,
+        refUrl: null,
+        defaultWeight: 0.5,
+        visualDescription: loc.description ?? undefined,
+        source: "db_location_no_image",
+      });
+      loadedLocationIds.add(loc.id);
+      environmentsLoaded += 1;
+      break; // Au moins un pour débloquer
+    }
   }
 
   const stylePack = stylePacks[0];

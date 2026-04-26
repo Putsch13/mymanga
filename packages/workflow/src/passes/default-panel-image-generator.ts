@@ -106,15 +106,16 @@ export function createDefaultPanelImageGenerator(
 }
 
 function flattenReferenceUrls(spec: PanelRenderSpec): string[] {
-  const urls: string[] = [];
+  const urls: (string | null)[] = [];
   for (const r of spec.imageReferences.characterRefs) urls.push(r.url);
+  // P0.2 — environmentRefs.url peut être null pour les lieux inférés
   for (const r of spec.imageReferences.environmentRefs) urls.push(r.url);
   for (const r of spec.imageReferences.panelRefs) urls.push(r.url);
   for (const r of spec.imageReferences.styleRefs) urls.push(r.url);
   const seen = new Set<string>();
   const deduped: string[] = [];
   for (const u of urls) {
-    if (!u) continue;
+    if (!u) continue; // Filtre les nulls
     if (seen.has(u)) continue;
     seen.add(u);
     deduped.push(u);
