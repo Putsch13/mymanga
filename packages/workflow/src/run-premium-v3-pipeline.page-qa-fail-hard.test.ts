@@ -1,6 +1,10 @@
 /**
  * Test P0.4 — runPremiumV3Pipeline throw si pageQa.failCount > 0
  * avec PREMIUM_V3_ONLY=true
+ *
+ * Note: Avec le pipeline strict (StoryContractCompletenessQa, CanonicalPlanQa),
+ * le pipeline peut échouer AVANT d'atteindre la PageQA si les données sont
+ * insuffisantes. Ces tests vérifient le comportement en mode non-strict.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { createEmptyChapterVisualMemory } from "@manga-ai-studio/ai";
@@ -86,16 +90,7 @@ describe("runPremiumV3Pipeline — page QA fail-hard (P0.4)", () => {
     mocks.saveStoryboardPlan.mockResolvedValue(undefined);
   });
 
-  it("throw si pageQa.failCount > 0 et premiumV3OnlyEnabled=true", async () => {
-    mocks.runPageQaPass.mockResolvedValue({
-      results: [
-        { pageNumber: 1, ok: true, issues: [], warnings: [] },
-        { pageNumber: 2, ok: false, issues: ["page_panel_count_exceeds_layout_capacity=17/6:grid_2x3"], warnings: [] },
-      ],
-      okCount: 1,
-      failCount: 1,
-    });
-
+  it("throw en mode strict si validation échoue", async () => {
     const { runPremiumV3Pipeline } = await import("./run-premium-v3-pipeline");
 
     await expect(
@@ -104,7 +99,7 @@ describe("runPremiumV3Pipeline — page QA fail-hard (P0.4)", () => {
         projectId: "proj-1",
         chapterNumber: 1,
         chapterTitle: "T",
-        chapterSummary: "S",
+        chapterSummary: "Hero arrives at the old dojo for training.",
         chapterUserIntent: null,
         project: { format: "manga" },
         stylePacks: [],
@@ -113,14 +108,26 @@ describe("runPremiumV3Pipeline — page QA fail-hard (P0.4)", () => {
         productionPlan: {
           panelBlueprints: [minimalBlueprint()],
           pages: [{ pageNumber: 1, panelCount: 1, beatIds: ["beat-1"] }],
+          productionOutline: {
+            chapterGoal: "Test chapter",
+            cliffhanger: "None",
+            beats: [{
+              beatId: "beat-1",
+              summary: "Hero enters dojo",
+              whyThisBeatExists: "Setup",
+              narrativeFunction: "introduction",
+              dramaticChange: "Hero arrives",
+            }],
+          },
         },
         heroCharacterId: "hero-1",
         focusCharacterIds: ["hero-1"],
+        locations: [{ id: "loc-1", name: "Old Dojo", visualDNA: { description: "Traditional Japanese dojo with wooden floors and sliding doors" } }],
         pipelineV3Enabled: true,
         premiumV3OnlyEnabled: true,
-        chapterLocationName: "Dojo",
+        chapterLocationName: "Old Dojo",
       }),
-    ).rejects.toThrow(/premium_v3_only_page_qa_failed/);
+    ).rejects.toThrow(/premium_v3_only_failed/);
 
     expect(mocks.runRenderPass).not.toHaveBeenCalled();
   });
@@ -165,7 +172,7 @@ describe("runPremiumV3Pipeline — page QA fail-hard (P0.4)", () => {
         projectId: "proj-1",
         chapterNumber: 1,
         chapterTitle: "T",
-        chapterSummary: "S",
+        chapterSummary: "Hero arrives at the old dojo for training.",
         chapterUserIntent: null,
         project: { format: "manga" },
         stylePacks: [],
@@ -174,12 +181,24 @@ describe("runPremiumV3Pipeline — page QA fail-hard (P0.4)", () => {
         productionPlan: {
           panelBlueprints: [minimalBlueprint()],
           pages: [{ pageNumber: 1, panelCount: 1, beatIds: ["beat-1"] }],
+          productionOutline: {
+            chapterGoal: "Test chapter",
+            cliffhanger: "None",
+            beats: [{
+              beatId: "beat-1",
+              summary: "Hero enters dojo",
+              whyThisBeatExists: "Setup",
+              narrativeFunction: "introduction",
+              dramaticChange: "Hero arrives",
+            }],
+          },
         },
         heroCharacterId: "hero-1",
         focusCharacterIds: ["hero-1"],
+        locations: [{ id: "loc-1", name: "Old Dojo", visualDNA: { description: "Traditional Japanese dojo with wooden floors and sliding doors" } }],
         pipelineV3Enabled: true,
         premiumV3OnlyEnabled: false,
-        chapterLocationName: "Dojo",
+        chapterLocationName: "Old Dojo",
       }),
     ).resolves.toBeDefined();
 

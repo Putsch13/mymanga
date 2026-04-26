@@ -71,6 +71,9 @@ import { runBeatCoverageQaPass, formatBeatCoverageQaLog } from "./passes/beat-co
 import { runEmotionalArcQaPass, formatEmotionalArcQaLog } from "./passes/emotional-arc-qa-pass";
 import { runInteractionQaPass, formatInteractionQaLog } from "./passes/interaction-qa-pass";
 import { runPropsQaPass, formatPropsQaLog } from "./passes/props-qa-pass";
+import { runVisualDiscoveryPass, formatVisualDiscoveryLog } from "./passes/visual-discovery-pass";
+import { runCanonResolverPass, formatCanonResolverLog } from "./passes/canon-resolver-pass";
+import { runStoryContractCompletenessQa, formatStoryContractCompletenessLog } from "./passes/story-contract-completeness-qa";
 
 export type { PremiumV3PipelineLocation } from "./load-locations-for-v3-story-pass";
 
@@ -408,6 +411,85 @@ export async function runPremiumV3Pipeline(
       return [];
     })();
 
+    // P1.4 — Visual Discovery Pass : détection automatique des entités visuelles.
+    // Ce pass détecte les lieux, PNJ, robots, hybrides, créatures depuis le texte narratif.
+    const discoveryInput = {
+      chapterId: input.chapterId,
+      beats: resolvedProductionOutline?.beats?.map((b: { beatId?: string; summary?: string; whyThisBeatExists?: string }) => ({
+        beatId: b.beatId ?? "",
+        summary: b.summary,
+        whyThisBeatExists: b.whyThisBeatExists,
+      })) ?? [],
+      chapterSummary: input.chapterSummary,
+      userIntent: input.chapterUserIntent,
+      knownCharacters: input.rawCharacters.map((c) => ({
+        id: c.id,
+        name: c.name,
+        roleType: c.roleType,
+        description: c.canonSignatureText,
+      })),
+      knownLocations: resolvedLocations.map((loc) => ({
+        id: loc.id,
+        name: loc.name ?? loc.id,
+        description: typeof loc.visualDNA?.description === "string" ? loc.visualDNA.description : undefined,
+      })),
+    };
+    const visualDiscoveryResult = runVisualDiscoveryPass(discoveryInput);
+    console.info(formatVisualDiscoveryLog(visualDiscoveryResult));
+
+    // P1.5 — Canon Resolver : résolution canonique des entités détectées.
+    const canonResolverResult = runCanonResolverPass({
+      discoveryContract: visualDiscoveryResult.contract,
+      userCharacters: input.rawCharacters.map((c) => ({
+        id: c.id,
+        name: c.name,
+        roleType: c.roleType,
+        description: c.canonSignatureText,
+      })),
+      userLocations: resolvedLocations.map((loc) => ({
+        id: loc.id,
+        name: loc.name ?? loc.id,
+        description: typeof loc.visualDNA?.description === "string" ? loc.visualDNA.description : undefined,
+      })),
+      strictMode: input.premiumV3OnlyEnabled,
+    });
+    console.info(formatCanonResolverLog(canonResolverResult));
+
+    // Enrichir les NPC groups avec ceux détectés automatiquement
+    for (const npcGroup of visualDiscoveryResult.contract.npcGroups) {
+      const existing = mergedNpcGroupsMap.get(npcGroup.label.toLowerCase());
+      if (!existing) {
+        mergedNpcGroupsMap.set(npcGroup.label.toLowerCase(), {
+          id: `auto_${npcGroup.label.toLowerCase().replace(/\s+/g, "_")}`,
+          label: npcGroup.label,
+          visualDescription: npcGroup.visualDescription,
+          requiredInBeatIds: npcGroup.requiredBeats,
+        });
+      }
+    }
+    const enrichedNpcGroups = Array.from(mergedNpcGroupsMap.values());
+    if (enrichedNpcGroups.length > mergedNpcGroups.length) {
+      console.info(
+        `[pipeline:v3:npc-discovery] auto_detected=${enrichedNpcGroups.length - mergedNpcGroups.length} ` +
+          `total=${enrichedNpcGroups.length}`,
+      );
+    }
+
+    // Enrichir les lieux avec ceux détectés automatiquement
+    const enrichedLocations = [...resolvedLocations];
+    for (const tempLoc of canonResolverResult.contract.temporaryLocations) {
+      const exists = enrichedLocations.some(
+        (l) => l.id === tempLoc.id || l.name?.toLowerCase() === tempLoc.label.toLowerCase(),
+      );
+      if (!exists) {
+        enrichedLocations.push({
+          id: tempLoc.id,
+          name: tempLoc.label,
+          visualDNA: { description: tempLoc.visualDescription },
+        } as PremiumV3PipelineLocation);
+      }
+    }
+
     const storyContract: ChapterStoryContract = buildChapterStoryContract({
       chapterId: input.chapterId,
       chapterNumber: input.chapterNumber,
@@ -420,18 +502,32 @@ export async function runPremiumV3Pipeline(
         name: c.name,
         roleType: c.roleType ?? null,
       })),
-      locations: resolvedLocations.map((loc) => ({
+      locations: enrichedLocations.map((loc) => ({
         id: loc.id,
         name: loc.name ?? loc.id,
         visualDescription:
           typeof loc.visualDNA?.description === "string" ? loc.visualDNA.description : "",
       })),
-      npcGroups: mergedNpcGroups,
+      npcGroups: enrichedNpcGroups,
       beatIds: resolvedBeatIds,
       tone: "neutral",
     });
     assertValidChapterStoryContract(storyContract);
     console.info(formatStoryContractLog(storyContract));
+
+    // P6.17 — StoryContractCompletenessQA : vérifier la complétude du contrat.
+    const storyContractQaResult = runStoryContractCompletenessQa({
+      storyContract,
+      castContract,
+      beatIds: resolvedBeatIds,
+      strictMode: input.premiumV3OnlyEnabled,
+    });
+    console.info(formatStoryContractCompletenessLog(storyContractQaResult));
+    if (!storyContractQaResult.ok && input.premiumV3OnlyEnabled) {
+      throw new Error(
+        `story_contract_incomplete: ${storyContractQaResult.issues.map((i) => i.code).join(", ")}`,
+      );
+    }
     let storyArc: StoryArc | null = null;
 
     let storyboardPassResult: Awaited<ReturnType<typeof runStoryboardPass>>;
