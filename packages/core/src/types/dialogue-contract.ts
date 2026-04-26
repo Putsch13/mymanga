@@ -175,16 +175,80 @@ export function validateDialogueContract(
 }
 
 /**
+ * Input blueprint pour la construction du contrat de dialogue.
+ * P0.3 — Utilise les attributs speaker pour déterminer la visibilité.
+ */
+export interface DialogueContractBlueprintInput {
+  panelId: string;
+  dialogueLines?: Array<{ speaker?: string; text: string }> | null;
+  requiredCharacterIds?: string[];
+  visibleCharacterIds?: string[];
+  mustShowCharacterIds?: string[];
+  dialogueCarrier?: string;
+  subjectFocus?: string;
+  speakerAnchorCharacterId?: string | null;
+  mangaPanelFunction?: string;
+  dialogueLinesAnchored?: number;
+}
+
+/**
+ * Détermine si un speaker est visible dans un panel.
+ * P0.3 — Logique alignée avec isSpeakerPanelForDialogueBeat.
+ */
+function isSpeakerVisibleInPanel(
+  speakerId: string,
+  bp: DialogueContractBlueprintInput,
+): boolean {
+  // Si c'est le speaker anchor, il est forcément visible
+  if (bp.speakerAnchorCharacterId === speakerId) {
+    return true;
+  }
+
+  // Si le panel est explicitement speaker_visible avec anchor
+  if (bp.dialogueCarrier === "speaker_visible" && bp.speakerAnchorCharacterId) {
+    return bp.speakerAnchorCharacterId === speakerId;
+  }
+
+  // Si le panel est de type dialogue_speaker
+  if (bp.mangaPanelFunction === "dialogue_speaker") {
+    return true;
+  }
+
+  // Vérifier dans les IDs de personnages visibles
+  const visibleIds = new Set([
+    ...(bp.requiredCharacterIds ?? []),
+    ...(bp.visibleCharacterIds ?? []),
+    ...(bp.mustShowCharacterIds ?? []),
+  ]);
+
+  if (visibleIds.has(speakerId)) {
+    return true;
+  }
+
+  // Si dialogueLinesAnchored > 0, considérer comme visible
+  if ((bp.dialogueLinesAnchored ?? 0) > 0) {
+    return true;
+  }
+
+  // Si subjectFocus est speaker/duo avec des personnages
+  if (
+    (bp.subjectFocus === "speaker" || bp.subjectFocus === "duo") &&
+    visibleIds.size > 0
+  ) {
+    return true;
+  }
+
+  // Fallback : si aucun ID visible défini, considérer visible par défaut
+  return visibleIds.size === 0;
+}
+
+/**
  * Construit un DialogueContract depuis les blueprints premium.
+ * P0.3 — Utilise la logique unifiée de détection speaker.
  */
 export function buildDialogueContractFromBlueprints(
   chapterId: string,
-  blueprints: Array<{
-    panelId: string;
-    dialogueLines?: Array<{ speaker?: string; text: string }> | null;
-    requiredCharacterIds?: string[];
-    visibleCharacterIds?: string[];
-  }>,
+  blueprints: Array<DialogueContractBlueprintInput>,
   characterNameById: Record<string, string>,
 ): DialogueContract {
   const lines: DialogueContractLine[] = [];
@@ -194,15 +258,10 @@ export function buildDialogueContractFromBlueprints(
   for (const bp of blueprints) {
     if (!bp.dialogueLines || bp.dialogueLines.length === 0) continue;
 
-    const visibleIds = new Set([
-      ...(bp.requiredCharacterIds ?? []),
-      ...(bp.visibleCharacterIds ?? []),
-    ]);
-
     for (const dl of bp.dialogueLines) {
       const speakerId = dl.speaker ?? "unknown";
       const speakerName = characterNameById[speakerId] ?? dl.speaker ?? "???";
-      const speakerVisible = visibleIds.has(speakerId) || visibleIds.size === 0;
+      const speakerVisible = isSpeakerVisibleInPanel(speakerId, bp);
 
       lines.push({
         panelId: bp.panelId,

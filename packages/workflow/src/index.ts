@@ -353,3 +353,30 @@ export type {
   PremiumVisualQaConfigStatus,
   PremiumVisualQaConfigMissingKey,
 } from "./passes/assert-premium-visual-qa-config";
+// P1.4 — Visual Discovery Pass
+export {
+  runVisualDiscoveryPass,
+  formatVisualDiscoveryLog,
+} from "./passes/visual-discovery-pass";
+export type {
+  DiscoveredEntityKind,
+  DiscoverySource,
+  CanonLevel,
+  DiscoveredVisualEntity,
+  BeatVisualBinding,
+  ChapterVisualDiscoveryContract,
+  VisualDiscoveryPassInput,
+  VisualDiscoveryPassResult,
+} from "./passes/visual-discovery-pass";
+// P1.5 — Canon Resolver Pass
+export {
+  runCanonResolverPass,
+  formatCanonResolverLog,
+} from "./passes/canon-resolver-pass";
+export type {
+  ResolvedEntity,
+  CanonResolvedVisualContract,
+  CanonResolverInput,
+  CanonResolverResult,
+  CanonResolverIssue,
+} from "./passes/canon-resolver-pass";

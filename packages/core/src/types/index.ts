@@ -30,3 +30,6 @@ export * from "./chapter-cast-contract";
 export * from "./chapter-story-contract";
 export * from "./dialogue-contract";
 export * from "./pipeline-error-codes";
+export * from "./location-contract";
+export * from "./npc-group-contract";
+export * from "./non-human-visual-contract";

@@ -8,6 +8,7 @@ export * from "./chapter-runtime";
 export * from "./outline-ghost-repair";
 export * from "./shot-diversity-enforcer";
 export * from "./logger";
+export * from "./helpers/speaker-panel-detection";
 export type { CoverageMetrics, ShotValidationResult } from "./shot-diversity-enforcer";
 export {
   computePlannedCoverage,

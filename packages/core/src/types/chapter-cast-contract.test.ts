@@ -189,4 +189,114 @@ describe("ChapterCastContract", () => {
       expect(log).toContain("npcGroups=pêcheurs du port");
     });
   });
+
+  describe("P2.7 — Anti-régression : seul heroCharacterId devient protagonist", () => {
+    it("focusCharacterIds ne deviennent PAS tous hero", () => {
+      const contract = buildChapterCastContract({
+        chapterId: "ch-1",
+        heroCharacterId: "marius",
+        focusCharacterIds: ["marius", "maya", "carlos"],
+        characters: [
+          { id: "marius", name: "Marius", roleType: "main_hero" },
+          { id: "maya", name: "Maya", roleType: "support" },
+          { id: "carlos", name: "Carlos", roleType: "hero" }, // roleType hero mais pas heroCharacterId
+        ],
+      });
+
+      // Seul marius (heroCharacterId) a le rôle hero
+      expect(contract.members.find((m) => m.characterId === "marius")?.role).toBe("hero");
+
+      // maya et carlos doivent être support, PAS hero
+      expect(contract.members.find((m) => m.characterId === "maya")?.role).toBe("support");
+      expect(contract.members.find((m) => m.characterId === "carlos")?.role).toBe("support");
+
+      // Il ne doit y avoir qu'un seul hero
+      const heroCount = contract.members.filter((m) => m.role === "hero").length;
+      expect(heroCount).toBe(1);
+    });
+
+    it("un personnage avec roleType=hero qui n'est pas heroCharacterId devient support", () => {
+      const contract = buildChapterCastContract({
+        chapterId: "ch-1",
+        heroCharacterId: "newguy",
+        focusCharacterIds: ["newguy", "oldhero"],
+        characters: [
+          { id: "newguy", name: "New Guy", roleType: "npc" },
+          { id: "oldhero", name: "Old Hero", roleType: "main_hero" },
+        ],
+      });
+
+      // newguy est le héros officiel de CE chapitre
+      expect(contract.members.find((m) => m.characterId === "newguy")?.role).toBe("hero");
+
+      // oldhero a roleType=main_hero mais n'est pas heroCharacterId
+      // Il doit être "support" dans CE chapitre, pas "hero"
+      expect(contract.members.find((m) => m.characterId === "oldhero")?.role).toBe("support");
+    });
+
+    it("refuse un contrat où un non-héros a le rôle hero", () => {
+      const badContract: ChapterCastContract = {
+        chapterId: "ch-1",
+        heroCharacterId: "marius",
+        activeCharacterIds: ["marius", "maya"],
+        supportCharacterIds: [],
+        antagonistCharacterIds: [],
+        npcGroups: [],
+        members: [
+          {
+            characterId: "marius",
+            name: "Marius",
+            role: "hero",
+            allowsCloseup: true,
+            canSpeak: true,
+            requiredInBeatIds: [],
+            forbiddenInBeatIds: [],
+          },
+          {
+            characterId: "maya",
+            name: "Maya",
+            role: "hero", // ERREUR : maya n'est pas heroCharacterId
+            allowsCloseup: true,
+            canSpeak: true,
+            requiredInBeatIds: [],
+            forbiddenInBeatIds: [],
+          },
+        ],
+      };
+
+      const result = validateChapterCastContract(badContract);
+      expect(result.ok).toBe(false);
+      expect(
+        result.issues.some((i) => i.code === CAST_CONTRACT_ERROR_CODES.NON_HERO_AS_PROTAGONIST),
+      ).toBe(true);
+    });
+
+    it("refuse un contrat où heroCharacterId n'a pas le rôle hero", () => {
+      const badContract: ChapterCastContract = {
+        chapterId: "ch-1",
+        heroCharacterId: "marius",
+        activeCharacterIds: ["marius"],
+        supportCharacterIds: [],
+        antagonistCharacterIds: [],
+        npcGroups: [],
+        members: [
+          {
+            characterId: "marius",
+            name: "Marius",
+            role: "support", // ERREUR : le héros officiel n'a pas le rôle hero
+            allowsCloseup: true,
+            canSpeak: true,
+            requiredInBeatIds: [],
+            forbiddenInBeatIds: [],
+          },
+        ],
+      };
+
+      const result = validateChapterCastContract(badContract);
+      expect(result.ok).toBe(false);
+      expect(
+        result.issues.some((i) => i.code === CAST_CONTRACT_ERROR_CODES.HERO_ROLE_MISMATCH),
+      ).toBe(true);
+    });
+  });
 });

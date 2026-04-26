@@ -3,6 +3,7 @@
  */
 
 import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
+import { beatHasSpeakerPanelForDialogue } from "@manga-ai-studio/core";
 import {
   containsBannedPlaceholder,
   isConflictHeavyBeatPanel,
@@ -24,18 +25,6 @@ export interface MangaStructureQaResult {
 
 function beatHasActorPanel(beatId: string, blueprints: PanelBlueprintPremium[]): boolean {
   return blueprints.some((bp) => bp.beatId === beatId && isPremiumMangaActorDrivenBlueprint(bp));
-}
-
-function beatDialogueCoverage(beatId: string, blueprints: PanelBlueprintPremium[]): boolean {
-  const beatPanels = blueprints.filter((bp) => bp.beatId === beatId);
-  const hasDialogue = beatPanels.some((bp) => (bp.dialogueLines?.length ?? 0) > 0);
-  if (!hasDialogue) return true;
-  return beatPanels.some(
-    (bp) =>
-      bp.dialogueCarrier === "speaker_visible"
-      || bp.subjectFocus === "speaker"
-      || (bp.subjectFocus === "hero" && (bp.mustShowCharacterIds?.length ?? 0) > 0),
-  );
 }
 
 /** Beat de conflit : nécessite au moins un panel avec adversaire / pression visible. */
@@ -90,7 +79,8 @@ export function runMangaStructureQaOnBlueprints(args: RunMangaStructureQaArgs): 
     if (!beatHasActorPanel(bid, args.blueprints)) {
       reasons.push(`no_actor_panel_for_beat beat=${bid}`);
     }
-    if (!beatDialogueCoverage(bid, args.blueprints)) {
+    // P0.3 — Utiliser le helper partagé pour la détection de speaker panel
+    if (!beatHasSpeakerPanelForDialogue(bid, args.blueprints)) {
       reasons.push(`no_speaker_panel_for_dialogue_beat beat=${bid}`);
     }
     if (

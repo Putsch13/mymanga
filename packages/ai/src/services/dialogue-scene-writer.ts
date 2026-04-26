@@ -163,9 +163,45 @@ Réponds uniquement avec JSON : {"lines":[{"panelId","speaker","text"}]}`,
       for (const line of parsed.data.lines) {
         const bp = byId.get(line.panelId);
         if (!bp) continue;
+
+        // P0.2 — Forcer TOUS les attributs speaker pour éviter no_speaker_panel_for_dialogue_beat
         bp.dialogueLines = [{ speaker: line.speaker, text: line.text.trim() }];
         bp.dialogueLinesAnchored = Math.max(1, bp.dialogueLinesAnchored ?? 0);
-        bp.notes = [...(bp.notes ?? []), "scene_dialogue_llm"];
+        bp.dialogueCarrier = "speaker_visible";
+
+        // Résoudre le speaker character ID
+        const speakerName = line.speaker.toLowerCase().trim();
+        const resolvedSpeakerId =
+          bp.speakerAnchorCharacterId ??
+          Object.entries(input.characterNameById).find(
+            ([, name]) => name.toLowerCase().trim() === speakerName,
+          )?.[0] ??
+          bp.mustShowCharacterIds?.[0] ??
+          null;
+
+        if (resolvedSpeakerId) {
+          bp.speakerAnchorCharacterId = resolvedSpeakerId;
+        }
+
+        // Déterminer le focus selon le nombre de speakers potentiels
+        const visibleCharCount = bp.mustShowCharacterIds?.length ?? 1;
+        bp.subjectFocus = visibleCharCount >= 2 ? "duo" : "speaker";
+        bp.mangaPanelFunction = "dialogue_speaker";
+
+        // Assurer les zones réservées pour le texte
+        if (!bp.panelTextBundle) {
+          bp.panelTextBundle = {
+            dialogues: bp.dialogueLines,
+            narration: null,
+            sfx: [],
+            reservedZones: ["top_right"],
+          };
+        } else {
+          bp.panelTextBundle.dialogues = bp.dialogueLines;
+          bp.panelTextBundle.reservedZones = bp.panelTextBundle.reservedZones ?? ["top_right"];
+        }
+
+        bp.notes = [...(bp.notes ?? []), "scene_dialogue_llm", "speaker_panel_enforced"];
         linesWritten += 1;
       }
       if (parsed.data.lines.length > 0) beatsTouched += 1;

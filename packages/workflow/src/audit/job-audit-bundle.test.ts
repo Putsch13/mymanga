@@ -77,8 +77,9 @@ describe("job-audit-bundle", () => {
 
       const files = serializeAuditBundle(bundle);
 
-      expect(files.has("job-meta.json")).toBe(true);
-      expect(files.has("cast-contract.json")).toBe(true);
+      // P9.24 — Nouveaux noms de fichiers numérotés
+      expect(files.has("01_job_meta.json")).toBe(true);
+      expect(files.has("05_cast_contract.json")).toBe(true);
       expect(files.has("timings.json")).toBe(true);
       expect(files.size).toBeGreaterThanOrEqual(3);
     });
@@ -87,9 +88,10 @@ describe("job-audit-bundle", () => {
       const bundle = createAuditBundle(baseMeta);
       const files = serializeAuditBundle(bundle);
 
-      expect(files.has("job-meta.json")).toBe(true);
-      expect(files.has("cast-contract.json")).toBe(false);
-      expect(files.has("storyboard-plan.json")).toBe(false);
+      // P9.24 — Nouveaux noms de fichiers numérotés
+      expect(files.has("01_job_meta.json")).toBe(true);
+      expect(files.has("05_cast_contract.json")).toBe(false);
+      expect(files.has("12_storyboard_plan.json")).toBe(false);
     });
   });
 

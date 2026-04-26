@@ -120,17 +120,39 @@ export interface BuildVisualEntitiesInput {
 
 export function buildVisualEntitiesFromPremiumV3Input(input: BuildVisualEntitiesInput): VisualEntity[] {
   const out: VisualEntity[] = [];
-  const heroId = input.heroCharacterId ?? input.focusCharacterIds[0] ?? null;
+
+  // P2.6 — Seul heroCharacterId devient protagonist
+  // focusCharacterIds devient ally/support, PAS protagonist
+  const heroId = input.heroCharacterId ?? null;
+
+  // Fallback : si pas de heroCharacterId explicite, utiliser le premier focusCharacter
+  // SEULEMENT si son roleType indique qu'il est bien un héros
+  const fallbackHeroId =
+    heroId ??
+    input.focusCharacterIds.find((fid) => {
+      const c = input.rawCharacters.find((rc) => rc.id === fid);
+      return c && isHeroRole(c.roleType);
+    }) ??
+    null;
 
   for (const c of input.rawCharacters) {
-    // P0.2 — Utilise isHeroRole au lieu de includes fragiles
-    const isCharHero =
-      heroId === c.id ||
-      input.focusCharacterIds.includes(c.id) ||
-      isHeroRole(c.roleType);
+    // P2.6 — Strictement : seul heroCharacterId (ou fallback validé) est protagonist
+    const isCharHero = c.id === heroId || c.id === fallbackHeroId;
 
-    const rawRole = roleFromCharacter(c.roleType);
-    const role: VisualEntityRole = isCharHero ? "protagonist" : rawRole;
+    // P2.6 — focusCharacterIds (autres que héros) deviennent ally, pas protagonist
+    const isFocusCharacter = input.focusCharacterIds.includes(c.id);
+    const isActiveSupport = isFocusCharacter && !isCharHero;
+
+    // Déterminer le rôle
+    let role: VisualEntityRole;
+    if (isCharHero) {
+      role = "protagonist";
+    } else if (isActiveSupport) {
+      // P2.6 — Support/active character devient ally, pas protagonist
+      role = "ally";
+    } else {
+      role = roleFromCharacter(c.roleType);
+    }
 
     const colors: string[] = [];
     if (c.hairColor) colors.push(`hair:${c.hairColor}`);
@@ -140,13 +162,29 @@ export function buildVisualEntitiesFromPremiumV3Input(input: BuildVisualEntities
       ...colors,
     ].filter(Boolean) as string[];
 
+    // Déterminer le kind pour les logs/debug
+    const userDefinedKind = isCharHero
+      ? "main protagonist"
+      : isActiveSupport
+        ? "active support"
+        : "story character";
+
+    // Tags sémantiques
+    const semanticTagsBase = tags.length
+      ? tags
+      : isCharHero
+        ? ["hero"]
+        : isActiveSupport
+          ? ["support", "active"]
+          : ["cast"];
+
     out.push({
       id: c.id,
       projectId: input.projectId,
       name: c.name,
       aliases: [],
-      userDefinedKind: isCharHero ? "main protagonist" : "story character",
-      semanticTags: tags.length ? tags : [isCharHero ? "hero" : "cast"],
+      userDefinedKind,
+      semanticTags: semanticTagsBase,
       role,
       scale: "individual",
       isOpponent: role === "antagonist" || role === "obstacle",
@@ -163,7 +201,7 @@ export function buildVisualEntitiesFromPremiumV3Input(input: BuildVisualEntities
         forbiddenDrift: [],
       },
       referenceImageUrls: [],
-      consistencyLevel: isCharHero ? "strict" : "medium",
+      consistencyLevel: isCharHero ? "strict" : isActiveSupport ? "strict" : "medium",
       createdFrom: "character_sheet",
       beatIds: [],
     });

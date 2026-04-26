@@ -117,6 +117,12 @@ export const CAST_CONTRACT_ERROR_CODES = {
   SUPPORT_NOT_IN_ACTIVE: "E_CAST_SUPPORT_NOT_IN_ACTIVE",
   DUPLICATE_HERO: "E_CAST_DUPLICATE_HERO",
   MEMBER_NOT_IN_ACTIVE: "E_CAST_MEMBER_NOT_IN_ACTIVE",
+  /** P2.7 — Plusieurs personnages ont le rôle "hero" alors qu'un seul est autorisé */
+  MULTIPLE_PROTAGONISTS: "E_CAST_MULTIPLE_PROTAGONISTS",
+  /** P2.7 — Le héros officiel a un rôle autre que "hero" dans members */
+  HERO_ROLE_MISMATCH: "E_CAST_HERO_ROLE_MISMATCH",
+  /** P2.7 — Un personnage non-héros a le rôle "hero" */
+  NON_HERO_AS_PROTAGONIST: "E_CAST_NON_HERO_AS_PROTAGONIST",
 } as const;
 
 export type CastContractErrorCode =
@@ -198,6 +204,31 @@ export function validateChapterCastContract(
       issues.push({
         code: CAST_CONTRACT_ERROR_CODES.MEMBER_NOT_IN_ACTIVE,
         message: `member ${member.name} (${member.characterId}) not in activeCharacterIds`,
+        characterId: member.characterId,
+      });
+    }
+  }
+
+  // P2.7 — Règle 7 : Le héros officiel doit avoir le rôle "hero" dans members
+  if (contract.heroCharacterId && contract.members?.length) {
+    const heroMember = contract.members.find(
+      (m) => m.characterId === contract.heroCharacterId,
+    );
+    if (heroMember && heroMember.role !== "hero") {
+      issues.push({
+        code: CAST_CONTRACT_ERROR_CODES.HERO_ROLE_MISMATCH,
+        message: `heroCharacterId=${contract.heroCharacterId} has role="${heroMember.role}" but should be "hero"`,
+        characterId: contract.heroCharacterId,
+      });
+    }
+  }
+
+  // P2.7 — Règle 8 : Aucun personnage non-héros ne doit avoir le rôle "hero"
+  for (const member of contract.members ?? []) {
+    if (member.role === "hero" && member.characterId !== contract.heroCharacterId) {
+      issues.push({
+        code: CAST_CONTRACT_ERROR_CODES.NON_HERO_AS_PROTAGONIST,
+        message: `member ${member.name} (${member.characterId}) has role="hero" but is not heroCharacterId`,
         characterId: member.characterId,
       });
     }
@@ -286,14 +317,24 @@ export function buildChapterCastContract(input: {
     if (!char) continue;
 
     const isCharHero = charId === heroId;
-    // P0.2 — Utilise le normaliseur centralisé pour les rôles
+
+    // P2.7 — Seul heroCharacterId devient "hero"
+    // Les autres personnages actifs deviennent "support" ou leur rôle naturel
+    // MÊME s'ils ont un roleType de type "héros" (isHeroRole)
     let role: ChapterCastRole = "npc";
 
-    if (isCharHero || isHeroRole(char.roleType)) {
+    if (isCharHero) {
+      // Uniquement le héros officiel a le rôle "hero"
       role = "hero";
     } else if (isAntagonistRole(char.roleType)) {
       role = "antagonist";
-    } else if (isSupportingRole(char.roleType)) {
+    } else if (isSupportingRole(char.roleType) || isHeroRole(char.roleType)) {
+      // P2.7 — Un personnage avec roleType="hero" qui n'est pas heroCharacterId
+      // devient "support", pas "hero" (il peut être héros dans son projet
+      // mais support dans CE chapitre)
+      role = "support";
+    } else if (activeIds.includes(charId)) {
+      // Personnage actif sans rôle spécifique = support
       role = "support";
     }
 
