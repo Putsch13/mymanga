@@ -86,6 +86,62 @@ const SUSPICIOUS_GENERIC_PROPS = new Set([
 ]);
 
 /**
+ * P4.17 — Fonctions narratives qui ne doivent JAMAIS être des props visuels.
+ * Ce sont des concepts abstraits, pas des objets physiques.
+ */
+const NARRATIVE_FUNCTION_ANTI_PROPS = new Set([
+  "tension",
+  "conflict",
+  "mystery",
+  "suspense",
+  "danger",
+  "threat",
+  "climax",
+  "resolution",
+  "revelation",
+  "secret",
+  "betrayal",
+  "forgiveness",
+  "hope",
+  "despair",
+  "love",
+  "hate",
+  "friendship",
+  "rivalry",
+  "foreshadowing",
+  "flashback",
+  "promise",
+  "destiny",
+  "fate",
+]);
+
+/**
+ * P4.18 — Lieux qui ne doivent jamais être des props.
+ * Un lieu est un environnement, pas un objet à porter.
+ */
+const LOCATION_AS_PROP_PATTERNS = [
+  /port/i,
+  /quai/i,
+  /forêt/i,
+  /ville/i,
+  /village/i,
+  /rue/i,
+  /marché/i,
+  /temple/i,
+  /palais/i,
+  /château/i,
+  /maison/i,
+  /taverne/i,
+  /prison/i,
+  /jardin/i,
+  /plage/i,
+  /montagne/i,
+  /grotte/i,
+  /bureau/i,
+  /école/i,
+];
+
+/**
  * Extrait les props potentiels d'un texte.
  */
 export function extractPotentialProps(text: string): string[] {
@@ -119,6 +175,22 @@ export function isSuspiciousGenericProp(propName: string): boolean {
 }
 
 /**
+ * P4.17 — Vérifie si un prop est en fait une fonction narrative abstraite.
+ */
+export function isNarrativeFunctionProp(propName: string): boolean {
+  const normalized = propName.toLowerCase().trim();
+  return NARRATIVE_FUNCTION_ANTI_PROPS.has(normalized);
+}
+
+/**
+ * P4.18 — Vérifie si un prop est en fait un lieu (erreur de classification).
+ */
+export function isLocationAsProps(propName: string): boolean {
+  const normalized = propName.toLowerCase().trim();
+  return LOCATION_AS_PROP_PATTERNS.some((p) => p.test(normalized));
+}
+
+/**
  * Exécute le QA anti-props fantômes.
  */
 export function runPropsQaPass(input: PropsQaPassInput): PropsQaPassOutput {
@@ -149,6 +221,8 @@ export function runPropsQaPass(input: PropsQaPassInput): PropsQaPassOutput {
       const isForbidden = isPropForbidden(storyContract, propName);
       const isAnachronistic = isAnachronisticProp(propName);
       const isSuspiciousGeneric = isSuspiciousGenericProp(propName);
+      const isNarrativeFunction = isNarrativeFunctionProp(propName);
+      const isLocationAsProp = isLocationAsProps(propName);
 
       if (isForbidden) {
         issues.push({
@@ -156,6 +230,24 @@ export function runPropsQaPass(input: PropsQaPassInput): PropsQaPassOutput {
           propName,
           code: PIPELINE_ERROR_CODES.E_ENTITY_PHANTOM_PROP,
           message: `Forbidden prop "${propName}" detected in panel ${spec.panelId}`,
+          severity: "error",
+        });
+      } else if (isNarrativeFunction) {
+        // P4.17 — Fonctions narratives ne sont pas des props
+        issues.push({
+          panelId: spec.panelId,
+          propName,
+          code: PIPELINE_ERROR_CODES.E_ENTITY_PHANTOM_PROP,
+          message: `Narrative function "${propName}" used as prop — abstract concepts cannot be visual props`,
+          severity: "error",
+        });
+      } else if (isLocationAsProp) {
+        // P4.18 — Lieux ne doivent pas être des props
+        issues.push({
+          panelId: spec.panelId,
+          propName,
+          code: PIPELINE_ERROR_CODES.E_ENTITY_PHANTOM_PROP,
+          message: `Location "${propName}" used as prop — locations should be environments, not props`,
           severity: "error",
         });
       } else if (isAnachronistic) {

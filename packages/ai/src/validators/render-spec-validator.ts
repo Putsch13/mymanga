@@ -18,6 +18,9 @@ export interface RenderSpecValidationResult {
   ok: boolean;
   issues: string[];
   warnings: string[];
+  /** P7.24 — Erreurs fatales (bloquent le rendu) vs non-fatales (warnings) */
+  fatalIssues: string[];
+  nonFatalIssues: string[];
 }
 
 /**
@@ -57,6 +60,21 @@ const MULTI_CHARACTER_REQUIRED_RENDER_MODES = new Set<PanelRenderSpec["renderMod
 function isSentinel(value: string | null | undefined): boolean {
   if (!value) return true;
   return FORBIDDEN_FIELD_SENTINELS.has(value.trim().toLowerCase());
+}
+
+/**
+ * P7.24 — Erreurs fatales vs non-fatales.
+ * Seules les erreurs fatales bloquent le rendu.
+ */
+const FATAL_ISSUE_PATTERNS = [
+  /\.panelId_missing/,
+  /\.styleBible_missing/,
+  /\.panelPurpose_missing_or_sentinel/,
+  /\.renderMode_missing_or_sentinel/,
+];
+
+function isFatalIssue(issue: string): boolean {
+  return FATAL_ISSUE_PATTERNS.some((p) => p.test(issue));
 }
 
 export function validateRenderSpec(spec: PanelRenderSpec): RenderSpecValidationResult {
@@ -145,10 +163,16 @@ export function validateRenderSpec(spec: PanelRenderSpec): RenderSpecValidationR
     warnings.push(`${prefix}.constraints_missing`);
   }
 
+  // P7.24 — Séparer erreurs fatales et non-fatales
+  const fatalIssues = issues.filter(isFatalIssue);
+  const nonFatalIssues = issues.filter((i) => !isFatalIssue(i));
+
   return {
-    ok: issues.length === 0,
+    ok: fatalIssues.length === 0,
     issues,
     warnings,
+    fatalIssues,
+    nonFatalIssues,
   };
 }
 
@@ -163,7 +187,26 @@ export class RenderSpecValidationError extends Error {
   }
 }
 
-export function assertValidRenderSpec(spec: PanelRenderSpec): void {
+/**
+ * P7.24 — Option pour contrôler le comportement de validation.
+ * @param strictMode Si true, toutes les erreurs sont fatales. Si false, seules les fatales bloquent.
+ */
+export function assertValidRenderSpec(spec: PanelRenderSpec, strictMode = false): void {
   const result = validateRenderSpec(spec);
-  if (!result.ok) throw new RenderSpecValidationError(result);
+
+  // En mode non-strict, seules les erreurs fatales bloquent
+  if (strictMode) {
+    if (!result.ok || result.issues.length > 0) {
+      throw new RenderSpecValidationError(result);
+    }
+  } else {
+    if (result.fatalIssues.length > 0) {
+      throw new RenderSpecValidationError(result);
+    }
+    if (result.nonFatalIssues.length > 0) {
+      console.warn(
+        `[render-spec-validator] non-fatal issues for panel=${spec.panelId}: ${result.nonFatalIssues.join(", ")}`,
+      );
+    }
+  }
 }

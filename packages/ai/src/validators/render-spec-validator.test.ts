@@ -46,40 +46,52 @@ function makeSpec(overrides: Partial<PanelRenderSpec> = {}): PanelRenderSpec {
 }
 
 describe("validateRenderSpec", () => {
-  it("refuse la contradiction establishing_environment + subjectFocus=hero", () => {
+  // P7.24 — Contradictions sont des erreurs non-fatales (warnings)
+  it("détecte la contradiction establishing_environment + subjectFocus=hero comme non-fatale", () => {
     const r = validateRenderSpec(
       makeSpec({ renderMode: "establishing_environment", subjectFocus: "hero", shotType: "wide" }),
     );
-    expect(r.ok).toBe(false);
     expect(r.issues.some((i) => i.includes("establishing_environment+hero"))).toBe(true);
+    expect(r.nonFatalIssues.some((i) => i.includes("establishing_environment+hero"))).toBe(true);
   });
 
-  it("refuse la contradiction insert_object + hero", () => {
+  it("détecte la contradiction insert_object + hero comme non-fatale", () => {
     const r = validateRenderSpec(
       makeSpec({ renderMode: "insert_object", subjectFocus: "hero", shotType: "extreme_closeup" }),
     );
-    expect(r.ok).toBe(false);
     expect(r.issues.some((i) => i.includes("insert_object+hero"))).toBe(true);
+    expect(r.nonFatalIssues.some((i) => i.includes("insert_object+hero"))).toBe(true);
   });
 
-  it("refuse closeup + shotType=wide", () => {
+  it("détecte closeup + shotType=wide comme non-fatale", () => {
     const r = validateRenderSpec(makeSpec({ shotType: "wide" }));
-    expect(r.ok).toBe(false);
     expect(r.issues.some((i) => i.includes("closeup+wide"))).toBe(true);
+    expect(r.nonFatalIssues.some((i) => i.includes("closeup+wide"))).toBe(true);
   });
 
-  it("refuse hero présent sans characterRefs", () => {
+  it("détecte hero présent sans characterRefs comme non-fatale", () => {
     const r = validateRenderSpec(
       makeSpec({
         imageReferences: { characterRefs: [], environmentRefs: [], panelRefs: [], styleRefs: [] },
       }),
     );
-    expect(r.ok).toBe(false);
     expect(r.issues.some((i) => i.includes("missing_character_refs_for_hero_or_support"))).toBe(true);
+    expect(r.nonFatalIssues.some((i) => i.includes("missing_character_refs_for_hero_or_support"))).toBe(true);
   });
 
-  it("assertValidRenderSpec lève une RenderSpecValidationError si invalide", () => {
-    expect(() => assertValidRenderSpec(makeSpec({ shotType: "wide" }))).toThrow(
+  // P7.24 — assertValidRenderSpec ne lève pas sur les erreurs non-fatales (mode non-strict)
+  it("assertValidRenderSpec ne lève pas sur erreur non-fatale en mode non-strict", () => {
+    expect(() => assertValidRenderSpec(makeSpec({ shotType: "wide" }))).not.toThrow();
+  });
+
+  it("assertValidRenderSpec lève sur erreur non-fatale en mode strict", () => {
+    expect(() => assertValidRenderSpec(makeSpec({ shotType: "wide" }), true)).toThrow(
+      RenderSpecValidationError,
+    );
+  });
+
+  it("assertValidRenderSpec lève sur erreur fatale même en mode non-strict", () => {
+    expect(() => assertValidRenderSpec(makeSpec({ renderMode: "unknown" as never }))).toThrow(
       RenderSpecValidationError,
     );
   });
@@ -100,13 +112,14 @@ describe("validateRenderSpec", () => {
     expect(r.ok).toBe(true);
   });
 
-  it("refuse un reaction_closeup sans personnage visible", () => {
+  // P7.24 — Ces erreurs sont non-fatales
+  it("détecte un reaction_closeup sans personnage visible comme non-fatale", () => {
     const r = validateRenderSpec(makeSpec({ visibleCharacters: [] }));
-    expect(r.ok).toBe(false);
     expect(r.issues.some((i) => i.includes("missing_visible_characters_for_renderMode=reaction_closeup"))).toBe(true);
+    expect(r.nonFatalIssues.some((i) => i.includes("missing_visible_characters_for_renderMode=reaction_closeup"))).toBe(true);
   });
 
-  it("refuse un dialogue_two_shot avec moins de deux personnages visibles", () => {
+  it("détecte un dialogue_two_shot avec moins de deux personnages comme non-fatale", () => {
     const r = validateRenderSpec(
       makeSpec({
         renderMode: "dialogue_two_shot",
@@ -116,8 +129,8 @@ describe("validateRenderSpec", () => {
         visibleCharacters: [{ characterId: "c1", name: "Miya", role: "hero", poseIntent: null, expressionIntent: null }],
       }),
     );
-    expect(r.ok).toBe(false);
     expect(r.issues.some((i) => i.includes("insufficient_visible_characters_for_renderMode=dialogue_two_shot"))).toBe(true);
+    expect(r.nonFatalIssues.some((i) => i.includes("insufficient_visible_characters_for_renderMode=dialogue_two_shot"))).toBe(true);
   });
 
   // COMMIT G — tests bloquants (mission de refonte P11 §4).
@@ -135,36 +148,48 @@ describe("validateRenderSpec", () => {
     },
   );
 
+  // P7.24 — subjectFocus sentinelle est une erreur NON-FATALE (warning)
   it.each(["unknown", "none", "undefined", "null", "n/a", "tbd", "todo"])(
-    "COMMIT G — refuse subjectFocus=%s (sentinelle legacy interdite)",
+    "COMMIT G — détecte subjectFocus=%s comme erreur non-fatale",
     (sentinel) => {
       const r = validateRenderSpec(makeSpec({ subjectFocus: sentinel as never }));
-      expect(r.ok).toBe(false);
       expect(r.issues.some((i) => i.includes("subjectFocus_missing_or_sentinel"))).toBe(
         true,
       );
+      expect(r.nonFatalIssues.some((i) => i.includes("subjectFocus_missing_or_sentinel"))).toBe(
+        true,
+      );
+      // ok peut être true car ce n'est pas fatal
     },
   );
 
+  // P7.24 — renderMode sentinelle est une erreur FATALE
   it.each(["unknown", "none"])(
-    "COMMIT G — refuse renderMode=%s (plus de fallback CHARACTER_IN_SCENE)",
+    "COMMIT G — refuse renderMode=%s comme erreur fatale",
     (sentinel) => {
       const r = validateRenderSpec(makeSpec({ renderMode: sentinel as never }));
       expect(r.ok).toBe(false);
       expect(r.issues.some((i) => i.includes("renderMode_missing_or_sentinel"))).toBe(
         true,
       );
+      expect(r.fatalIssues.some((i) => i.includes("renderMode_missing_or_sentinel"))).toBe(
+        true,
+      );
     },
   );
 
+  // P7.24 — shotType sentinelle est une erreur NON-FATALE (warning)
   it.each(["unknown", "none"])(
-    "COMMIT G — refuse shotType=%s (storyboard doit décider)",
+    "COMMIT G — détecte shotType=%s comme erreur non-fatale",
     (sentinel) => {
       const r = validateRenderSpec(makeSpec({ shotType: sentinel as never }));
-      expect(r.ok).toBe(false);
       expect(r.issues.some((i) => i.includes("shotType_missing_or_sentinel"))).toBe(
         true,
       );
+      expect(r.nonFatalIssues.some((i) => i.includes("shotType_missing_or_sentinel"))).toBe(
+        true,
+      );
+      // ok peut être true car ce n'est pas fatal
     },
   );
 });

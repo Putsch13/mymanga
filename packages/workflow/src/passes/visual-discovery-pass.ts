@@ -20,6 +20,8 @@ export type DiscoveredEntityKind =
   | "character"
   | "npc_group"
   | "location"
+  | "sublocation"
+  | "vehicle_or_large_prop"
   | "species"
   | "robot"
   | "hybrid"
@@ -57,6 +59,12 @@ export interface DiscoveredVisualEntity {
   visualDescription: string;
   canonLevel: CanonLevel;
   detectedIn: string[];
+  /** P1.9 — ID du beat où l'entité a été détectée pour la première fois */
+  evidenceBeatId?: string;
+  /** P1.9 — Extrait de texte prouvant la détection */
+  evidenceText?: string;
+  /** P1.9 — Si true, entité est requise ; sinon optionnelle */
+  required: boolean;
 }
 
 /**
@@ -78,6 +86,10 @@ export interface ChapterVisualDiscoveryContract {
   characters: DiscoveredVisualEntity[];
   npcGroups: DiscoveredVisualEntity[];
   locations: DiscoveredVisualEntity[];
+  /** P1.10 — Sous-contextes (pont du navire, cabine, etc.) */
+  sublocations: DiscoveredVisualEntity[];
+  /** P1.10 — Véhicules et grands props (navire, train, etc.) */
+  vehiclesOrLargeProps: DiscoveredVisualEntity[];
   species: DiscoveredVisualEntity[];
   robots: DiscoveredVisualEntity[];
   hybrids: DiscoveredVisualEntity[];
@@ -85,6 +97,8 @@ export interface ChapterVisualDiscoveryContract {
   factions: DiscoveredVisualEntity[];
   props: DiscoveredVisualEntity[];
   forbiddenProps: string[];
+  /** P1.9 — Entités rejetées car sans preuve textuelle */
+  rejectedEntities: Array<{ label: string; reason: string }>;
   beatBindings: BeatVisualBinding[];
 }
 
@@ -110,7 +124,8 @@ const NPC_GROUP_PATTERNS = [
 ];
 
 /**
- * Patterns de détection pour les lieux.
+ * Patterns de détection pour les lieux (vrais décors).
+ * P1.10 — Ne pas inclure les véhicules comme lieux principaux.
  */
 const LOCATION_PATTERNS = [
   { pattern: /port|quai|dock/gi, label: "port" },
@@ -131,11 +146,32 @@ const LOCATION_PATTERNS = [
   { pattern: /taverne|auberge|bar|café/gi, label: "taverne" },
   { pattern: /prison|cachot|donjon/gi, label: "prison" },
   { pattern: /arène|colisée|stade/gi, label: "arène" },
-  { pattern: /navire|bateau|vaisseau/gi, label: "navire" },
   { pattern: /bureau|office/gi, label: "bureau" },
   { pattern: /hôpital|infirmerie/gi, label: "hôpital" },
   { pattern: /bibliothèque/gi, label: "bibliothèque" },
   { pattern: /jardin|parc/gi, label: "jardin" },
+];
+
+/**
+ * P1.10 — Patterns pour les véhicules/grands props (pas des lieux principaux).
+ * Ces éléments sont traités comme des sous-contextes ou largeProps, pas des locations.
+ */
+const VEHICLE_OR_LARGE_PROP_PATTERNS = [
+  { pattern: /navire|bateau|vaisseau|galère/gi, label: "navire", isVehicle: true },
+  { pattern: /voiture|véhicule|auto/gi, label: "voiture", isVehicle: true },
+  { pattern: /train|locomotive/gi, label: "train", isVehicle: true },
+  { pattern: /carrosse|diligence|chariot/gi, label: "carrosse", isVehicle: true },
+  { pattern: /avion|aéronef/gi, label: "avion", isVehicle: true },
+];
+
+/**
+ * P1.10 — Sous-contextes environnementaux (pas des lieux principaux).
+ */
+const SUBLOCATION_PATTERNS = [
+  { pattern: /bord de (mer|eau|rivière)/gi, label: "bord de mer" },
+  { pattern: /pont du navire|pont du bateau/gi, label: "pont du navire" },
+  { pattern: /cabine/gi, label: "cabine" },
+  { pattern: /cale/gi, label: "cale" },
 ];
 
 /**
@@ -265,6 +301,8 @@ export interface VisualDiscoveryPassResult {
   stats: {
     charactersFound: number;
     locationsFound: number;
+    sublocationsFound: number;
+    vehiclesFound: number;
     npcGroupsFound: number;
     robotsFound: number;
     hybridsFound: number;
@@ -272,6 +310,7 @@ export interface VisualDiscoveryPassResult {
     factionsFound: number;
     propsFound: number;
     forbiddenPropsStripped: number;
+    rejectedCount: number;
   };
 }
 
@@ -313,6 +352,7 @@ function createDiscoveredEntity(
   confidence: number,
   visualDescription?: string,
   canonLevel: CanonLevel = "chapter_temporary",
+  evidenceText?: string,
 ): DiscoveredVisualEntity {
   return {
     label,
@@ -324,6 +364,10 @@ function createDiscoveredEntity(
     visualDescription: visualDescription ?? `${kind}: ${label}`,
     canonLevel,
     detectedIn: beatIds,
+    // P1.9 — Champs evidence-based
+    evidenceBeatId: beatIds[0],
+    evidenceText,
+    required: confidence >= 0.75 && beatIds.length > 0,
   };
 }
 
@@ -338,6 +382,8 @@ export function runVisualDiscoveryPass(
   const characters: DiscoveredVisualEntity[] = [];
   const npcGroups: DiscoveredVisualEntity[] = [];
   const locations: DiscoveredVisualEntity[] = [];
+  const sublocations: DiscoveredVisualEntity[] = [];
+  const vehiclesOrLargeProps: DiscoveredVisualEntity[] = [];
   const robots: DiscoveredVisualEntity[] = [];
   const hybrids: DiscoveredVisualEntity[] = [];
   const creatures: DiscoveredVisualEntity[] = [];
@@ -345,6 +391,7 @@ export function runVisualDiscoveryPass(
   const props: DiscoveredVisualEntity[] = [];
   const species: DiscoveredVisualEntity[] = [];
   const beatBindings: BeatVisualBinding[] = [];
+  const rejectedEntities: Array<{ label: string; reason: string }> = [];
 
   // 1. Ajouter les personnages connus
   for (const c of input.knownCharacters ?? []) {
@@ -359,6 +406,7 @@ export function runVisualDiscoveryPass(
       visualDescription: c.description ?? c.name,
       canonLevel: "user_canon",
       detectedIn: [],
+      required: true,
     });
   }
 
@@ -375,6 +423,7 @@ export function runVisualDiscoveryPass(
       visualDescription: loc.description ?? loc.name,
       canonLevel: "user_canon",
       detectedIn: [],
+      required: true,
     });
   }
 
@@ -390,6 +439,8 @@ export function runVisualDiscoveryPass(
   // Détecter les entités globalement
   const detectedNpcGroups = detectEntitiesFromText(allText, NPC_GROUP_PATTERNS);
   const detectedLocations = detectEntitiesFromText(allText, LOCATION_PATTERNS);
+  const detectedVehicles = detectEntitiesFromText(allText, VEHICLE_OR_LARGE_PROP_PATTERNS);
+  const detectedSublocations = detectEntitiesFromText(allText, SUBLOCATION_PATTERNS);
   const detectedRobots = detectEntitiesFromText(allText, ROBOT_PATTERNS);
   const detectedHybrids = detectEntitiesFromText(allText, HYBRID_PATTERNS);
   const detectedCreatures = detectEntitiesFromText(allText, CREATURE_PATTERNS);
@@ -454,6 +505,49 @@ export function runVisualDiscoveryPass(
     );
   }
 
+  // P1.10 — Véhicules et grands props (pas des lieux)
+  for (const [label] of detectedVehicles) {
+    const beatsWithEntity = beatTexts
+      .filter((bt) =>
+        VEHICLE_OR_LARGE_PROP_PATTERNS.some((p) => p.label === label && p.pattern.test(bt.text)),
+      )
+      .map((bt) => bt.beatId);
+    const evidenceText = beatTexts.find((bt) =>
+      VEHICLE_OR_LARGE_PROP_PATTERNS.some((p) => p.label === label && p.pattern.test(bt.text)),
+    )?.text.slice(0, 100);
+    vehiclesOrLargeProps.push(
+      createDiscoveredEntity(
+        label,
+        "vehicle_or_large_prop",
+        "story_text",
+        beatsWithEntity,
+        0.8,
+        `Véhicule: ${label}`,
+        "chapter_temporary",
+        evidenceText,
+      ),
+    );
+  }
+
+  // P1.10 — Sous-contextes (pont du navire, cabine, etc.)
+  for (const [label] of detectedSublocations) {
+    const beatsWithEntity = beatTexts
+      .filter((bt) =>
+        SUBLOCATION_PATTERNS.some((p) => p.label === label && p.pattern.test(bt.text)),
+      )
+      .map((bt) => bt.beatId);
+    sublocations.push(
+      createDiscoveredEntity(
+        label,
+        "sublocation",
+        "story_text",
+        beatsWithEntity,
+        0.75,
+        `Sous-contexte: ${label}`,
+      ),
+    );
+  }
+
   // 4. Construire les bindings beat → entités
   for (const bt of beatTexts) {
     const beatChars = characters
@@ -502,6 +596,8 @@ export function runVisualDiscoveryPass(
     characters,
     npcGroups,
     locations,
+    sublocations,
+    vehiclesOrLargeProps,
     species,
     robots,
     hybrids,
@@ -509,12 +605,15 @@ export function runVisualDiscoveryPass(
     factions,
     props,
     forbiddenProps: [...FORBIDDEN_PROPS, ...SUSPICIOUS_PROPS],
+    rejectedEntities,
     beatBindings,
   };
 
   const stats = {
     charactersFound: characters.length,
     locationsFound: locations.length,
+    sublocationsFound: sublocations.length,
+    vehiclesFound: vehiclesOrLargeProps.length,
     npcGroupsFound: npcGroups.length,
     robotsFound: robots.length,
     hybridsFound: hybrids.length,
@@ -522,12 +621,14 @@ export function runVisualDiscoveryPass(
     factionsFound: factions.length,
     propsFound: props.length,
     forbiddenPropsStripped,
+    rejectedCount: rejectedEntities.length,
   };
 
   console.info(
     `[visual-discovery] characters=${stats.charactersFound} locations=${stats.locationsFound} ` +
+      `sublocations=${stats.sublocationsFound} vehicles=${stats.vehiclesFound} ` +
       `npcGroups=${stats.npcGroupsFound} robots=${stats.robotsFound} hybrids=${stats.hybridsFound} ` +
-      `creatures=${stats.creaturesFound} props=${stats.propsFound}`,
+      `creatures=${stats.creaturesFound} props=${stats.propsFound} rejected=${stats.rejectedCount}`,
   );
 
   return { contract, warnings, stats };
