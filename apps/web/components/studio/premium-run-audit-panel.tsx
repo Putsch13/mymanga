@@ -16,14 +16,6 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
 interface PanelAuditData {
@@ -268,60 +260,51 @@ export function PremiumRunAuditPanel({
           </TabsContent>
 
           <TabsContent value="panels" className="mt-4">
-            <div className="max-h-96 overflow-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-12">#</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Action</TableHead>
-                    <TableHead>Characters</TableHead>
-                    <TableHead>Text</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>QA</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.panels.map((panel) => (
-                    <TableRow key={panel.panelId}>
-                      <TableCell className="font-mono">
-                        {panel.panelNumber}
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        {panel.narrativeRole ?? "-"}
-                      </TableCell>
-                      <TableCell className="text-xs max-w-[200px] truncate">
-                        {panel.microAction ?? "-"}
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        {panel.requiredCharacters.join(", ") || "-"}
-                      </TableCell>
-                      <TableCell>
-                        {panel.textContract ? (
-                          <span className="text-xs">
-                            {panel.textContract.dialogueCount > 0 && `${panel.textContract.dialogueCount} dlg`}
-                            {panel.textContract.hasNarration && " + narr"}
-                            {panel.textContract.hasSfx && " + sfx"}
-                            {!panel.textContract.hasText && "silent"}
-                          </span>
-                        ) : (
-                          "-"
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge status={panel.imageStatus} />
-                      </TableCell>
-                      <TableCell>
-                        {panel.qaStatus ? (
-                          <StatusBadge status={panel.qaStatus} />
-                        ) : (
-                          "-"
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+            <div className="max-h-96 overflow-auto border rounded-md">
+              <div className="grid grid-cols-7 gap-2 p-2 bg-muted text-xs font-medium border-b">
+                <div>#</div>
+                <div>Role</div>
+                <div>Action</div>
+                <div>Characters</div>
+                <div>Text</div>
+                <div>Status</div>
+                <div>QA</div>
+              </div>
+              {data.panels.map((panel) => (
+                <div
+                  key={panel.panelId}
+                  className="grid grid-cols-7 gap-2 p-2 text-xs border-b last:border-0 hover:bg-muted/50"
+                >
+                  <div className="font-mono">{panel.panelNumber}</div>
+                  <div>{panel.narrativeRole ?? "-"}</div>
+                  <div className="truncate" title={panel.microAction ?? undefined}>
+                    {panel.microAction ?? "-"}
+                  </div>
+                  <div>{panel.requiredCharacters.join(", ") || "-"}</div>
+                  <div>
+                    {panel.textContract ? (
+                      <span>
+                        {panel.textContract.dialogueCount > 0 && `${panel.textContract.dialogueCount} dlg`}
+                        {panel.textContract.hasNarration && " + narr"}
+                        {panel.textContract.hasSfx && " + sfx"}
+                        {!panel.textContract.hasText && "silent"}
+                      </span>
+                    ) : (
+                      "-"
+                    )}
+                  </div>
+                  <div>
+                    <StatusBadge status={panel.imageStatus} />
+                  </div>
+                  <div>
+                    {panel.qaStatus ? (
+                      <StatusBadge status={panel.qaStatus} />
+                    ) : (
+                      "-"
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           </TabsContent>
         </Tabs>
