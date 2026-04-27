@@ -83,7 +83,14 @@ export function validateRenderSpec(spec: PanelRenderSpec): RenderSpecValidationR
   const prefix = `panel_render_spec[${spec?.panelId ?? "?"}]`;
 
   if (!spec || typeof spec !== "object") {
-    return { ok: false, issues: [`${prefix}.missing`], warnings };
+    const missingIssue = `${prefix}.missing`;
+    return {
+      ok: false,
+      issues: [missingIssue],
+      warnings,
+      fatalIssues: [missingIssue],
+      nonFatalIssues: [],
+    };
   }
   if (!spec.panelId) issues.push(`${prefix}.panelId_missing`);
 
