@@ -152,3 +152,31 @@ export function isPremiumImageMockAllowed(): boolean {
   if (env === "production") return PRODUCTION_RULES.render.allowMockInProduction;
   return PRODUCTION_RULES.render.allowMockInDevelopment;
 }
+
+/**
+ * Vérifie si le pipeline legacy est activé.
+ * En production, le legacy doit être désactivé pour forcer V3.
+ * 
+ * Contrôlé par: ENABLE_LEGACY_PIPELINE=true/false
+ * Par défaut: false en production, true en dev/test (pour compatibilité)
+ */
+export function isLegacyPipelineEnabled(): boolean {
+  if (process.env.ENABLE_LEGACY_PIPELINE === "true") return true;
+  if (process.env.ENABLE_LEGACY_PIPELINE === "false") return false;
+  const env = process.env.NODE_ENV ?? "development";
+  return env !== "production";
+}
+
+/**
+ * Vérifie si le pipeline V3 premium-only est activé.
+ * Quand activé, le système refuse tout fallback vers les anciennes méthodes.
+ * 
+ * Contrôlé par: PIPELINE_V3_PREMIUM_ONLY=true/false
+ * Par défaut: true en production, false sinon
+ */
+export function isPipelineV3PremiumOnlyEnabled(): boolean {
+  if (process.env.PIPELINE_V3_PREMIUM_ONLY === "true") return true;
+  if (process.env.PIPELINE_V3_PREMIUM_ONLY === "false") return false;
+  const env = process.env.NODE_ENV ?? "development";
+  return env === "production";
+}
