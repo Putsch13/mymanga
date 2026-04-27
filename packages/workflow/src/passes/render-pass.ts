@@ -35,6 +35,7 @@ import {
   resolveFalRenderRoute,
   UnknownRenderModeError,
   StrongPolicyWithoutRefsError,
+  repairRenderSpecContradictions,
   type ChapterStyleBible,
   type ChapterVisualMemory,
   type FalRenderRoute,
@@ -413,9 +414,18 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
       previousPanel,
     });
 
+    // P8 — Réparer les contradictions AVANT d'assembler le prompt
+    const repairResult = repairRenderSpecContradictions(enrichedSpec);
+    const specForPrompt = repairResult.spec;
+    if (repairResult.repaired) {
+      console.info(
+        `[render-spec-contradiction-repair] panel=${panel.panelId} repairs=${repairResult.repairs.join("+")}`,
+      );
+    }
+
     let prompt;
     try {
-      prompt = buildMinimalPanelPromptStrict(enrichedSpec);
+      prompt = buildMinimalPanelPromptStrict(specForPrompt);
     } catch (err) {
       if (err instanceof ContradictoryPanelPromptError) {
         preflightErrors.push({
@@ -449,7 +459,7 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
       throw err;
     }
 
-    preflightQueue.push({ panel, spec: enrichedSpec, route, prompt });
+    preflightQueue.push({ panel, spec: specForPrompt, route, prompt });
     previousPanel = panel;
   }
 

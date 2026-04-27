@@ -169,5 +169,7 @@ export * from "./validators/storyboard-validator";
 export * from "./validators/render-spec-validator";
 export * from "./validators/visual-coverage-validator";
 export * from "./validators/visual-coverage-gap-classifier";
+// Repair passes
+export * from "./services/repair-render-spec-contradictions";
 // Quality module — Visual QA and auto-retry
 export * from "./quality";
