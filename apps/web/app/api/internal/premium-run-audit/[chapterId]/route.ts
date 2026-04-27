@@ -11,7 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@manga-ai-studio/db";
 
 interface PanelAuditData {
   panelId: string;
