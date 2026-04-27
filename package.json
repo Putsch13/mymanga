@@ -17,7 +17,13 @@
     "db:push": "pnpm --filter @manga-ai-studio/db push",
     "db:studio": "pnpm --filter @manga-ai-studio/db studio",
     "db:seed": "pnpm --filter @manga-ai-studio/db seed",
-    "audit:bundle": "node scripts/audit-bundle.mjs"
+    "audit:bundle": "node scripts/audit-bundle.mjs",
+    "audit:routes": "tsx apps/web/scripts/audit-api-routes.ts",
+    "audit:assets": "tsx apps/web/scripts/audit-generated-assets.ts",
+    "audit:legacy": "tsx apps/web/scripts/audit-legacy-imports.ts",
+    "cleanup:generation": "tsx apps/web/scripts/cleanup-stale-generation-run.ts",
+    "graph:circular": "madge --circular .",
+    "deadcode": "ts-prune"
   },
   "packageManager": "pnpm@10.33.0",
   "engines": {
