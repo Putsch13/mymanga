@@ -85,6 +85,12 @@ function isBeatOpeningPanel(spec: PanelRenderSpec): boolean {
   return false;
 }
 
+/** Champs optionnels enrichis hors du type strict PanelRenderSpec. */
+function specLooseString(spec: PanelRenderSpec, key: string): string | undefined {
+  const v = (spec as unknown as Record<string, unknown>)[key];
+  return typeof v === "string" ? v : undefined;
+}
+
 /**
  * Collecte tous les champs textuels du spec qui seront utilisés pour le prompt.
  */
@@ -96,9 +102,9 @@ function getTextualFields(spec: PanelRenderSpec): string {
     spec.dialogueIntent,
     spec.constraints?.mustShow?.join(" "),
     spec.environmentDNA?.description,
-    (spec as Record<string, unknown>).promptIntent as string | undefined,
-    (spec as Record<string, unknown>).composition as string | undefined,
-    (spec as Record<string, unknown>).camera as string | undefined,
+    specLooseString(spec, "promptIntent"),
+    specLooseString(spec, "composition"),
+    specLooseString(spec, "camera"),
   ]
     .filter(Boolean)
     .join(" ");
