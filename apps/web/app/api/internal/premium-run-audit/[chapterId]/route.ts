@@ -37,7 +37,7 @@ interface PanelAuditData {
 }
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: { chapterId: string } }
 ) {
   try {
@@ -69,9 +69,6 @@ export async function GET(
 
     const latestMetadata = (latestImage?.metadata ?? {}) as Record<string, unknown>;
     const generationRunId = (latestMetadata.generationRunId as string) ?? chapter.currentGenerationRunId ?? null;
-
-    const outlineData = (chapter.outline ?? {}) as Record<string, unknown>;
-    const storyboardData = (chapter.storyboard ?? {}) as Record<string, unknown>;
 
     const approvedOutlineHash = (latestMetadata.approvedOutlineHash as string) ?? null;
     const productionPlanHash = (latestMetadata.productionPlanHash as string) ?? null;
