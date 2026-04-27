@@ -65,11 +65,7 @@ export async function GET(
 
     const latestImage = allImages
       .filter((img) => img.metadata != null)
-      .sort((a, b) => {
-        const aDate = new Date(a.createdAt).getTime();
-        const bDate = new Date(b.createdAt).getTime();
-        return bDate - aDate;
-      })[0];
+      .sort((a, b) => b.id.localeCompare(a.id))[0];
 
     const latestMetadata = (latestImage?.metadata ?? {}) as Record<string, unknown>;
     const generationRunId = latestMetadata.generationRunId as string | null;
