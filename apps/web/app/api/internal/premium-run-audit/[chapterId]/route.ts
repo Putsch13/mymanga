@@ -68,18 +68,17 @@ export async function GET(
       .sort((a, b) => b.id.localeCompare(a.id))[0];
 
     const latestMetadata = (latestImage?.metadata ?? {}) as Record<string, unknown>;
-    const generationRunId = latestMetadata.generationRunId as string | null;
+    const generationRunId = (latestMetadata.generationRunId as string) ?? chapter.currentGenerationRunId ?? null;
 
-    const draftSetup = (chapter.draftSetup ?? {}) as Record<string, unknown>;
-    const studioData = (chapter.studio ?? {}) as Record<string, unknown>;
+    const outlineData = (chapter.outline ?? {}) as Record<string, unknown>;
+    const storyboardData = (chapter.storyboard ?? {}) as Record<string, unknown>;
 
-    const approvedOutlineHash = (studioData.approvedOutlineHash as string) ?? null;
-    const productionPlanHash = (studioData.productionPlanHash as string) ?? null;
+    const approvedOutlineHash = (latestMetadata.approvedOutlineHash as string) ?? null;
+    const productionPlanHash = (latestMetadata.productionPlanHash as string) ?? null;
     const chapterGenerationContractHash =
-      (studioData.chapterGenerationContractHash as string) ?? null;
+      (latestMetadata.chapterGenerationContractHash as string) ?? null;
 
-    const panelCountExpected =
-      (draftSetup.expectedPanelCount as number) ?? allImages.length;
+    const panelCountExpected = chapter.minimumImages ?? allImages.length;
     const panelCountRendered = allImages.filter(
       (img) => img.status === "completed" || img.status === "validated"
     ).length;
@@ -171,9 +170,7 @@ export async function GET(
         imageStatus: img.status,
         qaStatus,
         blockers: (metadata.blockers as string[]) ?? [],
-        stableImageUrl: img.storageKey
-          ? `/storage/${img.storageKey}`
-          : img.imageUrl,
+        stableImageUrl: img.persistedUrl ?? img.imageUrl,
       };
     });
 
