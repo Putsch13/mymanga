@@ -48,7 +48,7 @@ export async function GET(
       include: {
         scenes: {
           include: {
-            SceneImage: true,
+            images: true,
           },
         },
       },
@@ -61,7 +61,7 @@ export async function GET(
       );
     }
 
-    const allImages = chapter.scenes.flatMap((s) => s.SceneImage);
+    const allImages = chapter.scenes.flatMap((s) => s.images);
 
     const latestImage = allImages
       .filter((img) => img.metadata != null)
