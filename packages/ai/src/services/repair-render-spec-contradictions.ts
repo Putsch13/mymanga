@@ -114,7 +114,7 @@ function getTextualFields(spec: PanelRenderSpec): string {
  * Répare un PanelRenderSpec qui a des contradictions entre renderMode et contenu textuel.
  *
  * Stratégie :
- * 1. Si c'est un panel d'ouverture de beat avec "wide establishing" → convertir en environment_character
+ * 1. Si c'est un panel d'ouverture de beat avec "wide establishing" → convertir en establishing_environment
  * 2. Sinon → nettoyer les termes contradictoires des champs textuels
  */
 export function repairRenderSpecContradictions(spec: PanelRenderSpec): RenderSpecRepairResult {
@@ -134,14 +134,14 @@ export function repairRenderSpecContradictions(spec: PanelRenderSpec): RenderSpe
     return { spec, repaired: false, repairs: [] };
   }
 
-  // Cas A: Panel d'ouverture de beat → convertir en environment_character
+  // Cas A: Panel d'ouverture de beat → establishing_environment (enum StoryboardRenderMode)
   if (isBeatOpeningPanel(spec) && spec.renderMode === "character_focus") {
     repairedSpec = {
       ...repairedSpec,
-      renderMode: "environment_character",
+      renderMode: "establishing_environment",
       subjectFocus: "environment",
     };
-    repairs.push(`converted_to_environment_character (beat opening panel)`);
+    repairs.push(`converted_to_establishing_environment (beat opening panel)`);
     repaired = true;
   }
   // Cas B: Reaction closeup ou autre closeup → nettoyer les termes

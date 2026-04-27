@@ -122,7 +122,7 @@ describe("repair-render-spec-contradictions", () => {
       expect(result.spec.actionLine).not.toContain("wide establishing");
     });
 
-    it("convertit un beat opening panel en environment_character", () => {
+    it("convertit un beat opening panel en establishing_environment", () => {
       const spec = makeSpec({
         panelId: "beat_1_panel_0",
         renderMode: "character_focus",
@@ -130,9 +130,9 @@ describe("repair-render-spec-contradictions", () => {
       });
       const result = repairRenderSpecContradictions(spec);
       expect(result.repaired).toBe(true);
-      expect(result.spec.renderMode).toBe("environment_character");
+      expect(result.spec.renderMode).toBe("establishing_environment");
       expect(result.spec.subjectFocus).toBe("environment");
-      expect(result.repairs).toContain("converted_to_environment_character (beat opening panel)");
+      expect(result.repairs).toContain("converted_to_establishing_environment (beat opening panel)");
     });
 
     it("répare reaction_closeup + wide establishing en nettoyant et forçant subjectFocus", () => {

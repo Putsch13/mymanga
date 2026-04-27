@@ -105,8 +105,8 @@ export function runRenderModeNormalizer(
       const id = panelId ?? `p${panelNumber ?? "?"}`;
       contradictions.push(`panel=${id} was character_focus + wide/establishing`);
 
-      // P0.4 — Corriger le renderMode
-      (panel as Record<string, unknown>).renderMode = "environment_character";
+      // P0.4 — Corriger le renderMode (valeur valide StoryboardRenderMode)
+      (panel as Record<string, unknown>).renderMode = "establishing_environment";
       (panel as Record<string, unknown>).subjectFocus = "environment";
 
       fixed++;

@@ -156,7 +156,7 @@ describe("P8.25-32 — Tests anti-régression pipeline premium", () => {
 
     expect(result.fixed).toBe(1);
     expect(result.contradictions.length).toBe(1);
-    expect(result.panels[0]!.renderMode).toBe("environment_character");
+    expect(result.panels[0]!.renderMode).toBe("establishing_environment");
   });
 
   // P8.32 — Test fatal vs non-fatal errors

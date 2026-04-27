@@ -150,9 +150,9 @@ export function runRenderSpecRepairPass(input: RenderSpecRepairInput): RenderSpe
         panelId: spec.panelId,
         repairType: "contradiction_env_hero",
         originalValue: `${spec.renderMode}+${spec.subjectFocus}`,
-        newValue: "environment_character+hero",
+        newValue: "establishing_environment+hero",
       });
-      spec.renderMode = "environment_character";
+      spec.renderMode = "establishing_environment";
       modified = true;
     }
 
@@ -165,9 +165,9 @@ export function runRenderSpecRepairPass(input: RenderSpecRepairInput): RenderSpe
         panelId: spec.panelId,
         repairType: "contradiction_char_wide",
         originalValue: `${spec.renderMode}+${spec.shotType}`,
-        newValue: "environment_character+medium",
+        newValue: "establishing_environment+medium",
       });
-      spec.renderMode = "environment_character";
+      spec.renderMode = "establishing_environment";
       spec.shotType = "medium";
       modified = true;
     }
