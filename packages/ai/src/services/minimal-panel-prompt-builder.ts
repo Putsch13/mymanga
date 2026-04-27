@@ -576,45 +576,52 @@ export function describeCharacterWithCanon(character: PanelRenderVisibleCharacte
 }
 
 function buildDialogueTwoShotSubject(chars: PanelRenderVisibleCharacter[]): string {
-  const names = listCharacterNames(chars, 2);
-  if (names.length >= 2) {
-    return `SUBJECT: two-character dialogue staging with ${names[0]} and ${names[1]}, balanced framing, neither character dominates the frame.`;
+  const descs = listCharacterDescriptions(chars, 2);
+  if (descs.length >= 2) {
+    return `SUBJECT: two-character dialogue staging with ${descs[0]} and ${descs[1]}, balanced framing, neither character dominates the frame.`;
   }
-  if (names.length === 1) {
-    return `SUBJECT: dialogue beat centered on ${names[0]} with the speaking partner implied off-camera, no dominant solo hero portrait.`;
+  if (descs.length === 1) {
+    return `SUBJECT: dialogue beat centered on ${descs[0]} with the speaking partner implied off-camera, no dominant solo hero portrait.`;
   }
   return `SUBJECT: dialogue staging between two implied characters, balanced framing, no dominant solo portrait.`;
 }
 
 function buildDialogueOverShoulderSubject(chars: PanelRenderVisibleCharacter[]): string {
-  const names = listCharacterNames(chars, 2);
-  if (names.length >= 2) {
-    return `SUBJECT: over-the-shoulder conversation between ${names[0]} and ${names[1]}, readable speaker-listener geometry, no dominant solo portrait.`;
+  const descs = listCharacterDescriptions(chars, 2);
+  if (descs.length >= 2) {
+    return `SUBJECT: over-the-shoulder conversation between ${descs[0]} and ${descs[1]}, readable speaker-listener geometry, no dominant solo portrait.`;
   }
-  if (names.length === 1) {
-    return `SUBJECT: over-the-shoulder dialogue framing on ${names[0]}, off-camera counterpart implied by the composition, no dominant solo portrait.`;
+  if (descs.length === 1) {
+    return `SUBJECT: over-the-shoulder dialogue framing on ${descs[0]}, off-camera counterpart implied by the composition, no dominant solo portrait.`;
   }
   return `SUBJECT: over-the-shoulder dialogue geometry, implied speaker and listener, no dominant solo portrait.`;
 }
 
 function buildGroupTensionSubject(chars: PanelRenderVisibleCharacter[]): string {
-  const names = listCharacterNames(chars, 3);
-  if (names.length > 0) {
-    return `SUBJECT: tense ensemble staging with ${names.join(", ")}, body language and spacing carry the stakes, no single portrait dominates the frame.`;
+  const descs = listCharacterDescriptions(chars, 3);
+  if (descs.length > 0) {
+    return `SUBJECT: tense ensemble staging with ${descs.join("; ")}, body language and spacing carry the stakes, no single portrait dominates the frame.`;
   }
   return `SUBJECT: tense ensemble staging, body language and spacing carry the stakes, no single portrait dominates the frame.`;
 }
 
 function buildAftermathDialogueSubject(chars: PanelRenderVisibleCharacter[]): string {
-  const names = listCharacterNames(chars, 2);
-  if (names.length > 0) {
-    return `SUBJECT: post-event dialogue beat featuring ${names.join(" and ")}, grounded recovery moment with context still visible, no triumphant hero poster pose.`;
+  const descs = listCharacterDescriptions(chars, 2);
+  if (descs.length > 0) {
+    return `SUBJECT: post-event dialogue beat featuring ${descs.join(" and ")}, grounded recovery moment with context still visible, no triumphant hero poster pose.`;
   }
   return `SUBJECT: post-event dialogue beat, grounded recovery moment with context still visible, no triumphant hero poster pose.`;
 }
 
 function listCharacterNames(chars: PanelRenderVisibleCharacter[], max: number): string[] {
   return chars.slice(0, max).map((c) => c.name);
+}
+
+/**
+ * P0 — Retourne les descriptions complètes avec visual DNA pour les prompts multi-personnages.
+ */
+function listCharacterDescriptions(chars: PanelRenderVisibleCharacter[], max: number): string[] {
+  return chars.slice(0, max).map((c) => describeCharacterWithCanon(c));
 }
 
 function normalizePromptClause(value: string | null | undefined): string {

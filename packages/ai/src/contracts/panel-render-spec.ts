@@ -84,6 +84,19 @@ export interface PanelRenderStyleRef {
   weight: number;
 }
 
+/**
+ * P0 — LoRA binding pour un personnage visible dans le panel.
+ * Utilisé pour injecter les trigger words dans le prompt et les LoRA URLs dans FAL.
+ */
+export interface PanelRenderLoraBinding {
+  characterId: string;
+  characterName: string;
+  url: string;
+  triggerWord: string;
+  scale: number;
+  source: "character_lora";
+}
+
 export interface PanelRenderImageReferences {
   characterRefs: PanelRenderCharacterRef[];
   environmentRefs: PanelRenderEnvironmentRef[];
@@ -165,6 +178,11 @@ export interface PanelRenderSpec {
   previousPanelRef?: PanelRenderPreviousPanelRef | null;
   /** Dialogue, narration, SFX du storyboard pour le rendu / logs. */
   panelTextPayload?: PanelRenderPanelTextPayload | null;
+  /**
+   * P0 — LoRA bindings pour les personnages visibles.
+   * Résolu depuis la visual memory et injecté dans l'appel FAL.
+   */
+  loraBindings?: PanelRenderLoraBinding[];
 }
 
 /**

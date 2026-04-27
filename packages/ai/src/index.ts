@@ -171,5 +171,7 @@ export * from "./validators/visual-coverage-validator";
 export * from "./validators/visual-coverage-gap-classifier";
 // Repair passes
 export * from "./services/repair-render-spec-contradictions";
+// Contract coverage
+export * from "./services/assert-prompt-contract-coverage";
 // Quality module — Visual QA and auto-retry
 export * from "./quality";

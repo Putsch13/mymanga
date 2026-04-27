@@ -20,9 +20,11 @@ import {
   createFalPanelAdapter,
   type FalRenderRoute,
   type PanelRenderSpec,
+  type PanelRenderLoraBinding,
 } from "@manga-ai-studio/ai";
 import { isPremiumImageMockAllowed } from "@manga-ai-studio/core";
 import type { RunRenderPassInput } from "./render-pass";
+import { injectLoraTriggerWords } from "./resolve-panel-lora-bindings";
 
 export interface DefaultPanelImageGeneratorArgs {
   spec: PanelRenderSpec;
@@ -38,6 +40,7 @@ export interface DefaultPanelImageGeneratorResult {
   provider?: string;
   model?: string;
   seed?: number | null;
+  lorasUsed?: number;
 }
 
 /**
@@ -71,23 +74,38 @@ export function createDefaultPanelImageGenerator(
         fromLayout != null
           ? resolveDimensionsFromAspectRatio(fromLayout)
           : mapSizePresetToDimensions(route.sizePreset);
+
+      const loraBindings = spec.loraBindings ?? [];
+      const hasLoras = loraBindings.length > 0;
+
+      const finalPrompt = hasLoras
+        ? injectLoraTriggerWords(prompt, loraBindings)
+        : prompt;
+
+      const loras = hasLoras
+        ? loraBindings.map((l: PanelRenderLoraBinding) => ({
+            url: l.url,
+            triggerWord: l.triggerWord,
+            scale: l.scale,
+          }))
+        : undefined;
+
       const result = await adapter.generateImage({
         mode: "PANEL_FINAL",
-        positivePrompt: prompt,
+        positivePrompt: finalPrompt,
         negativePrompt: negative,
         width: dims.width,
         height: dims.height,
         referenceImageUrls: refs,
+        loras,
         providerParams: {
           referencePolicy: route.referencePolicy,
           panelCategory: route.panelCategory,
           retryPolicy: route.retryPolicy,
+          triggerWords: loraBindings.map(l => l.triggerWord),
           v3RenderMode: spec.renderMode,
           v3SubjectFocus: spec.subjectFocus,
           v3CutawayType: spec.cutawayType,
-          // PREMIUM H16 — le prompt vient déjà de `buildMinimalPanelPromptStrict`
-          // (anglais propre, court, non contradictoire). On interdit au
-          // fal-adapter-shared de re-traduire le prompt par dessus.
           skipPromptTranslation: true,
         },
       });
@@ -97,6 +115,7 @@ export function createDefaultPanelImageGenerator(
         provider: result.provider,
         model: result.model,
         seed: result.seed ?? null,
+        lorasUsed: loraBindings.length,
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

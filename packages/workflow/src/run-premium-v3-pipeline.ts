@@ -80,6 +80,12 @@ import { runPropsQaPass, formatPropsQaLog } from "./passes/props-qa-pass";
 import { runVisualDiscoveryPass, formatVisualDiscoveryLog } from "./passes/visual-discovery-pass";
 import { runCanonResolverPass, formatCanonResolverLog } from "./passes/canon-resolver-pass";
 import { runStoryContractCompletenessQa, formatStoryContractCompletenessLog } from "./passes/story-contract-completeness-qa";
+import {
+  assertPremiumAiEnginesReady,
+  assertDialogueResultNotFallback,
+  assertStoryArchitectResultNotFallback,
+  assertMangaEditorResultNotFallback,
+} from "./passes/assert-premium-ai-engines-ready";
 
 export type { PremiumV3PipelineLocation } from "./load-locations-for-v3-story-pass";
 
@@ -311,6 +317,17 @@ export async function runPremiumV3Pipeline(
   input: RunPremiumV3PipelineInput,
 ): Promise<RunPremiumV3PipelineResult> {
   assertPremiumOnlyV3Config(input);
+
+  if (input.premiumV3OnlyEnabled) {
+    const chapterHasDialogue = input.panelBlueprints?.some(
+      (bp) => bp.dialogueCarrier === "speaker_visible" || /dialogue|parl/i.test(bp.purpose ?? "")
+    ) ?? false;
+    assertPremiumAiEnginesReady({
+      chapterHasDialogue,
+      chapterNumber: input.chapterNumber,
+    });
+  }
+
   let visualQaProductionConfigSkipped = false;
   if (input.premiumV3OnlyEnabled && process.env.NODE_ENV === "production") {
     const visualCfg = getPremiumVisualQaConfigStatus();
@@ -696,6 +713,15 @@ export async function runPremiumV3Pipeline(
           );
         }
 
+        if (input.premiumV3OnlyEnabled && enableDialoguist) {
+          const dialogueSkipWarnings = sceneDialogue.warnings.filter(
+            (w) => w.includes("scene_dialogue_skipped_no_openai") || w.includes("scene_dialogue_skipped_not_enabled")
+          );
+          if (dialogueSkipWarnings.length > 0) {
+            throw new Error(`premium_dialogue_required_but_skipped:${dialogueSkipWarnings.join(",")}`);
+          }
+        }
+
         ensureDialogueBeatsHaveAnchors({
           blueprints: rebal.blueprints,
           visualEntities,
@@ -840,6 +866,9 @@ export async function runPremiumV3Pipeline(
         console.warn(
           `[pipeline:v3:story] warnings=${storyPassResult.warnings.join(" | ")}`,
         );
+        if (input.premiumV3OnlyEnabled) {
+          assertStoryArchitectResultNotFallback(storyPassResult.warnings);
+        }
       }
 
       const storyboardStart = Date.now();
@@ -888,6 +917,14 @@ export async function runPremiumV3Pipeline(
       console.warn(
         `[pipeline:v3:storyboard] warnings=${storyboardPassResult.warnings.join(" | ")}`,
       );
+      if (input.premiumV3OnlyEnabled) {
+        const realWarnings = storyboardPassResult.warnings.filter(
+          (w) => !w.includes("storyboard_plan.source=premium_production_plan")
+        );
+        if (realWarnings.length > 0) {
+          assertMangaEditorResultNotFallback(realWarnings);
+        }
+      }
     }
 
     const pageQa = await runPageQaPass(storyboardPassResult.storyboardPlan);
