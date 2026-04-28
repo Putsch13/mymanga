@@ -7,7 +7,7 @@
  * dupliquées avec une variation.
  */
 
-import type { StoryboardPage, PanelMood } from "../chapter-pipeline";
+import type { StoryboardPage, PanelMood } from "./shared-types";
 
 type PanelBlueprint = {
   panelId: string;

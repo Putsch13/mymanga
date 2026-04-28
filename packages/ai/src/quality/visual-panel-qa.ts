@@ -12,7 +12,7 @@
  */
 
 import type { CharacterFingerprint, CanonicalPanelPlan, PanelRetryStrategy } from "@manga-ai-studio/core";
-import { normalizePanelRetryStrategy, PRODUCTION_RULES } from "@manga-ai-studio/core";
+import { normalizePanelRetryStrategy, PRODUCTION_RULES, isPipelineV3PremiumOnlyEnabled } from "@manga-ai-studio/core";
 import { analyzePanelWithVision, type PanelVisionQaScore } from "../services/panel-vision-analyzer";
 
 /** @deprecated utiliser {@link PanelRetryStrategy} depuis `@manga-ai-studio/core` */
@@ -555,6 +555,10 @@ function inferCriticalPanelForVisualQa(input: VisualQaInput): boolean {
   return false;
 }
 
+function isStrictVisionEnvironment(): boolean {
+  return isProductionNodeEnv() || isPipelineV3PremiumOnlyEnabled();
+}
+
 function visualQaMocksExplicitlyAllowed(): boolean {
   return process.env.NODE_ENV === "test" || process.env.ENABLE_VISUAL_QA_MOCKS === "true";
 }
@@ -598,7 +602,7 @@ export async function runVisualPanelQaWithOptionalVision(
   const prod = isProductionNodeEnv();
   const mocksOk = visualQaMocksExplicitlyAllowed();
 
-  if (critical && prod && !mocksOk && !visionFeatureOn) {
+  if (critical && isStrictVisionEnvironment() && !mocksOk && !visionFeatureOn) {
     return visionUnavailableBlockResult(input, maxAttempts);
   }
 
@@ -606,7 +610,7 @@ export async function runVisualPanelQaWithOptionalVision(
   const useNoVisionAssurance =
     !visionFeatureOn
     && critical
-    && (prod || nodeEnv === "development" || process.env.STRICT_VISUAL_QA_HEURISTIC === "true");
+    && (isStrictVisionEnvironment() || nodeEnv === "development" || process.env.STRICT_VISUAL_QA_HEURISTIC === "true");
 
   const inputForHeuristic: VisualQaInput = {
     ...input,
@@ -649,7 +653,7 @@ export async function runVisualPanelQaWithOptionalVision(
     vision = null;
   }
 
-  if (critical && prod && !mocksOk && !vision) {
+  if (critical && !mocksOk && !vision && isStrictVisionEnvironment()) {
     return visionUnavailableBlockResult(input, maxAttempts);
   }
 

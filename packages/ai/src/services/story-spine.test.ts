@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildStorySpine } from "./story-spine";
-import type { GeneratedChapterBundle } from "../chapter-pipeline";
+import type { GeneratedChapterBundle } from "../chapter/shared-types";
 
 function makeBundle(overrides: Partial<GeneratedChapterBundle> = {}): GeneratedChapterBundle {
   return {

@@ -9,7 +9,7 @@ import {
   StoryQualityRubricSchema,
   type JudgeStoryOutlineInput,
 } from "./llm-story-judge";
-import type { GeneratedChapterBundle } from "../chapter-pipeline";
+import type { GeneratedChapterBundle } from "../chapter/shared-types";
 import type { ChapterDramaticSpine } from "./story-spine";
 
 function makeBundle(overrides: {

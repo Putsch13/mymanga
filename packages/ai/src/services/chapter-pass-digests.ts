@@ -1,4 +1,4 @@
-import type { GeneratedChapterBundle, ProjectContextForChapter } from "../chapter-pipeline";
+import type { GeneratedChapterBundle, ProjectContextForChapter } from "../chapter/shared-types";
 
 export function buildContextDigest(context: ProjectContextForChapter) {
   return {

@@ -1,4 +1,4 @@
-import type { GeneratedChapterBundle } from "../chapter-pipeline";
+import type { GeneratedChapterBundle } from "../chapter/shared-types";
 import type { ChapterDramaticSpine } from "./story-spine";
 import type { GenreDirectorMode } from "./genre-director";
 

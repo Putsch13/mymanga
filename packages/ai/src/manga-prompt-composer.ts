@@ -26,7 +26,7 @@
  * Ne pas ajouter de nouvelle logique ici.
  */
 
-import type { PanelMood } from "./chapter-pipeline";
+import type { PanelMood } from "./chapter/shared-types";
 import type { SceneBlueprint } from "@manga-ai-studio/world";
 import type { ChapterLookProfile } from "@manga-ai-studio/core";
 import { buildLookProfilePromptBlock, buildLookProfileNegativeBlock } from "@manga-ai-studio/core";

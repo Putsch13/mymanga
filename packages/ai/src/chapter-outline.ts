@@ -3,7 +3,7 @@ import type {
   BeatNarrativeContract,
   StructuredBeatPayload,
 } from "@manga-ai-studio/core";
-import { beatContractFromLegacyRole } from "@manga-ai-studio/core";
+import { beatContractFromLegacyRole, isPipelineV3PremiumOnlyEnabled } from "@manga-ai-studio/core";
 import type { GenerationOperationalStatus } from "./generation-status";
 import { inferGenreMode, buildGenreDirectorPromptHints, getGenreDirectorConfig } from "./services/genre-director";
 
@@ -536,6 +536,9 @@ export async function generateChapterOutline(
 ): Promise<ChapterOutlineGenerationResult> {
   const key = process.env.OPENAI_API_KEY?.trim();
   if (!key) {
+    if (isPipelineV3PremiumOnlyEnabled()) {
+      throw new Error("premium_outline_openai_required: OPENAI_API_KEY is required for chapter outline in premium pipeline.");
+    }
     return buildOutlineFallbackResult(ctx, "OPENAI_API_KEY missing");
   }
 

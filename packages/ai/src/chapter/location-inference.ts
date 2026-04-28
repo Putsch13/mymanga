@@ -9,7 +9,7 @@
  *    vers un lieu canonique existant si match par nom/alias (substring).
  */
 
-import type { ProjectContextForChapter } from "../chapter-pipeline";
+import type { ProjectContextForChapter } from "./shared-types";
 
 export function inferLocations(context: ProjectContextForChapter, userIntent?: string | null): string[] {
   const intent = (userIntent ?? "").toLowerCase();

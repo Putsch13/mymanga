@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import type { GeneratedChapterBundle, ProjectContextForChapter, StoryboardPanel, StoryboardPage } from "../chapter-pipeline";
+import type { GeneratedChapterBundle, ProjectContextForChapter, StoryboardPanel, StoryboardPage } from "../chapter/shared-types";
 import { buildBundleDigest, buildContextDigest } from "./chapter-pass-digests";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });

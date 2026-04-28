@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { runChapterAutofill } from "./chapter-autofill-engine";
-import type { ProjectContextForChapter } from "../chapter-pipeline";
+import type { ProjectContextForChapter } from "../chapter/shared-types";
 
 const baseContext: ProjectContextForChapter = {
   project: {

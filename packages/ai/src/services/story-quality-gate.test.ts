@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { runStoryQualityGate } from "./story-quality-gate";
-import type { GeneratedChapterBundle } from "../chapter-pipeline";
+import type { GeneratedChapterBundle } from "../chapter/shared-types";
 import type { ChapterDramaticSpine } from "./story-spine";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────

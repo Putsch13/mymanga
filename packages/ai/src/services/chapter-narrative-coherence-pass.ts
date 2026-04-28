@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import type { GeneratedChapterBundle, ProjectContextForChapter } from "../chapter-pipeline";
+import type { GeneratedChapterBundle, ProjectContextForChapter } from "../chapter/shared-types";
 import { buildBundleDigestForNarrative, buildContextDigest } from "./chapter-pass-digests";
 import { buildStorySpine, type ChapterDramaticSpine } from "./story-spine";
 import { inferGenreMode } from "./genre-director";

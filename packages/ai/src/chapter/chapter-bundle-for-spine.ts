@@ -1,6 +1,6 @@
 /**
  * P2.2 — Forme minimale du bundle chapitre pour `story-spine` sans importer
- * `chapter-pipeline` (casse le cycle outline → genre-director → story-spine → pipeline → outline).
+ * `chapter-pipeline` (types partagés : voir aussi `chapter/shared-types.ts`).
  */
 
 export type ChapterBundleForSpineOutlineBeat = {

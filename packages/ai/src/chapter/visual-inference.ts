@@ -8,11 +8,7 @@
  *  - `inferLayout` : GridLayout selon tension + panelCount
  */
 
-import type {
-  ProjectContextForChapter,
-  PanelMood,
-  GridLayout,
-} from "../chapter-pipeline";
+import type { ProjectContextForChapter, PanelMood, GridLayout } from "./shared-types";
 
 export function inferVisualStyle(context: ProjectContextForChapter): string {
   const stylePackBits = [

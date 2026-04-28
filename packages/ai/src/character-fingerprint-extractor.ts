@@ -3,7 +3,7 @@
  * Analyse les images primaires pour extraire l'identité visuelle stricte.
  */
 
-import type { CharacterFingerprint } from "@manga-ai-studio/core";
+import { type CharacterFingerprint, isPipelineV3PremiumOnlyEnabled } from "@manga-ai-studio/core";
 
 export interface CharacterRefImage {
   url: string;
@@ -129,6 +129,22 @@ export async function extractCharacterFingerprintFromRefs(input: {
   hairColor?: string | null;
   eyeColor?: string | null;
 }): Promise<CharacterFingerprint> {
+  const primaryRefs = input.visualRefs.filter((ref) => ref.isPrimary);
+  const premium = isPipelineV3PremiumOnlyEnabled();
+
+  if (premium && primaryRefs.length > 0) {
+    if (!process.env.OPENAI_API_KEY?.trim()) {
+      throw new Error(
+        "premium_character_vision_fingerprint_required: OPENAI_API_KEY is required when primary visual refs exist.",
+      );
+    }
+    if (process.env.ENABLE_CHARACTER_VISION_FINGERPRINT === "false") {
+      throw new Error(
+        "premium_character_vision_fingerprint_required: ENABLE_CHARACTER_VISION_FINGERPRINT=false is incompatible with primary refs in premium.",
+      );
+    }
+  }
+
   const visualProfile = input.visualProfile ?? {};
   const bodyState = input.bodyState ?? {};
   const wardrobeProfile = input.wardrobeProfile ?? {};
@@ -137,6 +153,12 @@ export async function extractCharacterFingerprintFromRefs(input: {
     gender: input.gender,
     visualRefs: input.visualRefs,
   });
+
+  if (premium && primaryRefs.length > 0 && !visionFingerprint) {
+    throw new Error(
+      "premium_character_vision_fingerprint_failed: vision extraction returned no usable fingerprint.",
+    );
+  }
 
   const fingerprint: CharacterFingerprint = {
     identity: {

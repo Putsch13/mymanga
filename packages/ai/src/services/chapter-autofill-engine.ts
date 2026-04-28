@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import type { ProjectContextForChapter } from "../chapter-pipeline";
+import type { ProjectContextForChapter } from "../chapter/shared-types";
 import type {
   ChapterStudioData,
   AutofillMeta,

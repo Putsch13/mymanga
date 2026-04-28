@@ -9,6 +9,7 @@ import type {
   StructuredLocationDelta,
   StructuredSceneEvent,
 } from "@manga-ai-studio/core";
+import { isPipelineV3PremiumOnlyEnabled } from "@manga-ai-studio/core";
 import type { GenerationOperationalStatus } from "../generation-status";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -489,7 +490,12 @@ IMPORTANT:
     };
   };
 
-  if (!process.env.OPENAI_API_KEY) {
+  if (!process.env.OPENAI_API_KEY?.trim()) {
+    if (isPipelineV3PremiumOnlyEnabled()) {
+      throw new Error(
+        "premium_dialogue_openai_required: OPENAI_API_KEY is required for dialogue in premium pipeline.",
+      );
+    }
     return buildFallbackResult("OPENAI_API_KEY missing");
   }
 
@@ -512,6 +518,9 @@ IMPORTANT:
     const raw = response.choices[0]?.message?.content ?? "{}";
     const parsed = JSON.parse(raw) as { panels?: MangaPanelText[]; continuityPayload?: SceneContinuityPayload };
     if (!parsed.panels?.length) {
+      if (isPipelineV3PremiumOnlyEnabled()) {
+        throw new Error("premium_dialogue_empty_response: Dialogue JSON returned without panels.");
+      }
       return buildFallbackResult("Dialogue JSON returned without panels");
     }
     const panels = parsed.panels;
@@ -534,6 +543,9 @@ IMPORTANT:
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[dialogue-writer] sceneId=${input.sceneId} error=${msg}`);
+    if (isPipelineV3PremiumOnlyEnabled()) {
+      throw err instanceof Error ? err : new Error(`premium_dialogue_llm_failed: ${msg}`);
+    }
     return buildFallbackResult(msg);
   }
 }

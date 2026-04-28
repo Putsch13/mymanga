@@ -5,6 +5,7 @@ describe("generateChapterOutline", () => {
   it("retourne des beats structurés même en fallback heuristique", async () => {
     const previousKey = process.env.OPENAI_API_KEY;
     vi.stubEnv("OPENAI_API_KEY", "");
+    vi.stubEnv("PIPELINE_V3_PREMIUM_ONLY", "false");
 
     const result = await generateChapterOutline({
       projectTitle: "Luna",
@@ -36,5 +37,27 @@ describe("generateChapterOutline", () => {
       expect(beat.structuredBeat.worldConsequences.length).toBeGreaterThan(0);
       expect(beat.structuredBeat.setupPayoffHooks.length).toBeGreaterThan(0);
     }
+  });
+
+  it("refuse le fallback sans OpenAI en mode premium-only", async () => {
+    vi.stubEnv("PIPELINE_V3_PREMIUM_ONLY", "true");
+    vi.stubEnv("OPENAI_API_KEY", "");
+    await expect(
+      generateChapterOutline({
+        projectTitle: "Luna",
+        pitch: "Pitch minimal pour le test premium.",
+        primaryGenre: "fantasy",
+        tone: "émotionnel",
+        chapterNumber: 1,
+        chapterTitle: "Test",
+        userIntent:
+          "Luna subit une situation stressante, ferme les yeux puis rejoint son monde imaginaire où une créature confidente lui répond.",
+        quickTag: "bold",
+        previousSummary: null,
+        previousCliffhanger: null,
+        cast: [{ name: "Luna", roleType: "hero", objective: "survivre", fear: "l'échec", traits: ["sensible"] }],
+      }),
+    ).rejects.toThrow(/premium_outline_openai_required/);
+    vi.unstubAllEnvs();
   });
 });

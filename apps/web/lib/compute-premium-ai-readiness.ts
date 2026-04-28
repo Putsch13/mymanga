@@ -49,7 +49,7 @@ function visualQaStep(stack: GenerationStackStatus, premiumOnly: boolean): AiSte
       status: "fallback",
       reason:
         "VISUAL_PANEL_QA_VISION / ENABLE_PREMIUM_VISION_QA non activés — QA vision limitée tant que la prod stricte n'est pas exigée.",
-      premiumBlocking: premiumOnly && process.env.NODE_ENV === "production",
+      premiumBlocking: premiumOnly,
     };
   }
   return { status: "real", provider: "vision_qa" };
