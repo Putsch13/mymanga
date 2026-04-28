@@ -15,19 +15,9 @@
  */
 
 import type { PanelTextContract } from "./panel-text-contract";
+import type { ContractCharacterVisualDna } from "../characters/merge-character-visual-dna";
 
 export const CONTRACT_VERSION = "v1" as const;
-
-export interface ContractCharacterVisualDna {
-  eyeColor?: string | null;
-  hairColor?: string | null;
-  hairStyle?: string | null;
-  outfitSignature?: string | null;
-  distinctiveTraits?: string[];
-  silhouette?: string | null;
-  ageAppearance?: string | null;
-  bodyType?: string | null;
-}
 
 export interface ContractCharacter {
   characterId: string;

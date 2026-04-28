@@ -16,7 +16,7 @@
  *   → SceneImage metadata
  */
 
-export interface CharacterVisualDna {
+export interface MergedCharacterVisualDna {
   eyeColor?: string | null;
   hairColor?: string | null;
   hairStyle?: string | null;
@@ -68,7 +68,7 @@ export interface MergeCharacterVisualDnaInput {
   renderSpecCharacter?: RenderSpecCharacterVisualDna;
 }
 
-export function mergeCharacterVisualDna(input: MergeCharacterVisualDnaInput): CharacterVisualDna {
+export function mergeCharacterVisualDna(input: MergeCharacterVisualDnaInput): MergedCharacterVisualDna {
   const {
     dbCharacter,
     contractCharacter,
@@ -76,7 +76,7 @@ export function mergeCharacterVisualDna(input: MergeCharacterVisualDnaInput): Ch
     renderSpecCharacter,
   } = input;
 
-  const result: CharacterVisualDna = {};
+  const result: MergedCharacterVisualDna = {};
 
   result.hairColor = 
     renderSpecCharacter?.hairColor ??
@@ -134,7 +134,7 @@ export function mergeCharacterVisualDna(input: MergeCharacterVisualDnaInput): Ch
 
 export function characterVisualDnaToPromptDescription(
   name: string,
-  dna: CharacterVisualDna
+  dna: MergedCharacterVisualDna
 ): string {
   const parts: string[] = [name];
 
@@ -168,7 +168,7 @@ export function characterVisualDnaToPromptDescription(
 
 export function characterVisualDnaToNegativePrompt(
   name: string,
-  dna: CharacterVisualDna
+  dna: MergedCharacterVisualDna
 ): string[] {
   const negatives: string[] = [];
 
@@ -201,7 +201,7 @@ export function characterVisualDnaToNegativePrompt(
 
 export function buildVisionQaExpectedFingerprint(
   name: string,
-  dna: CharacterVisualDna
+  dna: MergedCharacterVisualDna
 ): Record<string, string | string[] | null> {
   return {
     name,

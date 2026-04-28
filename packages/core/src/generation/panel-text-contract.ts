@@ -19,7 +19,10 @@
 
 export type SfxKind = "impact" | "ambient" | "motion" | "emotion";
 
-export type TextOverflowStrategy = "bubble_stack" | "caption_strip" | "margin_note";
+export type PanelTextOverflowStrategy =
+  | "bubble_stack"
+  | "caption_strip"
+  | "margin_note";
 
 export type SilenceReason = "silent_panel" | "visual_only" | "transition" | null;
 
@@ -41,7 +44,7 @@ export interface PanelTextPlacement {
   reserveTextArea: boolean;
   preferredAnchorZones: string[];
   avoidFaces: boolean;
-  overflowStrategy: TextOverflowStrategy;
+  overflowStrategy: PanelTextOverflowStrategy;
 }
 
 export interface PanelTextContract {

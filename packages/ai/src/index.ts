@@ -36,6 +36,7 @@ export type {
   PanelRenderContinuityLocks,
   PanelRenderCharacterRef,
   PanelRenderEnvironmentRef,
+  PanelRenderLoraBinding,
   PanelRenderPanelRef,
   PanelRenderStyleRef,
   PanelRenderImageReferences,
