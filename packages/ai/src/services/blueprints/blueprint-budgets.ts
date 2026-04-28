@@ -461,6 +461,10 @@ export function computeContractualFocusAdequacy(
 /**
  * P2.15 — Score de préparation premium honnête.
  *
+ * Métrique produit (pénalités lieux/dialogue/cutaway, etc.) : utile au studio et aux logs.
+ * La route `POST .../launch` ne bloque plus uniquement sur ce score lorsque la QA structurelle
+ * canonique sur les mêmes blueprints est valide — éviter la contradiction avec `canonical_qa_valid`.
+ *
  * Pénalités appliquées :
  *   - violations bloquantes (-15% chacune)
  *   - violations warnings (-5% chacune)

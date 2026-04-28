@@ -12,9 +12,10 @@ describe("getPremiumReadinessLaunchMinScore", () => {
     else process.env.PREMIUM_READINESS_LAUNCH_MIN_SCORE = prev;
   });
 
-  it("retourne le défaut quand la variable est absente", () => {
+  it("retourne 0,85 par défaut quand la variable est absente", () => {
     delete process.env.PREMIUM_READINESS_LAUNCH_MIN_SCORE;
     expect(getPremiumReadinessLaunchMinScore()).toBe(PREMIUM_READINESS_LAUNCH_DEFAULT_MIN);
+    expect(PREMIUM_READINESS_LAUNCH_DEFAULT_MIN).toBe(0.85);
   });
 
   it("parse un nombre valide entre 0 et 1", () => {

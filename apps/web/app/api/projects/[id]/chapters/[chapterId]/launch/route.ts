@@ -241,52 +241,9 @@ export async function POST(_req: Request, ctx: Ctx) {
     );
   }
 
-  if (isPipelineV3PremiumOnlyEnabled()) {
-    const pp = snapshot.data.productionPlan;
-    const ppRec = pp && typeof pp === "object" ? (pp as Record<string, unknown>) : null;
-    const bps = ppRec?.panelBlueprints;
-    let score: number | null = null;
-    let scoreSource: "recomputed_from_blueprints" | "persisted_metadata" = "persisted_metadata";
-    if (Array.isArray(bps) && bps.length > 0) {
-      score = computePremiumReadinessScore(bps as PanelBlueprintPremium[]);
-      scoreSource = "recomputed_from_blueprints";
-    } else if (ppRec && typeof ppRec.premiumReadinessScore === "number") {
-      score = ppRec.premiumReadinessScore as number;
-    }
-    const minReadiness = getPremiumReadinessLaunchMinScore();
-    if (score !== null && score < minReadiness) {
-      console.warn(
-        `[launch] premium_readiness_blocked chapterId=${chapterId} premiumReadinessScore=${score.toFixed(2)} ` +
-          `threshold=${minReadiness.toFixed(2)} scoreSource=${scoreSource}`,
-      );
-      return NextResponse.json(
-        {
-          error: "premium_readiness_too_low",
-          code: "PREMIUM_READINESS_TOO_LOW",
-          message:
-            `Le score de préparation premium (${score.toFixed(2)}) est sous le seuil requis (${minReadiness.toFixed(2)}). ` +
-            "Renforce le plan (lieux, PNJ, couverture narrative) avant de lancer, ou baisse le seuil via PREMIUM_READINESS_LAUNCH_MIN_SCORE.",
-          premiumReadinessScore: score,
-          minReadinessScore: minReadiness,
-        },
-        { status: 422 },
-      );
-    }
-  }
-
-  if (isVisualContractPrelaunchBlocked(chapter.outline, chapter.generatedImages ?? 0)) {
-    return NextResponse.json(
-      {
-        error: "visual_contract_prelaunch_required",
-        code: "VISUAL_CONTRACT_PRELAUNCH_REQUIRED",
-        message:
-          "Avant le tout premier lancement, confirme dans le studio le panneau « Contrat visuel » (case de confirmation en bas).",
-      },
-      { status: 422 },
-    );
-  }
-
-  // QA structurelle canonique sur les blueprints réels (même logique que /estimate → canonicalProductionPlan).
+  // QA structurelle canonique en premier (même entrée que /estimate). C'est la barre « fidèle »
+  // sur le plan ; le score heuristique `computePremiumReadinessScore` pénalise souvent des champs
+  // peu remplis après merge canonique (lieux unknown, dialogueCarrier) sans invalider cette QA.
   const outlineForStructuralQa =
     snapshot.data.productionOutline && typeof snapshot.data.productionOutline === "object"
       ? snapshot.data.productionOutline
@@ -297,6 +254,7 @@ export async function POST(_req: Request, ctx: Ctx) {
           beats: approvedOutline.beats,
         };
   const bpStructural = snapshot.data.productionPlan?.panelBlueprints;
+  let structuralCanonicalQaPassed = false;
   if (Array.isArray(bpStructural) && bpStructural.length > 0) {
     const fmt = chapter.project.format === "webtoon" ? "webtoon" : "manga";
     const structuralPlan = buildCanonicalProductionPlanFromPremiumBlueprints({
@@ -323,6 +281,60 @@ export async function POST(_req: Request, ctx: Ctx) {
         { status: 422 },
       );
     }
+    structuralCanonicalQaPassed = true;
+  }
+
+  if (isPipelineV3PremiumOnlyEnabled()) {
+    const pp = snapshot.data.productionPlan;
+    const ppRec = pp && typeof pp === "object" ? (pp as Record<string, unknown>) : null;
+    const bps = ppRec?.panelBlueprints;
+    let score: number | null = null;
+    let scoreSource: "recomputed_from_blueprints" | "persisted_metadata" = "persisted_metadata";
+    if (Array.isArray(bps) && bps.length > 0) {
+      score = computePremiumReadinessScore(bps as PanelBlueprintPremium[]);
+      scoreSource = "recomputed_from_blueprints";
+    } else if (ppRec && typeof ppRec.premiumReadinessScore === "number") {
+      score = ppRec.premiumReadinessScore as number;
+    }
+    const minReadiness = getPremiumReadinessLaunchMinScore();
+    if (score !== null && score < minReadiness) {
+      if (structuralCanonicalQaPassed) {
+        console.info(
+          `[launch] premium_readiness_advisory chapterId=${chapterId} premiumReadinessScore=${score.toFixed(2)} ` +
+            `threshold=${minReadiness.toFixed(2)} scoreSource=${scoreSource} structuralCanonicalQaPassed=true ` +
+            "— lancement autorisé : la QA structurelle canonique prime sur le score heuristique",
+        );
+      } else {
+        console.warn(
+          `[launch] premium_readiness_blocked chapterId=${chapterId} premiumReadinessScore=${score.toFixed(2)} ` +
+            `threshold=${minReadiness.toFixed(2)} scoreSource=${scoreSource}`,
+        );
+        return NextResponse.json(
+          {
+            error: "premium_readiness_too_low",
+            code: "PREMIUM_READINESS_TOO_LOW",
+            message:
+              `Le score de préparation premium (${score.toFixed(2)}) est sous le seuil requis (${minReadiness.toFixed(2)}) ` +
+              "et la QA structurelle n'a pas pu valider des blueprints présents. Renforce le plan ou baisse le seuil via PREMIUM_READINESS_LAUNCH_MIN_SCORE.",
+            premiumReadinessScore: score,
+            minReadinessScore: minReadiness,
+          },
+          { status: 422 },
+        );
+      }
+    }
+  }
+
+  if (isVisualContractPrelaunchBlocked(chapter.outline, chapter.generatedImages ?? 0)) {
+    return NextResponse.json(
+      {
+        error: "visual_contract_prelaunch_required",
+        code: "VISUAL_CONTRACT_PRELAUNCH_REQUIRED",
+        message:
+          "Avant le tout premier lancement, confirme dans le studio le panneau « Contrat visuel » (case de confirmation en bas).",
+      },
+      { status: 422 },
+    );
   }
 
   // B3-3 : Shot Variety Enforcer — vérifier la variété des plans avant lancement
