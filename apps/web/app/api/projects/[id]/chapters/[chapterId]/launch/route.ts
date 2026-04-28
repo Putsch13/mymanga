@@ -4,6 +4,8 @@ import {
   buildChapterReadinessReport,
   buildPanelTraceabilityReport,
   computeNarrativeMemoryDigestFromOutline,
+  computePanelContinuityPreflights,
+  continuityPreflightBlockingReasons,
   getPremiumReadinessLaunchMinScore,
   hydratePanelProvenanceOnBlueprints,
   isPipelineV3PremiumOnlyEnabled,
@@ -23,6 +25,7 @@ import { getAppUser } from "@/lib/auth/get-app-user";
 import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
 import { badRequest, notFound, unauthorized, validationError } from "@/lib/api-response";
 import { getGenerationStackStatus, logGenerationStackReadiness } from "@/lib/generation/stack-readiness";
+import { computePremiumAiReadiness } from "@/lib/compute-premium-ai-readiness";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { buildChapterStructuredRuntimePrismaFields, readChapterStudioSnapshotFromOutline } from "@/lib/chapter-studio";
 import {
@@ -79,6 +82,27 @@ export async function POST(_req: Request, ctx: Ctx) {
 
   const stack = getGenerationStackStatus();
   logGenerationStackReadiness(stack);
+
+  const premiumOnly = isPipelineV3PremiumOnlyEnabled();
+  const { aiReadiness, premiumBlockingReasons } = computePremiumAiReadiness({ stack, premiumOnly });
+  if (premiumOnly && premiumBlockingReasons.length > 0) {
+    logLaunchBlock(projectId, chapterId, "PREMIUM_AI_READINESS_FAILED", "Premium AI readiness gate", {
+      premiumBlockingReasons,
+    });
+    return NextResponse.json(
+      {
+        error: "premium_ai_readiness_failed",
+        code: "PREMIUM_AI_READINESS_FAILED",
+        message:
+          "Des moteurs IA requis pour le mode premium-only ne sont pas prêts (LLM, images, QA vision ou bindings). " +
+          "Corrige la configuration du serveur ou utilise un environnement de développement.",
+        aiReadiness,
+        premiumBlockingReasons,
+      },
+      { status: 422 },
+    );
+  }
+
   if (!stack.canGenerateChapters) {
     logLaunchBlock(projectId, chapterId, "STACK_NOT_READY", "Generation stack not ready for full chapter", {
       blockers: stack.blockers,
@@ -280,11 +304,39 @@ export async function POST(_req: Request, ctx: Ctx) {
           message:
             "Le plan de production ne passe pas la QA structurelle (panels, ratios cutaway / actor-driven, couverture des beats). Corrige le plan avant de lancer.",
           structuralQa: structuralPlan.qa,
+          structuralMetrics: structuralPlan.metrics,
         },
         { status: 422 },
       );
     }
     structuralCanonicalQaPassed = true;
+  }
+
+  const bpForContinuity = snapshot.data.productionPlan?.panelBlueprints;
+  if (Array.isArray(bpForContinuity) && bpForContinuity.length > 0 && isPipelineV3PremiumOnlyEnabled()) {
+    const continuityPreflights = computePanelContinuityPreflights(bpForContinuity as PanelBlueprintPremium[]);
+    const continuityBlockers = continuityPreflightBlockingReasons(continuityPreflights);
+    if (continuityBlockers.length > 0) {
+      logLaunchBlock(
+        projectId,
+        chapterId,
+        "PREMIUM_CONTINUITY_PREFLIGHT_FAILED",
+        "Critical premium panels missing character visual DNA",
+        { continuityBlockers },
+      );
+      return NextResponse.json(
+        {
+          error: "premium_continuity_preflight_failed",
+          code: "PREMIUM_CONTINUITY_PREFLIGHT_FAILED",
+          message:
+            "Un ou plusieurs panels critiques n'ont aucune entrée characterVisualDna alors que des personnages doivent être visibles. " +
+            "Complète le plan premium (DNA / studio) avant de lancer.",
+          continuityBlockers,
+          continuityPreflightBlockingCount: continuityBlockers.length,
+        },
+        { status: 422 },
+      );
+    }
   }
 
   if (isPipelineV3PremiumOnlyEnabled()) {

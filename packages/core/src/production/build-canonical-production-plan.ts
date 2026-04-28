@@ -156,6 +156,7 @@ function buildBeatPlan(
     hasAction: beat.hasAction,
     hasEmotion: beat.hasEmotion,
     hasTension: beat.hasTension,
+    unresolvedCharacterRefs: beat.unresolvedCharacterRefs ?? [],
   };
 }
 

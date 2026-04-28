@@ -97,6 +97,7 @@ function buildProductionPlan(beatCount: number) {
         mustShowCharacterIds: isCutaway ? [] : ["hero-1"],
         requiredCharacterIds: isCutaway ? [] : ["hero-1"],
         dialogueCarrier: isCutaway ? undefined : ("speaker_visible" as const),
+        speakerAnchorCharacterId: isCutaway ? null : ("hero-1" as const),
         dialogueLines: isCutaway
           ? undefined
           : ([{ speaker: "hero-1", text: "Ligne test." }] as const),

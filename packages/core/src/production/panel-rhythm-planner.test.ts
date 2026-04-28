@@ -12,6 +12,7 @@ function createMockBeat(overrides: Partial<NormalizedBeat> = {}): NormalizedBeat
     whyThisBeatExists: "Test reason",
     dramaticChange: "Test change",
     involvedCharacters: ["hero_001"],
+    unresolvedCharacterRefs: [],
     entities: [],
     props: [],
     locations: ["Tokyo"],

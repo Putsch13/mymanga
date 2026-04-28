@@ -15,7 +15,7 @@ import { safeFetch } from "@/lib/safe-fetch";
 import { Tooltip, SliderField } from "./_components/pipeline-atoms";
 import { STEP_LABELS, type CreativityControls, type OutlinePreviewBeat, type PipelineJobState, type PipelinePreviewData } from "./_components/pipeline-types";
 import { computePipelineProgressValue, buildPipelineDegradedWarning } from "./_components/compute-progress";
-import { mapLaunchError, type LaunchErrorPayload } from "./_components/map-launch-error";
+import { mapLaunchError, isStructuralProductionPlanLaunchFailure, type LaunchErrorPayload } from "./_components/map-launch-error";
 import { usePipelineJobPolling } from "./_components/use-pipeline-job-polling";
 
 export default function ChapterGeneratorPage() {
@@ -37,6 +37,7 @@ export default function ChapterGeneratorPage() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [jobState, setJobState] = useState<PipelineJobState>(null);
   const [pipelineMsg, setPipelineMsg] = useState<string | null>(null);
+  const [pipelineLaunchPayload, setPipelineLaunchPayload] = useState<LaunchErrorPayload | null>(null);
   const [premiumContractMissing, setPremiumContractMissing] = useState<string[] | null>(null);
   const [startingPipeline, setStartingPipeline] = useState(false);
   const [creatingDraft, setCreatingDraft] = useState(false);
@@ -118,6 +119,7 @@ export default function ChapterGeneratorPage() {
   async function fetchPreview() {
     setPreviewLoading(true);
     setPipelineMsg(null);
+    setPipelineLaunchPayload(null);
     try {
       const res = await fetch(`/api/projects/${id}/chapters/estimate`, {
         method: "POST",
@@ -226,6 +228,7 @@ export default function ChapterGeneratorPage() {
     }
     setStartingPipeline(true);
     setPipelineMsg(null);
+    setPipelineLaunchPayload(null);
     setPremiumContractMissing(null);
     try {
       await saveApprovedOutline(selectedChapter);
@@ -244,12 +247,14 @@ export default function ChapterGeneratorPage() {
         } else {
           setPremiumContractMissing(null);
         }
+        setPipelineLaunchPayload(j as LaunchErrorPayload);
         setPipelineMsg(mapLaunchError(j as LaunchErrorPayload));
         setJobState(null);
         return;
       }
       if (j.jobId) {
         setPremiumContractMissing(null);
+        setPipelineLaunchPayload(null);
         setSelectedJobId(j.jobId);
         setJobState({
           id: j.jobId,
@@ -263,9 +268,11 @@ export default function ChapterGeneratorPage() {
           ...(j.ok === false ? { error: { message: j.message } } : {}),
         });
         if (!j.ok) {
+          setPipelineLaunchPayload(j as LaunchErrorPayload);
           setPipelineMsg(mapLaunchError(j as LaunchErrorPayload));
         }
       } else if (j.ok === false) {
+        setPipelineLaunchPayload(j as LaunchErrorPayload);
         setPipelineMsg(mapLaunchError(j as LaunchErrorPayload));
         setJobState(null);
       }
@@ -283,6 +290,7 @@ export default function ChapterGeneratorPage() {
     }
     setCreatingDraft(true);
     setPipelineMsg(null);
+    setPipelineLaunchPayload(null);
     try {
       const approvedOutline = buildApprovedOutlinePayload();
       const res = await fetch(`/api/projects/${id}/chapters`, {
@@ -310,6 +318,7 @@ export default function ChapterGeneratorPage() {
       loadChapters();
 
       setStartingPipeline(true);
+      setPipelineLaunchPayload(null);
       const pRes = await fetch(`/api/projects/${id}/chapters/${j.chapter.id}/launch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -320,10 +329,12 @@ export default function ChapterGeneratorPage() {
       });
       const pJ = await pRes.json().catch(() => ({}));
       if (!pRes.ok) {
+        setPipelineLaunchPayload(pJ as LaunchErrorPayload);
         setPipelineMsg(mapLaunchError(pJ as LaunchErrorPayload));
         return;
       }
       if (pJ.jobId) {
+        setPipelineLaunchPayload(null);
         setSelectedJobId(pJ.jobId);
         setJobState({
           id: pJ.jobId,
@@ -336,6 +347,7 @@ export default function ChapterGeneratorPage() {
           },
         });
       } else {
+        setPipelineLaunchPayload(pJ as LaunchErrorPayload);
         setPipelineMsg(mapLaunchError(pJ as LaunchErrorPayload));
       }
     } catch (e) {
@@ -777,6 +789,7 @@ export default function ChapterGeneratorPage() {
                   onClick={() => {
                     setPremiumContractMissing(null);
                     setPipelineMsg(null);
+                    setPipelineLaunchPayload(null);
                     setPreviewData(null);
                     setPlanApproved(false);
                   }}
@@ -788,7 +801,40 @@ export default function ChapterGeneratorPage() {
           </Card>
         )}
 
-        {pipelineMsg && !isGenerating && !isDone && !premiumContractMissing && (
+        {isStructuralProductionPlanLaunchFailure(pipelineLaunchPayload) &&
+          selectedChapter &&
+          !isGenerating &&
+          !isDone &&
+          !premiumContractMissing && (
+          <Card className="border-destructive/35 bg-destructive/5">
+            <CardContent className="pt-5 space-y-3">
+              <p className="text-sm font-semibold text-destructive">Plan premium : validation structurelle refusée</p>
+              <p className="text-sm text-muted-foreground">
+                {mapLaunchError(pipelineLaunchPayload)}
+              </p>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button type="button" size="sm" asChild>
+                  <Link href={`/projects/${id}/chapters/${selectedChapter}/generate`}>
+                    Ouvrir le studio — régénérer le plan premium
+                  </Link>
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setPipelineLaunchPayload(null);
+                    setPipelineMsg(null);
+                  }}
+                >
+                  Fermer ce message
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {pipelineMsg && !isGenerating && !isDone && !premiumContractMissing && !isStructuralProductionPlanLaunchFailure(pipelineLaunchPayload) && (
           <p className="text-sm text-muted-foreground">{pipelineMsg}</p>
         )}
       </div>

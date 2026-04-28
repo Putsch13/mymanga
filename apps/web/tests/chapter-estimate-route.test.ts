@@ -22,6 +22,33 @@ vi.mock("@/lib/ownership", () => ({
   getOwnedProject: getOwnedProjectMock,
 }));
 
+vi.mock("@/lib/generation/stack-readiness", () => ({
+  getGenerationStackStatus: () => ({
+    configuredProviders: ["fal"],
+    preferredImageProvider: "fal",
+    operationalStatus: "FULLY_OPERATIONAL",
+    degradedModes: [],
+    isDegraded: false,
+    hasOpenAI: true,
+    hasFal: true,
+    hasStoragePersistence: true,
+    allowMockImageProvider: false,
+    canGenerateImages: true,
+    canGenerateChapters: true,
+    canRunV3Premium: true,
+    visionPremiumQaEnvReady: true,
+    premiumVisualQaPreflight: {
+      ok: true,
+      missing: [] as string[],
+      strictlyRequired: false,
+      launchBlocked: false,
+    },
+    blockers: [] as string[],
+    warnings: [] as string[],
+  }),
+  logGenerationStackReadiness: vi.fn(),
+}));
+
 vi.mock("@manga-ai-studio/billing", () => ({
   estimateChapterTextTokensFromRules: estimateChapterTextTokensFromRulesMock,
 }));
@@ -202,6 +229,8 @@ describe("chapter estimate route", () => {
       panelCount: expect.any(Number),
       beatCount: expect.any(Number),
     });
+    expect(payload.estimateContext?.aiReadiness?.outline?.status).toBe("real");
+    expect(Array.isArray(payload.estimateContext?.premiumBlockingReasons)).toBe(true);
     expect(payload.targetChapter.chapterNumber).toBe(3);
     expect(buildProjectContextMock).toHaveBeenCalledWith(
       prismaMock,

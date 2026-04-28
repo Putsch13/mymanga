@@ -10,6 +10,7 @@ import {
   classifyPremiumPanelCount,
   mergeRawBlueprintsWithCanonicalRhythm,
   PREMIUM_PANEL_RANGE,
+  runStructuralQaOnPremiumBlueprints,
 } from "@manga-ai-studio/core";
 import type { ApprovedChapterOutline, ProductionBeat } from "@manga-ai-studio/core";
 import type { PanelBlueprintPremium, RequiredProp } from "@manga-ai-studio/core";
@@ -17,6 +18,21 @@ import { inferNarrativeFactsFromBeat, type NarrativeExtractionContext } from "./
 import { enrichNarrativeFactsWithLLM, mergeNarrativeFacts } from "./narrative-fact-llm-enricher";
 import { inferRequiredPropsFromBeat } from "./prop-inference-engine";
 import { buildPanelBlueprintsFromBeat, computeChapterFocusBudget, computePremiumReadinessScore } from "./panel-blueprint-builder";
+
+function assertFinalStructuralQaAfterMerge(input: {
+  chapterId: string;
+  projectId: string;
+  chapterNumber: number;
+  chapterTitle: string;
+  format: "manga" | "webtoon";
+  productionOutline: unknown;
+  blueprints: PanelBlueprintPremium[];
+}): void {
+  const { qa } = runStructuralQaOnPremiumBlueprints(input);
+  if (!qa.valid) {
+    throw new Error(`premium_contract_final_structural_qa_failed: ${qa.errors.join(" | ")}`);
+  }
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -286,6 +302,15 @@ export function buildPremiumChapterContract(
   });
   const rawFlattened = enrichedBeats.flatMap((b) => b._blueprints);
   const allBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawFlattened, canonicalPlan);
+  assertFinalStructuralQaAfterMerge({
+    chapterId,
+    projectId,
+    chapterNumber,
+    chapterTitle,
+    format,
+    productionOutline: outlineForCanonical,
+    blueprints: allBlueprints,
+  });
 
   const beatPanelCounts = new Map(canonicalPlan.beats.map((b) => [b.beatId, b.actualPanelCount]));
   const enrichedBeatsAligned = enrichedBeats.map((b) => ({
@@ -550,6 +575,15 @@ export async function buildPremiumChapterContractAsync(
   });
   const rawFlattened = enrichedBeatsWithLLMBlueprints.flatMap((b) => b._blueprints);
   const allBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawFlattened, canonicalPlan);
+  assertFinalStructuralQaAfterMerge({
+    chapterId,
+    projectId,
+    chapterNumber,
+    chapterTitle,
+    format,
+    productionOutline: outlineForCanonical,
+    blueprints: allBlueprints,
+  });
 
   const beatPanelCounts = new Map(canonicalPlan.beats.map((b) => [b.beatId, b.actualPanelCount]));
   const enrichedBeatsAligned = enrichedBeatsWithLLMBlueprints.map((b) => ({

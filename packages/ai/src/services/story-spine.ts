@@ -1,4 +1,4 @@
-import type { GeneratedChapterBundle } from "../chapter-pipeline";
+import type { ChapterBundleForSpine } from "../chapter/chapter-bundle-for-spine";
 import type { GenreDirectorMode, GenreDirectorConfig } from "./genre-director";
 import { getGenreDirectorConfig } from "./genre-director";
 
@@ -130,7 +130,7 @@ function detectReversals(beats: SpineBeat[]): SpineReversal[] {
   return reversals;
 }
 
-function extractPayoffTargets(bundle: GeneratedChapterBundle): string[] {
+function extractPayoffTargets(bundle: ChapterBundleForSpine): string[] {
   const targets: string[] = [];
   const outline = bundle.outline;
 
@@ -140,11 +140,11 @@ function extractPayoffTargets(bundle: GeneratedChapterBundle): string[] {
     if (beat.pageRole === "revelation" || beat.pageRole === "cliffhanger") {
       targets.push(beat.summary);
     }
-  if (beat.structuredBeat?.setupPayoffHooks?.length) {
-        for (const hook of beat.structuredBeat.setupPayoffHooks) {
-          if (hook.label) targets.push(hook.label);
-        }
+    if (beat.structuredBeat?.setupPayoffHooks?.length) {
+      for (const hook of beat.structuredBeat.setupPayoffHooks) {
+        if (hook.label) targets.push(hook.label);
       }
+    }
   }
 
   return [...new Set(targets)].slice(0, 5);
@@ -239,7 +239,7 @@ function detectPacingIssues(beats: SpineBeat[], config: GenreDirectorConfig): st
   return issues;
 }
 
-function detectWeakScenes(bundle: GeneratedChapterBundle): number[] {
+function detectWeakScenes(bundle: ChapterBundleForSpine): number[] {
   const weak: number[] = [];
   const scenes = bundle.script?.scenes ?? [];
 
@@ -260,7 +260,7 @@ function detectWeakScenes(bundle: GeneratedChapterBundle): number[] {
   return weak;
 }
 
-function detectDeadPanels(bundle: GeneratedChapterBundle): number[] {
+function detectDeadPanels(bundle: ChapterBundleForSpine): number[] {
   const dead: number[] = [];
   const pages = bundle.storyboard?.pages ?? [];
   let panelIndex = 0;
@@ -321,7 +321,7 @@ function detectHookOpportunities(beats: SpineBeat[], weakScenes: number[]): stri
 }
 
 export function buildStorySpine(
-  bundle: GeneratedChapterBundle,
+  bundle: ChapterBundleForSpine,
   genreMode: GenreDirectorMode = "shonen_combat",
 ): ChapterDramaticSpine {
   const config = getGenreDirectorConfig(genreMode);

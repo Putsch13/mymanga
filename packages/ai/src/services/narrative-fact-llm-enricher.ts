@@ -12,8 +12,12 @@
  */
 
 import OpenAI from "openai";
-import type { NarrativeFact, NarrativeFactType } from "@manga-ai-studio/core";
-import type { ProductionBeat } from "@manga-ai-studio/core";
+import {
+  isPipelineV3PremiumOnlyEnabled,
+  type NarrativeFact,
+  type NarrativeFactType,
+  type ProductionBeat,
+} from "@manga-ai-studio/core";
 import type { NarrativeExtractionContext } from "./narrative-fact-extractor";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -101,7 +105,14 @@ export async function enrichNarrativeFactsWithLLM(
   existingFacts: NarrativeFact[],
   context: NarrativeExtractionContext,
 ): Promise<NarrativeFact[] | null> {
-  if (!process.env.OPENAI_API_KEY) return null;
+  if (!process.env.OPENAI_API_KEY?.trim()) {
+    if (isPipelineV3PremiumOnlyEnabled()) {
+      throw new Error(
+        "premium_narrative_llm_required: OPENAI_API_KEY est obligatoire pour enrichNarrativeFactsWithLLM en mode premium-only.",
+      );
+    }
+    return null;
+  }
 
   const beatText = [
     beat.summary,

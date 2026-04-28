@@ -134,7 +134,10 @@ beforeEach(() => {
   getAppUserMock.mockResolvedValue(user);
   checkRateLimitMock.mockResolvedValue({ ok: true });
   getGenerationStackStatusMock.mockReturnValue({
+    configuredProviders: ["fal"],
+    preferredImageProvider: "fal",
     canGenerateChapters: true,
+    canGenerateImages: true,
     canRunV3Premium: true,
     hasFal: true,
     hasStoragePersistence: true,
@@ -142,6 +145,15 @@ beforeEach(() => {
     visionPremiumQaEnvReady: true,
     operationalStatus: "FULLY_OPERATIONAL",
     degradedModes: [],
+    isDegraded: false,
+    allowMockImageProvider: false,
+    premiumVisualQaPreflight: {
+      ok: true,
+      missing: [],
+      strictlyRequired: false,
+      launchBlocked: false,
+    },
+    blockers: [],
     warnings: [],
   });
   estimateChapterTextTokensFromRulesMock.mockResolvedValue(42);

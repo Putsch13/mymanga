@@ -35,6 +35,8 @@ export interface NormalizedBeat {
   criticality: "low" | "medium" | "high" | "critical";
   sceneContext: string | null;
   opponent: string | null;
+  /** Refs personnage non résolues vers le catalogue projet (estimate / studio) */
+  unresolvedCharacterRefs: string[];
 }
 
 export interface NormalizedOutline {
@@ -178,6 +180,7 @@ function normalizeBeat(rawBeat: unknown, index: number): NormalizedBeat {
   const dramaticChange = asString(beat.dramaticChange) || asString(beat.turn) || asString(beat.change) || "";
 
   const involvedCharacters = extractCharacters(beat);
+  const unresolvedCharacterRefs = asStringArray(beat.unresolvedCharacterRefs);
   const entities = extractEntities(beat);
   const props = extractProps(beat);
   const locations = extractLocations(beat);
@@ -198,6 +201,7 @@ function normalizeBeat(rawBeat: unknown, index: number): NormalizedBeat {
     whyThisBeatExists,
     dramaticChange,
     involvedCharacters,
+    unresolvedCharacterRefs,
     entities,
     props,
     locations,
@@ -258,6 +262,7 @@ export const normalizedBeatSchema = z.object({
   criticality: z.enum(["low", "medium", "high", "critical"]),
   sceneContext: z.string().nullable(),
   opponent: z.string().nullable(),
+  unresolvedCharacterRefs: z.array(z.string()).default([]),
 });
 
 export const normalizedOutlineSchema = z.object({

@@ -4,6 +4,9 @@ import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
 import { readChapterStudioSnapshotFromOutline } from "@/lib/chapter-studio";
+import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
+import { computePremiumAiReadiness } from "@/lib/compute-premium-ai-readiness";
+import { isPipelineV3PremiumOnlyEnabled } from "@manga-ai-studio/core";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -39,10 +42,16 @@ export async function GET(_req: Request, ctx: Ctx) {
     reviewBlockedReason: chapter.reviewBlockedReason,
   });
 
+  const stack = getGenerationStackStatus();
+  const premiumOnly = isPipelineV3PremiumOnlyEnabled();
+  const { aiReadiness, premiumBlockingReasons } = computePremiumAiReadiness({ stack, premiumOnly });
+
   return NextResponse.json({
     ok: true,
     chapterId: chapter.id,
     readiness: snapshot.data.readinessReport ?? buildChapterReadinessReport(snapshot),
     studioStatus: snapshot.status,
+    aiReadiness,
+    premiumBlockingReasons,
   });
 }

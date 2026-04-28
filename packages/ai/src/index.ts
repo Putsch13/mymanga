@@ -88,6 +88,7 @@ export * from "./adapters/runware-adapter";
 export * from "./adapters/stability-adapter";
 export * from "./run-generation";
 export * from "./chapter-outline";
+export type { ChapterBundleForSpine, ChapterBundleForSpineOutlineBeat } from "./chapter/chapter-bundle-for-spine";
 export * from "./chapter-pipeline";
 export * from "./image-generation-config";
 export * from "./fal-scene-strategy";
@@ -176,3 +177,4 @@ export * from "./services/repair-render-spec-contradictions";
 export * from "./services/assert-prompt-contract-coverage";
 // Quality module — Visual QA and auto-retry
 export * from "./quality";
+export * from "./premium-ai-execution-policy";

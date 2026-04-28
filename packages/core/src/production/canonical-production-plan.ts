@@ -119,6 +119,8 @@ export interface CanonicalBeatPlan {
   hasAction: boolean;
   hasEmotion: boolean;
   hasTension: boolean;
+  /** Libellés non résolus (catalogue) — signal QA explicite */
+  unresolvedCharacterRefs: string[];
 }
 
 export interface ProductionRhythmMetrics {

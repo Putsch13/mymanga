@@ -144,6 +144,7 @@ export function buildCanonicalProductionPlanFromPremiumBlueprints(input: {
       hasAction: b.hasAction,
       hasEmotion: b.hasEmotion,
       hasTension: b.hasTension,
+      unresolvedCharacterRefs: b.unresolvedCharacterRefs ?? [],
     };
   });
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { chapterAiReadinessSchema } from "../ai-readiness";
 import { PREMIUM_PANEL_RANGE } from "../premium-panel-range";
 import type { ApprovedChapterOutline } from "./approved-outline";
 import type {
@@ -346,6 +347,10 @@ export const productionBeatSchema = z.object({
   whyThisBeatExists: z.string(),
   dramaticChange: z.string(),
   involvedCharacters: z.array(z.string()).default([]),
+  /** Libellés bruts (outline) avant résolution catalogue — affichage / audit */
+  involvedCharacterLabels: z.array(z.string()).optional(),
+  /** Noms ou IDs non résolus vers le cast projet */
+  unresolvedCharacterRefs: z.array(z.string()).optional(),
   activeCanonConstraints: z.array(z.string()).default([]),
   environmentContext: z.array(z.string()).default([]),
   visualPriority: z.enum(["low", "medium", "high", "critical"]).default("medium"),
@@ -621,6 +626,9 @@ export const estimateContextSchema = z.object({
   estimateSource: z.enum(["new_chapter", "existing_chapter"]).default("new_chapter"),
   estimatedAt: z.string(),
   canonicalProductionPlan: estimateCanonicalProductionPlanSchema.optional(),
+  /** P1.2 — état des moteurs IA au moment de l’estimation (persisté avec le snapshot). */
+  aiReadiness: chapterAiReadinessSchema.optional(),
+  premiumBlockingReasons: z.array(z.string()).optional(),
 });
 
 export type EstimateContext = z.infer<typeof estimateContextSchema>;
@@ -684,6 +692,9 @@ export const chapterStudioDataSchema = z.object({
   chapterLookProfile: chapterLookProfileSchema.optional(),
   /** Préférences pipeline (flags optionnels persistés avec le snapshot studio). */
   pipelinePreferences: chapterPipelinePreferencesSchema.optional(),
+  /** P1.2 — dernier état readiness IA (optionnel ; peut être rafraîchi au launch). */
+  aiReadiness: chapterAiReadinessSchema.optional(),
+  premiumBlockingReasons: z.array(z.string()).optional(),
 });
 
 export type ChapterStudioData = z.infer<typeof chapterStudioDataSchema>;

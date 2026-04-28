@@ -179,6 +179,60 @@ function checkIntentionalSilenceBudget(plan: CanonicalChapterProductionPlan): Qa
   return { passed: true, message: "Intentional silence budget OK", severity: "warning" };
 }
 
+function checkUnresolvedCharacterRefsInBeats(plan: CanonicalChapterProductionPlan): QaCheckResult {
+  const lines: string[] = [];
+  for (const b of plan.beats) {
+    const u = b.unresolvedCharacterRefs ?? [];
+    for (const name of u) {
+      lines.push(`Unresolved character ref in beat ${b.beatId}: ${name}`);
+    }
+  }
+  if (lines.length === 0) {
+    return { passed: true, message: "No unresolved character label refs on beats", severity: "warning" };
+  }
+  return {
+    passed: false,
+    message:
+      lines.length <= 8
+        ? lines.join(" | ")
+        : `${lines.slice(0, 8).join(" | ")} | …`,
+    severity: "error",
+  };
+}
+
+function checkDialogueSpeakerAnchors(plan: CanonicalChapterProductionPlan): QaCheckResult {
+  const issues: string[] = [];
+  for (const p of plan.panels) {
+    const mode = p.textPlan.mode;
+    if (p.isCutaway && mode === "dialogue") {
+      issues.push(`Panel ${p.panelId} carries visible dialogue on a cutaway panel`);
+      continue;
+    }
+    if (mode !== "dialogue") continue;
+    const sid = p.textPlan.anchor?.speakerId?.trim();
+    if (!sid) {
+      issues.push(`Panel ${p.panelId} has dialogue mode but no speakerId anchor`);
+      continue;
+    }
+    const allowed = new Set([
+      ...p.requiredCharacterIds,
+      ...p.mustShowCharacterIds,
+      ...p.mayShowCharacterIds,
+    ]);
+    if (!allowed.has(sid)) {
+      issues.push(`Panel ${p.panelId} has dialogue but speaker ${sid} is not visually present`);
+    }
+  }
+  if (issues.length === 0) {
+    return { passed: true, message: "Dialogue speaker anchors OK", severity: "warning" };
+  }
+  return {
+    passed: false,
+    message: issues.slice(0, 6).join(" | ") + (issues.length > 6 ? " | …" : ""),
+    severity: "error",
+  };
+}
+
 function checkRequiredCharacterPresence(plan: CanonicalChapterProductionPlan): QaCheckResult {
   const requiredCharacters = new Set<string>();
   for (const beat of plan.beats) {
@@ -250,6 +304,8 @@ export function runProductionPlanQa(plan: CanonicalChapterProductionPlan): Produ
     checkDialogueCoverage(plan),
     checkNonCutawayNarrativeAnchor(plan),
     checkIntentionalSilenceBudget(plan),
+    checkUnresolvedCharacterRefsInBeats(plan),
+    checkDialogueSpeakerAnchors(plan),
     checkRequiredCharacterPresence(plan),
     checkHighPropRatio(plan),
     checkHighEnvironmentRatio(plan),

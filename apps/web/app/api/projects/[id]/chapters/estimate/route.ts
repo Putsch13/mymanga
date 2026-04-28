@@ -19,6 +19,9 @@ import {
   hydratePanelProvenanceOnBlueprints,
   isHeroRole,
   mergeRawBlueprintsWithCanonicalRhythm,
+  resolveCharacterRefsToIds,
+  runStructuralQaOnPremiumBlueprints,
+  isPipelineV3PremiumOnlyEnabled,
 } from "@manga-ai-studio/core";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { buildApprovedOutlineVersion, buildProductionPlanFromOutline } from "@manga-ai-studio/core";
@@ -27,6 +30,8 @@ import { buildProjectContext } from "@manga-ai-studio/memory";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
 import { getOwnedProject } from "@/lib/ownership";
+import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
+import { computePremiumAiReadiness } from "@/lib/compute-premium-ai-readiness";
 import {
   validateNarrativeProgression,
   selectEditorialPreviewBeats,
@@ -169,15 +174,31 @@ export async function POST(req: Request, ctx: Ctx) {
     })),
   };
 
+  const characterCatalogForResolution = (context.characters ?? []).map((c) => ({
+    id: c.id,
+    name: c.name,
+    displayName: null as string | null,
+    roleType: c.roleType,
+  }));
+
   // Build production beats with narrative intelligence (3-layer pipeline)
   const enrichedBeats = await Promise.all(bundle.outline.beats.map(async (beat) => {
+    const charLabels = Array.isArray(beat.characters) ? beat.characters : [];
+    const resolved = resolveCharacterRefsToIds(charLabels, characterCatalogForResolution);
+    if (resolved.unresolved.length > 0) {
+      console.warn(
+        `[estimate] character_ref_unresolved beatId=${beat.id} labels=${JSON.stringify(resolved.unresolved)}`,
+      );
+    }
     const productionBeat = {
       beatId: beat.id,
       summary: beat.summary,
       narrativeFunction: beat.pageRole ?? beat.purpose,
       whyThisBeatExists: beat.summary,
       dramaticChange: beat.turn ?? beat.purpose,
-      involvedCharacters: beat.characters,
+      involvedCharacters: resolved.ids,
+      involvedCharacterLabels: charLabels,
+      unresolvedCharacterRefs: resolved.unresolved,
       activeCanonConstraints: [] as string[],
       environmentContext: [beat.location],
       visualPriority: "high" as const,
@@ -226,6 +247,9 @@ export async function POST(req: Request, ctx: Ctx) {
     return beat;
   });
 
+  const characterRefsUnresolved = [...new Set(rawProductionBeats.flatMap((b) => b.unresolvedCharacterRefs ?? []))];
+  const characterRefResolutionOk = characterRefsUnresolved.length === 0;
+
   const progressionCheck = validateNarrativeProgression(rawProductionBeats as ProductionBeatLike[]);
   if (!progressionCheck.ok) {
     console.warn(
@@ -259,6 +283,24 @@ export async function POST(req: Request, ctx: Ctx) {
   const allBlueprints = hydratePanelProvenanceOnBlueprints(mergedBlueprints, {
     narrativeMemoryDigest: narrativeDigest,
   });
+
+  const structuralFromPersistedBlueprints = runStructuralQaOnPremiumBlueprints({
+    chapterId: estimateChapterId,
+    projectId,
+    chapterNumber: targetChapterNumber,
+    chapterTitle: estimateChapterTitle,
+    format: projectFormat,
+    productionOutline,
+    blueprints: allBlueprints,
+  });
+  const finalStructuralQa = structuralFromPersistedBlueprints.qa;
+  if (!finalStructuralQa.valid) {
+    console.error(
+      `[estimate] final_structural_qa_failed chapterId=${targetChapter?.id ?? "new"} ` +
+        `errors=${JSON.stringify(finalStructuralQa.errors)}`,
+    );
+  }
+
   const enrichmentCount = 0;
   const enrichmentApplied = enrichmentCount > 0;
 
@@ -366,14 +408,24 @@ export async function POST(req: Request, ctx: Ctx) {
     context.characters?.length ?? 0,
   ].join("|");
 
+  const planReady =
+    panelCountStatus === "ok"
+    && canonicalPlan.qa.valid
+    && finalStructuralQa.valid
+    && characterRefResolutionOk;
+
   console.log(
     `[estimate] estimate_generated projectId=${projectId} chapterId=${targetChapter?.id ?? "new"} ` +
     `chapterNumber=${targetChapterNumber} estimateMode=${estimateMode} ` +
     `beatsCount=${productionOutline.beats.length} ` +
     `productionPlanPages=${countProductionPlanPages(productionPlan)} ` +
-    `rawBlueprints=${rawBlueprints.length} blueprints=${allBlueprints.length} canonical_qa_valid=${canonicalPlan.qa.valid} enrichmentApplied=${enrichmentApplied} targetRange=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} planStatus=${panelCountStatus} ` +
-    `progressionOk=${progressionCheck.ok} progressionScore=${progressionCheck.progressionScore.toFixed(2)}`,
+    `rawBlueprints=${rawBlueprints.length} blueprints=${allBlueprints.length} canonical_qa_valid=${canonicalPlan.qa.valid} final_structural_qa_valid=${finalStructuralQa.valid} character_ref_resolution_ok=${characterRefResolutionOk} enrichmentApplied=${enrichmentApplied} targetRange=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} planStatus=${panelCountStatus} ` +
+    `progressionOk=${progressionCheck.ok} progressionScore=${progressionCheck.progressionScore.toFixed(2)} ready=${planReady}`,
   );
+
+  const stack = getGenerationStackStatus();
+  const premiumOnly = isPipelineV3PremiumOnlyEnabled();
+  const { aiReadiness, premiumBlockingReasons } = computePremiumAiReadiness({ stack, premiumOnly });
 
   return NextResponse.json({
     estimateMode,
@@ -400,6 +452,8 @@ export async function POST(req: Request, ctx: Ctx) {
         rhythm: canonicalPlan.rhythm,
         qa: canonicalPlan.qa,
       },
+      aiReadiness,
+      premiumBlockingReasons,
     },
     contextPreview: {
       recentChapters: context.recentChapters,
@@ -431,7 +485,7 @@ export async function POST(req: Request, ctx: Ctx) {
     productionPlan,
     // P8 — planStatus STRICT : tout ce qui n'est pas dans la range premium
     // 70-75 (PREMIUM_PANEL_RANGE) est marqué `incomplete` et bloque le launch.
-    planStatus: panelCountStatus === "ok" && canonicalPlan.qa.valid ? "ready" : "incomplete",
+    planStatus: planReady ? "ready" : "incomplete",
     rawBlueprintCount: rawBlueprints.length,
     enrichedBlueprintCount: allBlueprints.length,
     enrichmentApplied,
@@ -450,6 +504,17 @@ export async function POST(req: Request, ctx: Ctx) {
     repairApplied: !progressionCheck.ok,
     repairReasons: progressionCheck.ok ? [] : progressionCheck.issues,
     progressionScore: progressionCheck.progressionScore,
+    characterRefResolution: {
+      ok: characterRefResolutionOk,
+      unresolved: characterRefsUnresolved,
+    },
+    finalStructuralQa: {
+      valid: finalStructuralQa.valid,
+      errors: finalStructuralQa.errors,
+      warnings: finalStructuralQa.warnings,
+      metrics: structuralFromPersistedBlueprints.plan.metrics,
+      details: finalStructuralQa.details,
+    },
     /** Plan canonique + QA structurelle sur les blueprints réels (même source que le launch). */
     canonicalProductionPlan: {
       format: canonicalPlan.format,
