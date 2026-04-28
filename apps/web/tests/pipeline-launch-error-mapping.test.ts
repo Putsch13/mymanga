@@ -59,6 +59,15 @@ describe("mapLaunchError", () => {
     expect(msg).toContain("close_up");
   });
 
+  it("traduit premium_only_launch_route_required vers le studio chapitre", () => {
+    const msg = mapLaunchError({
+      error: "premium_only_launch_route_required",
+      message: "En production premium-only, utilisez POST .../launch.",
+    });
+    expect(msg).toContain("studio chapitre");
+    expect(msg).toContain("Génération");
+  });
+
   it("traduit premium_contract_incomplete avec la liste des champs manquants", () => {
     const msg = mapLaunchError({
       error: "premium_contract_incomplete",

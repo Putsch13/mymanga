@@ -229,14 +229,12 @@ export default function ChapterGeneratorPage() {
     setPremiumContractMissing(null);
     try {
       await saveApprovedOutline(selectedChapter);
-      const res = await fetch(`/api/projects/${id}/pipeline`, {
+      const res = await fetch(`/api/projects/${id}/chapters/${selectedChapter}/launch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          chapterId: selectedChapter,
-          focusCharacterIds: selectedCharacterIds,
-          selectedPlotLabel,
-          creativityControls,
+          mode: "premium",
+          source: "pipeline_page",
         }),
       });
       const j = await res.json().catch(() => ({}));
@@ -312,14 +310,12 @@ export default function ChapterGeneratorPage() {
       loadChapters();
 
       setStartingPipeline(true);
-      const pRes = await fetch(`/api/projects/${id}/pipeline`, {
+      const pRes = await fetch(`/api/projects/${id}/chapters/${j.chapter.id}/launch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          chapterId: j.chapter.id,
-          focusCharacterIds: selectedCharacterIds,
-          selectedPlotLabel,
-          creativityControls,
+          mode: "premium",
+          source: "pipeline_page",
         }),
       });
       const pJ = await pRes.json().catch(() => ({}));

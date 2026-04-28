@@ -62,6 +62,13 @@ export function mapLaunchError(payload: LaunchErrorPayload | null | undefined): 
     return `⚠️ Variété de plans insuffisante (${pct}).${missing} Retourne dans le studio et régénère le plan pour diversifier les shots.`;
   }
 
+  if (errorKey === "premium_only_launch_route_required") {
+    return (
+      "La génération premium se lance depuis le studio chapitre. " +
+      "Ouvre ton projet → le chapitre concerné → étape « Génération & review », puis « Lancer la génération »."
+    );
+  }
+
   if (errorKey === "premium_contract_incomplete" || code === "premium_contract_incomplete") {
     const missing = Array.isArray(payload.missing) && payload.missing.length > 0
       ? payload.missing.join(", ")
