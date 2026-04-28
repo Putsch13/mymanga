@@ -380,3 +380,7 @@ export type {
   CanonResolverResult,
   CanonResolverIssue,
 } from "./passes/canon-resolver-pass";
+export {
+  resolveSupabaseServerConfig,
+  type ResolvedSupabaseServerConfig,
+} from "./config/resolve-supabase-server-config";

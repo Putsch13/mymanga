@@ -151,7 +151,7 @@ describe("assertNoNarrativeDrift", () => {
       assertNoNarrativeDrift(
         {
           originalBeatText: "Marius combat l'ennemi",
-          generatedPanelDescription: "Marius brandit son épée face à l'ennemi",
+          generatedPanelDescription: "Marius engage le combat et frappe l'ennemi avec son épée",
           requiredCharacters: ["Marius"],
           requiredActions: ["combat"],
           requiredLocations: [],

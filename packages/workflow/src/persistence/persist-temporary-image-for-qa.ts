@@ -15,6 +15,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { resolveSupabaseServerConfig } from "../config/resolve-supabase-server-config";
 
 export interface PersistTemporaryImageInput {
   projectId: string;
@@ -31,15 +32,21 @@ export interface PersistTemporaryImageResult {
   mimeType: string;
 }
 
-const BUCKET_NAME = "panel-images";
-
 function getSupabaseClient() {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error("supabase_config_missing:SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+  const cfg = resolveSupabaseServerConfig();
+  if (!cfg) {
+    throw new Error(
+      "supabase_config_missing: besoin de url (SUPABASE_URL|NEXT_PUBLIC_SUPABASE_URL) " +
+        "et clé service (SUPABASE_SERVICE_ROLE_KEY|SUPABASE_SERVICE_ROLE|SUPABASE_SERVICE_KEY)",
+    );
   }
-  return createClient(url, key);
+  return createClient(cfg.url, cfg.serviceRoleKey);
+}
+
+function bucketCandidates(): string[] {
+  const cfg = resolveSupabaseServerConfig();
+  const primary = cfg?.bucket?.trim();
+  return [...new Set([primary, "MyManga", "panel-images", "mymanga-images", "manga-images"].filter(Boolean))] as string[];
 }
 
 function buildStorageKey(input: PersistTemporaryImageInput): string {
@@ -64,31 +71,35 @@ export async function persistTemporaryImageForQa(
   const storageKey = buildStorageKey(input);
   const mimeType = blob.type || "image/webp";
 
-  const { error: uploadError } = await supabase.storage
-    .from(BUCKET_NAME)
-    .upload(storageKey, uint8Array, {
+  let lastError = "no_bucket_tried";
+  for (const bucket of bucketCandidates()) {
+    try {
+      await supabase.storage.createBucket(bucket, { public: false });
+    } catch {
+      /* existe déjà */
+    }
+    const { error: uploadError } = await supabase.storage.from(bucket).upload(storageKey, uint8Array, {
       contentType: mimeType,
       upsert: true,
     });
-
-  if (uploadError) {
-    throw new Error(`supabase_upload_failed:${uploadError.message}`);
+    if (uploadError) {
+      lastError = uploadError.message;
+      continue;
+    }
+    const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(storageKey);
+    if (!publicUrlData?.publicUrl) {
+      lastError = `public_url_empty:${bucket}`;
+      continue;
+    }
+    return {
+      stableUrl: publicUrlData.publicUrl,
+      storageKey,
+      byteSize: uint8Array.length,
+      mimeType,
+    };
   }
 
-  const { data: publicUrlData } = supabase.storage
-    .from(BUCKET_NAME)
-    .getPublicUrl(storageKey);
-
-  if (!publicUrlData?.publicUrl) {
-    throw new Error(`supabase_public_url_failed:${storageKey}`);
-  }
-
-  return {
-    stableUrl: publicUrlData.publicUrl,
-    storageKey,
-    byteSize: uint8Array.length,
-    mimeType,
-  };
+  throw new Error(`supabase_upload_failed:${lastError}`);
 }
 
 export function isTemporaryProviderUrl(url: string): boolean {
@@ -103,7 +114,8 @@ export function isTemporaryProviderUrl(url: string): boolean {
 }
 
 export function isStableStorageUrl(url: string): boolean {
-  const supabaseUrl = process.env.SUPABASE_URL || "";
+  const cfg = resolveSupabaseServerConfig();
+  const supabaseUrl = cfg?.url || process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
   const proxyUrl = process.env.IMAGE_PROXY_BASE_URL || "";
 
   if (supabaseUrl && url.includes(supabaseUrl)) {
@@ -122,7 +134,7 @@ export function isStableStorageUrl(url: string): boolean {
 }
 
 export async function ensureStableImageUrl(
-  input: PersistTemporaryImageInput & { currentUrl: string }
+  input: Omit<PersistTemporaryImageInput, "temporaryUrl"> & { currentUrl: string },
 ): Promise<{ url: string; wasTemporary: boolean; storageKey?: string }> {
   if (isStableStorageUrl(input.currentUrl)) {
     return { url: input.currentUrl, wasTemporary: false };

@@ -5,6 +5,7 @@ import {
 import {
   getPremiumVisualQaConfigStatus,
   isPremiumVisualQaStrictlyRequired,
+  resolveSupabaseServerConfig,
 } from "@manga-ai-studio/workflow";
 
 type ImageProviderId = "fal" | "runware" | "stability" | "bfl";
@@ -32,7 +33,7 @@ function providerNeedsStorage(provider: ImageProviderId | null): boolean {
 }
 
 function hasStoragePersistence(): boolean {
-  return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.STORAGE_BUCKET);
+  return resolveSupabaseServerConfig() != null;
 }
 
 export type GenerationStackStatus = {
@@ -80,7 +81,9 @@ export function getGenerationStackStatus(): GenerationStackStatus {
   }
 
   if (providerNeedsStorage(preferred) && !storageReady) {
-    blockers.push("Le provider image principal a besoin de stockage persistant: configure SUPABASE_SERVICE_ROLE_KEY et STORAGE_BUCKET.");
+    blockers.push(
+      "Le provider image principal a besoin de stockage persistant: configure l'URL Supabase, une clé service-role et un bucket (alias: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY|SUPABASE_SERVICE_ROLE, STORAGE_BUCKET|SUPABASE_BUCKET).",
+    );
   }
 
   if (!process.env.INNGEST_EVENT_KEY) {

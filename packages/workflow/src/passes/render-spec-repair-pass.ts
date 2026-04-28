@@ -48,26 +48,32 @@ function isSentinel(value: string | null | undefined): boolean {
   return SENTINEL_VALUES.has(value.trim().toLowerCase());
 }
 
-function inferPanelPurpose(spec: Partial<PanelRenderSpec>): string {
-  if (spec.renderMode === "establishing_environment") return "environment_establishing";
+function inferPanelPurpose(spec: Partial<PanelRenderSpec>): PanelRenderSpec["panelPurpose"] {
+  if (spec.renderMode === "establishing_environment") return "location_establishing";
   if (spec.renderMode === "character_focus" || spec.renderMode === "hero_closeup") {
-    return "character_focus";
+    return "hero_focus";
   }
   if (spec.renderMode === "dialogue_two_shot" || spec.renderMode === "dialogue_over_shoulder") {
-    return "dialogue_beat";
+    return spec.renderMode === "dialogue_over_shoulder" ? "dialogue_over_shoulder" : "dialogue_anchor";
   }
-  if (spec.renderMode === "action_sequence") return "action_scene";
+  if (spec.renderMode === "reaction_closeup") return "reaction_closeup";
+  return "hero_focus";
+}
+
+function inferRenderMode(spec: Partial<PanelRenderSpec>): PanelRenderSpec["renderMode"] {
+  const sf = spec.subjectFocus;
+  if (sf === "environment") return "establishing_environment";
+  if (sf === "group") return "dialogue_two_shot";
+  if (sf === "prop") return "insert_object";
+  if (sf === "creature") return "creature_reveal";
+  if (sf === "threat") return "threat_silhouette";
+  if (sf === "hero" || sf === "important_npc" || sf === "enemy" || sf === "reaction") {
+    return "character_focus";
+  }
   return "character_focus";
 }
 
-function inferRenderMode(spec: Partial<PanelRenderSpec>): string {
-  if (spec.subjectFocus === "environment") return "establishing_environment";
-  if (spec.subjectFocus === "hero" || spec.subjectFocus === "speaker") return "character_focus";
-  if (spec.subjectFocus === "duo") return "dialogue_two_shot";
-  return "character_focus";
-}
-
-function inferShotType(spec: Partial<PanelRenderSpec>): string {
+function inferShotType(spec: Partial<PanelRenderSpec>): PanelRenderSpec["shotType"] {
   if (spec.renderMode === "establishing_environment") return "wide";
   if (spec.renderMode === "hero_closeup" || spec.renderMode === "reaction_closeup") {
     return "closeup";
@@ -76,10 +82,10 @@ function inferShotType(spec: Partial<PanelRenderSpec>): string {
   return "medium";
 }
 
-function inferSubjectFocus(spec: Partial<PanelRenderSpec>): string {
+function inferSubjectFocus(spec: Partial<PanelRenderSpec>): PanelRenderSpec["subjectFocus"] {
   if (spec.renderMode === "establishing_environment") return "environment";
   if (spec.renderMode === "hero_closeup") return "hero";
-  if (spec.renderMode === "dialogue_two_shot") return "duo";
+  if (spec.renderMode === "dialogue_two_shot") return "group";
   return "hero";
 }
 
@@ -159,7 +165,7 @@ export function runRenderSpecRepairPass(input: RenderSpecRepairInput): RenderSpe
     // 6. Corriger contradiction character_focus + wide establishing
     if (
       spec.renderMode === "character_focus" &&
-      (spec.shotType === "wide" || spec.shotType === "extreme_wide")
+      spec.shotType === "wide"
     ) {
       repairs.push({
         panelId: spec.panelId,

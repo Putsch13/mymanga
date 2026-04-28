@@ -19,6 +19,15 @@ import type { ContractCharacterVisualDna } from "../characters/merge-character-v
 
 export const CONTRACT_VERSION = "v1" as const;
 
+/** Origine contractuelle d'une entité (premium : RAG ne doit pas imposer seul). */
+export type ContractEntitySource =
+  | "current_chapter"
+  | "character_canon"
+  | "location_canon"
+  | "project_rag"
+  | "legacy"
+  | "fallback";
+
 export interface ContractCharacter {
   characterId: string;
   name: string;
@@ -32,6 +41,10 @@ export interface ContractCharacter {
   loraScale?: number;
   canonLocked: boolean;
   forbiddenDrift: string[];
+  source?: ContractEntitySource;
+  sourceBeatId?: string;
+  sourceText?: string;
+  confidence?: number;
 }
 
 export interface ContractLocation {
@@ -43,6 +56,10 @@ export interface ContractLocation {
   atmosphereHints: string[];
   lightingHints: string[];
   required: boolean;
+  source?: ContractEntitySource;
+  sourceBeatId?: string;
+  sourceText?: string;
+  confidence?: number;
 }
 
 export interface ContractProp {
@@ -52,6 +69,9 @@ export interface ContractProp {
   visualDescription: string;
   sourceBeatId?: string;
   required: boolean;
+  source?: ContractEntitySource;
+  sourceText?: string;
+  confidence?: number;
 }
 
 export interface ContractNpcGroup {
@@ -232,7 +252,13 @@ export function computeContractHash(contract: Omit<ChapterGenerationContract, "c
 
 export function validateChapterGenerationContract(
   contract: ChapterGenerationContract,
-  options: { premiumOnly: boolean }
+  options: {
+    premiumOnly: boolean;
+    /** Ne pas exiger face/lora sur le héros (prévisualisation / builder incomplet). */
+    skipHeroVisualRef?: boolean;
+    /** Props `required` doivent provenir du chapitre ou du canon perso/lieu. */
+    enforceEntitySources?: boolean;
+  },
 ): { valid: boolean; issues: string[] } {
   const issues: string[] = [];
 
@@ -280,12 +306,24 @@ export function validateChapterGenerationContract(
   }
 
   if (options.premiumOnly) {
+    const skipHero = options.skipHeroVisualRef === true;
     for (const char of contract.characters) {
-      if (char.role === "hero" && !char.faceRefUrl && !char.loraUrl) {
+      if (!skipHero && char.role === "hero" && !char.faceRefUrl && !char.loraUrl) {
         issues.push(`hero_without_visual_ref:${char.characterId}`);
       }
       if (char.canonLocked && !char.faceRefUrl && !char.loraUrl && !char.silhouetteRefUrl) {
         issues.push(`canon_locked_without_ref:${char.characterId}`);
+      }
+    }
+
+    if (options.enforceEntitySources) {
+      const allowed = new Set<ContractEntitySource>(["current_chapter", "character_canon", "location_canon"]);
+      for (const p of contract.props) {
+        if (!p.required) continue;
+        const src = p.source ?? "fallback";
+        if (!allowed.has(src)) {
+          issues.push(`premium_required_entity_bad_source:prop:${p.label}:${src}`);
+        }
       }
     }
 
@@ -299,7 +337,11 @@ export function validateChapterGenerationContract(
 
 export function assertValidChapterGenerationContract(
   contract: ChapterGenerationContract,
-  options: { premiumOnly: boolean }
+  options: {
+    premiumOnly: boolean;
+    skipHeroVisualRef?: boolean;
+    enforceEntitySources?: boolean;
+  },
 ): void {
   const { valid, issues } = validateChapterGenerationContract(contract, options);
   if (!valid) {

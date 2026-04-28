@@ -33,6 +33,9 @@ export interface CharacterInfo {
   roleType?: string | null;
   hairColor?: string | null;
   eyeColor?: string | null;
+  hairStyle?: string | null;
+  skinTone?: string | null;
+  outfitSignature?: string | null;
   canonSignatureText?: string | null;
   forbiddenVisualDrift?: string[] | null;
 }
@@ -75,6 +78,13 @@ export function buildPanelRenderSpec(
       forbiddenDrift: Array.isArray(match.forbiddenVisualDrift)
         ? match.forbiddenVisualDrift.filter((x): x is string => typeof x === "string")
         : [],
+      visualDNA: {
+        hairColor: match.hairColor ?? null,
+        eyeColor: match.eyeColor ?? null,
+        hairStyle: match.hairStyle ?? null,
+        skinTone: match.skinTone ?? null,
+        outfitSignature: match.outfitSignature ?? null,
+      },
     });
   }
 

@@ -26,18 +26,16 @@ import { runRenderModeNormalizer } from "../passes/render-mode-normalizer";
 import { runCharacterIdentityFallback } from "../passes/character-identity-fallback";
 import { runDialogueAutoRepairPass } from "../passes/dialogue-auto-repair-pass";
 import { runRenderSpecRepairPass } from "../passes/render-spec-repair-pass";
-import { validateRenderSpec } from "@manga-ai-studio/ai";
+import { validateRenderSpec, createDefaultChapterStyleBible } from "@manga-ai-studio/ai";
 
 describe("P8.25-32 — Tests anti-régression pipeline premium", () => {
   // P8.25 — Test héros unique
   it("P8.25 — buildChapterCastContract lance une erreur si aucun héros", () => {
     expect(() =>
       buildChapterCastContract({
+        chapterId: "ch-1",
         heroCharacterId: null,
         focusCharacterIds: [],
-        activeNpcIds: [],
-        activeCreatureIds: [],
-        locationIds: [],
         characters: [],
       }),
     ).toThrow(/E_CAST_HERO_MISSING/);
@@ -45,11 +43,9 @@ describe("P8.25-32 — Tests anti-régression pipeline premium", () => {
 
   it("P8.25 — buildChapterCastContract accepte un héros unique", () => {
     const contract = buildChapterCastContract({
+      chapterId: "ch-1",
       heroCharacterId: "hero-1",
       focusCharacterIds: ["hero-1", "support-1"],
-      activeNpcIds: [],
-      activeCreatureIds: [],
-      locationIds: ["loc-1"],
       characters: [
         { id: "hero-1", name: "Hero", roleType: "hero" },
         { id: "support-1", name: "Support", roleType: "support" },
@@ -161,13 +157,7 @@ describe("P8.25-32 — Tests anti-régression pipeline premium", () => {
 
   // P8.32 — Test fatal vs non-fatal errors
   it("P8.32 — validateRenderSpec distingue erreurs fatales et non-fatales", () => {
-    const styleBible = {
-      visualStyle: "manga",
-      aspectRatio: "portrait",
-      colorPalette: "muted",
-      lineStyle: "clean",
-      renderTechnique: "digital",
-    };
+    const styleBible = createDefaultChapterStyleBible();
 
     // Erreur fatale: renderMode sentinel
     const fatalResult = validateRenderSpec({
@@ -198,7 +188,7 @@ describe("P8.25-32 — Tests anti-régression pipeline premium", () => {
       panelId: "p1",
       pageNumber: 1,
       panelNumberInPage: 1,
-      panelPurpose: "environment_establishing",
+      panelPurpose: "location_establishing",
       renderMode: "establishing_environment",
       shotType: "wide",
       subjectFocus: "hero", // contradiction!

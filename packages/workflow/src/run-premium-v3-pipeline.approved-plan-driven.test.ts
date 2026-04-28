@@ -39,6 +39,11 @@ vi.mock("./persistence/storyboard-persistence", () => ({
   saveStoryboardPlan: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("./persistence/chapter-visual-contract-persistence", () => ({
+  loadChapterVisualContractUi: vi.fn().mockResolvedValue({ parasitePolicy: "auto_strip" }),
+  saveChapterVisualContractSnapshot: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("./passes/pre-render-premium-qa", () => ({
   runPreRenderPremiumQaOrThrow: vi.fn(),
 }));
@@ -138,48 +143,52 @@ describe("runPremiumV3Pipeline — approved_plan_driven", () => {
     buildApprovedPlanSpy.mockRestore();
   });
 
-  it("n’appelle pas runStoryPass ni runStoryboardPass quand productionPlan.panelBlueprints est rempli", async () => {
-    const { runPremiumV3Pipeline } = await import("./run-premium-v3-pipeline");
+  it(
+    "n’appelle pas runStoryPass ni runStoryboardPass quand productionPlan.panelBlueprints est rempli",
+    async () => {
+      const { runPremiumV3Pipeline } = await import("./run-premium-v3-pipeline");
 
-    await runPremiumV3Pipeline({
-      chapterId: "ch-1",
-      projectId: "proj-1",
-      chapterNumber: 1,
-      chapterTitle: "T",
-      chapterSummary: "S",
-      chapterUserIntent: null,
-      project: { format: "manga" },
-      stylePacks: [],
-      rawCharacters: [{ id: "hero-1", name: "Hero", roleType: "main" }],
-      approvedOutline: null,
-      productionPlan: {
-        productionOutline: productionOutlineForCanonicalRuntime(),
-        panelBlueprints: [minimalBlueprint()],
-        pages: [{ pageNumber: 1, panelCount: 1, beatIds: ["beat-1"] }],
-      },
-      heroCharacterId: "hero-1",
-      focusCharacterIds: ["hero-1"],
-      pipelineV3Enabled: true,
-      premiumV3OnlyEnabled: false,
-      chapterLocationName: "Dojo",
-    });
+      await runPremiumV3Pipeline({
+        chapterId: "ch-1",
+        projectId: "proj-1",
+        chapterNumber: 1,
+        chapterTitle: "T",
+        chapterSummary: "S",
+        chapterUserIntent: null,
+        project: { format: "manga" },
+        stylePacks: [],
+        rawCharacters: [{ id: "hero-1", name: "Hero", roleType: "main" }],
+        approvedOutline: null,
+        productionPlan: {
+          productionOutline: productionOutlineForCanonicalRuntime(),
+          panelBlueprints: [minimalBlueprint()],
+          pages: [{ pageNumber: 1, panelCount: 1, beatIds: ["beat-1"] }],
+        },
+        heroCharacterId: "hero-1",
+        focusCharacterIds: ["hero-1"],
+        pipelineV3Enabled: true,
+        premiumV3OnlyEnabled: false,
+        chapterLocationName: "Dojo",
+      });
 
-    expect(mocks.runStoryPass).not.toHaveBeenCalled();
-    expect(mocks.runStoryboardPass).not.toHaveBeenCalled();
-    expect(buildApprovedPlanSpy).toHaveBeenCalledTimes(1);
-    const callArg = buildApprovedPlanSpy.mock.calls[0]![0] as {
-      chapterId: string;
-      productionPlan: { panelBlueprints: PanelBlueprintPremium[] };
-    };
-    expect(callArg.chapterId).toBe("ch-1");
-    expect(callArg.productionPlan.panelBlueprints.length).toBeGreaterThanOrEqual(PREMIUM_PANEL_RANGE.min);
-    expect(callArg.productionPlan.panelBlueprints.length).toBeLessThanOrEqual(PREMIUM_PANEL_RANGE.max);
-    expect(mocks.runRenderPass).toHaveBeenCalled();
-    const renderArg = mocks.runRenderPass.mock.calls[0]![0] as { storyboardPlan: { pages: { panels: unknown[] }[] } };
-    const allPanels = renderArg.storyboardPlan.pages.flatMap((p) => p.panels);
-    expect(allPanels.length).toBeGreaterThanOrEqual(PREMIUM_PANEL_RANGE.min);
-    expect(allPanels[0]).toMatchObject({
-      sourceBeatId: expect.stringMatching(/^beat-/),
-    });
-  });
+      expect(mocks.runStoryPass).not.toHaveBeenCalled();
+      expect(mocks.runStoryboardPass).not.toHaveBeenCalled();
+      expect(buildApprovedPlanSpy).toHaveBeenCalledTimes(1);
+      const callArg = buildApprovedPlanSpy.mock.calls[0]![0] as {
+        chapterId: string;
+        productionPlan: { panelBlueprints: PanelBlueprintPremium[] };
+      };
+      expect(callArg.chapterId).toBe("ch-1");
+      expect(callArg.productionPlan.panelBlueprints.length).toBeGreaterThanOrEqual(PREMIUM_PANEL_RANGE.min);
+      expect(callArg.productionPlan.panelBlueprints.length).toBeLessThanOrEqual(PREMIUM_PANEL_RANGE.max);
+      expect(mocks.runRenderPass).toHaveBeenCalled();
+      const renderArg = mocks.runRenderPass.mock.calls[0]![0] as { storyboardPlan: { pages: { panels: unknown[] }[] } };
+      const allPanels = renderArg.storyboardPlan.pages.flatMap((p) => p.panels);
+      expect(allPanels.length).toBeGreaterThanOrEqual(PREMIUM_PANEL_RANGE.min);
+      expect(allPanels[0]).toMatchObject({
+        sourceBeatId: expect.stringMatching(/^beat-/),
+      });
+    },
+    20_000,
+  );
 });

@@ -1,6 +1,6 @@
 /**
  * Enrichissement des PanelRenderSpec juste avant generatePanelImage :
- * ADN, continuité, layout, texte — sans modifier renderMode / shotType (décidés en amont).
+ * ADN, continuité, layout, texte, LoRA — sans modifier renderMode / shotType.
  */
 
 import type {
@@ -12,6 +12,11 @@ import type {
   PanelRenderVisibleCharacter,
 } from "@manga-ai-studio/ai";
 import type { StoryboardPanel } from "@manga-ai-studio/ai/contracts";
+import {
+  buildLoraByCharacterIdMap,
+  resolvePanelLoraBindings,
+  type LoraInfo,
+} from "./resolve-panel-lora-bindings";
 
 function semanticAspectFromSizePreset(preset: FalRenderRoute["sizePreset"]): "portrait" | "landscape" | "square" {
   if (preset === "portrait") return "portrait";
@@ -102,8 +107,7 @@ function resolvePreviousPanelRef(
 
 function enrichVisibleVisualDna(chars: PanelRenderVisibleCharacter[]): PanelRenderVisibleCharacter[] {
   return chars.map((c) => {
-    if (c.visualDNA) return c;
-    const partial: PanelRenderCharacterVisualDna = {};
+    const partial: PanelRenderCharacterVisualDna = { ...(c.visualDNA ?? {}) };
     if (c.eyeColor) partial.eyeColor = c.eyeColor;
     if (c.hairColor) partial.hairColor = c.hairColor;
     const keys = Object.keys(partial).length;
@@ -118,12 +122,38 @@ export interface EnrichPanelRenderSpecInput {
   mainCharacterIds: string[];
   route: FalRenderRoute;
   previousPanel: StoryboardPanel | null;
+  /** LoRA actifs par personnage (URL + trigger) — typiquement depuis le job DB. */
+  loraByCharacterId?: Map<string, LoraInfo>;
 }
 
 export function enrichPanelRenderSpecForRenderPass(input: EnrichPanelRenderSpecInput): PanelRenderSpec {
   const { spec, panel, visualMemory, mainCharacterIds, route, previousPanel } = input;
   const base = spec.layoutMeta ?? {};
-  return {
+
+  const speakerCharacterIds: string[] = [];
+  for (const line of panel.dialogue ?? []) {
+    const speaker = typeof line.speaker === "string" ? line.speaker.trim() : "";
+    if (!speaker) continue;
+    const hit = spec.visibleCharacters.find(
+      (v) => v.name.toLowerCase() === speaker.toLowerCase() || v.characterId === speaker,
+    );
+    if (hit) speakerCharacterIds.push(hit.characterId);
+  }
+
+  const loraMap = input.loraByCharacterId ?? new Map<string, LoraInfo>();
+  const loraResult = resolvePanelLoraBindings({
+    panelId: spec.panelId,
+    visibleCharacters: spec.visibleCharacters.map((c) => ({
+      characterId: c.characterId,
+      name: c.name,
+      role: c.role,
+    })),
+    loraByCharacterId: loraMap,
+    speakerCharacterIds,
+    focusCharacterId: spec.heroCharacterId ?? resolveHeroCharacterId(panel, mainCharacterIds),
+  });
+
+  const merged: PanelRenderSpec = {
     ...spec,
     visibleCharacters: enrichVisibleVisualDna(spec.visibleCharacters),
     layoutMeta: {
@@ -141,5 +171,10 @@ export function enrichPanelRenderSpecForRenderPass(input: EnrichPanelRenderSpecI
       narration: panel.narration ?? null,
       sfx: [...(panel.sfx ?? [])],
     },
+    loraBindings: loraResult.loraBindings.length > 0 ? loraResult.loraBindings : spec.loraBindings,
   };
+
+  return merged;
 }
+
+export { buildLoraByCharacterIdMap } from "./resolve-panel-lora-bindings";

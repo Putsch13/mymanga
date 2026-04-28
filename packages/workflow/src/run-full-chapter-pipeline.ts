@@ -16,6 +16,31 @@ import { extractPriorChapterDialogueSnippets } from "./load-prior-chapter-dialog
 import { runPremiumV3Pipeline } from "./run-premium-v3-pipeline";
 import { runLegacyCompatibleChapterPipeline } from "./legacy/run-legacy-compatible-chapter-pipeline";
 
+function resolvePrimaryLoraForPipelineCharacter(
+  characterId: string,
+  attachments: Array<{
+    characterId: string | null;
+    enabled: boolean;
+    weight: number;
+    lora: { name: string; status: string; weightsMeta: unknown };
+  }>,
+): { loraUrl: string | null; loraTriggerWord: string | null; loraScale: number | null } {
+  for (const att of attachments) {
+    if (att.characterId !== characterId || !att.enabled) continue;
+    const meta = att.lora.weightsMeta as Record<string, unknown>;
+    const loraUrl = typeof meta.loraUrl === "string" && meta.loraUrl.length > 0 ? meta.loraUrl : null;
+    if (!loraUrl || att.lora.status !== "active") continue;
+    const triggerWord =
+      typeof meta.triggerWord === "string" && meta.triggerWord.trim().length > 0
+        ? meta.triggerWord.trim()
+        : typeof att.lora.name === "string"
+          ? att.lora.name
+          : null;
+    return { loraUrl, loraTriggerWord: triggerWord, loraScale: att.weight };
+  }
+  return { loraUrl: null, loraTriggerWord: null, loraScale: null };
+}
+
 export { setJobProgress } from "./pipeline-job";
 export { buildStyleBibleFromUserProject } from "./chapter-style-bible-resolver";
 
@@ -179,17 +204,29 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       chapterUserIntent: chapter.userIntent,
       project: project as unknown as Record<string, unknown> | null,
       stylePacks: stylePacks as unknown as Array<Record<string, unknown>>,
-      rawCharacters: rawCharacters.map((c) => ({
-        id: c.id,
-        name: c.name,
-        roleType: (c as { roleType?: string | null }).roleType ?? null,
-        hairColor: (c as { hairColor?: string | null }).hairColor ?? null,
-        eyeColor: (c as { eyeColor?: string | null }).eyeColor ?? null,
-        canonSignatureText: (c as { canonSignatureText?: string | null }).canonSignatureText ?? null,
-        forbiddenVisualDrift: Array.isArray((c as { forbiddenVisualDrift?: string[] | null }).forbiddenVisualDrift)
-          ? (c as { forbiddenVisualDrift?: string[] }).forbiddenVisualDrift
-          : [],
-      })),
+      rawCharacters: rawCharacters.map((c) => {
+        const lora = resolvePrimaryLoraForPipelineCharacter(c.id, loraAttachments);
+        const profile = npcProfileByCharacterId.get(c.id);
+        const vp = c.visualProfile ?? {};
+        const hairStyle = typeof vp.hairStyle === "string" ? vp.hairStyle : null;
+        const skinTone = typeof vp.skinTone === "string" ? vp.skinTone : null;
+        return {
+          id: c.id,
+          name: c.name,
+          roleType: (c as { roleType?: string | null }).roleType ?? null,
+          hairColor: c.hairColor,
+          eyeColor: c.eyeColor,
+          hairStyle,
+          skinTone,
+          outfitSignature: profile?.outfitSignature ?? null,
+          canonSignatureText: c.canonSignatureText,
+          forbiddenVisualDrift: Array.isArray(c.forbiddenVisualDrift) ? c.forbiddenVisualDrift : [],
+          faceRefUrl: c.faceCloseupImageUrl ?? c.canonicalImageUrl ?? null,
+          loraUrl: lora.loraUrl,
+          loraTriggerWord: lora.loraTriggerWord,
+          loraScale: lora.loraScale,
+        };
+      }),
       approvedOutline: approvedOutlineForV3,
       productionPlan: productionPlanForV3,
       heroCharacterId,

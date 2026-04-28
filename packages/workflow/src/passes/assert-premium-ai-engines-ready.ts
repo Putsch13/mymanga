@@ -20,6 +20,7 @@ import {
   isPremiumImageMockAllowed,
   isLegacyPipelineEnabled,
 } from "@manga-ai-studio/core";
+import { resolveSupabaseServerConfig } from "../config/resolve-supabase-server-config";
 
 export interface PremiumAiReadinessInput {
   chapterHasDialogue: boolean;
@@ -47,7 +48,8 @@ export function checkPremiumAiEnginesReady(
     issues.push("premium_fal_key_missing");
   }
 
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  const supabase = resolveSupabaseServerConfig();
+  if (!supabase) {
     issues.push("premium_supabase_config_missing");
   }
 

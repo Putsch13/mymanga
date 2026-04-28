@@ -19,6 +19,7 @@ import {
   resolveApprovedOutlineFromSnapshot,
 } from "@/lib/premium-chapter-contract";
 import { isVisualContractPrelaunchBlocked } from "@/lib/visual-contract-prelaunch-gate";
+import { isPremiumStrictProductionDuplicateLaunchBlocked } from "@/lib/generation/premium-strict-api-guard";
 import type { Prisma } from "@manga-ai-studio/db";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -61,6 +62,11 @@ function asRecord(value: unknown): Record<string, unknown> {
 export async function POST(req: Request, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return unauthorized();
+  if (isPremiumStrictProductionDuplicateLaunchBlocked()) {
+    return validationError(
+      "En production (premium-only), utilisez uniquement le lancement chapitre depuis le studio (POST .../chapters/[chapterId]/launch).",
+    );
+  }
   const rl = await checkRateLimit(user.id, "pipeline");
   if (!rl.ok) {
     return NextResponse.json({ error: rl.message }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSecs) } });

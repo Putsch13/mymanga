@@ -57,7 +57,7 @@ export interface DefaultPanelImageGeneratorResult {
 export function createDefaultPanelImageGenerator(
   options: { apiKey?: string; forbidMock?: boolean } = {},
 ): NonNullable<RunRenderPassInput["generatePanelImage"]> {
-  const apiKey = options.apiKey ?? process.env.FAL_KEY;
+  const apiKey = options.apiKey ?? process.env.FAL_KEY ?? process.env.FAL_API_KEY;
   const forbidMock = options.forbidMock === true;
   if (!apiKey && (forbidMock || !isPremiumImageMockAllowed())) {
     throw new Error(

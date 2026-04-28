@@ -1,7 +1,5 @@
 /**
- * panel-text-contract.test.ts
- *
- * P1.18 — Tests pour le contrat de texte des panels.
+ * Tests du contrat de texte des panels (alignés sur l’API actuelle).
  */
 
 import { describe, it, expect } from "vitest";
@@ -12,147 +10,79 @@ import {
   validatePanelTextContract,
   mergeTextContracts,
   type PanelTextContract,
-} from "../../generation/panel-text-contract";
+} from "../generation/panel-text-contract";
 
 describe("PanelTextContract", () => {
-  describe("createEmptyTextContract", () => {
-    it("should create a contract with hasText=false", () => {
-      const contract = createEmptyTextContract();
-      expect(contract.hasText).toBe(false);
-      expect(contract.dialogues).toHaveLength(0);
-      expect(contract.narration).toBeNull();
-      expect(contract.sfx).toHaveLength(0);
-    });
+  it("createEmptyTextContract", () => {
+    const c = createEmptyTextContract("p1");
+    expect(c.panelId).toBe("p1");
+    expect(c.hasText).toBe(false);
+    expect(c.dialogues).toHaveLength(0);
   });
 
-  describe("createSilentTextContract", () => {
-    it("should create a silent contract with reason", () => {
-      const contract = createSilentTextContract("dramatic_pause");
-      expect(contract.hasText).toBe(false);
-      expect(contract.silenceReason).toBe("dramatic_pause");
-    });
+  it("createSilentTextContract", () => {
+    const c = createSilentTextContract("p2", "visual_only");
+    expect(c.silenceReason).toBe("visual_only");
+    expect(c.hasText).toBe(false);
   });
 
-  describe("createDialogueTextContract", () => {
-    it("should create a contract with dialogues", () => {
-      const contract = createDialogueTextContract([
-        { speakerId: "marius", text: "Bonjour Maya!" },
-        { speakerId: "maya", text: "Salut Marius." },
-      ]);
-
-      expect(contract.hasText).toBe(true);
-      expect(contract.dialogues).toHaveLength(2);
-      expect(contract.dialogues[0].speakerId).toBe("marius");
-    });
+  it("createDialogueTextContract", () => {
+    const c = createDialogueTextContract("p3", [
+      { speakerName: "Marius", text: "Bonjour Maya!" },
+      { speakerName: "Maya", text: "Salut Marius." },
+    ]);
+    expect(c.hasText).toBe(true);
+    expect(c.dialogues).toHaveLength(2);
+    expect(c.dialogues[0].speakerName).toBe("Marius");
   });
 
-  describe("validatePanelTextContract", () => {
-    it("should pass for valid contract", () => {
-      const contract: PanelTextContract = {
-        hasText: true,
-        dialogues: [{ speakerId: "a", text: "Hello" }],
-        narration: null,
-        sfx: [],
-        placement: { dialoguePosition: "top" },
-        silenceReason: null,
-      };
-
-      const result = validatePanelTextContract(contract);
-      expect(result.valid).toBe(true);
-      expect(result.errors).toHaveLength(0);
-    });
-
-    it("should fail for empty dialogue text", () => {
-      const contract: PanelTextContract = {
-        hasText: true,
-        dialogues: [{ speakerId: "a", text: "" }],
-        narration: null,
-        sfx: [],
-        placement: {},
-        silenceReason: null,
-      };
-
-      const result = validatePanelTextContract(contract);
-      expect(result.valid).toBe(false);
-      expect(result.errors).toContain("dialogue_empty_text");
-    });
-
-    it("should fail for hasText=true but no content", () => {
-      const contract: PanelTextContract = {
-        hasText: true,
-        dialogues: [],
-        narration: null,
-        sfx: [],
-        placement: {},
-        silenceReason: null,
-      };
-
-      const result = validatePanelTextContract(contract);
-      expect(result.valid).toBe(false);
-      expect(result.errors).toContain("has_text_but_no_content");
-    });
-
-    it("should pass for silent contract with reason", () => {
-      const contract: PanelTextContract = {
-        hasText: false,
-        dialogues: [],
-        narration: null,
-        sfx: [],
-        placement: {},
-        silenceReason: "emotional_moment",
-      };
-
-      const result = validatePanelTextContract(contract);
-      expect(result.valid).toBe(true);
-    });
+  it("validatePanelTextContract accepte un contrat valide", () => {
+    const c = createDialogueTextContract("p4", [{ speakerName: "a", text: "Hello" }]);
+    const r = validatePanelTextContract(c);
+    expect(r.valid).toBe(true);
+    expect(r.issues).toHaveLength(0);
   });
 
-  describe("mergeTextContracts", () => {
-    it("should merge dialogues from both contracts", () => {
-      const a: PanelTextContract = {
-        hasText: true,
-        dialogues: [{ speakerId: "a", text: "Hello" }],
-        narration: null,
-        sfx: [],
-        placement: {},
-        silenceReason: null,
-      };
+  it("validatePanelTextContract refuse un texte de dialogue vide", () => {
+    const c: PanelTextContract = {
+      ...createDialogueTextContract("p5", [{ speakerName: "a", text: "x" }]),
+      dialogues: [{ speakerName: "a", text: "" }],
+    };
+    const r = validatePanelTextContract(c);
+    expect(r.valid).toBe(false);
+    expect(r.issues.some((i) => i.startsWith("empty_dialogue_text"))).toBe(true);
+  });
 
-      const b: PanelTextContract = {
-        hasText: true,
-        dialogues: [{ speakerId: "b", text: "Hi" }],
-        narration: "The tension was palpable.",
-        sfx: [],
-        placement: {},
-        silenceReason: null,
-      };
+  it("validatePanelTextContract refuse hasText sans contenu", () => {
+    const c: PanelTextContract = {
+      panelId: "p6",
+      hasText: true,
+      dialogues: [],
+      narration: null,
+      sfx: [],
+      placement: {
+        reserveTextArea: false,
+        preferredAnchorZones: [],
+        avoidFaces: true,
+        overflowStrategy: "bubble_stack",
+      },
+      silenceReason: null,
+    };
+    const r = validatePanelTextContract(c);
+    expect(r.valid).toBe(false);
+    expect(r.issues).toContain("text_contract_has_text_but_empty:p6");
+  });
 
-      const merged = mergeTextContracts(a, b);
-      expect(merged.dialogues).toHaveLength(2);
-      expect(merged.narration).toBe("The tension was palpable.");
-    });
-
-    it("should preserve placement from second contract", () => {
-      const a: PanelTextContract = {
-        hasText: true,
-        dialogues: [],
-        narration: "Narration A",
-        sfx: [],
-        placement: { dialoguePosition: "top" },
-        silenceReason: null,
-      };
-
-      const b: PanelTextContract = {
-        hasText: false,
-        dialogues: [],
-        narration: null,
-        sfx: [],
-        placement: { dialoguePosition: "bottom" },
-        silenceReason: null,
-      };
-
-      const merged = mergeTextContracts(a, b);
-      expect(merged.placement?.dialoguePosition).toBe("bottom");
-    });
+  it("mergeTextContracts fusionne dialogues et narration", () => {
+    const a = createDialogueTextContract("p7", [{ speakerName: "a", text: "Hello" }]);
+    const b = createDialogueTextContract(
+      "p7",
+      [{ speakerName: "b", text: "Hi" }],
+      { narration: "Tension." },
+    );
+    const merged = mergeTextContracts(a, b);
+    expect(merged.dialogues).toHaveLength(1);
+    expect(merged.dialogues[0].speakerName).toBe("b");
+    expect(merged.narration).toBe("Tension.");
   });
 });

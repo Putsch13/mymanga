@@ -39,6 +39,7 @@ export interface ContractCharacterVisualDna {
   eyeColor?: string | null;
   hairColor?: string | null;
   hairStyle?: string | null;
+  skinTone?: string | null;
   outfitSignature?: string | null;
   distinctiveTraits?: string[];
   silhouette?: string | null;
@@ -59,6 +60,7 @@ export interface RenderSpecCharacterVisualDna {
   hairColor?: string | null;
   hairStyle?: string | null;
   outfitSignature?: string | null;
+  skinTone?: string | null;
 }
 
 export interface MergeCharacterVisualDnaInput {
@@ -128,6 +130,11 @@ export function mergeCharacterVisualDna(input: MergeCharacterVisualDnaInput): Me
   result.silhouette = contractCharacter?.silhouette ?? null;
   result.ageAppearance = contractCharacter?.ageAppearance ?? null;
   result.bodyType = contractCharacter?.bodyType ?? null;
+
+  result.skinTone =
+    renderSpecCharacter?.skinTone ??
+    contractCharacter?.skinTone ??
+    null;
 
   return result;
 }

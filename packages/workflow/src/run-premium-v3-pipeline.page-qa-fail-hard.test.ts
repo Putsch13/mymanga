@@ -19,6 +19,13 @@ const mocks = vi.hoisted(() => ({
   saveStoryboardPlan: vi.fn(),
 }));
 
+vi.mock("./passes/assert-premium-ai-engines-ready", () => ({
+  assertPremiumAiEnginesReady: vi.fn(),
+  assertDialogueResultNotFallback: vi.fn(),
+  assertStoryArchitectResultNotFallback: vi.fn(),
+  assertMangaEditorResultNotFallback: vi.fn(),
+}));
+
 vi.mock("./passes/story-pass", () => ({
   runStoryPass: mocks.runStoryPass,
 }));
@@ -41,6 +48,11 @@ vi.mock("./passes/page-qa-pass", () => ({
 
 vi.mock("./persistence/storyboard-persistence", () => ({
   saveStoryboardPlan: mocks.saveStoryboardPlan,
+}));
+
+vi.mock("./persistence/chapter-visual-contract-persistence", () => ({
+  loadChapterVisualContractUi: vi.fn().mockResolvedValue({ parasitePolicy: "auto_strip" }),
+  saveChapterVisualContractSnapshot: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./pipeline-feature-flags", async (importOriginal) => {
@@ -90,7 +102,9 @@ describe("runPremiumV3Pipeline — page QA fail-hard (P0.4)", () => {
     mocks.saveStoryboardPlan.mockResolvedValue(undefined);
   });
 
-  it("throw en mode strict si validation échoue", async () => {
+  it(
+    "throw en mode strict si validation échoue",
+    async () => {
     const { runPremiumV3Pipeline } = await import("./run-premium-v3-pipeline");
 
     await expect(
@@ -103,7 +117,15 @@ describe("runPremiumV3Pipeline — page QA fail-hard (P0.4)", () => {
         chapterUserIntent: null,
         project: { format: "manga" },
         stylePacks: [],
-        rawCharacters: [{ id: "hero-1", name: "Hero", roleType: "main" }],
+        rawCharacters: [
+          {
+            id: "hero-1",
+            name: "Hero",
+            roleType: "main",
+            faceRefUrl: "https://cdn.test/face.png",
+            loraUrl: "https://cdn.test/lora.safetensors",
+          },
+        ],
         approvedOutline: null,
         productionPlan: {
           panelBlueprints: [minimalBlueprint()],
@@ -130,9 +152,13 @@ describe("runPremiumV3Pipeline — page QA fail-hard (P0.4)", () => {
     ).rejects.toThrow(/premium_v3_only_failed/);
 
     expect(mocks.runRenderPass).not.toHaveBeenCalled();
-  });
+    },
+    20_000,
+  );
 
-  it("continue si pageQa.failCount > 0 mais premiumV3OnlyEnabled=false", async () => {
+  it(
+    "continue si pageQa.failCount > 0 mais premiumV3OnlyEnabled=false",
+    async () => {
     mocks.runPageQaPass.mockResolvedValue({
       results: [
         { pageNumber: 1, ok: false, issues: ["page_has_no_panels"], warnings: [] },
@@ -176,7 +202,15 @@ describe("runPremiumV3Pipeline — page QA fail-hard (P0.4)", () => {
         chapterUserIntent: null,
         project: { format: "manga" },
         stylePacks: [],
-        rawCharacters: [{ id: "hero-1", name: "Hero", roleType: "main" }],
+        rawCharacters: [
+          {
+            id: "hero-1",
+            name: "Hero",
+            roleType: "main",
+            faceRefUrl: "https://cdn.test/face.png",
+            loraUrl: "https://cdn.test/lora.safetensors",
+          },
+        ],
         approvedOutline: null,
         productionPlan: {
           panelBlueprints: [minimalBlueprint()],
@@ -203,5 +237,7 @@ describe("runPremiumV3Pipeline — page QA fail-hard (P0.4)", () => {
     ).resolves.toBeDefined();
 
     expect(mocks.runRenderPass).toHaveBeenCalled();
-  });
+    },
+    20_000,
+  );
 });

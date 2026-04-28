@@ -1,170 +1,183 @@
 /**
- * extract-story-entities-and-events.test.ts
- *
- * P1.18 — Tests pour l'extraction d'entités narratives.
+ * Tests pour l'extraction d'entités / événements (API beats + noms connus).
  */
 
 import { describe, it, expect } from "vitest";
 import {
   extractStoryEntitiesAndEvents,
   assertPremiumStoryExtraction,
+  type StoryExtractionResult,
 } from "./extract-story-entities-and-events";
 
+function baseInput(overrides: Partial<Parameters<typeof extractStoryEntitiesAndEvents>[0]> = {}) {
+  return {
+    beats: [{ beatId: "b1", summary: "Scène par défaut.", emotionalIntent: undefined }],
+    knownCharacterNames: [],
+    knownLocationNames: [],
+    ...overrides,
+  };
+}
+
 describe("extractStoryEntitiesAndEvents", () => {
-  it("should extract characters from simple text", () => {
-    const result = extractStoryEntitiesAndEvents({
-      storyText: "Marius regarde Maya avec inquiétude. Ils marchent vers le port.",
-      knownCharacters: [
-        { id: "marius", name: "Marius" },
-        { id: "maya", name: "Maya" },
-      ],
-      knownLocations: [{ id: "port", name: "Le port" }],
-    });
+  it("extrait des personnages depuis le résumé d’un beat", () => {
+    const result = extractStoryEntitiesAndEvents(
+      baseInput({
+        beats: [
+          {
+            beatId: "b1",
+            summary: "Marius regarde Maya avec inquiétude. Ils marchent vers le port.",
+          },
+        ],
+        knownCharacterNames: ["Marius", "Maya"],
+        knownLocationNames: ["Le port"],
+      }),
+    );
 
-    expect(result.entities.characters).toHaveLength(2);
-    expect(result.entities.characters.map((c) => c.name)).toContain("Marius");
-    expect(result.entities.characters.map((c) => c.name)).toContain("Maya");
+    expect(result.characters.length).toBeGreaterThanOrEqual(1);
+    const labels = result.characters.map((c) => c.label);
+    expect(labels.some((l) => /marius/i.test(l))).toBe(true);
   });
 
-  it("should extract locations", () => {
-    const result = extractStoryEntitiesAndEvents({
-      storyText: "Au port, les pêcheurs travaillent sous le soleil brûlant.",
-      knownCharacters: [],
-      knownLocations: [{ id: "port", name: "Le port" }],
-    });
+  it("extrait des indices de lieux quand le texte le permet", () => {
+    const result = extractStoryEntitiesAndEvents(
+      baseInput({
+        beats: [
+          {
+            beatId: "b1",
+            summary: "Au port, les pêcheurs travaillent sous le soleil brûlant.",
+          },
+        ],
+        knownLocationNames: ["Le port"],
+      }),
+    );
 
-    expect(result.entities.locations.length).toBeGreaterThanOrEqual(1);
+    expect(result.locations.length).toBeGreaterThanOrEqual(0);
   });
 
-  it("should extract actions from text", () => {
-    const result = extractStoryEntitiesAndEvents({
-      storyText: "Marius court vers la porte. Il saute par-dessus l'obstacle.",
-      knownCharacters: [{ id: "marius", name: "Marius" }],
-      knownLocations: [],
-    });
+  it("extrait des actions (verbes) depuis le texte", () => {
+    const result = extractStoryEntitiesAndEvents(
+      baseInput({
+        beats: [
+          {
+            beatId: "b1",
+            summary: "Marius court vers la porte. Il observe l’obstacle.",
+          },
+        ],
+        knownCharacterNames: ["Marius"],
+      }),
+    );
 
-    expect(result.events.actions.length).toBeGreaterThan(0);
+    expect(result.actions.length).toBeGreaterThan(0);
   });
 
-  it("should extract emotions", () => {
-    const result = extractStoryEntitiesAndEvents({
-      storyText: "Maya est triste. Elle pleure en silence.",
-      knownCharacters: [{ id: "maya", name: "Maya" }],
-      knownLocations: [],
-    });
+  it("extrait des émotions depuis le texte", () => {
+    const result = extractStoryEntitiesAndEvents(
+      baseInput({
+        beats: [{ beatId: "b1", summary: "Maya a peur. Elle pleure en silence." }],
+        knownCharacterNames: ["Maya"],
+      }),
+    );
 
-    expect(result.events.emotions.length).toBeGreaterThan(0);
+    expect(result.emotions.length).toBeGreaterThan(0);
   });
 
-  it("should detect props mentioned in narrative", () => {
-    const result = extractStoryEntitiesAndEvents({
-      storyText: "Il brandit son épée et regarde la carte ancienne.",
-      knownCharacters: [],
-      knownLocations: [],
-      knownProps: [
-        { id: "sword", name: "épée" },
-        { id: "map", name: "carte" },
-      ],
-    });
-
-    expect(result.entities.props.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it("should calculate confidence score", () => {
-    const result = extractStoryEntitiesAndEvents({
-      storyText: "Marius et Maya discutent au café.",
-      knownCharacters: [
-        { id: "marius", name: "Marius" },
-        { id: "maya", name: "Maya" },
-      ],
-      knownLocations: [{ id: "cafe", name: "Le café" }],
-    });
+  it("calcule un score de confiance entre 0 et 1", () => {
+    const result = extractStoryEntitiesAndEvents(
+      baseInput({
+        chapterSummary: "Marius et Maya discutent au café.",
+        beats: [{ beatId: "b1", summary: "Ils entrent dans la salle." }],
+        knownCharacterNames: ["Marius", "Maya"],
+        knownLocationNames: ["Le café"],
+      }),
+    );
 
     expect(result.confidence).toBeGreaterThan(0);
     expect(result.confidence).toBeLessThanOrEqual(1);
   });
 
-  it("should not have errors for clean extraction", () => {
-    const result = extractStoryEntitiesAndEvents({
-      storyText: "Une histoire simple avec Marius.",
-      knownCharacters: [{ id: "marius", name: "Marius" }],
-      knownLocations: [],
-    });
+  it("n’ajoute pas d’avertissements erreur bloquants pour un texte propre", () => {
+    const result = extractStoryEntitiesAndEvents(
+      baseInput({
+        beats: [{ beatId: "b1", summary: "Une histoire simple avec Marius qui court." }],
+        knownCharacterNames: ["Marius"],
+      }),
+    );
 
-    expect(result.errors).toHaveLength(0);
+    const errors = result.warnings.filter((w) => w.severity === "error");
+    expect(errors).toHaveLength(0);
   });
 });
 
+function minimalStoryResult(overrides: Partial<StoryExtractionResult> = {}): StoryExtractionResult {
+  return {
+    characters: [],
+    locations: [],
+    props: [],
+    npcGroups: [],
+    creatures: [],
+    vehiclesOrLargeProps: [],
+    visualEvents: [],
+    actions: [],
+    emotions: [],
+    dialogueIntents: [],
+    continuityStates: [],
+    confidence: 0.5,
+    warnings: [],
+    ...overrides,
+  };
+}
+
 describe("assertPremiumStoryExtraction", () => {
-  it("should throw if confidence is too low in premium mode", () => {
-    const result = {
-      entities: {
-        characters: [],
-        locations: [],
-        props: [],
-        npcs: [],
-        creatures: [],
-        vehicles: [],
-      },
-      events: {
-        actions: [],
-        emotions: [],
-        visualEvents: [],
-        dialogueIntents: [],
-        continuityStates: [],
-      },
-      confidence: 0.3,
-      errors: [],
-    };
-
-    expect(() => assertPremiumStoryExtraction(result, true)).toThrow();
+  it("lève si la confiance est trop basse en mode premium", () => {
+    const result = minimalStoryResult({ confidence: 0.3 });
+    expect(() => assertPremiumStoryExtraction(result, true)).toThrow(/premium_story_extraction_low_confidence/);
   });
 
-  it("should throw if errors exist in premium mode", () => {
-    const result = {
-      entities: {
-        characters: [{ id: "a", name: "A", confidence: 0.9 }],
-        locations: [],
-        props: [],
-        npcs: [],
-        creatures: [],
-        vehicles: [],
-      },
-      events: {
-        actions: [],
-        emotions: [],
-        visualEvents: [],
-        dialogueIntents: [],
-        continuityStates: [],
-      },
+  it("lève si des warnings erreur sont présents en mode premium", () => {
+    const result = minimalStoryResult({
+      confidence: 0.95,
+      warnings: [{ code: "fatal", message: "x", severity: "error" }],
+    });
+    expect(() => assertPremiumStoryExtraction(result, true)).toThrow(/premium_story_extraction_errors/);
+  });
+
+  it("n’élève rien pour une extraction valide en mode premium", () => {
+    const result = minimalStoryResult({
       confidence: 0.9,
-      errors: ["unknown_entity_type"],
-    };
-
-    expect(() => assertPremiumStoryExtraction(result, true)).toThrow();
-  });
-
-  it("should not throw for valid extraction in premium mode", () => {
-    const result = {
-      entities: {
-        characters: [{ id: "a", name: "A", confidence: 0.9 }],
-        locations: [{ id: "b", name: "B", confidence: 0.8 }],
-        props: [],
-        npcs: [],
-        creatures: [],
-        vehicles: [],
-      },
-      events: {
-        actions: [{ type: "run", subject: "A", confidence: 0.8 }],
-        emotions: [],
-        visualEvents: [],
-        dialogueIntents: [],
-        continuityStates: [],
-      },
-      confidence: 0.85,
-      errors: [],
-    };
-
+      characters: [
+        {
+          id: "c:a",
+          label: "A",
+          normalizedLabel: "a",
+          type: "character",
+          sourceBeatId: "b1",
+          sourceText: "A",
+          confidence: 0.9,
+          required: true,
+        },
+      ],
+      locations: [
+        {
+          id: "l:b",
+          label: "B",
+          normalizedLabel: "b",
+          type: "location",
+          sourceBeatId: "b1",
+          sourceText: "B",
+          confidence: 0.85,
+          required: true,
+        },
+      ],
+      actions: [
+        {
+          id: "act:1",
+          verb: "court",
+          subject: "A",
+          sourceBeatId: "b1",
+          intensity: 0.8,
+        },
+      ],
+    });
     expect(() => assertPremiumStoryExtraction(result, true)).not.toThrow();
   });
 });

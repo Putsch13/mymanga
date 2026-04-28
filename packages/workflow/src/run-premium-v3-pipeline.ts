@@ -16,6 +16,7 @@ import {
   PRODUCTION_RULES,
   canonicalPlanToPanelBlueprints,
   ensureCanonicalProductionPlan,
+  mergeRawBlueprintsWithCanonicalRhythm,
   resolveProductionOutlineForPremiumPipeline,
   buildChapterCastContract,
   assertValidChapterCastContract,
@@ -23,6 +24,8 @@ import {
   buildChapterStoryContract,
   assertValidChapterStoryContract,
   formatStoryContractLog,
+  buildChapterGenerationContractFromPremiumPlan,
+  assertValidChapterGenerationContract,
   type CanonicalChapterProductionPlan,
   type PanelBlueprintPremium,
   type ChapterCastContract,
@@ -95,8 +98,21 @@ export interface PremiumV3PipelineCharacter {
   roleType?: string | null;
   hairColor?: string | null;
   eyeColor?: string | null;
+  hairStyle?: string | null;
+  skinTone?: string | null;
+  outfitSignature?: string | null;
+  accessories?: string[] | null;
+  bodyType?: string | null;
+  ageApparent?: string | null;
+  distinctiveMarks?: string[] | null;
   canonSignatureText?: string | null;
   forbiddenVisualDrift?: string[] | null;
+  canonLocked?: boolean | null;
+  faceRefUrl?: string | null;
+  silhouetteRefUrl?: string | null;
+  loraUrl?: string | null;
+  loraTriggerWord?: string | null;
+  loraScale?: number | null;
 }
 
 export interface RunPremiumV3PipelineInput {
@@ -575,14 +591,46 @@ export async function runPremiumV3Pipeline(
           rawOutline: resolvedProductionOutline,
           strictQa: input.premiumV3OnlyEnabled,
         });
-        const derivedBlueprints = canonicalPlanToPanelBlueprints(canonicalRuntimePlan);
-        panelBlueprintsForPremiumPath = derivedBlueprints;
-        if (productionPlanForStoryboard) {
-          productionPlanForStoryboard.panelBlueprints = derivedBlueprints;
+
+        const richFromPlan =
+          approvedPlanDriven
+          && productionPlanForStoryboard
+          && Array.isArray(productionPlanForStoryboard.panelBlueprints)
+          && (productionPlanForStoryboard.panelBlueprints as unknown[]).length > 0
+            ? (productionPlanForStoryboard.panelBlueprints as PanelBlueprintPremium[]).map((b) =>
+                structuredClone(b)
+              )
+            : null;
+
+        const richFromJob =
+          !richFromPlan?.length && panelBlueprintsForPremiumPath?.length
+            ? panelBlueprintsForPremiumPath.map((b) => structuredClone(b))
+            : null;
+
+        const richSource = richFromPlan ?? richFromJob;
+
+        if (richSource?.length) {
+          const mergedBlueprints = mergeRawBlueprintsWithCanonicalRhythm(
+            richSource,
+            canonicalRuntimePlan,
+          );
+          panelBlueprintsForPremiumPath = mergedBlueprints;
+          if (productionPlanForStoryboard) {
+            productionPlanForStoryboard.panelBlueprints = mergedBlueprints;
+          }
+          console.info(
+            `[pipeline:v3:canonical-runtime] panels=${mergedBlueprints.length} source=merged_rich_blueprints qa_valid=${canonicalRuntimePlan.qa.valid}`,
+          );
+        } else {
+          const derivedBlueprints = canonicalPlanToPanelBlueprints(canonicalRuntimePlan);
+          panelBlueprintsForPremiumPath = derivedBlueprints;
+          if (productionPlanForStoryboard) {
+            productionPlanForStoryboard.panelBlueprints = derivedBlueprints;
+          }
+          console.info(
+            `[pipeline:v3:canonical-runtime] panels=${derivedBlueprints.length} source=canonical_projection_only qa_valid=${canonicalRuntimePlan.qa.valid}`,
+          );
         }
-        console.info(
-          `[pipeline:v3:canonical-runtime] panels=${derivedBlueprints.length} qa_valid=${canonicalRuntimePlan.qa.valid}`,
-        );
       } catch (err) {
         if (input.premiumV3OnlyEnabled) throw err;
         console.warn(
@@ -1087,7 +1135,13 @@ export async function runPremiumV3Pipeline(
     }
 
     const visualContractUi = await loadChapterVisualContractUi(input.chapterId);
-    const parasitePolicy = visualContractUi.parasitePolicy ?? "auto_strip";
+    const parasitePolicyUi = visualContractUi.parasitePolicy ?? "auto_strip";
+    if (input.premiumV3OnlyEnabled && parasitePolicyUi === "keep_all") {
+      throw new Error(
+        "premium_visual_contract_keep_all_forbidden: en PIPELINE_V3_PREMIUM_ONLY, parasitePolicy=keep_all est interdit (auto_strip obligatoire).",
+      );
+    }
+    const parasitePolicy = input.premiumV3OnlyEnabled ? "auto_strip" : parasitePolicyUi;
     const contractHasRequiredSlices = chapterVisualContractResult.requiredFromContract.length > 0;
 
     const contractSanitized = contractHasRequiredSlices
@@ -1099,7 +1153,7 @@ export async function runPremiumV3Pipeline(
           knownLocations: knownLocsForSanitize,
           projectGenre: typeof input.project?.primaryGenre === "string" ? input.project.primaryGenre : null,
           projectTone: typeof input.project?.tone === "string" ? input.project.tone : null,
-          parasitePolicy: "keep_all",
+          parasitePolicy,
         })
       : { requiredConfirmed: [], optional: [], suspicious: [], rejected: [] };
 
@@ -1116,7 +1170,7 @@ export async function runPremiumV3Pipeline(
 
     let requiredCoverage;
     if (contractHasRequiredSlices) {
-      if (parasitePolicy === "keep_all") {
+      if (parasitePolicy === "keep_all" && !input.premiumV3OnlyEnabled) {
         const blueprintMerged = [
           ...blueprintSanitized.requiredConfirmed,
           ...blueprintSanitized.suspicious,
@@ -1335,6 +1389,82 @@ export async function runPremiumV3Pipeline(
         panels: allStoryboardPanels,
       });
 
+      if (panelBlueprintsForPremiumPath?.length) {
+        const outlineBeatsForContract = (() => {
+          const beats = resolvedProductionOutline?.beats;
+          if (Array.isArray(beats) && beats.length > 0) {
+            return beats
+              .map(
+                (b: {
+                  beatId?: string;
+                  summary?: string;
+                  characters?: string[];
+                  emotionalDelta?: number;
+                }) => ({
+                  id: typeof b.beatId === "string" ? b.beatId : "",
+                  summary: typeof b.summary === "string" ? b.summary : "",
+                  characters: Array.isArray(b.characters) ? b.characters : undefined,
+                  emotionalDelta: typeof b.emotionalDelta === "number" ? b.emotionalDelta : undefined,
+                }),
+              )
+              .filter((b) => b.id.length > 0);
+          }
+          const byId = new Map<string, { id: string; summary: string }>();
+          for (const bp of panelBlueprintsForPremiumPath) {
+            const bid = typeof bp.beatId === "string" ? bp.beatId : "";
+            if (!bid || byId.has(bid)) continue;
+            byId.set(bid, { id: bid, summary: `Beat ${bid}` });
+          }
+          return [...byId.values()];
+        })();
+
+        const chapterGenerationContract = buildChapterGenerationContractFromPremiumPlan({
+          projectId: input.projectId,
+          chapterId: input.chapterId,
+          chapterNumber: input.chapterNumber,
+          outlineBeats: outlineBeatsForContract,
+          panelBlueprints: panelBlueprintsForPremiumPath,
+          heroCharacterId: castContract.heroCharacterId,
+          focusCharacterIds: castContract.activeCharacterIds.filter(Boolean),
+          characters: input.rawCharacters.map((c) => ({
+            id: c.id,
+            name: c.name,
+            roleType: c.roleType ?? null,
+            hairColor: c.hairColor ?? null,
+            eyeColor: c.eyeColor ?? null,
+            hairStyle: c.hairStyle ?? null,
+            skinTone: c.skinTone ?? null,
+            outfitSignature: c.outfitSignature ?? null,
+            accessories: c.accessories ?? null,
+            bodyType: c.bodyType ?? null,
+            ageApparent: c.ageApparent ?? null,
+            distinctiveMarks: c.distinctiveMarks ?? null,
+            canonSignatureText: c.canonSignatureText ?? null,
+            forbiddenVisualDrift: c.forbiddenVisualDrift ?? null,
+            canonLocked: c.canonLocked ?? undefined,
+            faceRefUrl: c.faceRefUrl ?? null,
+            silhouetteRefUrl: c.silhouetteRefUrl ?? null,
+            loraUrl: c.loraUrl ?? null,
+            loraTriggerWord: c.loraTriggerWord ?? null,
+            loraScale: c.loraScale ?? null,
+          })),
+          locations: enrichedLocations.map((loc) => ({
+            id: loc.id,
+            name: loc.name ?? loc.id,
+            visualDescription:
+              typeof loc.visualDNA?.description === "string" ? loc.visualDNA.description : null,
+          })),
+        });
+
+        if (input.premiumV3OnlyEnabled) {
+          assertValidChapterGenerationContract(chapterGenerationContract, {
+            premiumOnly: true,
+            skipHeroVisualRef: false,
+            enforceEntitySources: true,
+          });
+        }
+      }
+
       runPreRenderPremiumQaOrThrow({
         storyboardPlan: storyboardPassResult.storyboardPlan,
         chapterSummary: input.chapterSummary,
@@ -1351,6 +1481,7 @@ export async function runPremiumV3Pipeline(
       const renderStart = Date.now();
       const renderPassResult = await runRenderPass({
         chapterId: input.chapterId,
+        projectId: input.projectId,
         storyboardPlan: storyboardPassResult.storyboardPlan,
         visualQaProductionConfigIncomplete: visualQaProductionConfigSkipped,
         canonicalProductionPlan: canonicalRuntimePlan,
@@ -1366,9 +1497,16 @@ export async function runPremiumV3Pipeline(
           hairColor: c.hairColor ?? null,
           eyeColor: c.eyeColor ?? null,
           canonSignatureText: c.canonSignatureText ?? null,
+          hairStyle: c.hairStyle ?? null,
+          skinTone: c.skinTone ?? null,
+          outfitSignature: c.outfitSignature ?? null,
           forbiddenVisualDrift: c.forbiddenVisualDrift ?? [],
+          loraUrl: c.loraUrl ?? null,
+          loraTriggerWord: c.loraTriggerWord ?? null,
+          loraScale: c.loraScale ?? null,
         })),
         mainCharacterIds: castContract.activeCharacterIds,
+        premiumOutOfContractPromptCheck: input.premiumV3OnlyEnabled,
         generatePanelImage: renderFalEnabled
           ? createDefaultPanelImageGenerator({
               forbidMock:

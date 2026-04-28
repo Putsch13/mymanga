@@ -7,8 +7,8 @@
 import {
   buildCanonicalChapterProductionPlan,
   buildProductionPlanFromOutline,
-  canonicalPlanToPanelBlueprints,
   classifyPremiumPanelCount,
+  mergeRawBlueprintsWithCanonicalRhythm,
   PREMIUM_PANEL_RANGE,
 } from "@manga-ai-studio/core";
 import type { ApprovedChapterOutline, ProductionBeat } from "@manga-ai-studio/core";
@@ -211,6 +211,7 @@ export function buildPremiumChapterContract(
     projectGenre,
     projectTone,
     heroCharacterId,
+    premiumStrictChapterSourcing: process.env.PIPELINE_V3_PREMIUM_ONLY === "true",
   };
 
   // Enrichir chaque beat avec narrative facts, props, et blueprints
@@ -283,7 +284,8 @@ export function buildPremiumChapterContract(
     format,
     rawOutline: outlineForCanonical,
   });
-  const allBlueprints = canonicalPlanToPanelBlueprints(canonicalPlan);
+  const rawFlattened = enrichedBeats.flatMap((b) => b._blueprints);
+  const allBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawFlattened, canonicalPlan);
 
   const beatPanelCounts = new Map(canonicalPlan.beats.map((b) => [b.beatId, b.actualPanelCount]));
   const enrichedBeatsAligned = enrichedBeats.map((b) => ({
@@ -427,7 +429,12 @@ export async function buildPremiumChapterContractAsync(
     heroCharacterId,
     recentContinuityEvents,
   };
-  const universeContext = { projectGenre, projectTone, heroCharacterId };
+  const universeContext = {
+    projectGenre,
+    projectTone,
+    heroCharacterId,
+    premiumStrictChapterSourcing: process.env.PIPELINE_V3_PREMIUM_ONLY === "true",
+  };
 
   // Enrichir chaque beat en parallèle avec LLM
   const enrichedBeats = await Promise.all(approvedOutline.beats.map(async (beat) => {
@@ -541,7 +548,8 @@ export async function buildPremiumChapterContractAsync(
     format,
     rawOutline: outlineForCanonical,
   });
-  const allBlueprints = canonicalPlanToPanelBlueprints(canonicalPlan);
+  const rawFlattened = enrichedBeatsWithLLMBlueprints.flatMap((b) => b._blueprints);
+  const allBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawFlattened, canonicalPlan);
 
   const beatPanelCounts = new Map(canonicalPlan.beats.map((b) => [b.beatId, b.actualPanelCount]));
   const enrichedBeatsAligned = enrichedBeatsWithLLMBlueprints.map((b) => ({

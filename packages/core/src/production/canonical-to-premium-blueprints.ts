@@ -131,14 +131,10 @@ export function canonicalPlanToPanelBlueprints(plan: CanonicalChapterProductionP
       || panel.mustShowCharacterIds[0]
       || "speaker";
 
+    const dialogueText = (tp.text ?? "").trim();
     const dialogueLines =
-      tp.mode === "dialogue"
-        ? [
-            {
-              speaker: speakerLabel,
-              text: (tp.text ?? "").trim() || panel.purpose.slice(0, 120),
-            },
-          ]
+      tp.mode === "dialogue" && dialogueText
+        ? [{ speaker: speakerLabel, text: dialogueText }]
         : undefined;
 
     return {
@@ -175,7 +171,7 @@ export function canonicalPlanToPanelBlueprints(plan: CanonicalChapterProductionP
       panelTextBundle:
         tp.mode === "dialogue" || tp.mode === "narration" || tp.mode === "sfx"
           ? {
-              dialogues: dialogueLines,
+              dialogues: dialogueLines ?? undefined,
               narration: tp.mode === "narration" ? (tp.text ?? null) : null,
               sfx: tp.mode === "sfx" ? tp.sfx : undefined,
             }

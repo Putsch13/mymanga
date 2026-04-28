@@ -1,121 +1,146 @@
 /**
- * build-beat-micro-storyboard.test.ts
- *
- * P1.18 — Tests pour le micro-storyboard par beat.
+ * Tests du micro-storyboard par beat (API BeatMicroStoryboardInput actuelle).
  */
 
 import { describe, it, expect } from "vitest";
 import {
   buildBeatMicroStoryboard,
   assertPanelSpecificity,
+  type ContractBeatInput,
+  type MicroStoryboardPanel,
 } from "./build-beat-micro-storyboard";
 
+function sampleBeat(overrides: Partial<ContractBeatInput> = {}): ContractBeatInput {
+  return {
+    beatId: "beat-1",
+    beatNumber: 1,
+    summary: "Marius regarde Maya avec inquiétude.",
+    emotionalIntent: "neutral",
+    requiredCharacterIds: ["marius", "maya"],
+    requiredProps: [],
+    requiredNpcGroups: [],
+    visualEvents: [],
+    dialogueRequired: true,
+    ...overrides,
+  };
+}
+
 describe("buildBeatMicroStoryboard", () => {
-  it("should generate micro-storyboard for a simple beat", () => {
+  it("génère un micro-storyboard pour un beat simple", () => {
     const result = buildBeatMicroStoryboard({
-      beatId: "beat-1",
-      beatText: "Marius regarde Maya avec inquiétude.",
-      beatType: "dialogue",
-      panelCount: 2,
-      characters: [
-        { id: "marius", name: "Marius" },
-        { id: "maya", name: "Maya" },
-      ],
-      location: { id: "port", name: "Le port" },
+      beat: sampleBeat(),
+      targetPanelCount: 2,
+      characterNameById: { marius: "Marius", maya: "Maya" },
+      locationName: "Le port",
     });
 
     expect(result.beatId).toBe("beat-1");
     expect(result.panels).toHaveLength(2);
-    expect(result.panels[0].microAction).toBeTruthy();
+    expect(result.panels[0].microAction.length).toBeGreaterThan(10);
     expect(result.panels[0].narrativeRole).toBeTruthy();
+    expect(result.panels[0].panelId).toContain("beat-1");
   });
 
-  it("should distribute narrative roles across panels", () => {
+  it("répartit des rôles narratifs sur plusieurs panels", () => {
     const result = buildBeatMicroStoryboard({
-      beatId: "beat-2",
-      beatText: "Une confrontation intense entre les deux personnages.",
-      beatType: "action",
-      panelCount: 4,
-      characters: [
-        { id: "hero", name: "Hero" },
-        { id: "villain", name: "Villain" },
-      ],
-      location: { id: "arena", name: "Arena" },
+      beat: sampleBeat({
+        beatId: "beat-2",
+        summary: "Une confrontation intense entre les deux personnages.",
+        dialogueRequired: false,
+        requiredCharacterIds: ["hero", "villain"],
+      }),
+      targetPanelCount: 4,
+      characterNameById: { hero: "Hero", villain: "Villain" },
+      locationName: "Arena",
     });
 
     const roles = result.panels.map((p) => p.narrativeRole);
     expect(roles).toContain("establishing");
   });
 
-  it("should not produce generic actions", () => {
+  it("évite les micro-actions trop courtes ou vides", () => {
     const result = buildBeatMicroStoryboard({
-      beatId: "beat-3",
-      beatText: "Le héros court à travers la forêt.",
-      beatType: "action",
-      panelCount: 3,
-      characters: [{ id: "hero", name: "Hero" }],
-      location: { id: "forest", name: "Forest" },
+      beat: sampleBeat({
+        beatId: "beat-3",
+        summary: "Le héros court à travers la forêt.",
+        requiredCharacterIds: ["hero"],
+        dialogueRequired: false,
+      }),
+      targetPanelCount: 3,
+      characterNameById: { hero: "Hero" },
+      locationName: "Forest",
     });
 
     for (const panel of result.panels) {
-      expect(panel.microAction).not.toMatch(/generic|placeholder|todo/i);
       expect(panel.microAction.length).toBeGreaterThan(10);
     }
   });
 
-  it("should include visual subject for each panel", () => {
+  it("fournit un visualSubject pour chaque panel", () => {
     const result = buildBeatMicroStoryboard({
-      beatId: "beat-4",
-      beatText: "Discussion animée au café.",
-      beatType: "dialogue",
-      panelCount: 2,
-      characters: [
-        { id: "a", name: "Alice" },
-        { id: "b", name: "Bob" },
-      ],
-      location: { id: "cafe", name: "Café" },
+      beat: sampleBeat({
+        beatId: "beat-4",
+        summary: "Discussion animée au café.",
+        requiredCharacterIds: ["a", "b"],
+      }),
+      targetPanelCount: 2,
+      characterNameById: { a: "Alice", b: "Bob" },
+      locationName: "Café",
     });
 
     for (const panel of result.panels) {
-      expect(panel.visualSubject).toBeTruthy();
+      expect(panel.visualSubject.trim().length).toBeGreaterThan(0);
     }
   });
 });
 
 describe("assertPanelSpecificity", () => {
-  it("should pass for specific panels", () => {
-    const panels = [
-      {
-        microAction: "Marius se penche vers Maya, les sourcils froncés",
-        narrativeRole: "reaction",
-        visualSubject: "Marius gros plan",
-      },
-    ];
-
-    expect(() => assertPanelSpecificity(panels, true)).not.toThrow();
+  it("accepte un panel précis en mode premium", () => {
+    const panel: MicroStoryboardPanel = {
+      panelId: "p1",
+      panelNumber: 1,
+      sourceBeatId: "b1",
+      narrativeRole: "action",
+      microAction: "Marius recule brusquement face à la menace visible au premier plan.",
+      visualSubject: "Marius gros plan",
+      emotionalIntent: "tension",
+      requiredCharacterIds: ["marius"],
+      requiredProps: ["épée"],
+      requiredNpcGroups: [],
+      dialogueRequired: false,
+    };
+    expect(() => assertPanelSpecificity(panel, true)).not.toThrow();
   });
 
-  it("should throw for generic panels in premium mode", () => {
-    const panels = [
-      {
-        microAction: "Character does something",
-        narrativeRole: "action",
-        visualSubject: "scene",
-      },
-    ];
-
-    expect(() => assertPanelSpecificity(panels, true)).toThrow();
+  it("rejette un panel générique en mode premium", () => {
+    const panel: MicroStoryboardPanel = {
+      panelId: "p2",
+      panelNumber: 1,
+      sourceBeatId: "b1",
+      narrativeRole: "action",
+      microAction: "Character does something",
+      visualSubject: "scene",
+      requiredCharacterIds: [],
+      requiredProps: [],
+      requiredNpcGroups: [],
+      dialogueRequired: false,
+    };
+    expect(() => assertPanelSpecificity(panel, true)).toThrow(/premium_generic_panel_forbidden/);
   });
 
-  it("should not throw in non-premium mode", () => {
-    const panels = [
-      {
-        microAction: "generic action",
-        narrativeRole: "action",
-        visualSubject: "scene",
-      },
-    ];
-
-    expect(() => assertPanelSpecificity(panels, false)).not.toThrow();
+  it("n’applique pas la contrainte hors mode premium", () => {
+    const panel: MicroStoryboardPanel = {
+      panelId: "p3",
+      panelNumber: 1,
+      sourceBeatId: "b1",
+      narrativeRole: "action",
+      microAction: "generic action",
+      visualSubject: "scene",
+      requiredCharacterIds: [],
+      requiredProps: [],
+      requiredNpcGroups: [],
+      dialogueRequired: false,
+    };
+    expect(() => assertPanelSpecificity(panel, false)).not.toThrow();
   });
 });

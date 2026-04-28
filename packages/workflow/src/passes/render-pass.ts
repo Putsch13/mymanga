@@ -15,7 +15,7 @@
  *
  * Note d'intégration legacy : tant que `PIPELINE_V3_STORYBOARD` n'est pas ON,
  * le render-pass tourne en shadow (il persiste specs/QA/prompts mais ne fait
- * pas réellement appel FAL — c'est le `image-generation-pass` legacy qui
+ * pas réellement appel FAL — c'est la passe images historique qui
  * continue à rendre). Quand on activera le flag et qu'on aura validé les
  * routes FAL v3 en prod, on basculera `generatePanelImage` vers l'adapter
  * FAL réel et on pourra désactiver le legacy.
@@ -64,10 +64,13 @@ import {
   type V3PanelRenderAttemptLog,
   type V3RenderedPanelRecord,
 } from "../persistence/v3-scene-image-persistence";
+import { ensureStableImageUrl } from "../persistence/persist-temporary-image-for-qa";
 import { startChapterImageGenerationRun } from "../persistence/chapter-generation-run";
 import { runPanelQaPass, type PanelQaPassOutput } from "./panel-qa-pass";
 import { runPageQaPass, type PageQaPassOutput } from "./page-qa-pass";
 import { enrichPanelRenderSpecForRenderPass } from "./enrich-panel-render-spec";
+import { buildLoraByCharacterIdMap } from "./resolve-panel-lora-bindings";
+import { assertNoOutOfContractEntitiesInPrompt } from "./assert-no-out-of-contract-entities";
 import {
   buildProviderPayloadPreview,
   dumpPanelDebugArtifacts,
@@ -198,12 +201,28 @@ function canonicalPanelByIdFromPlan(
 
 export interface RunRenderPassInput {
   chapterId: string;
+  /** Requis pour persister une URL stable avant Vision QA sur URL FAL temporaire. */
+  projectId?: string;
   storyboardPlan: StoryboardPlan;
   /** Plan canonique (premium) — alimente la QA visuelle critique + debug. */
   canonicalProductionPlan?: CanonicalChapterProductionPlan | null;
   styleBible: ChapterStyleBible;
   visualMemory: ChapterVisualMemory;
-  characters: Array<{ id: string; name: string; roleType?: string | null }>;
+  characters: Array<{
+    id: string;
+    name: string;
+    roleType?: string | null;
+    hairColor?: string | null;
+    eyeColor?: string | null;
+    canonSignatureText?: string | null;
+    hairStyle?: string | null;
+    skinTone?: string | null;
+    outfitSignature?: string | null;
+    loraUrl?: string | null;
+    loraTriggerWord?: string | null;
+    loraScale?: number | null;
+    forbiddenVisualDrift?: string[] | null;
+  }>;
   mainCharacterIds: string[];
   allowedLocations?: string[];
   forbiddenTags?: string[];
@@ -216,8 +235,8 @@ export interface RunRenderPassInput {
   /**
    * COMMIT B — quand `true` (défaut), persiste les panels rendus comme
    * `SceneImage` en DB (via `persistV3RenderedPanels`). Permet au reader
-   * de consommer la sortie v3 sans que le legacy `image-generation-pass`
-   * tourne. À laisser à `false` uniquement en tests unitaires.
+   * de consommer la sortie v3 sans dépendre de la passe images historique.
+   * À laisser à `false` uniquement en tests unitaires.
    */
   persistToDb?: boolean;
   /**
@@ -230,6 +249,8 @@ export interface RunRenderPassInput {
    * (`PREMIUM_VISUAL_QA_REQUIRED=false`) — force `v3RenderQualityStatus=needs_review`.
    */
   visualQaProductionConfigIncomplete?: boolean;
+  /** Mode premium-only : refuse les prompts contenant des termes hors contrat (parasites). */
+  premiumOutOfContractPromptCheck?: boolean;
 }
 
 export interface RunRenderPassResult {
@@ -292,6 +313,15 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
   let manualReviewRequiredCount = 0;
   let passedAfterRetryCount = 0;
   let visualQaPassedCount = 0;
+
+  const loraByCharacterId = buildLoraByCharacterIdMap(
+    input.characters.map((c) => ({
+      characterId: c.id,
+      loraUrl: c.loraUrl ?? undefined,
+      loraTriggerWord: c.loraTriggerWord ?? undefined,
+      loraScale: c.loraScale ?? undefined,
+    })),
+  );
 
   const canonicalByPanelId = canonicalPanelByIdFromPlan(input.canonicalProductionPlan ?? undefined);
 
@@ -412,6 +442,7 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
       mainCharacterIds: input.mainCharacterIds,
       route,
       previousPanel,
+      loraByCharacterId,
     });
 
     // P8 — Réparer les contradictions AVANT d'assembler le prompt
@@ -457,6 +488,24 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
         continue;
       }
       throw err;
+    }
+
+    if (input.premiumOutOfContractPromptCheck) {
+      try {
+        assertNoOutOfContractEntitiesInPrompt({
+          panelId: panel.panelId,
+          positivePrompt: prompt.positive,
+          spec: specForPrompt,
+        });
+      } catch (err) {
+        preflightErrors.push({
+          panelId: panel.panelId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        failedCount += 1;
+        previousPanel = panel;
+        continue;
+      }
     }
 
     preflightQueue.push({ panel, spec: specForPrompt, route, prompt });
@@ -558,11 +607,31 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
         descriptor.renderAttempts = [];
 
         if (imageUrl) {
+          const qaStagingRunId = input.generationRunId ?? `qa-staging-${input.chapterId}`;
           let attempt = 1;
           while (attempt <= PRODUCTION_RULES.retry.maxImageAttempts) {
+            let qaImageUrl = imageUrl;
+            if (imageUrl && input.projectId) {
+              try {
+                const ensured = await ensureStableImageUrl({
+                  projectId: input.projectId,
+                  chapterId: input.chapterId,
+                  panelId: enrichedSpec.panelId,
+                  generationRunId: qaStagingRunId,
+                  currentUrl: imageUrl,
+                });
+                qaImageUrl = ensured.url;
+                if (ensured.wasTemporary) {
+                  imageUrl = ensured.url;
+                }
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                warnings.push(`stable_qa_image_url_failed:${enrichedSpec.panelId}:${msg}`);
+              }
+            }
             const qaInput = buildVisualQaInputFromRenderSpec({
               panelId: enrichedSpec.panelId,
-              imageUrl,
+              imageUrl: qaImageUrl,
               promptUsed: positivePrompt,
               attemptNumber: attempt,
               panelPurpose: String(enrichedSpec.panelPurpose),
@@ -586,7 +655,7 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
               attemptNumber: attempt,
               prompt: positivePrompt,
               negative: prompt.negative,
-              imageUrl,
+              imageUrl: qaImageUrl,
               qaScore: lastQa.score,
               qaReasons: [...lastQa.reasons],
               retryStrategy: lastQa.retryStrategy,

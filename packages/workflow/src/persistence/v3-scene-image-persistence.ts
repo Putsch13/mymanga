@@ -26,6 +26,7 @@
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import {
   buildReaderPanelSlots,
+  legacyDialogueToTextContract,
   type GenerationDebugSnapshot,
 } from "@manga-ai-studio/core";
 import type {
@@ -293,6 +294,12 @@ async function preparePanelData(
     V3RenderedPanelRecord["renderAttempts"]
   >;
 
+  const textContract = legacyDialogueToTextContract(
+    panel.panelId,
+    panel.dialogue ?? null,
+    panel.narration ?? null,
+  );
+
   const metadata = {
     v3: true,
     panelId: panel.panelId,
@@ -306,6 +313,7 @@ async function preparePanelData(
     locationName: record.spec.locationName,
     actionLine: record.spec.actionLine,
     emotionLine: record.spec.emotionLine,
+    textContract,
     dialogue: panel.dialogue,
     narration: panel.narration ?? null,
     sfx: panel.sfx ?? [],

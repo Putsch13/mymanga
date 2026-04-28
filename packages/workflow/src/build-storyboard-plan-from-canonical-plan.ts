@@ -1,10 +1,11 @@
 /**
- * Storyboard déterministe à partir du plan canonique — les blueprints sont
- * une projection (`canonicalPlanToPanelBlueprints`), pas la source de vérité.
+ * Storyboard déterministe : les blueprints narratifs viennent du plan de production
+ * enrichi (`productionPlanShell.panelBlueprints`) quand présents ; le plan canonique
+ * ne sert qu'à aligner rythme, IDs et pagination via `mergeRawBlueprintsWithCanonicalRhythm`.
  */
 
-import type { CanonicalChapterProductionPlan } from "@manga-ai-studio/core";
-import { canonicalPlanToPanelBlueprints } from "@manga-ai-studio/core";
+import type { CanonicalChapterProductionPlan, PanelBlueprintPremium } from "@manga-ai-studio/core";
+import { mergeRawBlueprintsWithCanonicalRhythm } from "@manga-ai-studio/core";
 import {
   buildStoryboardPlanFromApprovedProductionPlan,
   type BuildStoryboardPlanFromApprovedProductionPlanInput,
@@ -13,14 +14,17 @@ import {
 export interface BuildStoryboardPlanFromCanonicalPlanInput
   extends Omit<BuildStoryboardPlanFromApprovedProductionPlanInput, "productionPlan"> {
   canonicalPlan: CanonicalChapterProductionPlan;
-  /** Métadonnées persistées (hors `panelBlueprints`, écrasés par le canonique). */
+  /** Métadonnées persistées ; `panelBlueprints` enrichis sont fusionnés avec le canonique. */
   productionPlanShell?: Record<string, unknown> | null;
 }
 
 export function buildStoryboardPlanFromCanonicalPlan(
   input: BuildStoryboardPlanFromCanonicalPlanInput,
 ): ReturnType<typeof buildStoryboardPlanFromApprovedProductionPlan> {
-  const blueprints = canonicalPlanToPanelBlueprints(input.canonicalPlan);
+  const shellBps = input.productionPlanShell?.panelBlueprints;
+  const rawShell = Array.isArray(shellBps) ? (shellBps as PanelBlueprintPremium[]) : [];
+  const blueprints = mergeRawBlueprintsWithCanonicalRhythm(rawShell, input.canonicalPlan);
+
   const shell = input.productionPlanShell && typeof input.productionPlanShell === "object"
     ? { ...input.productionPlanShell }
     : {};

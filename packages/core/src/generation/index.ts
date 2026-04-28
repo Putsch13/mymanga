@@ -4,3 +4,4 @@
 
 export * from "./chapter-generation-contract";
 export * from "./panel-text-contract";
+export * from "./build-chapter-generation-contract";

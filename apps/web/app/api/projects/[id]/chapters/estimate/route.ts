@@ -14,9 +14,9 @@ import {
 import {
   PREMIUM_PANEL_RANGE,
   buildCanonicalChapterProductionPlan,
-  canonicalPlanToPanelBlueprints,
   classifyPremiumPanelCount,
   isHeroRole,
+  mergeRawBlueprintsWithCanonicalRhythm,
 } from "@manga-ai-studio/core";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { buildApprovedOutlineVersion, buildProductionPlanFromOutline } from "@manga-ai-studio/core";
@@ -252,8 +252,9 @@ export async function POST(req: Request, ctx: Ctx) {
     format: projectFormat,
     rawOutline: productionOutline,
   });
-  const allBlueprints = canonicalPlanToPanelBlueprints(canonicalPlan);
-  const enrichmentApplied = false;
+  const mergedBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawBlueprints, canonicalPlan);
+  const allBlueprints = mergedBlueprints;
+  const enrichmentApplied = rawBlueprints.length > 0;
   const enrichmentCount = 0;
 
   const panelCountStatus = classifyPremiumPanelCount(allBlueprints.length);

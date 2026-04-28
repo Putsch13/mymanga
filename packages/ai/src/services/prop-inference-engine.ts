@@ -30,6 +30,11 @@ export interface PropInferenceContext {
   projectGenre?: string | null;
   projectTone?: string | null;
   heroCharacterId?: string | null;
+  /**
+   * Premium-only : n'impose des props « domaine » (smartphone, grimoire, etc.)
+   * que si le texte du beat contient une preuve explicite (mot ou expression dédiée).
+   */
+  premiumStrictChapterSourcing?: boolean;
 }
 
 // ─── Règle "objet utilisé = objet visible" ────────────────────────────────────
@@ -53,6 +58,42 @@ const USAGE_VERBS_REQUIRING_VISIBILITY = [
   "sort", "pulls out",
   "branche", "plugs",
 ];
+
+const STRICT_PREMIUM_PROP_NAMES = new Set<string>([
+  "smartphone",
+  "grimoire",
+  "talisman",
+  "document / dossier",
+  "photo / evidence",
+  "laptop",
+  "tablet",
+]);
+
+function matchesStrictPremiumPropEvidence(template: PropTemplate, text: string): boolean {
+  const lower = text.toLowerCase();
+  const key = template.canonicalName.toLowerCase();
+  if (key.includes("smartphone")) {
+    return /\b(smartphone|téléphone portable|iphone|android)\b/i.test(text)
+      || (/\b(appelle|appel|téléphone|sms|texto)\b/i.test(lower) && /\b(portable|mobile)\b/i.test(lower));
+  }
+  if (key.includes("grimoire")) {
+    return /\bgrimoire\b/i.test(text) || /\bspell\s*book\b/i.test(lower);
+  }
+  if (key.includes("talisman")) {
+    return /\btalisman\b/i.test(text) || /\bamulette\b/i.test(lower);
+  }
+  if (key.includes("document") || key.includes("photo / evidence")) {
+    return /\b(preuve|evidence|dossier|fichier|rapport|affidavit)\b/i.test(lower);
+  }
+  if (key.includes("laptop") || key.includes("tablet")) {
+    return /\b(laptop|ordinateur portable|notebook|tablette|ipad)\b/i.test(lower);
+  }
+  return template.triggers.some((tr) => {
+    const t = tr.toLowerCase();
+    if (t.length <= 4 && /^(book|sort|spell|file)$/i.test(tr)) return false;
+    return lower.includes(t);
+  });
+}
 
 function requiresVisibility(text: string): boolean {
   const lower = text.toLowerCase();
@@ -683,6 +724,13 @@ export function inferRequiredPropsFromBeat(
       text.toLowerCase().includes(trigger.toLowerCase()),
     );
     if (!triggered) continue;
+    if (
+      enrichedContext.premiumStrictChapterSourcing
+      && STRICT_PREMIUM_PROP_NAMES.has(template.canonicalName.trim().toLowerCase())
+      && !matchesStrictPremiumPropEvidence(template, text)
+    ) {
+      continue;
+    }
     if (seenNames.has(template.canonicalName)) continue;
     seenNames.add(template.canonicalName);
 

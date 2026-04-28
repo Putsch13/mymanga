@@ -16,7 +16,7 @@ function makeSpec(overrides: Partial<PanelRenderSpec> = {}): PanelRenderSpec {
     panelId: "panel_1",
     pageNumber: 1,
     panelNumberInPage: 1,
-    panelPurpose: "character_focus",
+    panelPurpose: "hero_focus",
     renderMode: "character_focus",
     shotType: "medium",
     cameraAngle: "eye_level",

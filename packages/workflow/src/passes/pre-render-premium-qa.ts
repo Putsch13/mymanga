@@ -218,10 +218,12 @@ export function runPreRenderPremiumQaOrThrow(input: PreRenderPremiumQaInput): Pr
     });
   }
 
+  const premiumOnly = process.env.PIPELINE_V3_PREMIUM_ONLY === "true";
+
   if (!result.ok) {
     const otherIssues = result.issues.filter((i) => !i.startsWith("repeated_prompts="));
     const repeatedOnly = otherIssues.length === 0 && result.stats.repeatedPromptCount <= 5;
-    if (repeatedOnly) {
+    if (repeatedOnly && !premiumOnly) {
       console.warn("[pipeline:v3:pre-render-qa] tolerating repeated_prompts<=5 after repair (warning only)", {
         repeatedPromptCount: result.stats.repeatedPromptCount,
       });

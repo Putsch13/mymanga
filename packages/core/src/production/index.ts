@@ -18,6 +18,7 @@ export * from "./distributed-cutaway-rhythm";
 export * from "./retry-strategy";
 export * from "./blueprint-to-canonical-plan";
 export * from "./canonical-to-premium-blueprints";
+export * from "./merge-raw-blueprints-with-canonical-rhythm";
 export * from "./resolve-production-outline-for-premium-pipeline";
 export * from "./panel-dialogue-text-plan";
 export * from "./build-beat-micro-storyboard";

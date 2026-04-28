@@ -17,7 +17,12 @@
  */
 
 import { flattenPagesToPanels, type PipelinePanel, type UniversalMangaPage, type UniversalPanel } from "../manga-page-grid";
-import { buildReaderPanelSlots, type ReaderTextPlacementHint } from "@manga-ai-studio/core";
+import {
+  buildReaderPanelSlots,
+  textContractToLegacyDialogue,
+  type PanelTextContract,
+  type ReaderTextPlacementHint,
+} from "@manga-ai-studio/core";
 import {
   buildPersistedReaderPanelSlots,
   mergePlanLayoutIntoUniversalPanel,
@@ -110,6 +115,19 @@ export function dedupeReaderPages(pages: UniversalMangaPage[]): UniversalMangaPa
   return deduped;
 }
 
+function isPanelTextContractLike(value: unknown): value is PanelTextContract {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const o = value as Record<string, unknown>;
+  return (
+    typeof o.panelId === "string"
+    && typeof o.hasText === "boolean"
+    && Array.isArray(o.dialogues)
+    && o.placement !== null
+    && typeof o.placement === "object"
+    && !Array.isArray(o.placement)
+  );
+}
+
 /**
  * Convertit un `SceneImage` (DB) en `UniversalPanel` (reader).
  * Garantit que `sceneId` est présent pour que le paginator respecte les
@@ -127,22 +145,47 @@ function sceneImageToUniversalPanel(img: SceneImage, sceneId: string): Universal
     persistedUrl: img.persistedUrl,
     imageUrl: img.imageUrl,
   });
+  const rawMetadata = img.metadata as Record<string, unknown> | undefined;
+  const textContractRaw = rawMetadata?.textContract;
+  let dialoguesFromLegacy: Array<{ speaker: string; text: string }> | undefined;
+  let narrationFromContract: string | null | undefined;
+  let sfxFromContract: string[] | undefined;
+
+  if (isPanelTextContractLike(textContractRaw)) {
+    dialoguesFromLegacy = textContractToLegacyDialogue(textContractRaw);
+    narrationFromContract = textContractRaw.narration ?? undefined;
+    sfxFromContract =
+      textContractRaw.sfx.length > 0 ? textContractRaw.sfx.map((s) => s.text) : undefined;
+  }
+
   const dialogueArray = Array.isArray(img.metadata?.dialogue)
     ? img.metadata.dialogue
     : img.metadata?.dialogue
       ? [img.metadata.dialogue]
       : undefined;
-  const dialogues = Array.isArray(img.metadata?.dialogues) ? img.metadata.dialogues : dialogueArray;
-  const firstDialogue = Array.isArray(img.metadata?.dialogue)
-    ? img.metadata.dialogue[0]
-    : img.metadata?.dialogue;
+  const dialogues =
+    dialoguesFromLegacy
+    ?? (Array.isArray(img.metadata?.dialogues) ? img.metadata.dialogues : dialogueArray);
+  const firstDialogue =
+    Array.isArray(dialogues) && dialogues.length > 0
+      ? (dialogues[0] as { speaker?: string; text?: string })
+      : undefined;
 
   const layoutMeta = img.metadata?.layoutMeta as UniversalPanel["layoutMeta"] | undefined;
   const textMeta = img.metadata?.textMeta;
-  const rawMetadata = img.metadata as Record<string, unknown> | undefined;
   const shotType = (rawMetadata?.shotType as string | undefined) ?? null;
   const cutawayType = (rawMetadata?.cutawayType as string | undefined) ?? null;
   const panelRole = (rawMetadata?.panelRole as string | undefined) ?? null;
+
+  const legacySfxMeta = img.metadata?.sfx;
+  const sfxString: string | undefined =
+    sfxFromContract && sfxFromContract.length > 0
+      ? sfxFromContract.join(" · ")
+      : Array.isArray(legacySfxMeta)
+        ? legacySfxMeta.join(" · ")
+        : typeof legacySfxMeta === "string"
+          ? legacySfxMeta
+          : undefined;
 
   return {
     id: img.id,
@@ -157,8 +200,8 @@ function sceneImageToUniversalPanel(img: SceneImage, sceneId: string): Universal
     dialogue: firstDialogue?.text,
     dialogues,
     speaker: firstDialogue?.speaker,
-    narration: img.metadata?.narration,
-    sfx: img.metadata?.sfx,
+    narration: narrationFromContract ?? img.metadata?.narration,
+    sfx: sfxString,
     caption: img.metadata?.caption,
     textScale: img.metadata?.textScale,
     renderMeta: img.metadata?.renderMeta,

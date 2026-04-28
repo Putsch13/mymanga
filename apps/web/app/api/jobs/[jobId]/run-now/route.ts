@@ -5,6 +5,7 @@ import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized, validationError } from "@/lib/api-response";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { premiumVisualQaPreflightResponse } from "@/lib/generation/premium-visual-qa-preflight";
+import { isPremiumStrictProductionDuplicateLaunchBlocked } from "@/lib/generation/premium-strict-api-guard";
 
 type Ctx = { params: Promise<{ jobId: string }> };
 
@@ -28,6 +29,11 @@ export async function POST(_req: Request, ctx: Ctx) {
   }
 
   if (job.type === "GENERATE_CHAPTER_SCRIPT") {
+    if (isPremiumStrictProductionDuplicateLaunchBlocked()) {
+      return validationError(
+        "En production (premium-only), utilisez uniquement le lancement chapitre depuis le studio (POST .../chapters/[chapterId]/launch).",
+      );
+    }
     const stack = getGenerationStackStatus();
     if (!stack.canGenerateChapters) {
       return validationError("La stack de generation n'est pas prete pour executer ce job.", stack);

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   buildCanonicalProductionPlanFromPremiumBlueprints,
   buildChapterReadinessReport,
+  isPipelineV3PremiumOnlyEnabled,
   PREMIUM_PANEL_RANGE,
   type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
@@ -203,6 +204,30 @@ export async function POST(_req: Request, ctx: Ctx) {
       },
       { status: 422 },
     );
+  }
+
+  if (isPipelineV3PremiumOnlyEnabled()) {
+    const pp = snapshot.data.productionPlan;
+    const score =
+      pp && typeof pp === "object" && typeof (pp as Record<string, unknown>).premiumReadinessScore === "number"
+        ? ((pp as Record<string, unknown>).premiumReadinessScore as number)
+        : null;
+    if (score !== null && score < 0.85) {
+      console.warn(
+        `[launch] premium_readiness_blocked chapterId=${chapterId} premiumReadinessScore=${score.toFixed(2)} threshold=0.85`,
+      );
+      return NextResponse.json(
+        {
+          error: "premium_readiness_too_low",
+          code: "PREMIUM_READINESS_TOO_LOW",
+          message:
+            `Le score de préparation premium (${score.toFixed(2)}) est sous le seuil requis (0,85). ` +
+            "Renforce le plan (lieux, PNJ, couverture narrative) avant de lancer.",
+          premiumReadinessScore: score,
+        },
+        { status: 422 },
+      );
+    }
   }
 
   if (isVisualContractPrelaunchBlocked(chapter.outline, chapter.generatedImages ?? 0)) {

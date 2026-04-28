@@ -35,6 +35,7 @@ export interface PanelRenderCharacterVisualDna {
   eyeColor?: string | null;
   hairColor?: string | null;
   hairStyle?: string | null;
+  skinTone?: string | null;
   outfitSignature?: string | null;
 }
 
