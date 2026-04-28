@@ -180,3 +180,24 @@ export function isPipelineV3PremiumOnlyEnabled(): boolean {
   const env = process.env.NODE_ENV ?? "development";
   return env === "production";
 }
+
+/**
+ * Seuil minimal du score `premiumReadinessScore` (héuristique sur les blueprints) pour
+ * autoriser `POST .../chapters/[chapterId]/launch` lorsque le mode premium-only est actif.
+ * En dessous : réponse 422 `PREMIUM_READINESS_TOO_LOW`.
+ *
+ * Défaut **0,65** : après fusion avec le plan canonique (72 panels, QA structurelle OK), le
+ * score heuristique reste souvent entre ~0,65 et ~0,75 ; un seuil à 0,85 bloquait des chapitres
+ * pourtant conformes (`planStatus=ok`, `canonical_qa_valid=true`).
+ *
+ * Stricte type ancien comportement : définir `PREMIUM_READINESS_LAUNCH_MIN_SCORE=0.85` sur l'hébergeur.
+ */
+export const PREMIUM_READINESS_LAUNCH_DEFAULT_MIN = 0.65;
+
+export function getPremiumReadinessLaunchMinScore(): number {
+  const raw = process.env.PREMIUM_READINESS_LAUNCH_MIN_SCORE?.trim();
+  if (raw == null || raw === "") return PREMIUM_READINESS_LAUNCH_DEFAULT_MIN;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0 || n > 1) return PREMIUM_READINESS_LAUNCH_DEFAULT_MIN;
+  return n;
+}

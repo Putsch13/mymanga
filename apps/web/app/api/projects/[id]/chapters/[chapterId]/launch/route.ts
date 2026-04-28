@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   buildCanonicalProductionPlanFromPremiumBlueprints,
   buildChapterReadinessReport,
+  getPremiumReadinessLaunchMinScore,
   isPipelineV3PremiumOnlyEnabled,
   PREMIUM_PANEL_RANGE,
   type PanelBlueprintPremium,
@@ -64,7 +65,7 @@ export async function POST(_req: Request, ctx: Ctx) {
     projectId,
     chapterId,
     env: process.env.NODE_ENV,
-    premiumOnly: process.env.PIPELINE_V3_PREMIUM_ONLY,
+    premiumOnly: isPipelineV3PremiumOnlyEnabled(),
   });
 
   const rl = await checkRateLimit(user.id, "pipeline");
@@ -252,18 +253,21 @@ export async function POST(_req: Request, ctx: Ctx) {
     } else if (ppRec && typeof ppRec.premiumReadinessScore === "number") {
       score = ppRec.premiumReadinessScore as number;
     }
-    if (score !== null && score < 0.85) {
+    const minReadiness = getPremiumReadinessLaunchMinScore();
+    if (score !== null && score < minReadiness) {
       console.warn(
-        `[launch] premium_readiness_blocked chapterId=${chapterId} premiumReadinessScore=${score.toFixed(2)} threshold=0.85 scoreSource=${scoreSource}`,
+        `[launch] premium_readiness_blocked chapterId=${chapterId} premiumReadinessScore=${score.toFixed(2)} ` +
+          `threshold=${minReadiness.toFixed(2)} scoreSource=${scoreSource}`,
       );
       return NextResponse.json(
         {
           error: "premium_readiness_too_low",
           code: "PREMIUM_READINESS_TOO_LOW",
           message:
-            `Le score de préparation premium (${score.toFixed(2)}) est sous le seuil requis (0,85). ` +
-            "Renforce le plan (lieux, PNJ, couverture narrative) avant de lancer.",
+            `Le score de préparation premium (${score.toFixed(2)}) est sous le seuil requis (${minReadiness.toFixed(2)}). ` +
+            "Renforce le plan (lieux, PNJ, couverture narrative) avant de lancer, ou baisse le seuil via PREMIUM_READINESS_LAUNCH_MIN_SCORE.",
           premiumReadinessScore: score,
+          minReadinessScore: minReadiness,
         },
         { status: 422 },
       );
