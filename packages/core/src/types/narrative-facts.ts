@@ -178,6 +178,34 @@ export interface PanelTextBundle {
   overflowStrategy?: string;
 }
 
+/**
+ * Origine du slot panel — chaîne de décision explicite (canon auteur vs padding rythme, etc.).
+ * Sert à la traçabilité QA / audit (« chaque case → règle ou choix pipeline »).
+ */
+export type PanelBlueprintOrigin =
+  | "canonical_projection"
+  | "author_raw_merged"
+  | "rhythm_padding_clone"
+  | "rhythm_padding_canonical_fallback"
+  | "retrofit_inferred";
+
+/**
+ * Métadonnées de traçabilité persistées sur le blueprint (complément des champs éditoriaux).
+ */
+export interface PanelBlueprintProvenance {
+  origin: PanelBlueprintOrigin;
+  /** PanelId du plan canonique (slot) — toujours aligné post-merge */
+  canonicalPanelId: string;
+  canonicalBeatId: string;
+  /**
+   * Empreinte stable du synopsis/outline de production au moment du calcul (estimate / job).
+   * Permet de relier visuellement le plan à une version de l’histoire sans stocker tout le texte.
+   */
+  narrativeMemoryDigest?: string;
+  /** Règles produit ayant structuré ce panel (ordre significatif) */
+  appliedRules: string[];
+}
+
 export type CutawayType =
   | "none"
   | "environment"
@@ -199,6 +227,8 @@ export type CutawayType =
 
 export interface PanelBlueprintPremium {
   panelId: string;
+  /** Traçabilité canon / mémoire narrative (optionnel sur anciens plans — hydraté au prochain estimate ou job) */
+  provenance?: PanelBlueprintProvenance;
   beatId: string;
   /** Index du panel dans le beat (0-based) */
   panelIndex?: number;

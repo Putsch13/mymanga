@@ -15,6 +15,8 @@ import {
   PREMIUM_PANEL_RANGE,
   buildCanonicalChapterProductionPlan,
   classifyPremiumPanelCount,
+  computeNarrativeMemoryDigestFromOutline,
+  hydratePanelProvenanceOnBlueprints,
   isHeroRole,
   mergeRawBlueprintsWithCanonicalRhythm,
 } from "@manga-ai-studio/core";
@@ -253,7 +255,10 @@ export async function POST(req: Request, ctx: Ctx) {
     rawOutline: productionOutline,
   });
   const mergedBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawBlueprints, canonicalPlan);
-  const allBlueprints = mergedBlueprints;
+  const narrativeDigest = computeNarrativeMemoryDigestFromOutline(productionOutline);
+  const allBlueprints = hydratePanelProvenanceOnBlueprints(mergedBlueprints, {
+    narrativeMemoryDigest: narrativeDigest,
+  });
   const enrichmentCount = 0;
   const enrichmentApplied = enrichmentCount > 0;
 

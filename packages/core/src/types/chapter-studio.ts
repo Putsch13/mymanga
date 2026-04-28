@@ -111,6 +111,21 @@ const panelBlueprintPremiumSchema = z.object({
   // P4.1 : panel contractualement critique (arme, décor d'établissement, reveal, foule).
   contractualCritical: z.boolean().optional(),
   notes: z.array(z.string()).optional(),
+  provenance: z
+    .object({
+      origin: z.enum([
+        "canonical_projection",
+        "author_raw_merged",
+        "rhythm_padding_clone",
+        "rhythm_padding_canonical_fallback",
+        "retrofit_inferred",
+      ]),
+      canonicalPanelId: z.string(),
+      canonicalBeatId: z.string(),
+      narrativeMemoryDigest: z.string().optional(),
+      appliedRules: z.array(z.string()).default([]),
+    })
+    .optional(),
 });
 
 export const chapterStudioStepSchema = z.enum([

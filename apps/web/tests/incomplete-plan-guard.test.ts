@@ -36,6 +36,17 @@ function makeValidBlueprints(n: number): unknown[] {
     panelNumber: i + 1,
     subjectFocus: "hero",
     panelId: `panel_${i + 1}`,
+    beatId: `beat_${(i % 10) + 1}`,
+    purpose: "p",
+    shotType: "medium",
+    cameraAngle: "eye",
+    mustShowEnemy: false,
+    requiredNpcCount: 0,
+    requiredProps: [],
+    requiredLocationSignals: [],
+    cutawayType: "none",
+    heroCenterAllowed: true,
+    criticality: "low",
   }));
 }
 
@@ -73,6 +84,9 @@ describe("buildGenerationJobInputFromSnapshot — P8 strict 70-75", () => {
     });
     expect(Array.isArray(out.panelBlueprints)).toBe(true);
     expect((out.panelBlueprints as unknown[]).length).toBe(72);
+    expect(out.panelTraceability).toBeDefined();
+    expect((out.panelTraceability as { panelCount: number }).panelCount).toBe(72);
+    expect((out.panelTraceability as { provenanceCoverage: number }).provenanceCoverage).toBe(1);
   });
 
   it("P8 — throw IncompletePlanError quand rawCount < 70 (sous la range)", async () => {

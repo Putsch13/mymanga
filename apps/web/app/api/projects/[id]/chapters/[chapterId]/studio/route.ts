@@ -4,6 +4,8 @@ import {
   buildChapterReadinessReport,
   chapterStudioDataSchema,
   chapterStudioStepSchema,
+  computeNarrativeMemoryDigestFromOutline,
+  hydratePanelProvenanceOnBlueprints,
   type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
 import { computePremiumReadinessScore } from "@manga-ai-studio/ai";
@@ -281,12 +283,22 @@ export async function PATCH(req: Request, ctx: Ctx) {
   const mergedProductionPlanRaw = mergePremiumProductionPlan(existingPP, incomingPP);
   const mppRec = mergedProductionPlanRaw as Record<string, unknown>;
   const mergedBps = mppRec.panelBlueprints;
+  const outlineForDigest =
+    snapshot.data.productionOutline
+    ?? (existingStudioData.productionOutline as typeof snapshot.data.productionOutline | undefined);
+  const narrativeDigest = computeNarrativeMemoryDigestFromOutline(outlineForDigest);
   const mergedProductionPlan =
     Array.isArray(mergedBps) && mergedBps.length > 0
-      ? ({
-          ...mppRec,
-          premiumReadinessScore: computePremiumReadinessScore(mergedBps as PanelBlueprintPremium[]),
-        } as Record<string, unknown>)
+      ? (() => {
+          const hydratedBps = hydratePanelProvenanceOnBlueprints(mergedBps as PanelBlueprintPremium[], {
+            narrativeMemoryDigest: narrativeDigest,
+          });
+          return {
+            ...mppRec,
+            panelBlueprints: hydratedBps,
+            premiumReadinessScore: computePremiumReadinessScore(hydratedBps),
+          } as Record<string, unknown>;
+        })()
       : mergedProductionPlanRaw;
 
   const mergedSnapshot = {

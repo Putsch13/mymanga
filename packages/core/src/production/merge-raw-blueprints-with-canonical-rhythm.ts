@@ -4,12 +4,25 @@
  * Le contenu narratif (purpose, dialogues, props, etc.) reste celui des blueprints sources.
  */
 
-import type { CanonicalChapterProductionPlan } from "./canonical-production-plan";
-import type { PanelBlueprintPremium } from "../types/narrative-facts";
+import type { CanonicalChapterProductionPlan, CanonicalPanelPlan } from "./canonical-production-plan";
+import type { PanelBlueprintOrigin, PanelBlueprintPremium, PanelBlueprintProvenance } from "../types/narrative-facts";
 import { canonicalPlanToPanelBlueprints } from "./canonical-to-premium-blueprints";
 
 function cloneBlueprint(bp: PanelBlueprintPremium): PanelBlueprintPremium {
   return structuredClone(bp) as PanelBlueprintPremium;
+}
+
+function provenanceForMerge(args: {
+  origin: PanelBlueprintOrigin;
+  cp: CanonicalPanelPlan;
+  rules: string[];
+}): PanelBlueprintProvenance {
+  return {
+    origin: args.origin,
+    canonicalPanelId: args.cp.panelId,
+    canonicalBeatId: args.cp.beatId,
+    appliedRules: args.rules,
+  };
 }
 
 /**
@@ -50,14 +63,20 @@ export function mergeRawBlueprintsWithCanonicalRhythm(
     }
 
     let base: PanelBlueprintPremium;
+    let origin: PanelBlueprintOrigin;
+    let appliedRules: string[];
     if (raw) {
       base = cloneBlueprint(raw);
+      origin = "author_raw_merged";
+      appliedRules = ["merge_raw_with_canonical_rhythm"];
     } else {
       const last = lastConsumedByBeat.get(cp.beatId);
       if (last) {
         base = cloneBlueprint(last);
         const note = "rhythm_padding:cloned_from_last_panel_in_beat";
         base.notes = [...(base.notes ?? []), note];
+        origin = "rhythm_padding_clone";
+        appliedRules = ["merge_raw_with_canonical_rhythm", "rhythm_padding_clone_within_beat"];
       } else {
         const fallback = genericByPanelId.get(cp.panelId);
         if (!fallback) {
@@ -68,6 +87,8 @@ export function mergeRawBlueprintsWithCanonicalRhythm(
         base.panelTextBundle = base.panelTextBundle
           ? { ...base.panelTextBundle, dialogues: undefined }
           : null;
+        origin = "rhythm_padding_canonical_fallback";
+        appliedRules = ["merge_raw_with_canonical_rhythm", "rhythm_padding_canonical_slot_fallback"];
       }
     }
 
@@ -78,6 +99,7 @@ export function mergeRawBlueprintsWithCanonicalRhythm(
       panelIndex: cp.panelIndex,
       pageNumber: cp.pageNumber,
       panelNumber: cp.panelNumberInPage,
+      provenance: provenanceForMerge({ origin, cp, rules: appliedRules }),
     };
   });
 }

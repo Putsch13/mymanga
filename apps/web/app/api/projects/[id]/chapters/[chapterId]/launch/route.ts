@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import {
   buildCanonicalProductionPlanFromPremiumBlueprints,
   buildChapterReadinessReport,
+  buildPanelTraceabilityReport,
+  computeNarrativeMemoryDigestFromOutline,
   getPremiumReadinessLaunchMinScore,
+  hydratePanelProvenanceOnBlueprints,
   isPipelineV3PremiumOnlyEnabled,
   PREMIUM_PANEL_RANGE,
   type PanelBlueprintPremium,
@@ -323,6 +326,17 @@ export async function POST(_req: Request, ctx: Ctx) {
         );
       }
     }
+  }
+
+  if (Array.isArray(bpStructural) && bpStructural.length > 0) {
+    const traceDigest = computeNarrativeMemoryDigestFromOutline(outlineForStructuralQa);
+    const tracedBlueprints = hydratePanelProvenanceOnBlueprints(bpStructural as PanelBlueprintPremium[], {
+      narrativeMemoryDigest: traceDigest,
+    });
+    console.info(
+      `[launch] panel_traceability chapterId=${chapterId}`,
+      buildPanelTraceabilityReport(tracedBlueprints),
+    );
   }
 
   if (isVisualContractPrelaunchBlocked(chapter.outline, chapter.generatedImages ?? 0)) {

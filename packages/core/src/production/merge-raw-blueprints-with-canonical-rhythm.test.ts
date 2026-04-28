@@ -39,6 +39,9 @@ describe("mergeRawBlueprintsWithCanonicalRhythm", () => {
       expect(merged[i]!.panelId).toBe(canonical.panels[i]!.panelId);
       expect(merged[i]!.pageNumber).toBe(canonical.panels[i]!.pageNumber);
       expect(merged[i]!.purpose).toBe(`RICH_PURPOSE_${i}`);
+      expect(merged[i]!.provenance?.origin).toBe("author_raw_merged");
+      expect(merged[i]!.provenance?.canonicalPanelId).toBe(canonical.panels[i]!.panelId);
+      expect(merged[i]!.provenance?.canonicalBeatId).toBe(canonical.panels[i]!.beatId);
     }
   });
 
@@ -54,5 +57,6 @@ describe("mergeRawBlueprintsWithCanonicalRhythm", () => {
     const merged = mergeRawBlueprintsWithCanonicalRhythm([], canonical);
     const direct = canonicalPlanToPanelBlueprints(canonical);
     expect(merged.length).toBe(direct.length);
+    expect(merged[0]?.provenance?.origin).toBe("canonical_projection");
   });
 });

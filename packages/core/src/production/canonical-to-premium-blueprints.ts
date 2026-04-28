@@ -139,6 +139,12 @@ export function canonicalPlanToPanelBlueprints(plan: CanonicalChapterProductionP
 
     return {
       panelId: panel.panelId,
+      provenance: {
+        origin: "canonical_projection",
+        canonicalPanelId: panel.panelId,
+        canonicalBeatId: panel.beatId,
+        appliedRules: ["canonical_plan_to_premium_blueprints"],
+      },
       beatId: panel.beatId,
       panelIndex: panel.panelIndex,
       pageNumber: panel.pageNumber,

@@ -6,12 +6,16 @@
 import {
   buildApprovedOutlineFromProductionOutline,
   buildChapterReadinessReport,
-  PREMIUM_PANEL_RANGE,
+  buildPanelTraceabilityReport,
   classifyPremiumPanelCount,
+  computeNarrativeMemoryDigestFromOutline,
+  hydratePanelProvenanceOnBlueprints,
+  PREMIUM_PANEL_RANGE,
   productionOutlineSchema,
   productionPlanSchema,
   type ApprovedChapterOutline,
   type ChapterStudioSnapshot,
+  type PanelBlueprintPremium,
   type ProductionOutline,
   type ProductionPlan,
 } from "@manga-ai-studio/core";
@@ -776,6 +780,13 @@ export function buildGenerationJobInputFromSnapshot(opts: GenerationJobInputOpti
 
   const effectiveBlueprints = panelBlueprints as unknown[];
 
+  const narrativeDigest = computeNarrativeMemoryDigestFromOutline(po);
+  const hydratedBlueprints = hydratePanelProvenanceOnBlueprints(
+    effectiveBlueprints as PanelBlueprintPremium[],
+    { narrativeMemoryDigest: narrativeDigest },
+  );
+  const panelTraceability = buildPanelTraceabilityReport(hydratedBlueprints);
+
   const input: Record<string, unknown> = {
     source: opts.source,
     chapterId: opts.chapterId,
@@ -790,9 +801,9 @@ export function buildGenerationJobInputFromSnapshot(opts: GenerationJobInputOpti
     // Contrat premium complet
     productionOutline: po && po.source !== "legacy_adapted" ? po : undefined,
     productionPlan: pp
-      ? ({ ...pp, panelBlueprints: effectiveBlueprints } as typeof pp)
+      ? ({ ...pp, panelBlueprints: hydratedBlueprints } as typeof pp)
       : undefined,
-    panelBlueprints: effectiveBlueprints.length > 0 ? effectiveBlueprints : undefined,
+    panelBlueprints: hydratedBlueprints.length > 0 ? hydratedBlueprints : undefined,
     premiumReadinessScore: typeof pp?.premiumReadinessScore === "number" ? pp.premiumReadinessScore : undefined,
     focusBudget: pp?.focusBudget ?? undefined,
     focusDistribution: pp?.focusDistribution ?? undefined,
@@ -807,7 +818,8 @@ export function buildGenerationJobInputFromSnapshot(opts: GenerationJobInputOpti
     productionPlanCriticalPanels: Array.isArray(pp?.criticalPanels) ? pp.criticalPanels : undefined,
     productionPlanLockedCharacters: Array.isArray(pp?.lockedCharacters) ? pp.lockedCharacters : undefined,
     productionPlanImageBudgetStatus: pp?.imageBudgetStatus ?? undefined,
-    // Traçabilité
+    // Traçabilité narrative / canon (boucle QA — chaque case → règles + digest outline)
+    panelTraceability,
     estimateContext: opts.estimateContext ?? null,
   };
 
