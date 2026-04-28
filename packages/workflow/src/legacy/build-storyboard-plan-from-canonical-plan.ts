@@ -9,7 +9,7 @@ import { mergeRawBlueprintsWithCanonicalRhythm } from "@manga-ai-studio/core";
 import {
   buildStoryboardPlanFromApprovedProductionPlan,
   type BuildStoryboardPlanFromApprovedProductionPlanInput,
-} from "./build-storyboard-plan-from-approved-production-plan";
+} from "../build-storyboard-plan-from-approved-production-plan";
 
 export interface BuildStoryboardPlanFromCanonicalPlanInput
   extends Omit<BuildStoryboardPlanFromApprovedProductionPlanInput, "productionPlan"> {

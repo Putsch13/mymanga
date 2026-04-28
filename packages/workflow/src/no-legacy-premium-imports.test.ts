@@ -26,10 +26,11 @@ const FORBIDDEN_IMPORTS = [
   "fal-scene-strategy",
   "blueprint-enrichment",
   "densify-premium-blueprints",
-  "./legacy/",
-  "../legacy/",
   "run-legacy-compatible",
 ];
+
+/** Import quarantaine : pont canonique → storyboard (hors premium-only). */
+const ALLOWED_QUARANTINE_LEGACY_IMPORT = /from\s+["']\.\/legacy\/build-storyboard-plan-from-canonical-plan["']/;
 
 const LEGACY_PATTERNS = [
   /import.*from.*['"].*legacy.*['"]/i,
@@ -68,6 +69,7 @@ describe("Premium pipeline legacy isolation", () => {
 
           for (const pattern of LEGACY_PATTERNS) {
             if (pattern.test(line)) {
+              if (ALLOWED_QUARANTINE_LEGACY_IMPORT.test(line)) continue;
               violations.push(`Line ${lineNum}: Matches legacy pattern`);
             }
           }

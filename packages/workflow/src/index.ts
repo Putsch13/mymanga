@@ -19,8 +19,8 @@ export type {
   RunStoryboardPassResult,
 } from "./passes/storyboard-pass";
 export { runRenderPass } from "./passes/render-pass";
-export { buildStoryboardPlanFromCanonicalPlan } from "./build-storyboard-plan-from-canonical-plan";
-export type { BuildStoryboardPlanFromCanonicalPlanInput } from "./build-storyboard-plan-from-canonical-plan";
+export { buildStoryboardPlanFromCanonicalPlan } from "./legacy/build-storyboard-plan-from-canonical-plan";
+export type { BuildStoryboardPlanFromCanonicalPlanInput } from "./legacy/build-storyboard-plan-from-canonical-plan";
 export {
   buildProviderPayloadPreview,
   dumpPanelDebugArtifacts,

@@ -37,7 +37,7 @@ import { runPageQaPass } from "./passes/page-qa-pass";
 import { runRenderPass } from "./passes/render-pass";
 import { runStoryPass } from "./passes/story-pass";
 import { buildStoryboardPlanFromApprovedProductionPlan } from "./build-storyboard-plan-from-approved-production-plan";
-import { buildStoryboardPlanFromCanonicalPlan } from "./build-storyboard-plan-from-canonical-plan";
+import { buildStoryboardPlanFromCanonicalPlan } from "./legacy/build-storyboard-plan-from-canonical-plan";
 import { buildStoryArcFromProductionPlan } from "./build-story-arc-from-production-plan";
 import { buildStoryboardPlanFromPremiumBlueprints } from "./passes/storyboard-from-premium-plan";
 import { runStoryboardPass } from "./passes/storyboard-pass";
