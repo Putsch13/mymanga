@@ -24,6 +24,16 @@ const schema = z.object({
 export async function POST(req: Request) {
   const user = await getAppUser();
   if (!user) return unauthorized();
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json(
+      {
+        error: "dev_estimate_image_route_disabled",
+        message:
+          "Cette route est un outil de dev. En production, utilisez le flux studio / billing côté serveur.",
+      },
+      { status: 403 },
+    );
+  }
   const raw = schema.parse(await req.json());
   const routing = decideImageRoute({
     mode: raw.mode as RenderingMode,

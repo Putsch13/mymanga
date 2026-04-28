@@ -36,6 +36,53 @@ function hasStoragePersistence(): boolean {
   return resolveSupabaseServerConfig() != null;
 }
 
+/** Pour les logs : quelles variables ont résolu URL / clé / bucket (sans exposer les secrets). */
+export function describeSupabaseEnvResolution(): {
+  ok: boolean;
+  resolvedFrom: Record<string, string>;
+  missing: string[];
+} {
+  const resolvedFrom: Record<string, string> = {};
+  const missing: string[] = [];
+  if (process.env.SUPABASE_URL?.trim()) resolvedFrom.url = "SUPABASE_URL";
+  else if (process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()) resolvedFrom.url = "NEXT_PUBLIC_SUPABASE_URL";
+  else missing.push("SUPABASE_URL|NEXT_PUBLIC_SUPABASE_URL");
+
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
+    resolvedFrom.serviceRoleKey = "SUPABASE_SERVICE_ROLE_KEY";
+  } else if (process.env.SUPABASE_SERVICE_ROLE?.trim()) {
+    resolvedFrom.serviceRoleKey = "SUPABASE_SERVICE_ROLE";
+  } else if (process.env.SUPABASE_SERVICE_KEY?.trim()) {
+    resolvedFrom.serviceRoleKey = "SUPABASE_SERVICE_KEY";
+  } else {
+    missing.push("SUPABASE_SERVICE_ROLE_KEY|SUPABASE_SERVICE_ROLE|SUPABASE_SERVICE_KEY");
+  }
+
+  if (process.env.SUPABASE_STORAGE_BUCKET?.trim()) resolvedFrom.bucket = "SUPABASE_STORAGE_BUCKET";
+  else if (process.env.SUPABASE_BUCKET?.trim()) resolvedFrom.bucket = "SUPABASE_BUCKET";
+  else if (process.env.STORAGE_BUCKET?.trim()) resolvedFrom.bucket = "STORAGE_BUCKET";
+  else resolvedFrom.bucket = "default:MyManga";
+
+  const ok = resolveSupabaseServerConfig() != null;
+  return { ok, resolvedFrom, missing };
+}
+
+/** Appeler depuis la route launch pour tracer la stack au moment du clic (Render / observabilité). */
+export function logGenerationStackReadiness(stack: GenerationStackStatus): void {
+  if (process.env.NODE_ENV === "test") return;
+  const storage = describeSupabaseEnvResolution();
+  console.info("[stack-readiness]", {
+    canRunV3Premium: stack.canRunV3Premium,
+    canGenerateChapters: stack.canGenerateChapters,
+    canGenerateImages: stack.canGenerateImages,
+    storage: {
+      ok: storage.ok,
+      resolvedFrom: storage.resolvedFrom,
+      missing: storage.missing,
+    },
+  });
+}
+
 export type GenerationStackStatus = {
   configuredProviders: ImageProviderId[];
   preferredImageProvider: ImageProviderId | null;

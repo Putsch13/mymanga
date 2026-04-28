@@ -16,10 +16,10 @@ import { describe, it, expect } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
 
-const API_DIR = path.resolve(__dirname);
+const API_DIR = path.resolve(__dirname, "../app/api");
 const INVENTORY_FILE = path.resolve(
   __dirname,
-  "../../../../docs/audits/api-routes-inventory.generated.md"
+  "../../../docs/audits/api-routes-inventory.generated.md",
 );
 
 const DECLARED_RISKY_ROUTES = [
@@ -29,7 +29,13 @@ const DECLARED_RISKY_ROUTES = [
   "jobs/[jobId]/run-now",
   "scene-images/[sceneImageId]/retry",
   "scene-images/[sceneImageId]/validate",
+  "scene-images/[sceneImageId]/debug",
   "projects/[id]/chapters",
+  "chapters/[chapterId]/export/pdf",
+  "characters/[characterId]/canon-evolution",
+  "diagnostics/admin",
+  "internal/premium-run-audit/[chapterId]",
+  "projects/[id]/canon-health",
   "estimate-image",
   "projects/[id]/chapters/[chapterId]/approved-outline",
 ];
@@ -68,24 +74,24 @@ const WRITE_PATTERNS = {
 
 function findRouteFiles(dir: string, basePath = ""): string[] {
   const files: string[] = [];
-  
+
   if (!fs.existsSync(dir)) return files;
-  
+
   const entries = fs.readdirSync(dir, { withFileTypes: true });
-  
+
   for (const entry of entries) {
     if (entry.name === "node_modules" || entry.name.endsWith(".test.ts")) continue;
-    
+
     const fullPath = path.join(dir, entry.name);
     const relativePath = path.join(basePath, entry.name);
-    
+
     if (entry.isDirectory()) {
       files.push(...findRouteFiles(fullPath, relativePath));
     } else if (entry.name === "route.ts" || entry.name === "route.tsx") {
       files.push(relativePath);
     }
   }
-  
+
   return files;
 }
 
@@ -108,7 +114,7 @@ describe("API Route Inventory", () => {
 
     for (const routeFile of routeFiles) {
       const routePath = normalizeRoutePath(routeFile);
-      
+
       it(`${routePath} should be declared if it writes to critical tables`, () => {
         const fullPath = path.join(API_DIR, routeFile);
         const content = fs.readFileSync(fullPath, "utf-8");
@@ -123,12 +129,12 @@ describe("API Route Inventory", () => {
 
         if (writes.length > 0) {
           const isDeclared = DECLARED_RISKY_ROUTES.some((declared) =>
-            routePath.includes(declared) || declared.includes(routePath)
+            routePath.includes(declared) || declared.includes(routePath),
           );
 
           expect(
             isDeclared,
-            `Route "${routePath}" writes to [${writes.join(", ")}] but is not declared in inventory. Add it to DECLARED_RISKY_ROUTES.`
+            `Route "${routePath}" writes to [${writes.join(", ")}] but is not declared in inventory. Add it to DECLARED_RISKY_ROUTES.`,
           ).toBe(true);
         }
       });
@@ -139,63 +145,71 @@ describe("API Route Inventory", () => {
     it("launch route should be canonical for premium chapters", () => {
       const launchPath = path.join(
         API_DIR,
-        "projects/[id]/chapters/[chapterId]/launch/route.ts"
+        "projects/[id]/chapters/[chapterId]/launch/route.ts",
       );
-      
+
       if (!fs.existsSync(launchPath)) {
         console.warn("Launch route not found, skipping");
         return;
       }
 
       const content = fs.readFileSync(launchPath, "utf-8");
-      
+
       expect(content).toMatch(/heroCharacterId|focusCharacterIds/);
       expect(content).toMatch(/POST/);
     });
 
-    it("pipeline route should delegate or be debug-only", () => {
-      const pipelinePath = path.join(
-        API_DIR,
-        "projects/[id]/pipeline/route.ts"
-      );
-      
+    it("pipeline route doit renvoyer 409 premium_only en prod premium-only", () => {
+      const pipelinePath = path.join(API_DIR, "projects/[id]/pipeline/route.ts");
       if (!fs.existsSync(pipelinePath)) {
         return;
       }
-
       const content = fs.readFileSync(pipelinePath, "utf-8");
-      
-      const isDebugOnly = /NODE_ENV.*development/i.test(content) ||
-                         /debug.*only/i.test(content);
-      const delegates = /launch/i.test(content);
-
-      expect(
-        isDebugOnly || delegates,
-        "Pipeline route should delegate to launch or be debug-only"
-      ).toBe(true);
+      expect(content).toContain("premium_only_launch_route_required");
+      expect(content).toContain("409");
     });
   });
 
   describe("Legacy routes restrictions", () => {
-    it("ai/generate should not be used for premium chapters", () => {
+    it("ai/generate doit être désactivée en production (outil dev)", () => {
       const generatePath = path.join(API_DIR, "ai/generate/route.ts");
-      
+
       if (!fs.existsSync(generatePath)) {
         return;
       }
 
       const content = fs.readFileSync(generatePath, "utf-8");
-      
-      const hasPremiumGuard = 
-        /premium.*blocked/i.test(content) ||
-        /legacy.*only/i.test(content) ||
-        /dev.*only/i.test(content) ||
-        /if\s*\(.*isPremium/i.test(content);
+
+      const blocksProd =
+        /NODE_ENV\s*===\s*["']production["']/.test(content) &&
+        /dev_image_generate_route_disabled/.test(content);
 
       expect(
-        hasPremiumGuard,
-        "ai/generate should block premium chapters or be marked as dev-only"
+        blocksProd,
+        "ai/generate doit retourner 403 + dev_image_generate_route_disabled en production",
       ).toBe(true);
+    });
+
+    it("run-now doit bloquer GENERATE_CHAPTER_SCRIPT en prod premium-only (409)", () => {
+      const runNowPath = path.join(API_DIR, "jobs/[jobId]/run-now/route.ts");
+      if (!fs.existsSync(runNowPath)) {
+        return;
+      }
+      const content = fs.readFileSync(runNowPath, "utf-8");
+      expect(content).toContain("run_now_disabled_in_premium_only");
+      expect(content).toContain("409");
+    });
+
+    it("estimate-image doit être désactivée en production (outil dev)", () => {
+      const estimatePath = path.join(API_DIR, "estimate-image/route.ts");
+      if (!fs.existsSync(estimatePath)) {
+        return;
+      }
+      const content = fs.readFileSync(estimatePath, "utf-8");
+      const blocksProd =
+        /NODE_ENV\s*===\s*["']production["']/.test(content) &&
+        /dev_estimate_image_route_disabled/.test(content);
+      expect(blocksProd, "estimate-image doit être bloquée en prod").toBe(true);
     });
   });
 });

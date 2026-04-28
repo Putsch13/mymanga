@@ -30,8 +30,14 @@ export async function POST(_req: Request, ctx: Ctx) {
 
   if (job.type === "GENERATE_CHAPTER_SCRIPT") {
     if (isPremiumStrictProductionDuplicateLaunchBlocked()) {
-      return validationError(
-        "En production (premium-only), utilisez uniquement le lancement chapitre depuis le studio (POST .../chapters/[chapterId]/launch).",
+      return NextResponse.json(
+        {
+          error: "run_now_disabled_in_premium_only",
+          message:
+            "La génération premium doit être lancée depuis la route canonique du chapitre.",
+          canonicalRoute: "/api/projects/[id]/chapters/[chapterId]/launch",
+        },
+        { status: 409 },
       );
     }
     const stack = getGenerationStackStatus();

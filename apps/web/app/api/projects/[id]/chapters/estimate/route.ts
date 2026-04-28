@@ -254,8 +254,8 @@ export async function POST(req: Request, ctx: Ctx) {
   });
   const mergedBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawBlueprints, canonicalPlan);
   const allBlueprints = mergedBlueprints;
-  const enrichmentApplied = rawBlueprints.length > 0;
   const enrichmentCount = 0;
+  const enrichmentApplied = enrichmentCount > 0;
 
   const panelCountStatus = classifyPremiumPanelCount(allBlueprints.length);
   const chapterMinimumImages =

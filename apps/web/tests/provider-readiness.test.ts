@@ -36,12 +36,14 @@ vi.mock("@/lib/rate-limit", () => ({
 
 vi.mock("@/lib/generation/stack-readiness", () => ({
   getGenerationStackStatus: getGenerationStackStatusMock,
+  logGenerationStackReadiness: vi.fn(),
 }));
 
 vi.mock("@manga-ai-studio/workflow", () => ({
   sendChapterGenerateRequested: sendChapterGenerateRequestedMock,
   runFullChapterPipelineFromJob: runFullChapterPipelineFromJobMock,
   isPipelineV3StoryboardEnabled: () => true,
+  extractChapterVisualContractUiFromOutline: () => ({ preLaunchAcknowledged: true }),
 }));
 
 vi.mock("@manga-ai-studio/billing", () => ({

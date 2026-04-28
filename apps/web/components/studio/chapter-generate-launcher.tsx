@@ -2,6 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  ChapterLaunchRequestError,
+  isWrongGenerationRouteError,
+  launchChapterGeneration,
+  STUDIO_WRONG_ROUTE_USER_MESSAGE,
+} from "@/lib/studio/launch-chapter-generation";
 import { GenerationProgressBoard } from "./generation-progress-board";
 
 type JobState = {
@@ -62,74 +68,103 @@ export function ChapterGenerateLauncher({
     setLaunching(true);
     setMessage(null);
     setDetails(null);
-    const res = await fetch(`/api/projects/${projectId}/pipeline`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chapterId }),
+    console.info("[studio:launch] clicked", {
+      projectId,
+      chapterId,
+      route: `/api/projects/${projectId}/chapters/${chapterId}/launch`,
     });
-    const json = await res.json();
-    setLaunching(false);
 
-    // BUG-NOUVEAU-C : le backend peut renvoyer des 422 avec des codes structurés
-    // (SHOT_MONOTONY, premium_contract_incomplete, INCOMPLETE_PLAN). Auparavant on
-    // affichait juste json.message en texte brut, ce qui donnait des messages
-    // techniques incompréhensibles. On rédige désormais un message actionnable pour
-    // chaque code connu et on garde le fallback générique pour les autres erreurs.
-    if (!res.ok) {
-      const code = typeof json.code === "string" ? json.code : null;
-      const errorKey = typeof json.error === "string" ? json.error : null;
-      if (code === "SHOT_MONOTONY") {
-        const pct = typeof json.varietyScore === "number"
-          ? `${(json.varietyScore * 100).toFixed(0)}%`
-          : "trop basse";
-        const missing = Array.isArray(json.missingShots) && json.missingShots.length > 0
-          ? ` Plans manquants : ${(json.missingShots as string[]).join(", ")}.`
-          : "";
-        setMessage(
-          `⚠️ Variété de plans insuffisante (${pct}).${missing} Retourne dans le studio et régénère le plan pour diversifier les shots.`
-        );
-      } else if (code === "INCOMPLETE_PLAN" || errorKey === "incomplete_plan") {
-        // P0.4 — plan de production sous le minimum de blueprints. Le studio
-        // aurait dû bloquer avant l'appel, mais on sécurise côté launcher
-        // pour les cas où le snapshot studio est stale ou partiellement
-        // invalidé par une édition manuelle.
-        const count = typeof json.panelBlueprintCount === "number" ? json.panelBlueprintCount : null;
-        const minimum = typeof json.minimumImages === "number" ? json.minimumImages : null;
-        const ratio = count !== null && minimum !== null ? `${count} blueprints pour un minimum de ${minimum}` : "un plan incomplet";
-        setMessage(
-          `Le plan validé côté studio est incomplet : ${ratio}. Retourne à l'étape Plan et clique sur « Régénérer le plan » avant de relancer la génération.`
-        );
-      } else if (code === "premium_contract_incomplete" || errorKey === "premium_contract_incomplete") {
-        const missing = Array.isArray(json.missing) && json.missing.length > 0
-          ? (json.missing as string[]).join(", ")
-          : "éléments inconnus";
-        setMessage(
-          `Le contrat visuel est incomplet : ${missing}. Retourne dans le studio → étape Plan → Valider le plan avant de relancer.`
-        );
-      } else if (code === "PREMIUM_VISUAL_QA_CONFIG_MISSING") {
-        const missing = Array.isArray(json.missing) && json.missing.length > 0
-          ? (json.missing as string[]).join(", ")
-          : "variables serveur";
-        setMessage(
-          `Configuration production incomplète pour la QA visuelle premium : ${missing}. ` +
-            `Ajoute ces variables sur l’hébergeur (ex. Render), ou définis PREMIUM_VISUAL_QA_REQUIRED=false pour un mode dégradé (qualité needs_review).`,
-        );
-      } else if (code === "VISUAL_CONTRACT_PRELAUNCH_REQUIRED" || errorKey === "visual_contract_prelaunch_required") {
-        setMessage(
-          typeof json.message === "string"
-            ? json.message
-            : "Confirme le contrat visuel dans le studio (panneau violet en haut) avant le premier lancement.",
-        );
-      } else {
-        setMessage(json.message ?? json.error ?? "Erreur inconnue lors du lancement.");
+    let json: Record<string, unknown>;
+    try {
+      json = (await launchChapterGeneration({ projectId, chapterId })) as Record<string, unknown>;
+    } catch (err) {
+      setLaunching(false);
+      if (err instanceof ChapterLaunchRequestError) {
+        console.info("[studio:launch] response", {
+          projectId,
+          chapterId,
+          ok: false,
+          status: err.status,
+          jobId: err.payload?.jobId,
+          error: err.payload?.error ?? err.payload?.code,
+        });
+        if (isWrongGenerationRouteError(err)) {
+          console.error("[studio:generation] wrong_generation_route", {
+            projectId,
+            chapterId,
+            error: err.payload?.error ?? err.message,
+          });
+          setMessage(STUDIO_WRONG_ROUTE_USER_MESSAGE);
+          setDetails(err.payload ?? null);
+          return;
+        }
+        const payload = (err.payload ?? {}) as Record<string, unknown>;
+        const code = typeof payload.code === "string" ? payload.code : null;
+        const errorKey = typeof payload.error === "string" ? payload.error : null;
+        if (code === "SHOT_MONOTONY") {
+          const vs = typeof payload.varietyScore === "number" ? payload.varietyScore : null;
+          const pct = vs !== null ? `${(vs * 100).toFixed(0)}%` : "trop basse";
+          const missing = Array.isArray(payload.missingShots) && payload.missingShots.length > 0
+            ? ` Plans manquants : ${(payload.missingShots as string[]).join(", ")}.`
+            : "";
+          setMessage(
+            `⚠️ Variété de plans insuffisante (${pct}).${missing} Retourne dans le studio et régénère le plan pour diversifier les shots.`,
+          );
+        } else if (code === "INCOMPLETE_PLAN" || errorKey === "incomplete_plan") {
+          const count = typeof payload.panelBlueprintCount === "number" ? payload.panelBlueprintCount : null;
+          const minimum = typeof payload.minimumImages === "number" ? payload.minimumImages : null;
+          const ratio = count !== null && minimum !== null ? `${count} blueprints pour un minimum de ${minimum}` : "un plan incomplet";
+          setMessage(
+            `Le plan validé côté studio est incomplet : ${ratio}. Retourne à l'étape Plan et clique sur « Régénérer le plan » avant de relancer la génération.`,
+          );
+        } else if (code === "premium_contract_incomplete" || errorKey === "premium_contract_incomplete") {
+          const missing = Array.isArray(payload.missing) && payload.missing.length > 0
+            ? (payload.missing as string[]).join(", ")
+            : "éléments inconnus";
+          setMessage(
+            `Le contrat visuel est incomplet : ${missing}. Retourne dans le studio → étape Plan → Valider le plan avant de relancer.`,
+          );
+        } else if (code === "PREMIUM_VISUAL_QA_CONFIG_MISSING") {
+          const missing = Array.isArray(payload.missing) && payload.missing.length > 0
+            ? (payload.missing as string[]).join(", ")
+            : "variables serveur";
+          setMessage(
+            `Configuration production incomplète pour la QA visuelle premium : ${missing}. ` +
+              `Ajoute ces variables sur l'hébergeur (ex. Render), ou définis PREMIUM_VISUAL_QA_REQUIRED=false pour un mode dégradé (qualité needs_review).`,
+          );
+        } else if (code === "VISUAL_CONTRACT_PRELAUNCH_REQUIRED" || errorKey === "visual_contract_prelaunch_required") {
+          setMessage(
+            typeof payload.message === "string"
+              ? payload.message
+              : "Confirme le contrat visuel dans le studio (panneau violet en haut) avant le premier lancement.",
+          );
+        } else {
+          setMessage(
+            (typeof payload.message === "string" && payload.message)
+            || (typeof payload.error === "string" && payload.error)
+            || err.message
+            || "Erreur inconnue lors du lancement.",
+          );
+        }
+        setDetails(payload.details ?? null);
+        return;
       }
-      setDetails(json.details ?? null);
+      setMessage(err instanceof Error ? err.message : "Erreur inconnue lors du lancement.");
       return;
     }
 
-    setMessage(json.message ?? null);
+    setLaunching(false);
+    console.info("[studio:launch] response", {
+      projectId,
+      chapterId,
+      ok: true,
+      jobId: json.jobId,
+      error: json.error,
+    });
+
+    setMessage(typeof json.message === "string" ? json.message : null);
     setDetails(json.details ?? null);
-    if (json.jobId) setJobId(json.jobId);
+    if (typeof json.jobId === "string") setJobId(json.jobId);
   }
 
   const steps = job?.output?.steps ?? [];

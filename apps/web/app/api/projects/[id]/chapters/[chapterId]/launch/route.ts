@@ -18,7 +18,7 @@ import {
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { canAccessMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
 import { badRequest, notFound, unauthorized, validationError } from "@/lib/api-response";
-import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
+import { getGenerationStackStatus, logGenerationStackReadiness } from "@/lib/generation/stack-readiness";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { buildChapterStructuredRuntimePrismaFields, readChapterStudioSnapshotFromOutline } from "@/lib/chapter-studio";
 import {
@@ -35,6 +35,20 @@ import { isVisualContractPrelaunchBlocked } from "@/lib/visual-contract-prelaunc
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
+function logLaunchBlock(
+  projectId: string,
+  chapterId: string,
+  code: string,
+  reason: string,
+  extra?: Record<string, unknown>,
+) {
+  console.warn("[launch:block]", { projectId, chapterId, code, reason, ...extra });
+}
+
+function logLaunchJobDispatched(projectId: string, chapterId: string, jobId: string, viaInngest: boolean) {
+  console.info("[launch] job_dispatched", { projectId, chapterId, jobId, viaInngest });
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -45,14 +59,26 @@ export async function POST(_req: Request, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return unauthorized();
 
+  const { id: projectId, chapterId } = await ctx.params;
+  console.info("[launch] request_received", {
+    projectId,
+    chapterId,
+    env: process.env.NODE_ENV,
+    premiumOnly: process.env.PIPELINE_V3_PREMIUM_ONLY,
+  });
+
   const rl = await checkRateLimit(user.id, "pipeline");
   if (!rl.ok) {
+    logLaunchBlock(projectId, chapterId, "RATE_LIMITED", "Too many launch requests", { retryAfterSecs: rl.retryAfterSecs });
     return NextResponse.json({ error: rl.message }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSecs) } });
   }
 
-  const { id: projectId, chapterId } = await ctx.params;
   const stack = getGenerationStackStatus();
+  logGenerationStackReadiness(stack);
   if (!stack.canGenerateChapters) {
+    logLaunchBlock(projectId, chapterId, "STACK_NOT_READY", "Generation stack not ready for full chapter", {
+      blockers: stack.blockers,
+    });
     return validationError("La stack de génération n'est pas prête pour un chapitre complet.", stack);
   }
 
@@ -63,6 +89,7 @@ export async function POST(_req: Request, ctx: Ctx) {
   // explicitement la launch si le flag v3 n'est pas actif — pas de
   // fallback silencieux.
   if (!isPipelineV3StoryboardEnabled()) {
+    logLaunchBlock(projectId, chapterId, "V3_PREMIUM_DISABLED", "PIPELINE_V3_STORYBOARD not enabled");
     console.warn(
       `[launch] premium_pipeline_v3_required chapterId=${chapterId} — set PIPELINE_V3_STORYBOARD=true to enable premium rendering`,
     );
@@ -79,6 +106,7 @@ export async function POST(_req: Request, ctx: Ctx) {
 
   const visualQaBlocked = premiumVisualQaPreflightResponse();
   if (visualQaBlocked) {
+    logLaunchBlock(projectId, chapterId, "PREMIUM_VISUAL_QA_CONFIG_MISSING", "Premium visual QA preflight failed");
     console.warn(
       `[launch] premium_visual_qa_preflight_failed chapterId=${chapterId} — job non créé (config serveur)`,
     );
@@ -95,6 +123,9 @@ export async function POST(_req: Request, ctx: Ctx) {
       missingComponents.push("VISUAL_PANEL_QA_VISION=true et ENABLE_PREMIUM_VISION_QA=true");
     }
 
+    logLaunchBlock(projectId, chapterId, "V3_PREMIUM_STACK_INCOMPLETE", "Missing providers or storage for V3 premium", {
+      missingComponents,
+    });
     console.warn(
       `[launch] v3_premium_stack_incomplete chapterId=${chapterId} missing=[${missingComponents.join(", ")}]`,
     );
@@ -113,7 +144,10 @@ export async function POST(_req: Request, ctx: Ctx) {
     where: { id: chapterId, projectId, project: { userId: user.id } },
     include: { project: { include: { user: { include: { preferences: true } } } } },
   });
-  if (!chapter) return notFound();
+  if (!chapter) {
+    logLaunchBlock(projectId, chapterId, "CHAPTER_NOT_FOUND", "Chapter or project mismatch");
+    return notFound();
+  }
 
   if (projectRequiresAgeGate(chapter.project.contentRating, chapter.project.intensityLayer) && !canAccessMatureContent(chapter.project.user, chapter.project.user.preferences)) {
     return validationError(getAgeGateMessage(chapter.project.contentRating));
@@ -654,6 +688,7 @@ export async function POST(_req: Request, ctx: Ctx) {
 
   if (!sent.ok) {
     const run = await runFullChapterPipelineFromJob(job.id);
+    logLaunchJobDispatched(projectId, chapterId, job.id, false);
     return NextResponse.json({
       ok: run.ok,
       jobId: job.id,
@@ -663,6 +698,7 @@ export async function POST(_req: Request, ctx: Ctx) {
     });
   }
 
+  logLaunchJobDispatched(projectId, chapterId, job.id, true);
   return NextResponse.json({
     ok: true,
     jobId: job.id,

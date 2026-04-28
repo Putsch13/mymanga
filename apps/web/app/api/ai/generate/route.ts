@@ -29,6 +29,16 @@ const bodySchema = z.object({
 export async function POST(req: Request) {
   const user = await getAppUser();
   if (!user) return unauthorized();
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json(
+      {
+        error: "dev_image_generate_route_disabled",
+        message:
+          "Cette route est désactivée en production. Utilisez le lancement chapitre premium (POST .../chapters/[chapterId]/launch).",
+      },
+      { status: 403 },
+    );
+  }
   const stack = getGenerationStackStatus();
   if (!stack.canGenerateImages) {
     return validationError("La generation d'image n'est pas disponible tant que la stack image n'est pas correctement configuree.", stack);

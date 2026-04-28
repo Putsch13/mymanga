@@ -31,7 +31,7 @@ test("autosave studio puis gate de lancement bloque/pret", async ({ page }) => {
   await expect(page.getByTestId("chapter-launch-button")).toBeEnabled();
 });
 
-test("flux premium : valider plan, sauvegarder contrat, lancer via /pipeline, reroll prop et cutaway", async ({ page }) => {
+test("flux premium : valider plan, sauvegarder contrat, lancer via /chapters/.../launch, reroll prop et cutaway", async ({ page }) => {
   // 1. Aller sur le chapitre premium (doit avoir un contrat premium pré-chargé)
   await page.goto(`/projects/${projectId}/chapters/${premiumChapterId}/edit`);
 
@@ -52,16 +52,16 @@ test("flux premium : valider plan, sauvegarder contrat, lancer via /pipeline, re
   await page.getByRole("button", { name: /4\. Génération & Review/i }).click();
   await expect(page.getByTestId("chapter-launch-button")).toBeEnabled();
 
-  // 5. Lancer la génération — doit appeler /pipeline (pas /launch)
-  const pipelineResponsePromise = page.waitForResponse((response) =>
-    response.url().includes(`/api/projects/${projectId}/pipeline`) &&
+  // 5. Lancer la génération — route canonique studio (premium)
+  const launchResponsePromise = page.waitForResponse((response) =>
+    response.url().includes(`/api/projects/${projectId}/chapters/${premiumChapterId}/launch`) &&
     response.request().method() === "POST" &&
     response.status() === 200,
   );
   await page.getByTestId("chapter-launch-button").click();
-  const pipelineResponse = await pipelineResponsePromise;
-  const pipelinePayload = await pipelineResponse.json();
-  expect(pipelinePayload.ok).toBe(true);
+  const launchResponse = await launchResponsePromise;
+  const launchPayload = await launchResponse.json();
+  expect(launchPayload.ok).toBe(true);
 
   // 6. Simuler un reroll prop sur un panel existant
   const propRerollPromise = page.waitForResponse((response) =>

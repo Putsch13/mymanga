@@ -63,8 +63,14 @@ export async function POST(req: Request, ctx: Ctx) {
   const user = await getAppUser();
   if (!user) return unauthorized();
   if (isPremiumStrictProductionDuplicateLaunchBlocked()) {
-    return validationError(
-      "En production (premium-only), utilisez uniquement le lancement chapitre depuis le studio (POST .../chapters/[chapterId]/launch).",
+    return NextResponse.json(
+      {
+        error: "premium_only_launch_route_required",
+        message:
+          "En production premium-only, utilisez POST /api/projects/[id]/chapters/[chapterId]/launch depuis le studio.",
+        canonicalRoute: "/api/projects/[id]/chapters/[chapterId]/launch",
+      },
+      { status: 409 },
     );
   }
   const rl = await checkRateLimit(user.id, "pipeline");

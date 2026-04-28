@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const prismaMock = {
   project: { findFirst: vi.fn() },
+  character: { findMany: vi.fn() },
   chapter: {
     findFirst: vi.fn(),
     findMany: vi.fn(),
@@ -68,6 +69,7 @@ describe("POST /api/projects/[id]/chapters — parcours onboarding", () => {
       outline: {},
     });
     prismaMock.chapter.update.mockResolvedValue({});
+    prismaMock.character.findMany.mockResolvedValue([]);
     trackServerEventMock.mockResolvedValue(undefined);
   });
 
