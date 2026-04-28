@@ -14,7 +14,7 @@
  *   pnpm cleanup:generation --chapterId=xxx --apply
  */
 
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "@manga-ai-studio/db";
 
 const prisma = new PrismaClient();
 
@@ -43,7 +43,7 @@ async function findCleanupCandidates(chapterId: string): Promise<{
     include: {
       scenes: {
         include: {
-          SceneImage: true,
+          images: true,
         },
       },
     },
@@ -53,7 +53,7 @@ async function findCleanupCandidates(chapterId: string): Promise<{
     throw new Error(`Chapter not found: ${chapterId}`);
   }
 
-  const allImages = chapter.scenes.flatMap(s => s.SceneImage);
+  const allImages = chapter.scenes.flatMap((s) => s.images);
   
   const runIds = allImages
     .map(img => (img.metadata as Record<string, unknown>)?.generationRunId as string | undefined)

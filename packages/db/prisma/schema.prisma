@@ -723,6 +723,9 @@ model SceneImage {
   /// Run de génération V3 — aligné sur Chapter.currentGenerationRunId
   generationRunId    String?
 
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
   @@unique([sceneId, panelNumber])
   @@index([externalPanelId])
   @@index([panelBlueprintId])

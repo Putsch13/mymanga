@@ -6,6 +6,7 @@
     "build": "pnpm --filter @manga-ai-studio/web build",
     "start": "pnpm --filter @manga-ai-studio/web start",
     "typecheck": "pnpm -r exec tsc --noEmit",
+    "typecheck:scripts": "pnpm --filter @manga-ai-studio/web run typecheck:scripts",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
     "test:web": "pnpm --filter @manga-ai-studio/web test",

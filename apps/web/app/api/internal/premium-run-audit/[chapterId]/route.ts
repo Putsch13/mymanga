@@ -12,6 +12,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@manga-ai-studio/db";
+import {
+  flattenSceneImagesReadingOrder,
+  pickRepresentativeImageForRunMetadata,
+} from "@/lib/scene-image-ordering";
 
 interface PanelAuditData {
   panelId: string;
@@ -47,6 +51,7 @@ export async function GET(
       where: { id: chapterId },
       include: {
         scenes: {
+          orderBy: { sceneNumber: "asc" },
           include: {
             images: true,
           },
@@ -61,14 +66,22 @@ export async function GET(
       );
     }
 
-    const allImages = chapter.scenes.flatMap((s) => s.images);
+    const allImages = flattenSceneImagesReadingOrder(chapter.scenes);
 
-    const latestImage = allImages
-      .filter((img) => img.metadata != null)
-      .sort((a, b) => b.id.localeCompare(a.id))[0];
+    const representativeImage = pickRepresentativeImageForRunMetadata(
+      allImages,
+      chapter.currentGenerationRunId,
+    );
 
-    const latestMetadata = (latestImage?.metadata ?? {}) as Record<string, unknown>;
-    const generationRunId = (latestMetadata.generationRunId as string) ?? chapter.currentGenerationRunId ?? null;
+    const latestMetadata = (representativeImage?.metadata ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const generationRunId =
+      chapter.currentGenerationRunId ??
+      representativeImage?.generationRunId ??
+      (latestMetadata.generationRunId as string | undefined) ??
+      null;
 
     const approvedOutlineHash = (latestMetadata.approvedOutlineHash as string) ?? null;
     const productionPlanHash = (latestMetadata.productionPlanHash as string) ?? null;
