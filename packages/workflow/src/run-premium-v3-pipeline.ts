@@ -622,6 +622,13 @@ export async function runPremiumV3Pipeline(
             `[pipeline:v3:canonical-runtime] panels=${mergedBlueprints.length} source=merged_rich_blueprints qa_valid=${canonicalRuntimePlan.qa.valid}`,
           );
         } else {
+          if (input.premiumV3OnlyEnabled) {
+            throw new Error(
+              "E_PREMIUM_RICH_BLUEPRINTS_REQUIRED: en premium-only, les blueprints narratifs enrichis sont obligatoires. " +
+                "Le plan canonique ne fournit que le rythme — il ne doit pas seul dériver le contenu des cases. " +
+                "Publiez / persistez des panelBlueprints (plan approuvé ou job) fusionnables avec le canonique.",
+            );
+          }
           const derivedBlueprints = canonicalPlanToPanelBlueprints(canonicalRuntimePlan);
           panelBlueprintsForPremiumPath = derivedBlueprints;
           if (productionPlanForStoryboard) {
@@ -830,9 +837,16 @@ export async function runPremiumV3Pipeline(
           );
 
           if (!narrativeQa.ok) {
+            const first = narrativeQa.violations[0];
+            const detail =
+              first != null ? `${first.type}:${String(first.expected ?? "")}` : "unknown";
+            if (input.premiumV3OnlyEnabled) {
+              throw new Error(
+                `premium_narrative_contract_qa_failed: violations=${narrativeQa.violations.length} first=${detail}`,
+              );
+            }
             console.warn(
-              `[pipeline:v3:narrative-contract] violations=${narrativeQa.violations.length} ` +
-                `first=${narrativeQa.violations[0]?.type}:${narrativeQa.violations[0]?.expected}`,
+              `[pipeline:v3:narrative-contract] violations=${narrativeQa.violations.length} first=${detail}`,
             );
           }
         }
@@ -859,21 +873,10 @@ export async function runPremiumV3Pipeline(
         `[pipeline:v3:story-arc-from-plan] beats=${storyArcFromPlan.beats.length} chapterGoal=${storyArcFromPlan.chapterGoal?.slice(0, 50)}...`,
       );
 
-      const deterministicPlan = canonicalRuntimePlan
-        ? buildStoryboardPlanFromCanonicalPlan({
-            chapterId: input.chapterId,
-            projectId: input.projectId,
-            chapterNumber: input.chapterNumber,
-            projectFormat,
-            canonicalPlan: canonicalRuntimePlan,
-            productionPlanShell: (productionPlanForStoryboard ?? input.productionPlan) as Record<
-              string,
-              unknown
-            >,
-            chapterLocationName: input.chapterLocationName,
-            productionPlanPages: input.productionPlanPages,
-          })
-        : buildStoryboardPlanFromApprovedProductionPlan({
+      // Premium-only : le storyboard déterministe vient du plan approuvé enrichi (blueprints),
+      // jamais de la projection canonique seule — le canon sert au merge rythme, pas au texte final des cases.
+      const deterministicPlan = input.premiumV3OnlyEnabled
+        ? buildStoryboardPlanFromApprovedProductionPlan({
             chapterId: input.chapterId,
             projectId: input.projectId,
             chapterNumber: input.chapterNumber,
@@ -881,7 +884,30 @@ export async function runPremiumV3Pipeline(
             projectFormat,
             chapterLocationName: input.chapterLocationName,
             productionPlanPages: input.productionPlanPages,
-          });
+          })
+        : canonicalRuntimePlan
+          ? buildStoryboardPlanFromCanonicalPlan({
+              chapterId: input.chapterId,
+              projectId: input.projectId,
+              chapterNumber: input.chapterNumber,
+              projectFormat,
+              canonicalPlan: canonicalRuntimePlan,
+              productionPlanShell: (productionPlanForStoryboard ?? input.productionPlan) as Record<
+                string,
+                unknown
+              >,
+              chapterLocationName: input.chapterLocationName,
+              productionPlanPages: input.productionPlanPages,
+            })
+          : buildStoryboardPlanFromApprovedProductionPlan({
+              chapterId: input.chapterId,
+              projectId: input.projectId,
+              chapterNumber: input.chapterNumber,
+              productionPlan: (productionPlanForStoryboard ?? input.productionPlan) as Record<string, unknown>,
+              projectFormat,
+              chapterLocationName: input.chapterLocationName,
+              productionPlanPages: input.productionPlanPages,
+            });
       storyboardPassResult = {
         storyboardPlan: deterministicPlan,
         warnings: ["storyboard_plan.source=approved_production_plan_deterministic"],
@@ -1015,6 +1041,9 @@ export async function runPremiumV3Pipeline(
     console.log(`[pipeline:v3:beat-coverage-qa] ${formatBeatCoverageQaLog(beatCoverageQa)}`);
     if (!beatCoverageQa.ok && input.premiumV3OnlyEnabled) {
       console.error(`[pipeline:v3:beat-coverage-qa] BLOCKED — uncovered beats detected`);
+      throw new Error(
+        `premium_beat_coverage_qa_failed: uncovered=${beatCoverageQa.stats.uncoveredBeats} expected=${beatCoverageQa.stats.expectedBeats}`,
+      );
     }
 
     // P3.15 — Emotional Arc QA (si arc émotionnel disponible)
@@ -1034,9 +1063,14 @@ export async function runPremiumV3Pipeline(
           emotionLine: p.emotionLine,
           emotionalTone: p.emotionalTone,
         })),
-        strictMode: false,
+        strictMode: Boolean(input.premiumV3OnlyEnabled),
       });
       console.log(`[pipeline:v3:emotional-arc-qa] ${formatEmotionalArcQaLog(emotionalArcQa)}`);
+      if (!emotionalArcQa.ok && input.premiumV3OnlyEnabled) {
+        throw new Error(
+          `premium_emotional_arc_qa_failed: errors=${emotionalArcQa.errorCount} warnings=${emotionalArcQa.warningCount}`,
+        );
+      }
     }
 
     // P3.16 — Interaction QA
@@ -1049,9 +1083,14 @@ export async function runPremiumV3Pipeline(
         actionLine: p.actionLine,
         shotType: p.shotType,
       })),
-      strictMode: false,
+      strictMode: Boolean(input.premiumV3OnlyEnabled),
     });
     console.log(`[pipeline:v3:interaction-qa] ${formatInteractionQaLog(interactionQa)}`);
+    if (!interactionQa.ok && input.premiumV3OnlyEnabled) {
+      throw new Error(
+        `premium_interaction_qa_failed: errors=${interactionQa.errorCount} warnings=${interactionQa.warningCount}`,
+      );
+    }
 
     // P1.9 — Coverage brut puis contrat visuel nettoyé (outline + canon, pas de pollution seule)
     const rawCoverage = storyArc
@@ -1529,13 +1568,18 @@ export async function runPremiumV3Pipeline(
       const propsQa = runPropsQaPass({
         specs: renderPassResult.specs,
         storyContract,
-        strictMode: false,
+        strictMode: Boolean(input.premiumV3OnlyEnabled),
       });
       console.log(`[pipeline:v3:props-qa] ${formatPropsQaLog(propsQa)}`);
       if (!propsQa.ok) {
         console.warn(
           `[pipeline:v3:props-qa] phantom_props_detected errorCount=${propsQa.errorCount} warningCount=${propsQa.warningCount}`,
         );
+        if (input.premiumV3OnlyEnabled) {
+          throw new Error(
+            `premium_props_qa_failed: errors=${propsQa.errorCount} warnings=${propsQa.warningCount}`,
+          );
+        }
       }
 
       const renderedCount = renderPassResult.summary.renderedCount;

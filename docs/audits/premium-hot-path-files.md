@@ -11,7 +11,7 @@ Trace attendue :
 | `apps/web/app/api/projects/[id]/chapters/[chapterId]/approved-outline/route.ts` | chapitre | outline / studio | Chapter | oui | oui | non | non | non | premium contract |
 | `apps/web/app/api/projects/[id]/chapters/[chapterId]/launch/route.ts` | snapshot | job + chapter status | Chapter, Job | non | validé | non | non | non si flags | garde readiness + canon |
 | `packages/workflow/src/run-full-chapter-pipeline.ts` | job | dispatche v3 | Job, Chapter | via job | via job | via render | via pipeline | non | v3 |
-| `packages/workflow/src/run-premium-v3-pipeline.ts` | plan, persos, lieux | storyboard, render, QA logs | via passes | résolu | oui | via persist v3 | si FAL on | premium-only throws | merge rythme + riches |
+| `packages/workflow/src/run-premium-v3-pipeline.ts` | plan, persos, lieux | storyboard, render, QA logs | via passes | résolu | oui | via persist v3 | si FAL on | premium-only throws | merge rythme + riches ; **premium-only** : pas de `canonicalPlanToPanelBlueprints` seul ; storyboard approuvé via `buildStoryboardPlanFromApprovedProductionPlan` ; QA beat / interaction / émotion / props / narrative en fail-hard |
 | `packages/ai/src/services/premium-chapter-contract-builder.ts` | outline | plan + blueprints | — | source | sortie | non | non | non | merge rythme |
 | `packages/core/src/production/merge-raw-blueprints-with-canonical-rhythm.ts` | brut + canon | — | — | non | non | non | non | non | cœur P0.2 |
 | `packages/workflow/src/passes/render-pass.ts` | storyboard, memory | render summary + SceneImage | SceneImage… | non | non | oui | oui | non | stable URL avant QA si `projectId` |
@@ -19,3 +19,9 @@ Trace attendue :
 | `apps/web/components/manga/reader/*` | SceneImage / outline | — | — | non | non | lecture | non | non | reader |
 
 *Ce document est une carte de lecture ; les audits détaillés complètent `docs/audits/full-premium-chapter-build-trace.md`.*
+
+## Suite audit (premium-only)
+
+- **Blueprints** : sans source « riche » fusionnable avec le canon, la pipeline lève `E_PREMIUM_RICH_BLUEPRINTS_REQUIRED` (plus de contenu narratif uniquement projeté depuis le plan canonique).
+- **Storyboard déterministe** : `buildStoryboardPlanFromCanonicalPlan` n’est plus utilisé quand `PIPELINE_V3_PREMIUM_ONLY` est actif ; le plan approuvé + blueprints enrichis portent le découpage.
+- **QA pré-render** : beat coverage, arc émotionnel, interaction, contrat narratif (beats manga), et props QA post-render passent en **throw** si `premiumV3OnlyEnabled`.
