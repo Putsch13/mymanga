@@ -4,7 +4,9 @@ import {
   buildChapterReadinessReport,
   chapterStudioDataSchema,
   chapterStudioStepSchema,
+  type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
+import { computePremiumReadinessScore } from "@manga-ai-studio/ai";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
@@ -276,7 +278,16 @@ export async function PATCH(req: Request, ctx: Ctx) {
   const existingPP = existingStudioData.productionPlan as Record<string, unknown> | null | undefined;
   const incomingPP = snapshot.data.productionPlan as Record<string, unknown> | null | undefined;
 
-  const mergedProductionPlan = mergePremiumProductionPlan(existingPP, incomingPP);
+  const mergedProductionPlanRaw = mergePremiumProductionPlan(existingPP, incomingPP);
+  const mppRec = mergedProductionPlanRaw as Record<string, unknown>;
+  const mergedBps = mppRec.panelBlueprints;
+  const mergedProductionPlan =
+    Array.isArray(mergedBps) && mergedBps.length > 0
+      ? ({
+          ...mppRec,
+          premiumReadinessScore: computePremiumReadinessScore(mergedBps as PanelBlueprintPremium[]),
+        } as Record<string, unknown>)
+      : mergedProductionPlanRaw;
 
   const mergedSnapshot = {
     ...snapshot,

@@ -6,7 +6,7 @@ import {
   PREMIUM_PANEL_RANGE,
   type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
-import { computeShotVarietyBudget, computeContractualFocusAdequacy } from "@manga-ai-studio/ai";
+import { computeShotVarietyBudget, computeContractualFocusAdequacy, computePremiumReadinessScore } from "@manga-ai-studio/ai";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { isUnlimitedAdminEmail } from "@/lib/auth/get-app-user";
 import { prisma } from "@manga-ai-studio/db";
@@ -242,13 +242,19 @@ export async function POST(_req: Request, ctx: Ctx) {
 
   if (isPipelineV3PremiumOnlyEnabled()) {
     const pp = snapshot.data.productionPlan;
-    const score =
-      pp && typeof pp === "object" && typeof (pp as Record<string, unknown>).premiumReadinessScore === "number"
-        ? ((pp as Record<string, unknown>).premiumReadinessScore as number)
-        : null;
+    const ppRec = pp && typeof pp === "object" ? (pp as Record<string, unknown>) : null;
+    const bps = ppRec?.panelBlueprints;
+    let score: number | null = null;
+    let scoreSource: "recomputed_from_blueprints" | "persisted_metadata" = "persisted_metadata";
+    if (Array.isArray(bps) && bps.length > 0) {
+      score = computePremiumReadinessScore(bps as PanelBlueprintPremium[]);
+      scoreSource = "recomputed_from_blueprints";
+    } else if (ppRec && typeof ppRec.premiumReadinessScore === "number") {
+      score = ppRec.premiumReadinessScore as number;
+    }
     if (score !== null && score < 0.85) {
       console.warn(
-        `[launch] premium_readiness_blocked chapterId=${chapterId} premiumReadinessScore=${score.toFixed(2)} threshold=0.85`,
+        `[launch] premium_readiness_blocked chapterId=${chapterId} premiumReadinessScore=${score.toFixed(2)} threshold=0.85 scoreSource=${scoreSource}`,
       );
       return NextResponse.json(
         {

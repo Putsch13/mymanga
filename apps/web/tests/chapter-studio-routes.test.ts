@@ -85,6 +85,7 @@ vi.mock("@manga-ai-studio/ai", () => ({
   },
   computeShotVarietyBudget: () => ({ varietyScore: 0.8, missingShots: [] }),
   computeContractualFocusAdequacy: () => ({ blocking: false, score: 0.9, violations: [] }),
+  computePremiumReadinessScore: () => 0.9,
 }));
 
 const patchChapterStudioSnapshotMock = vi.fn();

@@ -56,6 +56,7 @@ vi.mock("@/lib/age-gate", () => ({
 vi.mock("@manga-ai-studio/ai", () => ({
   computeShotVarietyBudget: () => ({ varietyScore: 0.8, missingShots: [] }),
   computeContractualFocusAdequacy: () => ({ blocking: false, score: 0.9, violations: [] }),
+  computePremiumReadinessScore: () => 0.9,
   // AUDIT v2 — l'enrichisseur narratif est maintenant appelé de manière
   // explicite par buildGenerationJobInputFromSnapshot pour garantir
   // `panelBlueprints.length >= minimumImages`. En test, on duplique le
