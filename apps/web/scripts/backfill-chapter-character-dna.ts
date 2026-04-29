@@ -1,6 +1,9 @@
 #!/usr/bin/env tsx
 /**
- * Backfill `characterVisualDna` sur les panelBlueprints d'un chapitre (snapshot studio).
+ * Backfill des blueprints studio sur un chapitre (aligné estimate / launch premium) :
+ * 1. `characterVisualDna` depuis personnages + `characterCanons`
+ * 2. Si `visualWorldContract` est présent dans le snapshot : `environmentVisualDna` + NPC/props VW
+ * 3. Log du preflight continuité (strict DNA + décor si premium-only)
  *
  * Usage :
  *   pnpm exec tsx apps/web/scripts/backfill-chapter-character-dna.ts [chapterId]
@@ -10,6 +13,9 @@
 
 import {
   hydrateBlueprintsWithCharacterDna,
+  hydrateBlueprintsWithEnvironmentDna,
+  hydrateBlueprintsWithVisualWorldNpcAndProps,
+  parseVisualWorldContract,
   type CharacterCanon,
   type PanelBlueprintPremium,
   computePanelContinuityPreflights,
@@ -64,14 +70,35 @@ async function main() {
     canons.map((c) => [c.characterId, c] as const),
   );
 
-  const hydrated = hydrateBlueprintsWithCharacterDna({
+  let pipeline = hydrateBlueprintsWithCharacterDna({
     blueprints: bps as PanelBlueprintPremium[],
     characters: chapter.project.characters,
     characterCanonsById,
   });
 
+  const rawVw = (snapshot.data as { visualWorldContract?: unknown }).visualWorldContract;
+  if (rawVw !== undefined && rawVw !== null) {
+    try {
+      const vw = parseVisualWorldContract(rawVw);
+      pipeline = hydrateBlueprintsWithEnvironmentDna({
+        blueprints: pipeline,
+        visualWorld: vw,
+      });
+      pipeline = hydrateBlueprintsWithVisualWorldNpcAndProps({
+        blueprints: pipeline,
+        visualWorld: vw,
+      });
+      console.log(
+        `[backfill] visual_world_hydration ok locations=${vw.locations.length} props=${vw.props?.length ?? 0} npcGroups=${vw.npcGroups?.length ?? 0}`,
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[backfill] visual_world_hydration_skipped reason=${msg.slice(0, 200)}`);
+    }
+  }
+
   if (isPipelineV3PremiumOnlyEnabled()) {
-    const preflights = computePanelContinuityPreflights(hydrated, {
+    const preflights = computePanelContinuityPreflights(pipeline, {
       strictEnvironmentLocationBinding: true,
       strictCharacterDnaBinding: true,
     });
@@ -89,7 +116,7 @@ async function main() {
     {
       productionPlan: {
         ...(plan as Record<string, unknown>),
-        panelBlueprints: hydrated,
+        panelBlueprints: pipeline,
       },
     },
     {
@@ -111,7 +138,7 @@ async function main() {
   });
 
   console.log(
-    `[backfill] ok chapterId=${chapterId} panels=${hydrated.length} projectId=${chapter.projectId}`,
+    `[backfill] ok chapterId=${chapterId} panels=${pipeline.length} projectId=${chapter.projectId}`,
   );
 }
 
