@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   generateChapterBundle,
   composeVisualWorldContract,
+  toComposeVisualWorldKnownLocation,
   inferNarrativeFactsFromBeat,
   inferRequiredPropsFromBeat,
   indexVisualWorldPropsByBeat,
@@ -147,6 +148,8 @@ export async function POST(req: Request, ctx: Ctx) {
             description: true,
             visualBrief: true,
             establishedVisualBrief: true,
+            canonImageUrl: true,
+            canonLocked: true,
           },
         }),
       ]);
@@ -175,15 +178,7 @@ export async function POST(req: Request, ctx: Ctx) {
           roleType: c.roleType ?? null,
           description: c.appearance ?? null,
         })),
-        knownLocations: locationsForWorld.map((loc) => ({
-          id: loc.id,
-          name: loc.name,
-          description:
-            loc.establishedVisualBrief?.trim()
-            || loc.visualBrief?.trim()
-            || loc.description?.trim()
-            || null,
-        })),
+        knownLocations: locationsForWorld.map((loc) => toComposeVisualWorldKnownLocation(loc)),
       });
       const approvedReplay = buildApprovedChapterOutlineReplayFromOutlineBeats({
         summary: bundle.outline.chapter_goal,

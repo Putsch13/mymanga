@@ -3,6 +3,7 @@ import {
   generateChapterBundle,
   composeMangaPanelPrompt,
   composeVisualWorldContract,
+  toComposeVisualWorldKnownLocation,
   composeEnvironment,
   runChapterContinuityPass,
   runChapterNarrativeCoherencePass,
@@ -268,9 +269,25 @@ export async function runNarrativePass(
     // et on complète ensuite par nom pour les lieux cités absents.
     let knownLocations = await prisma.location.findMany({
       where: { projectId },
-      select: { id: true, name: true, description: true, visualBrief: true, establishedVisualBrief: true },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        visualBrief: true,
+        establishedVisualBrief: true,
+        canonImageUrl: true,
+        canonLocked: true,
+      },
       take: 40,
-    }).catch(() => [] as Array<{ id: string; name: string; description: string | null; visualBrief?: string | null; establishedVisualBrief?: string | null }>);
+    }).catch(() => [] as Array<{
+      id: string;
+      name: string;
+      description: string | null;
+      visualBrief?: string | null;
+      establishedVisualBrief?: string | null;
+      canonImageUrl?: string | null;
+      canonLocked?: boolean | null;
+    }>);
 
     const recurringNpcs = await loadProjectRecurringNpcs(prisma, projectId);
     // BUG-23 : log clarifié. Ce compteur ne concerne QUE les PNJ secondaires promus
@@ -369,6 +386,8 @@ export async function runNarrativePass(
               description: true,
               visualBrief: true,
               establishedVisualBrief: true,
+              canonImageUrl: true,
+              canonLocked: true,
             },
           }),
         ]);
@@ -409,15 +428,7 @@ export async function runNarrativePass(
             roleType: c.roleType ?? null,
             description: c.appearance ?? null,
           })),
-          knownLocations: locationsForWorld.map((loc) => ({
-            id: loc.id,
-            name: loc.name,
-            description:
-              loc.establishedVisualBrief?.trim()
-              || loc.visualBrief?.trim()
-              || loc.description?.trim()
-              || null,
-          })),
+          knownLocations: locationsForWorld.map((loc) => toComposeVisualWorldKnownLocation(loc)),
         });
         const approvedReplay = approvedOutlineForBundle
           ?? buildApprovedChapterOutlineReplayFromOutlineBeats({
@@ -523,7 +534,15 @@ export async function runNarrativePass(
         if (missingCanonicalNames.length > 0) {
           const extra = await prisma.location.findMany({
             where: { projectId, name: { in: missingCanonicalNames } },
-            select: { id: true, name: true, description: true, visualBrief: true, establishedVisualBrief: true },
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              visualBrief: true,
+              establishedVisualBrief: true,
+              canonImageUrl: true,
+              canonLocked: true,
+            },
           }).catch(() => [] as typeof knownLocations);
           if (extra.length > 0) {
             knownLocations = [...knownLocations, ...extra];

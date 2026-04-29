@@ -1,4 +1,9 @@
 import { prisma } from "@manga-ai-studio/db";
+import {
+  toComposeVisualWorldKnownLocation,
+  type ComposeKnownLocationDbRow,
+  type ComposeVisualWorldContractInput,
+} from "@manga-ai-studio/ai";
 
 /** Lieu résolu pour le story-pass v3 (fiche projet ou secours studio). */
 export interface PremiumV3PipelineLocation {
@@ -28,6 +33,8 @@ export async function loadLocationsForV3StoryPass(input: {
       visualBrief: true,
       establishedVisualBrief: true,
       description: true,
+      canonImageUrl: true,
+      canonLocked: true,
     },
   });
   const byId = new Map(rows.map((r) => [r.id, r]));
@@ -56,7 +63,45 @@ export async function loadLocationsForV3StoryPass(input: {
         visualBrief: row.visualBrief ?? null,
         establishedVisualBrief: row.establishedVisualBrief ?? null,
         description: row.description ?? null,
+        canonImageUrl: row.canonImageUrl ?? null,
+        canonLocked: row.canonLocked ?? null,
       },
     };
   });
+}
+
+/** Recompose une entrée `knownLocations` pour le compositeur / discovery à partir du lieu v3. */
+export function v3PipelineLocationToComposeKnownRow(
+  loc: PremiumV3PipelineLocation,
+): ComposeKnownLocationDbRow {
+  const vd =
+    loc.visualDNA && typeof loc.visualDNA === "object" && !Array.isArray(loc.visualDNA)
+      ? (loc.visualDNA as Record<string, unknown>)
+      : {};
+  return {
+    id: loc.id,
+    name: loc.name?.trim() ? loc.name : loc.id,
+    description: typeof vd.description === "string" ? vd.description : null,
+    visualBrief: typeof vd.visualBrief === "string" ? vd.visualBrief : null,
+    establishedVisualBrief:
+      typeof vd.establishedVisualBrief === "string" ? vd.establishedVisualBrief : null,
+    canonImageUrl: typeof vd.canonImageUrl === "string" ? vd.canonImageUrl : null,
+    canonLocked: typeof vd.canonLocked === "boolean" ? vd.canonLocked : null,
+  };
+}
+
+export function v3PipelineLocationsToKnownLocations(
+  locs: PremiumV3PipelineLocation[],
+): ComposeVisualWorldContractInput["knownLocations"] {
+  return locs.map((loc) => toComposeVisualWorldKnownLocation(v3PipelineLocationToComposeKnownRow(loc)));
+}
+
+/** Fiche lieu pour le canon-resolver (description = fusion brief DB). */
+export function v3PipelineLocationToResolverUserLocation(loc: PremiumV3PipelineLocation): {
+  id: string;
+  name: string;
+  description: string | null;
+} {
+  const kn = toComposeVisualWorldKnownLocation(v3PipelineLocationToComposeKnownRow(loc));
+  return { id: kn.id, name: kn.name, description: kn.description ?? null };
 }

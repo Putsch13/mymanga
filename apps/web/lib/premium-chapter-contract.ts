@@ -20,7 +20,7 @@ import {
   type ProductionPlan,
   type VisualWorldContract,
 } from "@manga-ai-studio/core";
-import { buildPremiumChapterContractAsync, composeVisualWorldContract } from "@manga-ai-studio/ai";
+import { buildPremiumChapterContractAsync, composeVisualWorldContract, toComposeVisualWorldKnownLocation } from "@manga-ai-studio/ai";
 import { prisma } from "@manga-ai-studio/db";
 
 // ─── Constante canonique des champs premium ───────────────────────────────────
@@ -168,6 +168,8 @@ export async function buildPremiumChapterContractFromApprovedOutline(
             description: true,
             visualBrief: true,
             establishedVisualBrief: true,
+            canonImageUrl: true,
+            canonLocked: true,
           },
         }),
       ]);
@@ -198,15 +200,7 @@ export async function buildPremiumChapterContractFromApprovedOutline(
           roleType: c.roleType ?? null,
           description: c.appearance ?? null,
         })),
-        knownLocations: locationsForWorld.map((loc) => ({
-          id: loc.id,
-          name: loc.name,
-          description:
-            loc.establishedVisualBrief?.trim()
-            || loc.visualBrief?.trim()
-            || loc.description?.trim()
-            || null,
-        })),
+        knownLocations: locationsForWorld.map((loc) => toComposeVisualWorldKnownLocation(loc)),
       });
     } catch (e) {
       console.warn("[premium-contract] visual_world_compose_failed", e);

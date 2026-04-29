@@ -47,7 +47,7 @@ import { buildStoryboardPlanFromPremiumBlueprints } from "./passes/storyboard-fr
 import { runStoryboardPass } from "./passes/storyboard-pass";
 import { buildStyleBibleFromUserProject } from "./chapter-style-bible-resolver";
 import { isPipelineV3RenderFalEnabled } from "./pipeline-feature-flags";
-import { loadLocationsForV3StoryPass, type PremiumV3PipelineLocation } from "./load-locations-for-v3-story-pass";
+import { loadLocationsForV3StoryPass, type PremiumV3PipelineLocation, v3PipelineLocationsToKnownLocations, v3PipelineLocationToResolverUserLocation } from "./load-locations-for-v3-story-pass";
 import {
   loadChapterVisualContractUi,
   saveChapterVisualContractSnapshot,
@@ -490,11 +490,7 @@ export async function runPremiumV3Pipeline(
         roleType: c.roleType,
         description: c.canonSignatureText,
       })),
-      knownLocations: resolvedLocations.map((loc) => ({
-        id: loc.id,
-        name: loc.name ?? loc.id,
-        description: typeof loc.visualDNA?.description === "string" ? loc.visualDNA.description : undefined,
-      })),
+      knownLocations: v3PipelineLocationsToKnownLocations(resolvedLocations),
       premiumV3OnlyEnabled: Boolean(input.premiumV3OnlyEnabled),
       projectGenre: typeof input.project?.primaryGenre === "string" ? input.project.primaryGenre : null,
       projectTone: typeof input.project?.tone === "string" ? input.project.tone : null,
@@ -537,11 +533,7 @@ export async function runPremiumV3Pipeline(
         roleType: c.roleType,
         description: c.canonSignatureText,
       })),
-      userLocations: resolvedLocations.map((loc) => ({
-        id: loc.id,
-        name: loc.name ?? loc.id,
-        description: typeof loc.visualDNA?.description === "string" ? loc.visualDNA.description : undefined,
-      })),
+      userLocations: resolvedLocations.map((loc) => v3PipelineLocationToResolverUserLocation(loc)),
       strictMode: input.premiumV3OnlyEnabled,
     });
     console.info(formatCanonResolverLog(canonResolverResult));

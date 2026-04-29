@@ -36,9 +36,45 @@ export type ComposeVisualWorldContractInput = {
   knownLocations: Array<{
     id: string;
     name: string;
+    /** Texte fusionné (brief établi > brief > description) — toujours envoyé au modèle. */
     description?: string | null;
+    /** Champs bruts DB pour réutiliser les ids `knownLocations` avec source `db_canon` / `user_canon`. */
+    visualBrief?: string | null;
+    establishedVisualBrief?: string | null;
+    canonImageUrl?: string | null;
+    canonLocked?: boolean | null;
   }>;
 };
+
+export type ComposeKnownLocationDbRow = {
+  id: string;
+  name: string;
+  description?: string | null;
+  visualBrief?: string | null;
+  establishedVisualBrief?: string | null;
+  canonImageUrl?: string | null;
+  canonLocked?: boolean | null;
+};
+
+/** Normalise une ligne `Location` Prisma → entrée `knownLocations` du compositeur IA. */
+export function toComposeVisualWorldKnownLocation(
+  loc: ComposeKnownLocationDbRow,
+): ComposeVisualWorldContractInput["knownLocations"][number] {
+  const description =
+    loc.establishedVisualBrief?.trim()
+    || loc.visualBrief?.trim()
+    || loc.description?.trim()
+    || null;
+  return {
+    id: loc.id,
+    name: loc.name,
+    description,
+    visualBrief: loc.visualBrief?.trim() || null,
+    establishedVisualBrief: loc.establishedVisualBrief?.trim() || null,
+    canonImageUrl: loc.canonImageUrl?.trim() || null,
+    canonLocked: typeof loc.canonLocked === "boolean" ? loc.canonLocked : null,
+  };
+}
 
 function buildSystemPrompt(): string {
   return [
@@ -50,7 +86,8 @@ function buildSystemPrompt(): string {
     "- Chaque beatId fourni doit apparaître exactement une fois dans beatBindings.",
     "- Pour chaque beatBinding : locationId OBLIGATOIRE et doit référencer un id présent dans locations[].",
     "- primaryPropIds et npcGroupIds : uniquement des ids présents dans props[] / npcGroups[] (tableaux vides autorisés).",
-    "- locations : au moins un lieu par beat si plusieurs beats ont des ambiances différentes ; réutilise les ids knownLocations quand le texte correspond.",
+    "- Réutilise les ids de knownLocations quand le texte correspond ; si un lieu vient de la DB, mets source db_canon ou user_canon et canonPolicy locked ou promote_candidate si canonLocked est true.",
+    "- Chaque entrée knownLocations peut inclure visualBrief, establishedVisualBrief, canonImageUrl : exploite-les pour décrire les locations[] sans inventer un décor contradictoire.",
     "- Chaque location doit avoir description non vide, kind cohérent, visualAnchors/architecture/lighting/atmosphere utiles (tableaux, peuvent être courts).",
     "- props : objets visibles ou symboliques importants pour l'histoire ; requiredBeatIds cohérents.",
     "- npcGroups : foules, gardes, marchands, etc. avec visualProfile/outfit/silhouette concrets.",
