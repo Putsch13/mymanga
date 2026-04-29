@@ -799,6 +799,8 @@ export async function runNarrativePass(
     );
 
     let finalPanelBlueprints = effectivePanelBlueprints;
+    /** Rempli par le chemin blueprints dynamiques : noms de props inférés (VW + faits) par `beat.id`. */
+    const beatInferredPropNamesByBeatId = new Map<string, string[]>();
 
     if (finalPanelBlueprints.length === 0 && revisedBundle.outline.beats.length > 0) {
       console.log(`[pipeline] b3-1 generating panel blueprints dynamically for ${revisedBundle.outline.beats.length} beats`);
@@ -907,6 +909,10 @@ export async function runNarrativePass(
             premiumStrictChapterSourcing: isPipelineV3PremiumOnlyEnabled(),
             ...(visualWorldPropsForBeat ? { visualWorldPropsForBeat, heroCharacterId } : {}),
           });
+          beatInferredPropNamesByBeatId.set(
+            beat.id,
+            [...new Set(props.map((p: { canonicalName: string }) => p.canonicalName))].slice(0, 16),
+          );
 
           // Step 5: blueprints
           const beatBlueprints = buildPanelBlueprintsFromBeat(
@@ -1361,6 +1367,12 @@ export async function runNarrativePass(
                 styleRules: [],
                 loreConstraints: [],
               },
+              premiumContract: (() => {
+                const bid = revisedBundle.outline.beats[index]?.id;
+                const names = bid ? beatInferredPropNamesByBeatId.get(bid) : undefined;
+                if (!names?.length) return undefined;
+                return { requiredPropNames: names };
+              })(),
             }, sceneBlueprintBuildOpts),
             stylePack: stylePack
               ? {
