@@ -28,7 +28,7 @@ function minimalBp(overrides: Partial<PanelBlueprintPremium>): PanelBlueprintPre
 }
 
 describe("computePanelContinuityPreflights", () => {
-  it("ne bloque pas un panel medium sans DNA", () => {
+  it("hors mode strict : medium avec requiredCharacterIds sans DNA n’est pas bloquant", () => {
     const [p] = computePanelContinuityPreflights([
       minimalBp({
         requiredCharacterIds: ["hero-1"],
@@ -49,7 +49,9 @@ describe("computePanelContinuityPreflights", () => {
     ]);
     expect(p.blocking).toBe(true);
     expect(p.missingEnvironmentDna).toBe(false);
-    expect(continuityPreflightBlockingReasons([p]).length).toBe(1);
+    expect(continuityPreflightBlockingReasons([p])).toEqual([
+      "p1:missing_character_visual_dna:ids=hero-1",
+    ]);
   });
 
   it("ne bloque pas un panel critique avec DNA présent", () => {
@@ -63,6 +65,20 @@ describe("computePanelContinuityPreflights", () => {
     expect(p.blocking).toBe(false);
     expect(p.missingEnvironmentDna).toBe(false);
     expect(p.missing).toHaveLength(0);
+  });
+
+  it("strictCharacterDnaBinding : bloque un panel medium avec requiredCharacterIds sans DNA", () => {
+    const [p] = computePanelContinuityPreflights(
+      [
+        minimalBp({
+          requiredCharacterIds: ["hero-1"],
+          criticality: "medium",
+        }),
+      ],
+      { strictCharacterDnaBinding: true },
+    );
+    expect(p.blocking).toBe(true);
+    expect(continuityPreflightBlockingReasons([p])).toEqual(["p1:missing_character_visual_dna:ids=hero-1"]);
   });
 
   it("bloque un panel critique avec signaux lieu mais sans environmentVisualDna", () => {

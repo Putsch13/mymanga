@@ -556,7 +556,10 @@ export async function POST(req: Request, ctx: Ctx) {
   ].join("|");
 
   const continuityPreflights = isPipelineV3PremiumOnlyEnabled()
-    ? computePanelContinuityPreflights(allBlueprints, { strictEnvironmentLocationBinding: true })
+    ? computePanelContinuityPreflights(allBlueprints, {
+        strictEnvironmentLocationBinding: true,
+        strictCharacterDnaBinding: true,
+      })
     : [];
   const continuityBlockers = isPipelineV3PremiumOnlyEnabled()
     ? continuityPreflightBlockingReasons(continuityPreflights)

@@ -6,7 +6,7 @@
  *   - `premium_contract_incomplete` : champs obligatoires manquants
  *   - `PRODUCTION_PLAN_STRUCTURAL_QA_FAILED` : QA structurelle sur blueprints persistés
  *   - `PREMIUM_AI_READINESS_FAILED` : moteurs IA / env serveur insuffisants (premium-only)
- *   - `PREMIUM_CONTINUITY_PREFLIGHT_FAILED` : panels critiques sans DNA visuel personnage
+ *   - `PREMIUM_CONTINUITY_PREFLIGHT_FAILED` : preflight continuité (DNA personnage / décor)
  *   - `SHOT_MONOTONY` : variété de plans insuffisante
  *   - fallback : message brut
  *
@@ -155,10 +155,10 @@ export function mapLaunchError(payload: LaunchErrorPayload | null | undefined): 
 
   if (code === "PREMIUM_CONTINUITY_PREFLIGHT_FAILED" || errorKey === "premium_continuity_preflight_failed") {
     const blockers = Array.isArray(payload.continuityBlockers) ? payload.continuityBlockers : [];
-    const detail = blockers.length > 0 ? blockers.slice(0, 4).join(" · ") : "panels critiques sans DNA visuel.";
+    const detail = blockers.length > 0 ? blockers.slice(0, 4).join(" · ") : "verrous visuels incomplets.";
     return (
-      "Le plan contient des panels critiques pour lesquels les verrous visuels personnages (characterVisualDna) ne sont pas renseignés. " +
-      `Détail : ${detail} Retourne au studio, complète les DNA / références, puis régénère ou valide à nouveau le plan premium.`
+      "Le plan contient des panels pour lesquels les verrous visuels (characterVisualDna, décor / environmentVisualDna) ne sont pas complets. " +
+      `Détail : ${detail} Retourne au studio, complète les DNA / références / monde visuel, puis régénère ou valide à nouveau le plan premium.`
     );
   }
 

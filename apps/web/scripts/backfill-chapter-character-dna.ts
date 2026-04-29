@@ -73,6 +73,7 @@ async function main() {
   if (isPipelineV3PremiumOnlyEnabled()) {
     const preflights = computePanelContinuityPreflights(hydrated, {
       strictEnvironmentLocationBinding: true,
+      strictCharacterDnaBinding: true,
     });
     const blockers = continuityPreflightBlockingReasons(preflights);
     console.log(

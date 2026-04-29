@@ -352,6 +352,7 @@ export async function POST(_req: Request, ctx: Ctx) {
   if (Array.isArray(bpForContinuity) && bpForContinuity.length > 0 && isPipelineV3PremiumOnlyEnabled()) {
     const continuityPreflights = computePanelContinuityPreflights(bpForContinuity as PanelBlueprintPremium[], {
       strictEnvironmentLocationBinding: isPipelineV3PremiumOnlyEnabled(),
+      strictCharacterDnaBinding: isPipelineV3PremiumOnlyEnabled(),
     });
     const continuityBlockers = continuityPreflightBlockingReasons(continuityPreflights);
     if (continuityBlockers.length > 0) {
@@ -359,7 +360,7 @@ export async function POST(_req: Request, ctx: Ctx) {
         projectId,
         chapterId,
         "PREMIUM_CONTINUITY_PREFLIGHT_FAILED",
-        "Critical premium panels missing character visual DNA",
+        "Premium continuity preflight failed (character or environment visual DNA)",
         { continuityBlockers },
       );
       return NextResponse.json(
@@ -367,8 +368,8 @@ export async function POST(_req: Request, ctx: Ctx) {
           error: "premium_continuity_preflight_failed",
           code: "PREMIUM_CONTINUITY_PREFLIGHT_FAILED",
           message:
-            "Un ou plusieurs panels critiques n'ont aucune entrée characterVisualDna alors que des personnages doivent être visibles. " +
-            "Complète le plan premium (DNA / studio) avant de lancer.",
+            "Le preflight continuité premium a échoué : DNA personnage incomplet et/ou décor (environmentVisualDna) manquant là où le plan l’exige. " +
+            "Consulte continuityBlockers, complète le plan dans le studio, puis relance.",
           continuityBlockers,
           continuityPreflightBlockingCount: continuityBlockers.length,
         },

@@ -12,6 +12,12 @@ export type PanelContinuityPreflightOptions = {
    * Par défaut : seuls les panels `critical` / `contractualCritical` bloquent sur décor absent.
    */
   strictEnvironmentLocationBinding?: boolean;
+  /**
+   * Mode premium strict : tout `requiredCharacterIds` ∪ `mustShowCharacterIds` ∪
+   * locuteur `speaker_visible` doit avoir une entrée `characterVisualDna` (pas seulement
+   * les panels `critical` / `contractualCritical`).
+   */
+  strictCharacterDnaBinding?: boolean;
 };
 
 export type PanelContinuityPreflight = {
@@ -46,6 +52,7 @@ export function computePanelContinuityPreflights(
   options?: PanelContinuityPreflightOptions,
 ): PanelContinuityPreflight[] {
   const strictEnv = options?.strictEnvironmentLocationBinding === true;
+  const strictChar = options?.strictCharacterDnaBinding === true;
   return blueprints.map((bp) => {
     const requiredHeroIds = [
       ...new Set([...(bp.requiredCharacterIds ?? []), ...(bp.mustShowCharacterIds ?? [])]),
@@ -93,10 +100,14 @@ export function computePanelContinuityPreflights(
       bp.dialogueCarrier === "speaker_visible"
       && Boolean(speakerAnchorId)
       && !dna.has(speakerAnchorId!);
+    const missingAnyRequiredCharacterDna =
+      idsRequiringCharacterDna.length > 0
+      && idsRequiringCharacterDna.some((id) => !dna.has(id));
     const blocking =
       (critical && (missingCharacterForCritical || missingEnvironmentDna))
       || missingSpeakerAnchorDna
-      || (strictEnv && missingEnvironmentDna);
+      || (strictEnv && missingEnvironmentDna)
+      || (strictChar && missingAnyRequiredCharacterDna);
 
     return {
       panelId: bp.panelId,
@@ -131,8 +142,8 @@ export function continuityPreflightBlockingReasons(
       .filter((m) => m.startsWith("character_visual_dna_missing:"))
       .map((m) => m.slice("character_visual_dna_missing:".length));
     if (missingIds.length > 0) {
-      return `${p.panelId}:critical_panel_without_character_visual_dna:ids=${missingIds.join(",")}`;
+      return `${p.panelId}:missing_character_visual_dna:ids=${missingIds.join(",")}`;
     }
-    return `${p.panelId}:critical_panel_without_character_visual_dna`;
+    return `${p.panelId}:missing_character_visual_dna`;
   });
 }
