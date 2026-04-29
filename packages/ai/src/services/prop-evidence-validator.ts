@@ -1,6 +1,7 @@
 /**
  * Validation « preuve dans le texte » pour props premium (anti-prop gratuit).
  * Extrait de prop-inference-engine pour réutilisation / tests ciblés.
+ * « document / dossier » et « photo / evidence » ont des motifs distincts (preuve fichier vs cliché).
  */
 
 import type { PropVisibilityMode } from "@manga-ai-studio/core";
@@ -53,7 +54,10 @@ export function matchesStrictPremiumPropEvidence(template: PropTemplateEvidenceS
   if (key.includes("talisman")) {
     return /\btalisman\b/i.test(text) || /\bamulette\b/i.test(lower);
   }
-  if (key.includes("document") || key.includes("photo / evidence")) {
+  if (key.includes("photo / evidence")) {
+    return /\b(photo|photograph|photographie|preuve|evidence|cliché|cliche)\b/i.test(lower);
+  }
+  if (key.includes("document")) {
     return /\b(preuve|evidence|dossier|fichier|rapport|affidavit)\b/i.test(lower);
   }
   if (key.includes("laptop") || key.includes("tablet")) {

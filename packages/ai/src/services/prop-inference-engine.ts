@@ -664,17 +664,35 @@ export function inferRequiredPropsFromBeat(
       for (const candidate of fact.propCandidates) {
         if (seenNames.has(candidate)) continue;
         seenNames.add(candidate);
+        const narrativeRole = fact.type === "prop_transfer" ? "payoff" : "action_tool";
+        const defaultVisibilityMode =
+          fact.requiredVisibility === "must_show" ? "foreground_insert" : "background_support";
+        const ownerCategory = inferPropOwnerCategory(
+          {
+            canonicalName: candidate,
+            category: "inferred",
+            narrativeRole,
+            defaultVisibilityMode,
+          },
+          text,
+          {
+            universeType: enrichedContext.universeType ?? null,
+            heroCharacterId: enrichedContext.heroCharacterId ?? null,
+          },
+          false,
+        );
         props.push({
           id: `prop_fact_${beat.beatId}_${candidate.replace(/\s+/g, "_")}`,
           canonicalName: candidate,
           aliases: [],
           category: "inferred",
-          narrativeRole: fact.type === "prop_transfer" ? "payoff" : "action_tool",
+          narrativeRole,
           requiredForBeatIds: [beat.beatId],
           visibilityMode: fact.requiredVisibility === "must_show" ? "foreground_insert" : "background_support",
           mustBeVisible: fact.requiredVisibility === "must_show",
           confidence: fact.evidenceStrength,
           source: fact.source === "continuity" ? "continuity" : "story_inference",
+          ownerCategory,
         });
       }
     }

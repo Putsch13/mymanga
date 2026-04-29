@@ -202,6 +202,29 @@ describe("P0.4 — prop-inference-engine — ownership category", () => {
     expect(guardWeapon).toBeDefined();
   });
 
+  it("attribue ownerCategory aux props issus des faits narratifs (ennemi)", () => {
+    const beat = makeBeat({
+      beatId: "b1",
+      summary: "L'ennemi brandit l'artefact volé pendant la fusillade.",
+      narrativeFunction: "action",
+    });
+    const fact = {
+      id: "f1",
+      beatId: "b1",
+      type: "prop_usage" as const,
+      actorIds: [] as string[],
+      targetIds: [] as string[],
+      propCandidates: ["artefact volé"],
+      locationSignals: [] as string[],
+      requiredVisibility: "must_show" as const,
+      evidenceStrength: 0.88,
+      source: "inference" as const,
+    };
+    const props = inferRequiredPropsFromBeat(beat, [fact], { heroCharacterId: "hero-1" });
+    const p = props.find((x) => x.id.startsWith("prop_fact_"));
+    expect(p?.ownerCategory).toBe("enemy");
+  });
+
   it("conserve ownerCategory=unassigned pour des props ambigus", () => {
     const beat = makeBeat({
       summary: "Un téléphone sonne dans la pièce.",
