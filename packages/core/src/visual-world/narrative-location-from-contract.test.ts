@@ -6,6 +6,7 @@ import {
   requireVisualWorldLocationForBeat,
   sceneStringFromVisualWorldLocation,
 } from "./narrative-location-from-contract";
+import { selectBeatLocationFromVisualWorld } from "./select-beat-location";
 
 function minimalLoc(id: string, label: string, description: string): VisualWorldLocation {
   return {
@@ -60,6 +61,21 @@ describe("narrative-location-from-contract", () => {
       beatBindings: [],
     };
     expect(locationSceneStringsFromVisualWorldContract(vw)).toEqual(["A — d1", "B — d2"]);
+  });
+
+  it("selectBeatLocationFromVisualWorld est un alias strict de require", () => {
+    const vw: VisualWorldContract = {
+      chapterId: "c1",
+      source: "ai_generated",
+      locations: [minimalLoc("loc-a", "Hangar", "Fuites de vapeur")],
+      props: [],
+      npcGroups: [],
+      creatures: [],
+      vehicles: [],
+      factions: [],
+      beatBindings: [{ beatId: "beat_alpha", locationId: "loc-a", primaryPropIds: [], npcGroupIds: [] }],
+    };
+    expect(selectBeatLocationFromVisualWorld({ visualWorld: vw, beatId: "beat_alpha" }).id).toBe("loc-a");
   });
 
   it("requireVisualWorldLocationForBeat retourne le lieu lié au beat", () => {

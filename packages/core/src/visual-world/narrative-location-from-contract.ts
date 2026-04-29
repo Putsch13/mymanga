@@ -1,7 +1,7 @@
 import type { VisualWorldContract, VisualWorldLocation } from "./visual-world-contract";
 
 /**
- * Lieu visuel obligatoire pour un beat (premium) — lève si binding ou location absents.
+ * Lieu visuel obligatoire pour un beat (premium) — lève si binding ou lieu absents.
  */
 export function requireVisualWorldLocationForBeat(
   visualWorld: VisualWorldContract,

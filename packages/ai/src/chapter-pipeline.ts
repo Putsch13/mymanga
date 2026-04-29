@@ -12,6 +12,8 @@ import {
   beatLocationSceneStringFromVisualWorld,
   locationSceneStringsFromVisualWorldContract,
   resolveCanonicalLocation,
+  sceneStringFromVisualWorldLocation,
+  selectBeatLocationFromVisualWorld,
   isPipelineV3PremiumOnlyEnabled,
   type VisualWorldContract,
 } from "@manga-ai-studio/core";
@@ -658,10 +660,8 @@ export async function generateChapterBundle(input: {
 
   const rawOutlineBeats = outlineResult.outline.beats.map((beat, index) => {
     const beatKeyForVw = input.approvedOutline?.beats[index]?.id ?? `beat_${index + 1}`;
-    const fromVisualWorld =
-      input.visualWorldContract && input.visualWorldContract.locations.length > 0
-        ? beatLocationSceneStringFromVisualWorld(input.visualWorldContract, beatKeyForVw)
-        : null;
+    const vw = input.visualWorldContract;
+    const hasVwLocations = Boolean(vw && vw.locations.length > 0);
     return {
       id: `beat_${index + 1}`,
       summary: beat.summary,
@@ -677,17 +677,13 @@ export async function generateChapterBundle(input: {
             : [mainCast[index % mainCast.length] ?? mainCast[0], mainCast[(index + 1) % mainCast.length] ?? mainCast[0]].filter(Boolean),
       ),
       location: (() => {
-        if (fromVisualWorld) return fromVisualWorld;
-        if (
-          premium
-          && (input.visualWorldContract?.locations?.length ?? 0) > 0
-          && !input.allowLegacyLocationInference
-        ) {
-          throw new Error(
-            `premium_missing_beat_location_scene:${beatKeyForVw} — beat sans lieu issu du VisualWorldContract ` +
-              "(binding manquant ou `locationId` introuvable). Utiliser `allowLegacyLocationInference: true` " +
-              "uniquement pour un bootstrap explicite.",
-          );
+        if (hasVwLocations && vw) {
+          if (premium && !input.allowLegacyLocationInference) {
+            const loc = selectBeatLocationFromVisualWorld({ visualWorld: vw, beatId: beatKeyForVw });
+            return sceneStringFromVisualWorldLocation(loc);
+          }
+          const scene = beatLocationSceneStringFromVisualWorld(vw, beatKeyForVw);
+          if (scene) return scene;
         }
         return (
           resolveCanonicalLocation(input.context.locations ?? [], beat.location?.trim()) ??

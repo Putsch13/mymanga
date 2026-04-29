@@ -235,7 +235,7 @@ describe("generateChapterBundle with approved outline", () => {
         approvedOutline,
         visualWorldContract,
       }),
-    ).rejects.toThrow(/premium_missing_beat_location_scene:beat_2/);
+    ).rejects.toThrow(/premium_missing_beat_location_binding:beat_2/);
 
     vi.unstubAllEnvs();
   });
