@@ -5,6 +5,7 @@
  */
 
 import type { StoryboardPlan } from "@manga-ai-studio/ai/contracts";
+import { buildPanelTextContractFromFragments } from "@manga-ai-studio/core";
 import { getPanelPromptFingerprint } from "./panel-prompt-fingerprint";
 import { repairStoryboardPlanRepeatedPromptFingerprints } from "./repair-repeated-prompt-fingerprints";
 
@@ -82,18 +83,23 @@ function isCloseup(panel: Record<string, unknown>): boolean {
 }
 
 function panelHasDialogueOrSfx(panel: Record<string, unknown>): boolean {
-  const dialogue = panel.dialogue as unknown[] | undefined;
-  const sfx = panel.sfx as unknown[] | undefined;
-  const narration = panel.narration as string | undefined;
-  const bundle = panel.panelTextBundle as { dialogues?: unknown[] } | null | undefined;
-  const bundleDialogues = bundle?.dialogues;
-
-  return (
-    (Array.isArray(dialogue) && dialogue.length > 0) ||
-    (Array.isArray(bundleDialogues) && bundleDialogues.length > 0) ||
-    (Array.isArray(sfx) && sfx.length > 0) ||
-    Boolean(narration)
-  );
+  const panelId = typeof panel.panelId === "string" && panel.panelId.length > 0 ? panel.panelId : "panel";
+  const dialogue = panel.dialogue as unknown;
+  const dialogueLines =
+    Array.isArray(dialogue) && dialogue.length > 0
+      ? (dialogue as Array<{ speaker?: string; text?: string }>)
+      : null;
+  const contract = buildPanelTextContractFromFragments({
+    panelId,
+    dialogueLines,
+    narration: typeof panel.narration === "string" ? panel.narration : null,
+    sfx: Array.isArray(panel.sfx) ? (panel.sfx as string[]) : null,
+    panelTextBundle:
+      typeof panel.panelTextBundle === "object" && panel.panelTextBundle !== null && !Array.isArray(panel.panelTextBundle)
+        ? (panel.panelTextBundle as never)
+        : null,
+  });
+  return contract.hasText;
 }
 
 function hasStrongWithoutRefs(panel: Record<string, unknown>): boolean {

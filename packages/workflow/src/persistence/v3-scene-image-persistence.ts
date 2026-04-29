@@ -27,7 +27,9 @@ import { prisma, type Prisma } from "@manga-ai-studio/db";
 import {
   buildReaderPanelSlots,
   buildPanelTextContractFromFragments,
+  textContractToLegacyDialogue,
   type GenerationDebugSnapshot,
+  type PanelTextBundle,
 } from "@manga-ai-studio/core";
 import type {
   FalRenderRoute,
@@ -190,6 +192,23 @@ async function preparePanelData(
       : "pending";
 
   const panelTextForPersist = panelTextPayloadForPersist(panel, record.spec);
+  const panelTextBundle =
+    typeof (panel as { panelTextBundle?: unknown }).panelTextBundle === "object"
+    && (panel as { panelTextBundle?: unknown }).panelTextBundle !== null
+      ? ((panel as { panelTextBundle?: PanelTextBundle | null }).panelTextBundle ?? null)
+      : null;
+
+  /** Même merge que `buildPanelRenderTextPayloadFromStoryboardPanel` : payload rendu + bundle épars. */
+  const textContract = buildPanelTextContractFromFragments({
+    panelId: panel.panelId,
+    dialogueLines: panelTextForPersist.dialogue?.length ? panelTextForPersist.dialogue : null,
+    narration: panelTextForPersist.narration ?? null,
+    sfx: panelTextForPersist.sfx ?? null,
+    panelTextBundle,
+  });
+  const legacyDialogueLines = textContractToLegacyDialogue(textContract);
+  const narrationPersist = textContract.narration ?? null;
+  const sfxPersist = textContract.sfx.map((e) => e.text);
 
   const generationDebugSnapshot: GenerationDebugSnapshot = {
     version: "v2",
@@ -237,9 +256,9 @@ async function preparePanelData(
       mustAvoid: panel.mustNotShow,
     },
     text: {
-      dialogues: panelTextForPersist.dialogue ?? [],
-      narration: panelTextForPersist.narration ?? null,
-      sfx: panelTextForPersist.sfx ?? [],
+      dialogues: legacyDialogueLines,
+      narration: narrationPersist,
+      sfx: sfxPersist,
       reservedZones: [],
       preferredAnchorZones: panel.textPlacementHint?.preferredAnchorZones ?? [],
       overflowStrategy: panel.textPlacementHint?.overflowStrategy ?? "caption_strip",
@@ -263,10 +282,7 @@ async function preparePanelData(
     },
   };
 
-  const reserveTextArea =
-    (Array.isArray(panelTextForPersist.dialogue) && panelTextForPersist.dialogue.length > 0)
-    || Boolean(panelTextForPersist.narration?.trim())
-    || (Array.isArray(panelTextForPersist.sfx) && panelTextForPersist.sfx.length > 0);
+  const reserveTextArea = textContract.hasText;
 
   let visualQa: VisualQaResult | null = null;
   if (record.visualQa != null) {
@@ -300,13 +316,6 @@ async function preparePanelData(
     V3RenderedPanelRecord["renderAttempts"]
   >;
 
-  const textContract = buildPanelTextContractFromFragments({
-    panelId: panel.panelId,
-    dialogueLines: panelTextForPersist.dialogue?.length ? panelTextForPersist.dialogue : null,
-    narration: panelTextForPersist.narration ?? null,
-    sfx: panelTextForPersist.sfx ?? null,
-  });
-
   const metadata = {
     v3: true,
     panelId: panel.panelId,
@@ -321,9 +330,9 @@ async function preparePanelData(
     actionLine: record.spec.actionLine,
     emotionLine: record.spec.emotionLine,
     textContract,
-    dialogue: panelTextForPersist.dialogue ?? [],
-    narration: panelTextForPersist.narration ?? null,
-    sfx: panelTextForPersist.sfx ?? [],
+    dialogue: legacyDialogueLines,
+    narration: narrationPersist,
+    sfx: sfxPersist,
     textMeta: panel.textPlacementHint
       ? {
           preferredAnchorZones: panel.textPlacementHint.preferredAnchorZones ?? [],

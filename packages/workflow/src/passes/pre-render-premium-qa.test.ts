@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StoryboardPanel, StoryboardPlan } from "@manga-ai-studio/ai/contracts";
-import { runPreRenderPremiumQaOrThrow } from "./pre-render-premium-qa";
+import { runPreRenderPremiumQa, runPreRenderPremiumQaOrThrow } from "./pre-render-premium-qa";
 
 function makePanel(overrides: Partial<StoryboardPanel>): StoryboardPanel {
   return {
@@ -55,6 +55,29 @@ function makePlan(panels: StoryboardPanel[]): StoryboardPlan {
     },
   };
 }
+
+describe("runPreRenderPremiumQa — texte panel (contrat unique)", () => {
+  it("compte le dialogue présent uniquement dans panelTextBundle", () => {
+    const plan = makePlan([
+      {
+        ...makePanel({
+          dialogue: [],
+          actionLine: "Le combat s'intensifie.",
+        }),
+        panelTextBundle: { dialogues: [{ speaker: "A", text: "Tiens ça !" }], narration: null, sfx: [] },
+      } as StoryboardPanel,
+    ]);
+    const result = runPreRenderPremiumQa({
+      storyboardPlan: plan,
+      chapterSummary: "Combat et explosion sur le champ.",
+      chapterUserIntent: null,
+      chapterLocationName: null,
+      mainCharacterNames: [],
+    });
+    expect(result.stats.hasDialogueOrSfx).toBe(true);
+    expect(result.issues.find((i) => i.includes("action_chapter_without_dialogue"))).toBeUndefined();
+  });
+});
 
 describe("runPreRenderPremiumQaOrThrow — repeated prompts repair", () => {
   it("répare les empreintes dupliquées au lieu d’échouer immédiatement", () => {
