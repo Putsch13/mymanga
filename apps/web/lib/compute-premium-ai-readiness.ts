@@ -33,10 +33,11 @@ function imageProviderStep(stack: GenerationStackStatus, premiumOnly: boolean): 
 }
 
 function visualQaStep(stack: GenerationStackStatus, premiumOnly: boolean): AiStepReadiness {
-  if (stack.premiumVisualQaPreflight.launchBlocked) {
+  const preflight = stack.premiumVisualQaPreflight;
+  if (preflight?.launchBlocked) {
     const missing =
-      stack.premiumVisualQaPreflight.missing.length > 0
-        ? stack.premiumVisualQaPreflight.missing.join(", ")
+      (preflight.missing?.length ?? 0) > 0
+        ? (preflight.missing ?? []).join(", ")
         : "configuration QA vision incomplète";
     return {
       status: "failed",

@@ -32,13 +32,19 @@ export interface SceneState {
   escapeRoutes?: string[];
 }
 
+/** Origine de la définition d’archetype (contrat IA, canon DB, ou inférence héritée). */
+export type SceneExtraSource = "ai_generated" | "db_canon" | "legacy";
+
 /**
  * SceneExtra: PNJ/figurant dans une scène.
+ * `archetypeId` est stable pour dédup / templates ; `archetypeLabel` alimente prompts et UI.
  */
 export interface SceneExtra {
   id: string;
   sceneId: string;
-  archetype: "bartender" | "client" | "guard" | "server" | "crowd" | "merchant" | "passerby" | "other";
+  archetypeId: string;
+  archetypeLabel: string;
+  source: SceneExtraSource;
   visualSignature: {
     genderPresentation?: string;
     hair?: string;

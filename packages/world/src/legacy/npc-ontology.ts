@@ -1,6 +1,6 @@
-import type { OntologyEntry, ProceduralEntity, SceneBlueprintInput } from "./types";
-import { createSeededRng } from "./seeded-rng";
-import { isEntryUniverseCompatible } from "./universe-compatibility";
+import type { OntologyEntry, ProceduralEntity, SceneBlueprintInput } from "../types";
+import { createSeededRng } from "../seeded-rng";
+import { isEntryUniverseCompatible } from "../universe-compatibility";
 
 export const NPC_ONTOLOGY: OntologyEntry[] = [
   {

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { inferRequiredPropsFromBeat, inferNarrativeFactsFromBeat } from "@manga-ai-studio/ai";
+import {
+  inferRequiredPropsFromBeat,
+  inferNarrativeFactsFromBeat,
+  indexVisualWorldPropsByBeat,
+} from "@manga-ai-studio/ai";
 import type { ProductionBeat } from "@manga-ai-studio/core";
 
 function makeBeat(overrides: Partial<ProductionBeat> = {}): ProductionBeat {
@@ -23,6 +27,34 @@ function makeBeat(overrides: Partial<ProductionBeat> = {}): ProductionBeat {
     ...overrides,
   };
 }
+
+describe("prop-inference-engine — premium suppressUniverseTemplateProps", () => {
+  it("n'injecte pas les props catalogue univers sans faits narratifs", () => {
+    const beat = makeBeat({
+      summary: "Le ninja lance un kunai sur son adversaire.",
+      narrativeFunction: "combat",
+    });
+    const props = inferRequiredPropsFromBeat(beat, [], {
+      universeType: "ninja",
+      suppressUniverseTemplateProps: true,
+    });
+    expect(props.length).toBe(0);
+  });
+
+  it("n’injecte pas les props catalogue ni regex additionnelles sans faits — le téléphone passe par les faits narratifs", () => {
+    const beat = makeBeat({
+      summary: "Il reçoit un appel urgent sur son téléphone portable.",
+      narrativeFunction: "dialogue",
+    });
+    const facts = inferNarrativeFactsFromBeat(beat, {});
+    const props = inferRequiredPropsFromBeat(beat, facts, {
+      universeType: "generic",
+      suppressUniverseTemplateProps: true,
+    });
+    const names = props.map((p) => p.canonicalName.toLowerCase());
+    expect(names.some((n) => n.includes("smartphone") || n.includes("téléphone") || n.includes("phone"))).toBe(true);
+  });
+});
 
 describe("prop-inference-engine — kunai/shuriken ninja", () => {
   it("infère kunai comme prop obligatoire pour un beat ninja", () => {
@@ -181,5 +213,97 @@ describe("P0.4 — prop-inference-engine — ownership category", () => {
     // Sans contexte clair de propriétaire, le téléphone reste unassigned ou hero si heroCharacterId est fourni
     expect(phone).toBeDefined();
     expect(["unassigned", "hero"]).toContain(phone?.ownerCategory);
+  });
+});
+
+describe("prop-inference-engine — props VisualWorld par beat", () => {
+  it("indexVisualWorldPropsByBeat regroupe les props par requiredBeatIds", () => {
+    const idx = indexVisualWorldPropsByBeat({
+      props: [
+        {
+          id: "a",
+          canonicalName: "Clé",
+          category: "key",
+          visualDescription: "clé rouillée",
+          ownerCharacterId: null,
+          locationId: null,
+          requiredBeatIds: ["b1", "b2"],
+          continuityPolicy: "symbolic",
+        },
+        {
+          id: "b",
+          canonicalName: "Lampe",
+          category: "light",
+          visualDescription: "lampe",
+          ownerCharacterId: null,
+          locationId: null,
+          requiredBeatIds: ["b2"],
+          continuityPolicy: "single_use",
+        },
+      ],
+    });
+    expect(idx).toBeDefined();
+    expect(idx?.b1?.map((p) => p.id)).toEqual(["a"]);
+    expect(idx?.b2?.map((p) => p.id)).toEqual(["a", "b"]);
+  });
+
+  it("injecte les props du contrat monde même avec suppressUniverseTemplateProps", () => {
+    const beat = makeBeat({
+      beatId: "beat-vw",
+      summary: "Discussion calme sans objet nommé explicitement.",
+      narrativeFunction: "dialogue",
+    });
+    const facts = inferNarrativeFactsFromBeat(beat, {});
+    const vw = indexVisualWorldPropsByBeat({
+      props: [
+        {
+          id: "vwprop1",
+          canonicalName: "Médaille du mérite",
+          category: "accessory",
+          visualDescription: "or",
+          ownerCharacterId: "hero-1",
+          locationId: null,
+          requiredBeatIds: ["beat-vw"],
+          continuityPolicy: "recurring",
+        },
+      ],
+    });
+    const props = inferRequiredPropsFromBeat(beat, facts, {
+      suppressUniverseTemplateProps: true,
+      visualWorldPropsForBeat: vw,
+    });
+    const medal = props.find((p) => p.canonicalName === "Médaille du mérite");
+    expect(medal).toBeDefined();
+    expect(medal?.id.startsWith("prop_vw_")).toBe(true);
+  });
+
+  it("attribue ownerCategory=npc pour un prop VW lié à un personnage autre que le héros", () => {
+    const beat = makeBeat({
+      beatId: "b-vw-npc",
+      summary: "Le mentor range son équipement.",
+      narrativeFunction: "dialogue",
+    });
+    const facts = inferNarrativeFactsFromBeat(beat, {});
+    const vw = indexVisualWorldPropsByBeat({
+      props: [
+        {
+          id: "p-mentor-bag",
+          canonicalName: "Sac du mentor",
+          category: "prop",
+          visualDescription: "cuir usé",
+          ownerCharacterId: "char-mentor",
+          locationId: null,
+          requiredBeatIds: ["b-vw-npc"],
+          continuityPolicy: "recurring",
+        },
+      ],
+    });
+    const props = inferRequiredPropsFromBeat(beat, facts, {
+      suppressUniverseTemplateProps: true,
+      visualWorldPropsForBeat: vw,
+      heroCharacterId: "hero-1",
+    });
+    const bag = props.find((p) => p.canonicalName === "Sac du mentor");
+    expect(bag?.ownerCategory).toBe("npc");
   });
 });

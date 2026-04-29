@@ -230,8 +230,9 @@ const FACTION_PATTERNS = [
 
 /**
  * Props interdits / fantômes à ne jamais inclure comme props visuels.
+ * Export pour réutilisation par `visual-world-discovery-pass` (contrat IA).
  */
-const FORBIDDEN_PROPS = [
+export const DEFAULT_FORBIDDEN_VISUAL_PROPS = [
   "obstacle",
   "danger",
   "tension",
@@ -248,7 +249,7 @@ const FORBIDDEN_PROPS = [
 /**
  * Props suspects qui nécessitent une justification textuelle.
  */
-const SUSPICIOUS_PROPS = [
+export const DEFAULT_SUSPICIOUS_VISUAL_PROPS = [
   "document",
   "evidence",
   "document/evidence",
@@ -583,7 +584,7 @@ export function runVisualDiscoveryPass(
   // 6. Props interdits
   let forbiddenPropsStripped = 0;
   const foundForbiddenProps: string[] = [];
-  for (const fp of FORBIDDEN_PROPS) {
+  for (const fp of DEFAULT_FORBIDDEN_VISUAL_PROPS) {
     if (allText.toLowerCase().includes(fp.toLowerCase())) {
       foundForbiddenProps.push(fp);
       forbiddenPropsStripped++;
@@ -604,7 +605,7 @@ export function runVisualDiscoveryPass(
     creatures,
     factions,
     props,
-    forbiddenProps: [...FORBIDDEN_PROPS, ...SUSPICIOUS_PROPS],
+    forbiddenProps: [...DEFAULT_FORBIDDEN_VISUAL_PROPS, ...DEFAULT_SUSPICIOUS_VISUAL_PROPS],
     rejectedEntities,
     beatBindings,
   };

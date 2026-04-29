@@ -19,7 +19,8 @@ import {
   type ProductionOutline,
   type ProductionPlan,
 } from "@manga-ai-studio/core";
-import { buildPremiumChapterContractAsync } from "@manga-ai-studio/ai";
+import { buildPremiumChapterContractAsync, composeVisualWorldContract } from "@manga-ai-studio/ai";
+import { prisma } from "@manga-ai-studio/db";
 
 // ─── Constante canonique des champs premium ───────────────────────────────────
 
@@ -88,6 +89,11 @@ export interface BuildPremiumContractInput {
    * nombre de blueprints atteint cette cible.
    */
   minimumPanels?: number | null;
+  /**
+   * Snapshot studio courant (canons personnages) pour hydrater `characterVisualDna`
+   * sur les blueprints après merge.
+   */
+  studioSnapshot?: ChapterStudioSnapshot | null;
 }
 
 // ─── buildPremiumChapterContractFromApprovedOutline ───────────────────────────
@@ -99,6 +105,111 @@ export interface BuildPremiumContractInput {
 export async function buildPremiumChapterContractFromApprovedOutline(
   input: BuildPremiumContractInput,
 ): Promise<PremiumChapterContractResult> {
+  let characterDnaHydration:
+    | {
+        characters: Array<{
+          id: string;
+          name: string;
+          hairColor: string | null;
+          eyeColor: string | null;
+          appearance: string | null;
+          outfitDefault: string | null;
+        }>;
+        characterCanonsById: Record<string, import("@manga-ai-studio/core").CharacterCanon> | null;
+      }
+    | undefined;
+
+  if (input.projectId) {
+    const rows = await prisma.character.findMany({
+      where: { projectId: input.projectId },
+      select: {
+        id: true,
+        name: true,
+        hairColor: true,
+        eyeColor: true,
+        appearance: true,
+        outfitDefault: true,
+      },
+    });
+    const canons = input.studioSnapshot?.data?.characterCanons ?? [];
+    const characterCanonsById: Record<string, import("@manga-ai-studio/core").CharacterCanon> = {};
+    for (const c of canons) {
+      characterCanonsById[c.characterId] = c;
+    }
+    if (rows.length > 0) {
+      characterDnaHydration = {
+        characters: rows,
+        characterCanonsById: Object.keys(characterCanonsById).length > 0 ? characterCanonsById : null,
+      };
+    }
+  }
+
+  let visualWorldContract: import("@manga-ai-studio/core").VisualWorldContract | undefined;
+  if (
+    process.env.PIPELINE_V3_PREMIUM_ONLY === "true"
+    && process.env.OPENAI_API_KEY
+    && input.chapterId
+    && input.projectId
+  ) {
+    try {
+      const [charactersForWorld, locationsForWorld] = await Promise.all([
+        prisma.character.findMany({
+          where: { projectId: input.projectId },
+          select: { id: true, name: true, roleType: true, appearance: true },
+        }),
+        prisma.location.findMany({
+          where: { projectId: input.projectId },
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            visualBrief: true,
+            establishedVisualBrief: true,
+          },
+        }),
+      ]);
+
+      const nameToId = new Map(
+        charactersForWorld.map((c) => [c.name.trim().toLowerCase(), c.id] as const),
+      );
+
+      visualWorldContract = await composeVisualWorldContract({
+        chapterId: input.chapterId,
+        chapterSummary: input.chapterSummary ?? null,
+        chapterUserIntent: input.userIntent ?? null,
+        projectGenre: input.projectGenre ?? null,
+        projectTone: input.projectTone ?? null,
+        styleBibleJson: null,
+        beats: input.approvedOutline.beats.map((b) => ({
+          beatId: b.id,
+          summary: b.summary,
+          whyThisBeatExists: b.pageRole ?? null,
+          dramaticChange: b.turn ?? null,
+          involvedCharacterIds: (b.characters ?? [])
+            .map((name) => nameToId.get(name.trim().toLowerCase()))
+            .filter((x): x is string => Boolean(x)),
+        })),
+        knownCharacters: charactersForWorld.map((c) => ({
+          id: c.id,
+          name: c.name,
+          roleType: c.roleType ?? null,
+          description: c.appearance ?? null,
+        })),
+        knownLocations: locationsForWorld.map((loc) => ({
+          id: loc.id,
+          name: loc.name,
+          description:
+            loc.establishedVisualBrief?.trim()
+            || loc.visualBrief?.trim()
+            || loc.description?.trim()
+            || null,
+        })),
+      });
+    } catch (e) {
+      console.warn("[premium-contract] visual_world_compose_failed", e);
+    }
+  }
+
   const raw = await buildPremiumChapterContractAsync({
     approvedOutline: input.approvedOutline,
     heroCharacterId: input.heroCharacterId ?? null,
@@ -116,6 +227,8 @@ export async function buildPremiumChapterContractFromApprovedOutline(
     minimumPanels: typeof input.minimumPanels === "number" && input.minimumPanels > 0
       ? input.minimumPanels
       : undefined,
+    characterDnaHydration,
+    visualWorldContract: visualWorldContract ?? undefined,
   });
 
   const outlineResult = productionOutlineSchema.safeParse(raw.productionOutline);

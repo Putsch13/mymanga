@@ -1,6 +1,6 @@
 import { prisma } from "@manga-ai-studio/db";
 import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
-import { setJobProgress } from "./pipeline-job";
+import { setJobProgress, mergeJobOutput } from "./pipeline-job";
 import { normalizeCreativeControls, type PipelineJobInput } from "./pipeline-quality";
 import {
   queueAutoLoraTrainingIfEligible,
@@ -195,7 +195,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
   }
 
   try {
-    const { v3RenderSucceeded } = await runPremiumV3Pipeline({
+    const { v3RenderSucceeded, visualWorldDiscovery } = await runPremiumV3Pipeline({
       chapterId,
       projectId,
       chapterNumber,
@@ -307,6 +307,10 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       console.log(
         `[pipeline:v3] premium_v3_only_finalized chapterId=${chapterId} — legacy narrative + image passes skipped.`,
       );
+      await mergeJobOutput(jobId, {
+        premiumV3: true,
+        visualWorldDiscovery: visualWorldDiscovery ?? null,
+      });
       await prisma.job.update({
         where: { id: jobId },
         data: { status: "completed", finishedAt: new Date() },

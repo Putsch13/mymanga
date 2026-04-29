@@ -4,7 +4,7 @@
  */
 
 import type { PrismaClient, Prisma } from "@manga-ai-studio/db";
-import type { SceneExtra, NpcType } from "@manga-ai-studio/core";
+import type { SceneExtra, SceneExtraSource, NpcType } from "@manga-ai-studio/core";
 
 const NPC_PROMOTION_THRESHOLD = 2;
 
@@ -114,18 +114,84 @@ export function detectNpcVisualDrift(input: {
   return { drifted, severity, reasons };
 }
 
+const LEGACY_ARCHETYPE_LABELS: Record<string, string> = {
+  bartender: "Barman",
+  client: "Client",
+  guard: "Garde",
+  server: "Serveur",
+  merchant: "Marchand",
+  passerby: "Passant",
+  crowd: "Foule / figurants",
+  other: "PNJ",
+};
+
+function isSceneExtraSource(v: unknown): v is SceneExtraSource {
+  return v === "ai_generated" || v === "db_canon" || v === "legacy";
+}
+
+/** Lit les métadonnées JSON : format courant ou ancien champ `archetype` (union). */
+export function normalizeSceneExtra(raw: unknown): SceneExtra | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  const id = typeof o.id === "string" ? o.id : null;
+  const sceneId = typeof o.sceneId === "string" ? o.sceneId : null;
+  const anchorSlot = typeof o.anchorSlot === "string" ? o.anchorSlot : null;
+  const vs = asRecord(o.visualSignature);
+  const visualSignature: SceneExtra["visualSignature"] = {
+    genderPresentation: typeof vs.genderPresentation === "string" ? vs.genderPresentation : undefined,
+    hair: typeof vs.hair === "string" ? vs.hair : undefined,
+    outfit: typeof vs.outfit === "string" ? vs.outfit : undefined,
+    silhouette: typeof vs.silhouette === "string" ? vs.silhouette : undefined,
+  };
+  const reusePriority = typeof o.reusePriority === "number" ? o.reusePriority : 70;
+  const canSpeak = typeof o.canSpeak === "boolean" ? o.canSpeak : false;
+
+  if (id && sceneId && anchorSlot && typeof o.archetypeId === "string" && typeof o.archetypeLabel === "string" && isSceneExtraSource(o.source)) {
+    return {
+      id,
+      sceneId,
+      archetypeId: o.archetypeId,
+      archetypeLabel: o.archetypeLabel,
+      source: o.source,
+      visualSignature,
+      anchorSlot,
+      reusePriority,
+      canSpeak,
+    };
+  }
+
+  const legacyArch = typeof o.archetype === "string" ? o.archetype : null;
+  if (id && sceneId && anchorSlot && legacyArch) {
+    return {
+      id,
+      sceneId,
+      archetypeId: `legacy:${legacyArch}`,
+      archetypeLabel: LEGACY_ARCHETYPE_LABELS[legacyArch] ?? legacyArch,
+      source: "legacy",
+      visualSignature,
+      anchorSlot,
+      reusePriority,
+      canSpeak,
+    };
+  }
+
+  return null;
+}
+
 function toSceneExtraList(value: unknown): SceneExtra[] {
-  return Array.isArray(value)
-    ? value
-        .filter((extra): extra is SceneExtra => Boolean(extra) && typeof extra === "object" && !Array.isArray(extra))
-        .map((extra) => extra as SceneExtra)
-    : [];
+  if (!Array.isArray(value)) return [];
+  const out: SceneExtra[] = [];
+  for (const item of value) {
+    const n = normalizeSceneExtra(item);
+    if (n) out.push(n);
+  }
+  return out;
 }
 
 function dedupeExtras(extras: SceneExtra[]) {
   const seen = new Map<string, SceneExtra>();
   for (const extra of extras) {
-    const key = `${extra.archetype}:${extra.anchorSlot}`;
+    const key = `${extra.archetypeId}:${extra.anchorSlot}`;
     if (!seen.has(key)) seen.set(key, extra);
   }
   return [...seen.values()];
@@ -133,7 +199,7 @@ function dedupeExtras(extras: SceneExtra[]) {
 
 function buildNpcVisualCore(extra: SceneExtra) {
   return [
-    extra.archetype,
+    extra.archetypeLabel,
     extra.visualSignature.genderPresentation,
     extra.visualSignature.hair,
     extra.visualSignature.outfit,
@@ -145,7 +211,7 @@ function buildNpcVisualCore(extra: SceneExtra) {
 }
 
 function deriveNpcAgeBand(extra: SceneExtra) {
-  if (extra.archetype === "crowd") return "mixed";
+  if (extra.archetypeId.endsWith(":crowd") || extra.archetypeId === "crowd") return "mixed";
   return "adult";
 }
 
@@ -214,7 +280,7 @@ async function upsertNpcVisualProfile(
       sceneId: input.sceneId,
       locationId: resolvedLocationId,
       characterId: input.characterId ?? existing?.characterId ?? null,
-      role: input.extra.archetype,
+      role: input.extra.archetypeLabel,
       shortVisualCore: buildNpcVisualCore(input.extra),
       outfitSignature: input.extra.visualSignature.outfit ?? null,
       silhouetteSignature: input.extra.visualSignature.silhouette ?? null,
@@ -227,7 +293,7 @@ async function upsertNpcVisualProfile(
         ...existingMetadata,
         visualMemory,
         lastSceneId: input.sceneId,
-        lastArchetype: input.extra.archetype,
+        lastArchetype: input.extra.archetypeId,
       },
     },
     create: {
@@ -236,7 +302,7 @@ async function upsertNpcVisualProfile(
       locationId: resolvedLocationId,
       characterId: input.characterId ?? null,
       stableNpcId: input.extra.id,
-      role: input.extra.archetype,
+      role: input.extra.archetypeLabel,
       shortVisualCore: buildNpcVisualCore(input.extra),
       outfitSignature: input.extra.visualSignature.outfit ?? null,
       silhouetteSignature: input.extra.visualSignature.silhouette ?? null,
@@ -248,7 +314,7 @@ async function upsertNpcVisualProfile(
       metadata: {
         visualMemory,
         firstSceneId: input.sceneId,
-        firstArchetype: input.extra.archetype,
+        firstArchetype: input.extra.archetypeId,
       },
     },
   });
@@ -320,7 +386,7 @@ export async function persistSceneExtra(
   prisma: PrismaClient | Prisma.TransactionClient,
   extra: SceneExtra
 ): Promise<void> {
-  console.log(`[scene-extras-registry] Persisting extra ${extra.id} (${extra.archetype})`);
+  console.log(`[scene-extras-registry] Persisting extra ${extra.id} (${extra.archetypeLabel})`);
   const scene = await prisma.chapterScene.findUnique({
     where: { id: extra.sceneId },
     select: { metadata: true },
@@ -358,7 +424,7 @@ export async function promoteExtraToNarrativeNpc(
   }
 ): Promise<{ characterId: string; promoted: boolean }> {
   console.log(`[scene-extras-registry] Promoting extra ${input.extraId} to narrative NPC`);
-  const npcName = generateNpcName(input.extra.archetype, input.extra.id);
+  const npcName = buildPromotedNpcDisplayName(input.extra, input.extra.id);
   const npcSlug = `${npcName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${stableToken(input.extra.id)}`;
 
   // Créer un Character léger
@@ -371,8 +437,8 @@ export async function promoteExtraToNarrativeNpc(
       gender: input.extra.visualSignature.genderPresentation === "masculine" ? "male" : input.extra.visualSignature.genderPresentation === "feminine" ? "female" : null,
       appearance: JSON.stringify(input.extra.visualSignature),
       autoGenerated: true,
-      biography: `PNJ auto-généré (${input.extra.archetype}) apparu dans la scène ${input.extra.sceneId}`,
-      traits: [input.extra.archetype],
+      biography: `PNJ auto-généré (${input.extra.archetypeLabel}) apparu dans la scène ${input.extra.sceneId}`,
+      traits: [input.extra.archetypeLabel],
       flaws: [],
       secrets: [],
     },
@@ -402,9 +468,19 @@ export function classifyNpcType(extra: SceneExtra): NpcType {
 }
 
 /**
- * Génère un nom pour un PNJ basé sur son archetype.
+ * Génère un nom pour un PNJ basé sur l’archetype (id ou libellé).
  */
-function generateNpcName(archetype: SceneExtra["archetype"], seed: string = archetype): string {
+function archetypeTemplateKey(extra: SceneExtra): string {
+  const m = /(?:legacy|inferred):(.+)$/.exec(extra.archetypeId);
+  return m ? m[1] : extra.archetypeId;
+}
+
+/**
+ * Nom d'affichage candidat pour un `Character` auto-créé lors de la promotion d'un extra.
+ * Les extras `ai_generated` / `db_canon` réutilisent le libellé monde plutôt que « Garde 42 ».
+ */
+export function buildPromotedNpcDisplayName(extra: SceneExtra, seed: string = extra.id): string {
+  const key = archetypeTemplateKey(extra);
   const names: Record<string, string> = {
     bartender: "Barman",
     client: "Client",
@@ -415,10 +491,18 @@ function generateNpcName(archetype: SceneExtra["archetype"], seed: string = arch
     crowd: "Figurant",
     other: "PNJ",
   };
-  
-  const base = names[archetype] ?? "PNJ";
+
+  const labelStem = extra.archetypeLabel.split("(")[0]?.trim() ?? "";
+  const useRichLabel =
+    (extra.source === "ai_generated" || extra.source === "db_canon")
+    && labelStem.length >= 2
+    && !/^pnj$/i.test(labelStem);
+
+  const base = useRichLabel
+    ? labelStem.slice(0, 80)
+    : (names[key] ?? (labelStem || "PNJ"));
   const suffix = parseInt(stableToken(seed).slice(0, 3), 36) % 999 + 1;
-  
+
   return `${base} ${suffix}`;
 }
 
@@ -433,7 +517,9 @@ export async function ensureSceneExtras(
     projectId: string;
     locationId?: string;
     requiredExtras: Array<{
-      archetype: SceneExtra["archetype"];
+      archetypeId: string;
+      archetypeLabel: string;
+      source?: SceneExtraSource;
       anchorSlot: string;
     }>;
   }
@@ -451,7 +537,7 @@ export async function ensureSceneExtras(
   for (const req of input.requiredExtras) {
     // Réutiliser un extra existant du même archetype/slot si possible
     const reused = existing.find(
-      (e) => e.archetype === req.archetype && e.anchorSlot === req.anchorSlot
+      (e) => e.archetypeId === req.archetypeId && e.anchorSlot === req.anchorSlot
     );
 
     if (reused) {
@@ -481,12 +567,19 @@ export async function ensureSceneExtras(
       result.push(reused);
     } else {
       // Créer un nouvel extra
-      const stableId = `extra-${stableToken(`${input.projectId}:${normalizeLocationKey(input.locationName)}:${req.anchorSlot}:${req.archetype}`)}`;
+      const stableId = `extra-${stableToken(`${input.projectId}:${normalizeLocationKey(input.locationName)}:${req.anchorSlot}:${req.archetypeId}`)}`;
+      const src = req.source ?? "legacy";
       const newExtra: SceneExtra = {
         id: stableId,
         sceneId: input.sceneId,
-        archetype: req.archetype,
-        visualSignature: generateVisualSignature(req.archetype),
+        archetypeId: req.archetypeId,
+        archetypeLabel: req.archetypeLabel,
+        source: src,
+        visualSignature: buildSceneExtraVisualSignature({
+          archetypeId: req.archetypeId,
+          archetypeLabel: req.archetypeLabel,
+          source: src,
+        }),
         anchorSlot: req.anchorSlot,
         reusePriority: 70,
         canSpeak: false,
@@ -508,9 +601,26 @@ export async function ensureSceneExtras(
 }
 
 /**
- * Génère une signature visuelle cohérente pour un archetype.
+ * Signature visuelle pour un extra requis : les entrées `ai_generated` (ex. VisualWorldContract)
+ * réutilisent le libellé IA comme base de tenue ; le legacy garde les templates par slug.
  */
-function generateVisualSignature(archetype: SceneExtra["archetype"]): SceneExtra["visualSignature"] {
+export function buildSceneExtraVisualSignature(input: {
+  archetypeId: string;
+  archetypeLabel: string;
+  source: SceneExtraSource;
+}): SceneExtra["visualSignature"] {
+  if (input.source === "ai_generated") {
+    const outfit = input.archetypeLabel.trim().slice(0, 160) || "secondary character";
+    return { genderPresentation: "varied", outfit, silhouette: "average" };
+  }
+  return legacyVisualSignatureForArchetypeId(input.archetypeId);
+}
+
+/**
+ * Templates déterministes pour archetypes legacy (`inferred:*`, etc.).
+ */
+function legacyVisualSignatureForArchetypeId(archetypeId: string): SceneExtra["visualSignature"] {
+  const key = /(?:legacy|inferred):(.+)$/.exec(archetypeId)?.[1] ?? archetypeId;
   const templates: Record<string, SceneExtra["visualSignature"]> = {
     bartender: { genderPresentation: "masculine", outfit: "apron, shirt", silhouette: "stocky" },
     client: { genderPresentation: "varied", outfit: "casual wear", silhouette: "average" },
@@ -520,7 +630,7 @@ function generateVisualSignature(archetype: SceneExtra["archetype"]): SceneExtra
     crowd: { genderPresentation: "varied", outfit: "varied", silhouette: "varied" },
   };
 
-  return templates[archetype] ?? { outfit: "generic", silhouette: "average" };
+  return templates[key] ?? { outfit: "generic", silhouette: "average" };
 }
 
 /**

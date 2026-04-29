@@ -1,10 +1,7 @@
 export * from "./types";
 export * from "./seeded-rng";
-export * from "./npc-ontology";
-export * from "./location-ontology";
-export * from "./creature-ontology";
+/** Ontologies déterministes : importer depuis `@manga-ai-studio/world/legacy/*` (hors surface publique). */
 export * from "./constraint-graph";
-export * from "./scene-blueprint";
 export * from "./property-validators";
 export * from "./qa-suites";
 export * from "./npc-resolver";

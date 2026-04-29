@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ApprovedChapterOutline } from "@manga-ai-studio/core";
+import type { ApprovedChapterOutline, VisualWorldContract } from "@manga-ai-studio/core";
 import { generateChapterBundle, type ProjectContextForChapter } from "./chapter-pipeline";
 
 const baseContext: ProjectContextForChapter = {
@@ -89,5 +89,154 @@ describe("generateChapterBundle with approved outline", () => {
     expect(bundle.outline.beats[1]?.turn).toBe("Le rapport de force commence à s'inverser.");
     expect(bundle.generationDiagnostics.outline.usedFallback).toBe(false);
     expect(bundle.generationDiagnostics.outline.model).toBe("user-approved-outline");
+  });
+
+  it("priorise VisualWorldContract pour les lieux quand beatBindings alignés", async () => {
+    const previousKey = process.env.OPENAI_API_KEY;
+    vi.stubEnv("OPENAI_API_KEY", "");
+    const approvedOutline: ApprovedChapterOutline = {
+      summary: "Miro subit une humiliation publique avant de reprendre l'initiative.",
+      cliffhanger: "Miro décide enfin d'affronter Kutsi devant tout le monde.",
+      approvedAt: "2026-04-07T10:00:00.000Z",
+      approvalVersion: "ao_test",
+      source: "user_approved",
+      beats: [
+        {
+          id: "beat_1",
+          summary: "Dans la cour du lycée, Kutsi et ses amis encerclent Miro sous le regard des élèves.",
+          characters: ["Miro", "Kutsi"],
+          location: "cour du lycée",
+          pageRole: "establishing",
+          turn: "La scène devient publique et impossible à ignorer.",
+          emotionalDelta: -1,
+        },
+        {
+          id: "beat_2",
+          summary: "Miro reprend sa respiration puis fait un pas en avant pour briser le cercle.",
+          characters: ["Miro", "Kutsi"],
+          location: "cour du lycée",
+          pageRole: "cliffhanger",
+          turn: "Le rapport de force commence à s'inverser.",
+          emotionalDelta: 2,
+        },
+      ],
+    };
+
+    const visualWorldContract: VisualWorldContract = {
+      chapterId: "ch-test",
+      source: "ai_generated",
+      locations: [
+        {
+          id: "loc-roof",
+          label: "Toit du lycée",
+          kind: "exterior",
+          description: "Grilles rouillées et ciel pourpre",
+          visualAnchors: [],
+          architecture: [],
+          lighting: [],
+          atmosphere: [],
+          recurringProps: [],
+          negativeConstraints: [],
+          source: "ai_generated",
+          canonPolicy: "temporary",
+        },
+      ],
+      props: [],
+      npcGroups: [],
+      creatures: [],
+      vehicles: [],
+      factions: [],
+      beatBindings: [
+        { beatId: "beat_1", locationId: "loc-roof", primaryPropIds: [], npcGroupIds: [] },
+        { beatId: "beat_2", locationId: "loc-roof", primaryPropIds: [], npcGroupIds: [] },
+      ],
+    };
+
+    const bundle = await generateChapterBundle({
+      chapterNumber: 1,
+      chapterTitle: "Le cercle",
+      userIntent: "Miro affronte une humiliation dans la cour du lycée.",
+      context: baseContext,
+      approvedOutline,
+      visualWorldContract,
+    });
+
+    if (previousKey) vi.stubEnv("OPENAI_API_KEY", previousKey);
+    else vi.unstubAllEnvs();
+
+    const expected = "Toit du lycée — Grilles rouillées et ciel pourpre";
+    expect(bundle.outline.beats[0]?.location).toBe(expected);
+    expect(bundle.outline.beats[1]?.location).toBe(expected);
+  });
+
+  it("en PIPELINE_V3_PREMIUM_ONLY, refuse un beat sans binding lieu dans le VisualWorldContract", async () => {
+    vi.stubEnv("PIPELINE_V3_PREMIUM_ONLY", "true");
+    vi.stubEnv("OPENAI_API_KEY", "");
+    const approvedOutline: ApprovedChapterOutline = {
+      summary: "Test",
+      cliffhanger: "Fin",
+      approvedAt: "2026-04-07T10:00:00.000Z",
+      approvalVersion: "ao_test",
+      source: "user_approved",
+      beats: [
+        {
+          id: "beat_1",
+          summary: "Scène A",
+          characters: ["Miro"],
+          location: "cour du lycée",
+          pageRole: "establishing",
+          turn: "t1",
+          emotionalDelta: 0,
+        },
+        {
+          id: "beat_2",
+          summary: "Scène B",
+          characters: ["Miro"],
+          location: "cour du lycée",
+          pageRole: "cliffhanger",
+          turn: "t2",
+          emotionalDelta: 0,
+        },
+      ],
+    };
+    const visualWorldContract: VisualWorldContract = {
+      chapterId: "ch-test",
+      source: "ai_generated",
+      locations: [
+        {
+          id: "loc-roof",
+          label: "Toit",
+          kind: "exterior",
+          description: "Vue",
+          visualAnchors: [],
+          architecture: [],
+          lighting: [],
+          atmosphere: [],
+          recurringProps: [],
+          negativeConstraints: [],
+          source: "ai_generated",
+          canonPolicy: "temporary",
+        },
+      ],
+      props: [],
+      npcGroups: [],
+      creatures: [],
+      vehicles: [],
+      factions: [],
+      beatBindings: [{ beatId: "beat_1", locationId: "loc-roof", primaryPropIds: [], npcGroupIds: [] }],
+    };
+
+    await expect(
+      generateChapterBundle({
+        chapterNumber: 1,
+        chapterTitle: "T",
+        userIntent: "Test",
+        context: baseContext,
+        approvedOutline,
+        visualWorldContract,
+      }),
+    ).rejects.toThrow(/premium_missing_beat_location_scene:beat_2/);
+
+    vi.unstubAllEnvs();
   });
 });

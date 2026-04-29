@@ -1,17 +1,16 @@
 /**
- * Chapter pipeline — helpers d'inférence de lieux.
- *
- * Extrait de chapter-pipeline.ts. Fournit :
- *  - `inferLocations(context, userIntent)` : propose 4 locations plausibles en
- *    priorisant d'abord les lieux canoniques (context.locations) cités dans
- *    l'intent, puis des mots-clés explicites, puis un fallback par genre.
- *  - `resolveCanonicalLocation(context, rawLocation)` : remappe un lieu libre
- *    vers un lieu canonique existant si match par nom/alias (substring).
+ * Pool de chaînes « lieu » heuristique — **legacy uniquement** (non-premium ou bootstrap
+ * explicite avant composition `VisualWorldContract`). Ne pas étendre : le premium doit
+ * consommer les lieux issus du contrat monde visuel.
  */
 
 import type { ProjectContextForChapter } from "./shared-types";
 
-export function inferLocations(context: ProjectContextForChapter, userIntent?: string | null): string[] {
+/** @deprecated Remplacé par `VisualWorldContract.locations` en pipeline premium. */
+export function legacyInferLocationPoolStrings(
+  context: ProjectContextForChapter,
+  userIntent?: string | null,
+): string[] {
   const intent = (userIntent ?? "").toLowerCase();
   const knownLocations = context.locations ?? [];
   for (const loc of knownLocations) {
@@ -108,20 +107,4 @@ export function inferLocations(context: ProjectContextForChapter, userIntent?: s
     ];
   }
   return ["unknown"];
-}
-
-export function resolveCanonicalLocation(
-  context: ProjectContextForChapter,
-  rawLocation: string | null | undefined,
-): string | null {
-  const input = rawLocation?.trim();
-  if (!input) return null;
-  const lowered = input.toLowerCase();
-  for (const loc of context.locations ?? []) {
-    const names = [loc.name, ...(loc.aliases ?? [])].filter(Boolean).map((value) => value.toLowerCase());
-    if (names.some((name) => lowered.includes(name) || name.includes(lowered))) {
-      return loc.description ? `${loc.name} — ${loc.description}` : loc.name;
-    }
-  }
-  return input;
 }

@@ -36,6 +36,7 @@ describe("computePanelContinuityPreflights", () => {
       }),
     ]);
     expect(p.blocking).toBe(false);
+    expect(p.missingEnvironmentDna).toBe(false);
     expect(p.missing.some((m) => m.includes("character_visual_dna_missing"))).toBe(true);
   });
 
@@ -47,6 +48,7 @@ describe("computePanelContinuityPreflights", () => {
       }),
     ]);
     expect(p.blocking).toBe(true);
+    expect(p.missingEnvironmentDna).toBe(false);
     expect(continuityPreflightBlockingReasons([p]).length).toBe(1);
   });
 
@@ -59,6 +61,22 @@ describe("computePanelContinuityPreflights", () => {
       }),
     ]);
     expect(p.blocking).toBe(false);
+    expect(p.missingEnvironmentDna).toBe(false);
     expect(p.missing).toHaveLength(0);
+  });
+
+  it("bloque un panel critique avec signaux lieu mais sans environmentVisualDna", () => {
+    const [p] = computePanelContinuityPreflights([
+      minimalBp({
+        requiredCharacterIds: [],
+        criticality: "critical",
+        requiredLocationSignals: ["port", "quai"],
+      }),
+    ]);
+    expect(p.missingEnvironmentDna).toBe(true);
+    expect(p.blocking).toBe(true);
+    expect(continuityPreflightBlockingReasons([p])).toEqual([
+      "p1:critical_panel_missing_environment_visual_dna",
+    ]);
   });
 });

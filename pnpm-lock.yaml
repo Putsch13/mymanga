@@ -253,6 +253,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@manga-ai-studio/db':
+        specifier: workspace:*
+        version: link:../db
       zod:
         specifier: ^3.24.2
         version: 3.25.76

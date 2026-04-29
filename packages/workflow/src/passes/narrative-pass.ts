@@ -2,6 +2,7 @@
 import {
   generateChapterBundle,
   composeMangaPanelPrompt,
+  composeVisualWorldContract,
   composeEnvironment,
   runChapterContinuityPass,
   runChapterNarrativeCoherencePass,
@@ -25,6 +26,8 @@ import {
   isHeroRole,
   type StableImageReference,
   type ChapterLookProfile,
+  buildApprovedChapterOutlineReplayFromOutlineBeats,
+  type VisualWorldContract,
 } from "@manga-ai-studio/core";
 import {
   buildPanelIntentCard,
@@ -48,12 +51,13 @@ import {
   validateSceneSnapshotAgainstKernel,
   applySceneEventsToKernel,
 } from "@manga-ai-studio/continuity";
-import { buildSceneBlueprint, type SceneBlueprint } from "@manga-ai-studio/world";
+import { buildSceneBlueprint } from "@manga-ai-studio/world/scene-blueprint";
+import type { SceneBlueprint } from "@manga-ai-studio/world";
 import { buildPanelContract } from "../build-panel-contract";
 import {
   buildPanelCharacterPlan,
   buildSceneKeyframeDraft,
-  inferRequiredSceneExtras,
+  inferRequiredSceneExtrasWithVisualWorld,
 } from "../pipeline-scene-builder";
 import { buildPanelCast } from "../build-panel-cast";
 import { buildStableImageReference } from "../stable-image-refs";
@@ -181,6 +185,13 @@ export async function runNarrativePass(
   const focusCharacterIds = input.focusCharacterIds;
   const jobInput = input.jobInput;
 
+  if (isPipelineV3PremiumOnlyEnabled()) {
+    throw new Error(
+      "premium_v3_only_violation: narrative-pass is forbidden when PIPELINE_V3_PREMIUM_ONLY=true. " +
+        "Use the v3 premium pipeline for image generation.",
+    );
+  }
+
   // P0.13 : collecte des character states malformés (plus de bool muet).
   const malformedCharacterStates: string[] = [];
 
@@ -295,7 +306,7 @@ export async function runNarrativePass(
           visibility: string;
         }>)
       : [];
-    const bundle = await generateChapterBundle({
+    let bundle = await generateChapterBundle({
       chapterNumber,
       chapterTitle: chapter.title,
       userIntent: enrichedIntent || chapter.userIntent || `Continuer ${context.project.title}`,
@@ -303,7 +314,111 @@ export async function runNarrativePass(
       creativityControls: effectiveCreativeControls,
       context,
       approvedOutline: approvedOutlineForBundle,
+      allowLegacyLocationInference: isPipelineV3PremiumOnlyEnabled() ? true : undefined,
     });
+
+    let composedVisualWorldContract: VisualWorldContract | null = null;
+
+    if (process.env.OPENAI_API_KEY && isPipelineV3PremiumOnlyEnabled() && chapterId) {
+      try {
+        const [charactersForWorld, locationsForWorld] = await Promise.all([
+          prisma.character.findMany({
+            where: { projectId },
+            select: { id: true, name: true, roleType: true, appearance: true },
+          }),
+          prisma.location.findMany({
+            where: { projectId },
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              visualBrief: true,
+              establishedVisualBrief: true,
+            },
+          }),
+        ]);
+        const nameToId = new Map(
+          charactersForWorld.map((c) => [c.name.trim().toLowerCase(), c.id] as const),
+        );
+        const beatRows = approvedOutlineForBundle
+          ? approvedOutlineForBundle.beats
+          : bundle.outline.beats.map((b) => ({
+              id: b.id,
+              summary: b.summary,
+              characters: b.characters,
+              location: b.location,
+              pageRole: b.pageRole ?? "escalation",
+              turn: b.turn ?? b.purpose,
+              emotionalDelta: b.emotionalDelta ?? 0,
+              structuredBeat: b.structuredBeat ?? null,
+            }));
+        const vw = await composeVisualWorldContract({
+          chapterId,
+          chapterSummary: bundle.outline.chapter_goal,
+          chapterUserIntent: enrichedIntent || chapter.userIntent || null,
+          projectGenre: context.project.primaryGenre ?? null,
+          projectTone: context.project.tone ?? null,
+          styleBibleJson: null,
+          beats: beatRows.map((b) => ({
+            beatId: b.id,
+            summary: b.summary,
+            whyThisBeatExists: b.pageRole ?? null,
+            dramaticChange: b.turn ?? null,
+            involvedCharacterIds: (b.characters ?? [])
+              .map((name) => nameToId.get(String(name).trim().toLowerCase()))
+              .filter((x): x is string => Boolean(x)),
+          })),
+          knownCharacters: charactersForWorld.map((c) => ({
+            id: c.id,
+            name: c.name,
+            roleType: c.roleType ?? null,
+            description: c.appearance ?? null,
+          })),
+          knownLocations: locationsForWorld.map((loc) => ({
+            id: loc.id,
+            name: loc.name,
+            description:
+              loc.establishedVisualBrief?.trim()
+              || loc.visualBrief?.trim()
+              || loc.description?.trim()
+              || null,
+          })),
+        });
+        const approvedReplay = approvedOutlineForBundle
+          ?? buildApprovedChapterOutlineReplayFromOutlineBeats({
+            summary: bundle.outline.chapter_goal,
+            cliffhanger: bundle.outline.cliffhanger,
+            source: "estimate_preview",
+            beats: bundle.outline.beats.map((beat) => ({
+              id: beat.id,
+              summary: beat.summary,
+              characters: beat.characters,
+              location: beat.location,
+              pageRole: beat.pageRole ?? "escalation",
+              turn: beat.turn ?? beat.purpose,
+              emotionalDelta: beat.emotionalDelta ?? 0,
+              structuredBeat: beat.structuredBeat ?? null,
+            })),
+          });
+        bundle = await generateChapterBundle({
+          chapterNumber,
+          chapterTitle: chapter.title,
+          userIntent: enrichedIntent || chapter.userIntent || `Continuer ${context.project.title}`,
+          selectedPlotLabel,
+          creativityControls: effectiveCreativeControls,
+          context,
+          approvedOutline: approvedReplay,
+          visualWorldContract: vw,
+        });
+        composedVisualWorldContract = vw;
+      } catch (e) {
+        logPipelineWarn("visual_world_bundle_realign_failed", {
+          chapterId,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+
     await setJobProgress(
       jobId,
       { key: "generate_bundle", label: "Direction, outline, script, storyboard" },
@@ -753,6 +868,7 @@ export async function runNarrativePass(
             universeType,
             projectGenre: context.project.primaryGenre ?? undefined,
             projectTone: context.project.tone ?? undefined,
+            suppressUniverseTemplateProps: isPipelineV3PremiumOnlyEnabled(),
             // I05: heroCharacterId intentionally omitted
           });
 
@@ -1135,11 +1251,16 @@ export async function runNarrativePass(
             }
           }
 
+          const beatId = revisedBundle.outline.beats[index]?.id;
           const persistentSceneExtras = await ensureSceneExtras(tx, {
             sceneId: createdScene.id,
             locationName: scene.location,
             projectId,
-            requiredExtras: inferRequiredSceneExtras(scene),
+            requiredExtras: inferRequiredSceneExtrasWithVisualWorld(
+              composedVisualWorldContract,
+              scene,
+              beatId,
+            ),
           });
 
           const storyboardPage = revisedBundle.storyboard.pages[index];
@@ -1169,7 +1290,7 @@ export async function runNarrativePass(
               },
               cast: {
                 namedCharacters: scene.characters,
-                npcNames: persistentSceneExtras.map((extra) => extra.archetype),
+                npcNames: persistentSceneExtras.map((extra) => extra.archetypeLabel),
                 creatureNames: [],
               },
               scene: {
@@ -1194,11 +1315,11 @@ export async function runNarrativePass(
                 cameraAngle: "eye_level",
                 focusCharacters: scene.characters.slice(0, 2),
                 requiredCharacters: scene.characters,
-                backgroundExtras: persistentSceneExtras.map((extra) => `${extra.archetype}:${extra.anchorSlot}`),
+                backgroundExtras: persistentSceneExtras.map((extra) => `${extra.archetypeLabel}:${extra.anchorSlot}`),
               },
               controls: effectiveCreativeControls,
               continuity: {
-                anchors: persistentSceneExtras.map((extra) => `${extra.anchorSlot}:${extra.archetype}`),
+                anchors: persistentSceneExtras.map((extra) => `${extra.anchorSlot}:${extra.archetypeLabel}`),
                 worldRules: [],
                 styleRules: [],
                 loreConstraints: [],
@@ -1300,7 +1421,7 @@ export async function runNarrativePass(
 
               const panelBackgroundExtras = [
                 ...scene.characters.filter((name: string) => !panel.characters.includes(name)).slice(0, 2),
-                ...persistentSceneExtras.map((extra) => `${extra.archetype}:${extra.anchorSlot}`),
+                ...persistentSceneExtras.map((extra) => `${extra.archetypeLabel}:${extra.anchorSlot}`),
               ].slice(0, 4);
               const sceneBlueprint = buildSceneBlueprint({
                 panelId: `${createdScene.id}:${panel.panelNumber}`,
@@ -1357,7 +1478,7 @@ export async function runNarrativePass(
                   namedCharacters: panel.characters,
                   npcNames: uniq([
                     ...panelBackgroundExtras,
-                    ...persistentSceneExtras.map((extra) => extra.archetype),
+                    ...persistentSceneExtras.map((extra) => extra.archetypeLabel),
                   ]),
                   creatureNames: [],
                 },
@@ -1458,11 +1579,11 @@ export async function runNarrativePass(
                 ].filter(Boolean).slice(0, 8),
                 npcPresence: uniq([
                   ...(panelContractBase.npcPresence ?? []),
-                  ...persistentSceneExtras.map((extra) => extra.archetype),
+                  ...persistentSceneExtras.map((extra) => extra.archetypeLabel),
                 ]).slice(0, 5),
                 persistentSceneAnchors: uniq([
                   ...(panelContractBase.persistentSceneAnchors ?? []),
-                  ...persistentSceneExtras.map((extra) => `${extra.anchorSlot}:${extra.visualSignature.outfit ?? extra.archetype}`),
+                  ...persistentSceneExtras.map((extra) => `${extra.anchorSlot}:${extra.visualSignature.outfit ?? extra.archetypeLabel}`),
                 ]).slice(0, 6),
               };
               const panelCharacterPlan = buildPanelCharacterPlan({

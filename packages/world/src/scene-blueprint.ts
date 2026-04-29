@@ -1,7 +1,7 @@
 import { buildConstraintGraph, evaluateOntologyCandidate, mergeConstraintDecisions } from "./constraint-graph";
-import { generateCreatureSelection, CREATURE_ONTOLOGY } from "./creature-ontology";
-import { generateLocationSelection, LOCATION_ONTOLOGY } from "./location-ontology";
-import { generateNpcSelection, NPC_ONTOLOGY } from "./npc-ontology";
+import { generateCreatureSelection, CREATURE_ONTOLOGY } from "./legacy/creature-ontology";
+import { generateLocationSelection, LOCATION_ONTOLOGY } from "./legacy/location-ontology";
+import { generateNpcSelection, NPC_ONTOLOGY } from "./legacy/npc-ontology";
 import { createSeededRng, hashSeed } from "./seeded-rng";
 import type {
   ProceduralEntity,

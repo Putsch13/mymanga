@@ -5,6 +5,11 @@ import {
   productionOutlineSchema,
   productionPlanSchema,
   isHeroRole,
+  isPipelineV3PremiumOnlyEnabled,
+  computePanelContinuityPreflights,
+  continuityPreflightBlockingReasons,
+  hydrateBlueprintsWithCharacterDna,
+  type PanelBlueprintPremium,
   type ProductionOutline,
   type ProductionPlan,
 } from "@manga-ai-studio/core";
@@ -12,7 +17,7 @@ import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { notFound, unauthorized } from "@/lib/api-response";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { getOwnedChapter } from "@/lib/ownership";
-import { buildChapterStructuredRuntimePrismaFields, patchChapterStudioSnapshot } from "@/lib/chapter-studio";
+import { buildChapterStructuredRuntimePrismaFields, patchChapterStudioSnapshot, readChapterStudioSnapshotFromOutline } from "@/lib/chapter-studio";
 import {
   buildPremiumChapterContractFromApprovedOutline,
   reconcileIncomingPremiumContract,
@@ -105,6 +110,12 @@ export async function PATCH(req: Request, ctx: Ctx) {
       ? ("webtoon" as const)
       : ("manga" as const);
 
+  const studioSnapshotForContract = readChapterStudioSnapshotFromOutline({
+    outline: chapter.outline,
+    chapterNumber: chapter.chapterNumber,
+    chapterTitle: chapter.title,
+  });
+
   const rebuiltContract = await buildPremiumChapterContractFromApprovedOutline({
     approvedOutline,
     chapterId,
@@ -116,6 +127,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
     projectGenre: project?.primaryGenre ?? null,
     projectTone: project?.tone ?? null,
     minimumPanels: chapterMinimumImages,
+    studioSnapshot: studioSnapshotForContract,
   });
 
   // Si productionOutline + productionPlan sont fournis (depuis generate/page.tsx), les persister après réconciliation.
@@ -197,6 +209,45 @@ export async function PATCH(req: Request, ctx: Ctx) {
     };
   }
 
+  // P0 — Alignement estimate/launch : ré-hydrater characterVisualDna sur le plan
+  // résolu (réconciliation client peut livrer des blueprints sans DNA complet).
+  {
+    const planRecord = asRecord(resolvedProductionPlan);
+    const rawBps = Array.isArray(planRecord.panelBlueprints)
+      ? (planRecord.panelBlueprints as PanelBlueprintPremium[])
+      : [];
+    if (rawBps.length > 0) {
+      const rows = await prisma.character.findMany({
+        where: { projectId },
+        select: {
+          id: true,
+          name: true,
+          hairColor: true,
+          eyeColor: true,
+          appearance: true,
+          outfitDefault: true,
+        },
+      });
+      const canons = studioSnapshotForContract.data.characterCanons ?? [];
+      const characterCanonsById: Record<string, import("@manga-ai-studio/core").CharacterCanon> = {};
+      for (const c of canons) {
+        characterCanonsById[c.characterId] = c;
+      }
+      const hydratedBps = hydrateBlueprintsWithCharacterDna({
+        blueprints: rawBps,
+        characters: rows,
+        characterCanonsById: Object.keys(characterCanonsById).length > 0 ? characterCanonsById : undefined,
+      });
+      resolvedProductionPlan = {
+        ...planRecord,
+        panelBlueprints: hydratedBps,
+      } as ProductionPlan;
+      if (premiumMeta && typeof premiumMeta === "object") {
+        (premiumMeta as Record<string, unknown>).panelBlueprintsCount = hydratedBps.length;
+      }
+    }
+  }
+
   // P0.5 — Option B : marquer explicitement le snapshot comme `launchBlocked`
   // quand le contrat reconstruit côté serveur reste incomplet (panelBlueprints
   // < minimumImages). On ne refuse pas 422 pour éviter de casser les flux
@@ -205,20 +256,43 @@ export async function PATCH(req: Request, ctx: Ctx) {
   // afficher une bannière "plan incomplet" au lieu de laisser le user
   // découvrir le problème au launch.
   const resolvedPlanRecord = asRecord(resolvedProductionPlan);
-  const resolvedBlueprintCount = Array.isArray(resolvedPlanRecord.panelBlueprints)
-    ? (resolvedPlanRecord.panelBlueprints as unknown[]).length
-    : 0;
+  const resolvedPanelBlueprints = Array.isArray(resolvedPlanRecord.panelBlueprints)
+    ? (resolvedPlanRecord.panelBlueprints as PanelBlueprintPremium[])
+    : [];
+  const resolvedBlueprintCount = resolvedPanelBlueprints.length;
   const resolvedMinimumImages =
     typeof resolvedPlanRecord.minimumImages === "number" && resolvedPlanRecord.minimumImages > 0
       ? (resolvedPlanRecord.minimumImages as number)
       : PREMIUM_PANEL_RANGE.min;
-  const launchBlocked = resolvedBlueprintCount < resolvedMinimumImages;
-  const launchBlockedReason =
-    !launchBlocked
-      ? null
-      : resolvedBlueprintCount === 0
-        ? "missing_blueprints"
-        : "incomplete_plan";
+
+  const premiumOnly = isPipelineV3PremiumOnlyEnabled();
+  const continuityPreflights = premiumOnly
+    ? computePanelContinuityPreflights(resolvedPanelBlueprints)
+    : [];
+  const continuityBlockers = premiumOnly
+    ? continuityPreflightBlockingReasons(continuityPreflights)
+    : [];
+
+  (premiumMeta as Record<string, unknown>).continuityPreflight = {
+    ok: continuityBlockers.length === 0,
+    blockers: continuityBlockers,
+    panelCount: continuityPreflights.length,
+  };
+
+  const launchBlockedIncomplete = resolvedBlueprintCount < resolvedMinimumImages;
+  const launchBlockedContinuity = premiumOnly && continuityBlockers.length > 0;
+  const launchBlocked = launchBlockedIncomplete || launchBlockedContinuity;
+
+  const launchBlockedReason = !launchBlocked
+    ? null
+    : launchBlockedIncomplete && launchBlockedContinuity
+      ? "incomplete_plan_and_continuity_preflight"
+      : launchBlockedContinuity
+        ? "continuity_preflight"
+        : resolvedBlueprintCount === 0
+          ? "missing_blueprints"
+          : "incomplete_plan";
+
   if (launchBlocked) {
     (premiumMeta as Record<string, unknown>).launchBlocked = true;
     (premiumMeta as Record<string, unknown>).launchBlockedReason = launchBlockedReason;
@@ -227,6 +301,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
       `[approved-outline] launch_blocked chapterId=${chapterId} projectId=${projectId} ` +
       `reason=${launchBlockedReason} ` +
       `panelBlueprintsCount=${resolvedBlueprintCount} minimumImages=${resolvedMinimumImages} ` +
+      `continuityBlockers=${continuityBlockers.length} ` +
       `— le snapshot est persisté mais le studio doit bloquer le launch.`,
     );
   }
@@ -236,7 +311,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
     `beatCount=${approvedOutline.beats.length} ` +
     `panelBlueprintsCount=${(premiumMeta as Record<string, unknown>).panelBlueprintsCount ?? 0} ` +
     `premiumReadinessScore=${(premiumMeta as Record<string, unknown>).premiumReadinessScore ?? "n/a"} ` +
-    `launchBlocked=${launchBlocked} ` +
+    `launchBlocked=${launchBlocked} continuity_ok=${continuityBlockers.length === 0} ` +
     `heroCenterRatio=${(premiumMeta as Record<string, unknown>).heroCenterRatio ?? "n/a"}`,
   );
 

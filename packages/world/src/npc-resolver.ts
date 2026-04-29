@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { OntologyEntry, ProceduralEntity, SceneBlueprintInput } from "./types";
-import { NPC_ONTOLOGY } from "./npc-ontology";
+import { NPC_ONTOLOGY } from "./legacy/npc-ontology";
 import { createSeededRng } from "./seeded-rng";
 
 export type NpcResolverResult = {
@@ -81,20 +81,24 @@ export async function resolveNpcWithAI(
 ): Promise<NpcResolverResult> {
   const local = resolveNpcLocally(input, seed, desiredCount);
 
-  if (local.confidence >= 0.7) {
-    return local;
-  }
-
   try {
     const aiEntities = await aiResolver(input, local.entities);
-    return {
-      entities: aiEntities.length > 0 ? aiEntities : local.entities,
-      source: aiEntities.length > 0 ? "ai" : "local",
-      confidence: aiEntities.length > 0 ? 0.9 : local.confidence,
-    };
+    if (aiEntities.length > 0) {
+      return {
+        entities: aiEntities,
+        source: "ai",
+        confidence: 0.9,
+      };
+    }
   } catch {
-    return local;
+    /* secours catalogue ci-dessous */
   }
+
+  return {
+    entities: local.entities,
+    source: "local",
+    confidence: local.confidence,
+  };
 }
 
 /**

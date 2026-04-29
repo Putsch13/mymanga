@@ -10,7 +10,8 @@ import {
   type CharacterFingerprint,
   type PanelValidationResult,
 } from "@manga-ai-studio/core";
-import { runPropertyValidators, type SceneBlueprint } from "@manga-ai-studio/world";
+import { runPropertyValidators } from "@manga-ai-studio/world";
+import type { SceneBlueprint } from "@manga-ai-studio/world";
 import { analyzePanelWithVision } from "./services/panel-vision-analyzer";
 
 export interface GeneratedPanelData {

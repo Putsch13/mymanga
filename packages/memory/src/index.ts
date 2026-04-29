@@ -311,10 +311,15 @@ export async function buildProjectContext(
     orderBy: { name: "asc" },
     take: 50,
     select: {
+      id: true,
       name: true,
       type: true,
       description: true,
       metadata: true,
+      visualBrief: true,
+      establishedVisualBrief: true,
+      canonImageUrl: true,
+      visualRefs: true,
       canonLocked: true,
     },
   }).catch(() => []);
@@ -381,14 +386,23 @@ export async function buildProjectContext(
       const raw = location.metadata && typeof location.metadata === "object"
         ? (location.metadata as Record<string, unknown>)
         : {};
+      const metaVisualBrief = typeof raw.visualBrief === "string" ? raw.visualBrief : null;
       return {
+        id: location.id,
         name: location.name,
         type: location.type,
         description: location.description,
         aliases: Array.isArray(raw.aliases)
           ? raw.aliases.filter((item): item is string => typeof item === "string")
           : [],
-        visualBrief: typeof raw.visualBrief === "string" ? raw.visualBrief : (typeof location.description === "string" ? location.description : null),
+        visualBrief: typeof location.visualBrief === "string" && location.visualBrief.trim().length > 0
+          ? location.visualBrief
+          : metaVisualBrief
+            ?? (typeof location.description === "string" ? location.description : null),
+        establishedVisualBrief: location.establishedVisualBrief,
+        canonImageUrl: location.canonImageUrl,
+        visualRefs: location.visualRefs,
+        metadata: raw as Record<string, unknown>,
         canonLocked: location.canonLocked,
       };
     }),

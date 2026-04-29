@@ -11,12 +11,16 @@ import {
   mergeRawBlueprintsWithCanonicalRhythm,
   PREMIUM_PANEL_RANGE,
   runStructuralQaOnPremiumBlueprints,
+  hydrateBlueprintsWithCharacterDna,
+  hydrateBlueprintsWithEnvironmentDna,
+  hydrateBlueprintsWithVisualWorldNpcAndProps,
+  isPipelineV3PremiumOnlyEnabled,
 } from "@manga-ai-studio/core";
-import type { ApprovedChapterOutline, ProductionBeat } from "@manga-ai-studio/core";
-import type { PanelBlueprintPremium, RequiredProp } from "@manga-ai-studio/core";
+import type { ApprovedChapterOutline, CharacterCanon, ProductionBeat } from "@manga-ai-studio/core";
+import type { PanelBlueprintPremium, RequiredProp, VisualWorldContract } from "@manga-ai-studio/core";
 import { inferNarrativeFactsFromBeat, type NarrativeExtractionContext } from "./narrative-fact-extractor";
 import { enrichNarrativeFactsWithLLM, mergeNarrativeFacts } from "./narrative-fact-llm-enricher";
-import { inferRequiredPropsFromBeat } from "./prop-inference-engine";
+import { inferRequiredPropsFromBeat, indexVisualWorldPropsByBeat } from "./prop-inference-engine";
 import { buildPanelBlueprintsFromBeat, computeChapterFocusBudget, computePremiumReadinessScore } from "./panel-blueprint-builder";
 
 function assertFinalStructuralQaAfterMerge(input: {
@@ -69,6 +73,55 @@ export interface BuildPremiumChapterContractInput {
   chapterNumber?: number;
   chapterTitle?: string | null;
   projectFormat?: "manga" | "webtoon";
+  /** Hydratation `characterVisualDna` après merge (personnages projet + canons studio). */
+  characterDnaHydration?: {
+    characters: Array<{
+      id: string;
+      name: string;
+      hairColor?: string | null;
+      eyeColor?: string | null;
+      appearance?: string | null;
+      outfitDefault?: string | null;
+    }>;
+    characterCanonsById?: Record<string, CharacterCanon> | null;
+  };
+  /** Monde visuel IA (lieux / décor par beat) — hydratation `environmentVisualDna` après merge. */
+  visualWorldContract?: VisualWorldContract | null;
+}
+
+function applyOptionalCharacterDnaHydration(
+  blueprints: PanelBlueprintPremium[],
+  input: BuildPremiumChapterContractInput,
+): PanelBlueprintPremium[] {
+  const h = input.characterDnaHydration;
+  if (!h?.characters?.length) return blueprints;
+  return hydrateBlueprintsWithCharacterDna({
+    blueprints,
+    characters: h.characters,
+    characterCanonsById: h.characterCanonsById ?? undefined,
+  });
+}
+
+function applyOptionalEnvironmentDnaHydration(
+  blueprints: PanelBlueprintPremium[],
+  input: BuildPremiumChapterContractInput,
+): PanelBlueprintPremium[] {
+  if (!input.visualWorldContract) return blueprints;
+  return hydrateBlueprintsWithEnvironmentDna({
+    blueprints,
+    visualWorld: input.visualWorldContract,
+  });
+}
+
+function applyOptionalVisualWorldNpcPropHydration(
+  blueprints: PanelBlueprintPremium[],
+  input: BuildPremiumChapterContractInput,
+): PanelBlueprintPremium[] {
+  if (!input.visualWorldContract) return blueprints;
+  return hydrateBlueprintsWithVisualWorldNpcAndProps({
+    blueprints,
+    visualWorld: input.visualWorldContract,
+  });
 }
 
 export interface ObjectStateFrame {
@@ -223,11 +276,14 @@ export function buildPremiumChapterContract(
     heroCharacterId,
     recentContinuityEvents,
   };
+  const visualWorldPropsForBeat = indexVisualWorldPropsByBeat(input.visualWorldContract);
   const universeContext = {
     projectGenre,
     projectTone,
     heroCharacterId,
     premiumStrictChapterSourcing: process.env.PIPELINE_V3_PREMIUM_ONLY === "true",
+    suppressUniverseTemplateProps: isPipelineV3PremiumOnlyEnabled(),
+    ...(visualWorldPropsForBeat ? { visualWorldPropsForBeat } : {}),
   };
 
   // Enrichir chaque beat avec narrative facts, props, et blueprints
@@ -301,7 +357,10 @@ export function buildPremiumChapterContract(
     rawOutline: outlineForCanonical,
   });
   const rawFlattened = enrichedBeats.flatMap((b) => b._blueprints);
-  const allBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawFlattened, canonicalPlan);
+  let allBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawFlattened, canonicalPlan);
+  allBlueprints = applyOptionalCharacterDnaHydration(allBlueprints, input);
+  allBlueprints = applyOptionalEnvironmentDnaHydration(allBlueprints, input);
+  allBlueprints = applyOptionalVisualWorldNpcPropHydration(allBlueprints, input);
   assertFinalStructuralQaAfterMerge({
     chapterId,
     projectId,
@@ -454,11 +513,14 @@ export async function buildPremiumChapterContractAsync(
     heroCharacterId,
     recentContinuityEvents,
   };
+  const visualWorldPropsForBeat = indexVisualWorldPropsByBeat(input.visualWorldContract);
   const universeContext = {
     projectGenre,
     projectTone,
     heroCharacterId,
     premiumStrictChapterSourcing: process.env.PIPELINE_V3_PREMIUM_ONLY === "true",
+    suppressUniverseTemplateProps: isPipelineV3PremiumOnlyEnabled(),
+    ...(visualWorldPropsForBeat ? { visualWorldPropsForBeat } : {}),
   };
 
   // Enrichir chaque beat en parallèle avec LLM
@@ -574,7 +636,10 @@ export async function buildPremiumChapterContractAsync(
     rawOutline: outlineForCanonical,
   });
   const rawFlattened = enrichedBeatsWithLLMBlueprints.flatMap((b) => b._blueprints);
-  const allBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawFlattened, canonicalPlan);
+  let allBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawFlattened, canonicalPlan);
+  allBlueprints = applyOptionalCharacterDnaHydration(allBlueprints, input);
+  allBlueprints = applyOptionalEnvironmentDnaHydration(allBlueprints, input);
+  allBlueprints = applyOptionalVisualWorldNpcPropHydration(allBlueprints, input);
   assertFinalStructuralQaAfterMerge({
     chapterId,
     projectId,

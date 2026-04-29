@@ -9,6 +9,7 @@ import {
   getPremiumReadinessLaunchMinScore,
   hydratePanelProvenanceOnBlueprints,
   isPipelineV3PremiumOnlyEnabled,
+  hydrateBlueprintsWithCharacterDna,
   PREMIUM_PANEL_RANGE,
   type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
@@ -312,7 +313,28 @@ export async function POST(_req: Request, ctx: Ctx) {
     structuralCanonicalQaPassed = true;
   }
 
-  const bpForContinuity = snapshot.data.productionPlan?.panelBlueprints;
+  const bpForContinuityRaw = snapshot.data.productionPlan?.panelBlueprints;
+  let bpForContinuity = bpForContinuityRaw;
+  if (Array.isArray(bpForContinuity) && bpForContinuity.length > 0 && isPipelineV3PremiumOnlyEnabled()) {
+    const chars = await prisma.character.findMany({
+      where: { projectId },
+      select: {
+        id: true,
+        name: true,
+        hairColor: true,
+        eyeColor: true,
+        appearance: true,
+        outfitDefault: true,
+      },
+    });
+    const canonList = snapshot.data.characterCanons ?? [];
+    const canonMap = new Map(canonList.map((c) => [c.characterId, c] as const));
+    bpForContinuity = hydrateBlueprintsWithCharacterDna({
+      blueprints: bpForContinuity as PanelBlueprintPremium[],
+      characters: chars,
+      characterCanonsById: canonMap,
+    }) as typeof bpForContinuity;
+  }
   if (Array.isArray(bpForContinuity) && bpForContinuity.length > 0 && isPipelineV3PremiumOnlyEnabled()) {
     const continuityPreflights = computePanelContinuityPreflights(bpForContinuity as PanelBlueprintPremium[]);
     const continuityBlockers = continuityPreflightBlockingReasons(continuityPreflights);

@@ -9,9 +9,13 @@ import {
   inferLayout,
 } from "./chapter/visual-inference";
 import {
-  inferLocations,
+  beatLocationSceneStringFromVisualWorld,
+  locationSceneStringsFromVisualWorldContract,
   resolveCanonicalLocation,
-} from "./chapter/location-inference";
+  isPipelineV3PremiumOnlyEnabled,
+  type VisualWorldContract,
+} from "@manga-ai-studio/core";
+import { legacyInferLocationPoolStrings } from "./chapter/legacy-location-pool";
 import { summarizeGenerationStatuses } from "./generation-status";
 import { parseIntentEntities } from "./services/entity-brain";
 import { writeDialogueForScene } from "./services/dialogue-writer";
@@ -97,7 +101,7 @@ function stretchToCount<T>(items: T[], count: number, fallbackFactory: (index: n
   return next;
 }
 
-// inferLocations extrait dans ./chapter/location-inference.ts
+// Pool legacy : ./chapter/legacy-location-pool.ts (bootstrap non-premium / estimate).
 
 function reinforceIntentEntityCoverage(
   beats: Array<{ characters: string[]; summary: string; turn: string; pageRole: string }>,
@@ -128,7 +132,7 @@ function reinforceIntentEntityCoverage(
   }
 }
 
-// resolveCanonicalLocation extrait dans ./chapter/location-inference.ts
+// resolveCanonicalLocation → packages/core/src/locations/resolve-canonical-location.ts
 
 function buildDynamicPlotOptions(input: {
   userIntent: string;
@@ -504,6 +508,13 @@ export async function generateChapterBundle(input: {
   creativityControls?: Partial<CreativityControls>;
   context: ProjectContextForChapter;
   approvedOutline?: ApprovedChapterOutline | null;
+  /** Si présent avec des lieux, remplace le pool legacy et peut lier chaque beat via `beatBindings`. */
+  visualWorldContract?: VisualWorldContract | null;
+  /**
+   * Premium (`PIPELINE_V3_PREMIUM_ONLY`) : par défaut **interdit** l’heuristique `legacyInferLocationPoolStrings`
+   * sans `visualWorldContract` peuplé — sauf si `true` (bootstrap estimate / pipeline avant composition VW).
+   */
+  allowLegacyLocationInference?: boolean;
 }): Promise<GeneratedChapterBundle> {
   const effectiveCreativeControls = normalizeCreativityControls(input.creativityControls);
   const cast = takeNames(input.context, 6);
@@ -512,7 +523,25 @@ export async function generateChapterBundle(input: {
     input.userIntent,
     input.context.characters.map((c) => c.name),
   );
-  const locations = inferLocations(input.context, input.userIntent);
+  const vwLocationPool =
+    input.visualWorldContract && input.visualWorldContract.locations.length > 0
+      ? locationSceneStringsFromVisualWorldContract(input.visualWorldContract)
+      : null;
+
+  const premium = isPipelineV3PremiumOnlyEnabled();
+  const allowLegacyInfer = input.allowLegacyLocationInference ?? !premium;
+
+  let locations: string[];
+  if (vwLocationPool && vwLocationPool.length > 0) {
+    locations = vwLocationPool;
+  } else if (allowLegacyInfer) {
+    locations = legacyInferLocationPoolStrings(input.context, input.userIntent);
+  } else {
+    throw new Error(
+      "premium_requires_visual_world_locations: en PIPELINE_V3_PREMIUM_ONLY, fournissez un VisualWorldContract " +
+        "avec au moins une location, ou passez allowLegacyLocationInference=true pour un bootstrap explicite.",
+    );
+  }
   const [locA, locB, locC, locD] = locations;
   const locAt = (i: number) => locations[i % Math.max(locations.length, 1)] ?? locA;
   const tone = input.context.project.tone ?? "dramatique";
@@ -627,27 +656,51 @@ export async function generateChapterBundle(input: {
     "aftermath", "cliffhanger",
   ];
 
-  const rawOutlineBeats = outlineResult.outline.beats.map((beat, index) => ({
-    id: `beat_${index + 1}`,
-    summary: beat.summary,
-    tension: Math.min(9, 2 + index + Math.floor(index / 2)),
-    characters: mergeCharactersFromBeat(
-      input.context,
-      beat.characters,
-      beat.summary,
-      index % 3 === 0
-        ? mainCast.slice(0, Math.min(4, mainCast.length))
-        : index % 2 === 0
-          ? mainCast.slice(0, Math.min(3, mainCast.length))
-          : [mainCast[index % mainCast.length] ?? mainCast[0], mainCast[(index + 1) % mainCast.length] ?? mainCast[0]].filter(Boolean),
-    ),
-    location: resolveCanonicalLocation(input.context, beat.location?.trim()) ?? locAt(index === 0 ? 0 : Math.min(index, 1)),
-    purpose: beat.emotionalTone ?? `beat_${index + 1}`,
-    pageRole: beat.pageRole ?? PAGE_ROLE_SEQUENCE[index % PAGE_ROLE_SEQUENCE.length] ?? "escalation",
-    turn: beat.turn ?? beat.summary.slice(0, 80),
-    emotionalDelta: beat.emotionalDelta ?? (index % 2 === 0 ? 1 : -1),
-    structuredBeat: beat.structuredBeat,
-  }));
+  const rawOutlineBeats = outlineResult.outline.beats.map((beat, index) => {
+    const beatKeyForVw = input.approvedOutline?.beats[index]?.id ?? `beat_${index + 1}`;
+    const fromVisualWorld =
+      input.visualWorldContract && input.visualWorldContract.locations.length > 0
+        ? beatLocationSceneStringFromVisualWorld(input.visualWorldContract, beatKeyForVw)
+        : null;
+    return {
+      id: `beat_${index + 1}`,
+      summary: beat.summary,
+      tension: Math.min(9, 2 + index + Math.floor(index / 2)),
+      characters: mergeCharactersFromBeat(
+        input.context,
+        beat.characters,
+        beat.summary,
+        index % 3 === 0
+          ? mainCast.slice(0, Math.min(4, mainCast.length))
+          : index % 2 === 0
+            ? mainCast.slice(0, Math.min(3, mainCast.length))
+            : [mainCast[index % mainCast.length] ?? mainCast[0], mainCast[(index + 1) % mainCast.length] ?? mainCast[0]].filter(Boolean),
+      ),
+      location: (() => {
+        if (fromVisualWorld) return fromVisualWorld;
+        if (
+          premium
+          && (input.visualWorldContract?.locations?.length ?? 0) > 0
+          && !input.allowLegacyLocationInference
+        ) {
+          throw new Error(
+            `premium_missing_beat_location_scene:${beatKeyForVw} — beat sans lieu issu du VisualWorldContract ` +
+              "(binding manquant ou `locationId` introuvable). Utiliser `allowLegacyLocationInference: true` " +
+              "uniquement pour un bootstrap explicite.",
+          );
+        }
+        return (
+          resolveCanonicalLocation(input.context.locations ?? [], beat.location?.trim()) ??
+          locAt(index === 0 ? 0 : Math.min(index, 1))
+        );
+      })(),
+      purpose: beat.emotionalTone ?? `beat_${index + 1}`,
+      pageRole: beat.pageRole ?? PAGE_ROLE_SEQUENCE[index % PAGE_ROLE_SEQUENCE.length] ?? "escalation",
+      turn: beat.turn ?? beat.summary.slice(0, 80),
+      emotionalDelta: beat.emotionalDelta ?? (index % 2 === 0 ? 1 : -1),
+      structuredBeat: beat.structuredBeat,
+    };
+  });
 
   if (!input.approvedOutline && shouldKeepSingleLocation(input.userIntent, rawOutlineBeats)) {
     const dominantLocation = rawOutlineBeats[0]?.location || locA;
@@ -1006,5 +1059,8 @@ export async function generateChapterBundle(input: {
       timelineEvents: buildMemoryTimelineEventsFromScenes(scenes),
       openLoops: [cliffhanger, `Conséquences de la décision prise à ${locC}.`, `Effets durables sur ${mainCast.join(", ")}.`],
     },
+    ...(input.visualWorldContract
+      ? { visualWorldContract: input.visualWorldContract }
+      : {}),
   };
 }

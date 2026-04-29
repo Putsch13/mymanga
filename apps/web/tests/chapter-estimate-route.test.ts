@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const prismaMock = {
   chapter: { findFirst: vi.fn() },
+  character: { findMany: vi.fn() },
+  location: { findMany: vi.fn() },
 };
 
 const getAppUserMock = vi.fn();
@@ -65,6 +67,37 @@ const computePremiumReadinessScoreMock = vi.fn();
 
 vi.mock("@manga-ai-studio/ai", () => ({
   generateChapterBundle: generateChapterBundleMock,
+  composeVisualWorldContract: vi.fn().mockImplementation(async (input: { chapterId: string; beats: Array<{ beatId: string }> }) => ({
+    chapterId: input.chapterId,
+    source: "ai_generated" as const,
+    locations: [
+      {
+        id: "loc-mock",
+        label: "Lieu IA",
+        kind: "interior",
+        description: "Description lieu composé",
+        visualAnchors: [] as string[],
+        architecture: [] as string[],
+        lighting: [] as string[],
+        atmosphere: [] as string[],
+        recurringProps: [] as string[],
+        negativeConstraints: [] as string[],
+        source: "ai_generated" as const,
+        canonPolicy: "temporary" as const,
+      },
+    ],
+    props: [],
+    npcGroups: [],
+    creatures: [],
+    vehicles: [],
+    factions: [],
+    beatBindings: input.beats.map((b) => ({
+      beatId: b.beatId,
+      locationId: "loc-mock",
+      primaryPropIds: [] as string[],
+      npcGroupIds: [] as string[],
+    })),
+  })),
   inferNarrativeFactsFromBeat: inferNarrativeFactsFromBeatMock,
   inferRequiredPropsFromBeat: inferRequiredPropsFromBeatMock,
   buildPanelBlueprintsFromBeat: buildPanelBlueprintsFromBeatMock,
@@ -185,6 +218,8 @@ beforeEach(() => {
   estimateChapterTextTokensFromRulesMock.mockResolvedValue(321);
   buildProjectContextMock.mockResolvedValue(makeContext());
   generateChapterBundleMock.mockResolvedValue(makeBundle());
+  prismaMock.character.findMany.mockResolvedValue([]);
+  prismaMock.location.findMany.mockResolvedValue([]);
 
   // Default premium mocks
   inferNarrativeFactsFromBeatMock.mockReturnValue([{ type: "action", confidence: 0.9, beatId: "beat_1", source: "heuristic" }]);

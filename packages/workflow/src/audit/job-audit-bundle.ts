@@ -63,6 +63,11 @@ export interface JobAuditBundle {
     beats?: Array<{ beatId: string; summary?: string }>;
   } | null;
   visualDiscovery?: ChapterVisualDiscoveryContract | null;
+  /** Métadonnées composeur monde vs regex (aligné `VisualWorldDiscoveryPassResult`). */
+  visualWorldComposeMeta?: {
+    path: "ai_composer" | "regex_only" | "regex_after_compose_error";
+    composeErrorSummary?: string;
+  } | null;
   canonResolver?: CanonResolvedVisualContract | null;
   // Contrats principaux
   castContract?: ChapterCastContract | null;
@@ -130,6 +135,7 @@ export function createAuditBundle(meta: JobAuditMeta): JobAuditBundle {
     meta,
     inputStory: null,
     visualDiscovery: null,
+    visualWorldComposeMeta: null,
     canonResolver: null,
     castContract: null,
     locationContract: null,
@@ -192,6 +198,10 @@ export function serializeAuditBundle(bundle: JobAuditBundle): Map<string, string
   // 03. Visual discovery
   if (bundle.visualDiscovery) {
     files.set("03_visual_discovery.json", JSON.stringify(bundle.visualDiscovery, null, 2));
+  }
+
+  if (bundle.visualWorldComposeMeta) {
+    files.set("03b_visual_world_compose_meta.json", JSON.stringify(bundle.visualWorldComposeMeta, null, 2));
   }
 
   // 04. Canon resolver

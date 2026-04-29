@@ -35,6 +35,90 @@ export interface BuiltPromptResult {
 const MIN_LENGTH = 700;
 const MAX_LENGTH = 1200;
 
+/** Plafonds pour le suffixe `environmentDNA` dans le bloc ENVIRONMENT (prompt court). */
+const ENV_DNA_CAPS = {
+  descriptionChars: 200,
+  visualAnchors: 3,
+  lighting: 2,
+  recurringProps: 3,
+  negativeConstraints: 2,
+  totalChars: 520,
+} as const;
+
+function dnaStringList(value: unknown, max: number): string[] {
+  if (value == null) return [];
+  if (Array.isArray(value)) {
+    const out: string[] = [];
+    for (const v of value) {
+      if (typeof v !== "string") continue;
+      const s = normalizePromptClause(v);
+      if (s) out.push(s);
+      if (out.length >= max) break;
+    }
+    return out;
+  }
+  if (typeof value === "string") {
+    const s = normalizePromptClause(value);
+    return s ? [s.slice(0, 240)] : [];
+  }
+  return [];
+}
+
+function firstDnaStringList(
+  dna: Record<string, unknown>,
+  keys: readonly string[],
+  max: number,
+): string[] {
+  for (const k of keys) {
+    const list = dnaStringList(dna[k], max);
+    if (list.length > 0) return list;
+  }
+  return [];
+}
+
+/**
+ * Suffixe décor contrôlé depuis `spec.environmentDNA` (clés camelCase ou snake_case).
+ */
+export function formatEnvironmentDnaForPrompt(
+  dna: Record<string, unknown> | null | undefined,
+): string {
+  if (!dna || typeof dna !== "object") return "";
+  const parts: string[] = [];
+  const desc =
+    typeof dna.description === "string"
+      ? normalizePromptClause(dna.description).slice(0, ENV_DNA_CAPS.descriptionChars)
+      : "";
+  if (desc) parts.push(desc);
+
+  const anchors = firstDnaStringList(
+    dna,
+    ["visualAnchors", "visual_anchors", "anchors"],
+    ENV_DNA_CAPS.visualAnchors,
+  );
+  if (anchors.length) parts.push(`Anchors: ${anchors.join("; ")}.`);
+
+  const lighting = firstDnaStringList(dna, ["lighting", "lightingNotes", "light"], ENV_DNA_CAPS.lighting);
+  if (lighting.length) parts.push(`Light: ${lighting.join("; ")}.`);
+
+  const props = firstDnaStringList(
+    dna,
+    ["recurringProps", "recurring_props", "props"],
+    ENV_DNA_CAPS.recurringProps,
+  );
+  if (props.length) parts.push(`Props: ${props.join("; ")}.`);
+
+  const negs = firstDnaStringList(
+    dna,
+    ["negativeConstraints", "negative_constraints", "negatives", "avoid"],
+    ENV_DNA_CAPS.negativeConstraints,
+  );
+  if (negs.length) parts.push(`Avoid: ${negs.join("; ")}.`);
+
+  const joined = parts.join(" ").trim();
+  if (!joined) return "";
+  return joined.length > ENV_DNA_CAPS.totalChars ? joined.slice(0, ENV_DNA_CAPS.totalChars) : joined;
+}
+
 export function buildMinimalPanelPrompt(spec: PanelRenderSpec): BuiltPromptResult {
   const subject = buildPromptSubjectBlock(spec);
   const environment = buildPromptEnvironmentBlock(spec);
@@ -114,6 +198,8 @@ export function buildPromptSubjectBlock(spec: PanelRenderSpec): string {
 }
 
 export function buildPromptEnvironmentBlock(spec: PanelRenderSpec): string {
+  const dnaRaw = formatEnvironmentDnaForPrompt(spec.environmentDNA);
+  const dnaSuffix = dnaRaw.length > 0 ? ` DNA: ${dnaRaw}` : "";
   const rawLoc = typeof spec.locationName === "string" ? spec.locationName.trim() : "";
   const envLock = spec.continuityLocks.environmentLocks
     .map(normalizePromptClause)
@@ -139,7 +225,7 @@ export function buildPromptEnvironmentBlock(spec: PanelRenderSpec): string {
     const lockLine = environmentLocks.length > 0
       ? ` Continuity cues: ${environmentLocks.join("; ")}.`
       : "";
-    return `ENVIRONMENT: blurred / simplified ${environmentAnchor}, focus entirely on object.${lockLine}`;
+    return `ENVIRONMENT: blurred / simplified ${environmentAnchor}, focus entirely on object.${lockLine}${dnaSuffix}`;
   }
   if (
     spec.renderMode === "reaction_closeup" ||
@@ -151,24 +237,24 @@ export function buildPromptEnvironmentBlock(spec: PanelRenderSpec): string {
     const lockLine = environmentLocks.length > 0
       ? ` Continuity cues remain readable: ${environmentLocks.join("; ")}.`
       : "";
-    return `ENVIRONMENT: ${environmentAnchor}, shallow depth, ${densityHint} kept soft behind subject.${lockLine}`;
+    return `ENVIRONMENT: ${environmentAnchor}, shallow depth, ${densityHint} kept soft behind subject.${lockLine}${dnaSuffix}`;
   }
   if (spec.renderMode === "threat_silhouette") {
     const lockLine = environmentLocks.length > 0
       ? ` Continuity cues: ${environmentLocks.join("; ")}.`
       : "";
-    return `ENVIRONMENT: ${environmentAnchor}, backlit atmosphere, strong contre-jour, subject reduced to shape.${lockLine}`;
+    return `ENVIRONMENT: ${environmentAnchor}, backlit atmosphere, strong contre-jour, subject reduced to shape.${lockLine}${dnaSuffix}`;
   }
   if (spec.renderMode === "aftermath_dialogue") {
     const lockLine = environmentLocks.length > 0
       ? ` Continuity cues: ${environmentLocks.join("; ")}.`
       : "";
-    return `ENVIRONMENT: ${environmentAnchor}, subdued lighting post-event, debris or altered state visible in background.${lockLine}`;
+    return `ENVIRONMENT: ${environmentAnchor}, subdued lighting post-event, debris or altered state visible in background.${lockLine}${dnaSuffix}`;
   }
   const lockLine = environmentLocks.length > 0
     ? ` Continuity cues: ${environmentLocks.join("; ")}.`
     : "";
-  return `ENVIRONMENT: ${environmentAnchor}, ${densityHint}, consistent with chapter continuity.${lockLine}`;
+  return `ENVIRONMENT: ${environmentAnchor}, ${densityHint}, consistent with chapter continuity.${lockLine}${dnaSuffix}`;
 }
 
 export function buildPromptShotBlock(spec: PanelRenderSpec): string {

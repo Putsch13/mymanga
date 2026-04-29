@@ -93,6 +93,14 @@ describe("job-audit-bundle", () => {
       expect(files.has("05_cast_contract.json")).toBe(false);
       expect(files.has("12_storyboard_plan.json")).toBe(false);
     });
+
+    it("serialise visualWorldComposeMeta en 03b quand présent", () => {
+      const bundle = createAuditBundle(baseMeta);
+      bundle.visualWorldComposeMeta = { path: "ai_composer" };
+      const files = serializeAuditBundle(bundle);
+      expect(files.has("03b_visual_world_compose_meta.json")).toBe(true);
+      expect(JSON.parse(files.get("03b_visual_world_compose_meta.json")!)).toEqual({ path: "ai_composer" });
+    });
   });
 
   describe("formatAuditBundleSummary", () => {

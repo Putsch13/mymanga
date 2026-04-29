@@ -18,6 +18,8 @@ import {
   ensureCanonicalProductionPlan,
   mergeRawBlueprintsWithCanonicalRhythm,
   resolveProductionOutlineForPremiumPipeline,
+  hydrateBlueprintsWithEnvironmentDna,
+  hydrateBlueprintsWithVisualWorldNpcAndProps,
   buildChapterCastContract,
   assertValidChapterCastContract,
   formatCastContractLog,
@@ -80,7 +82,11 @@ import { runBeatCoverageQaPass, formatBeatCoverageQaLog } from "./passes/beat-co
 import { runEmotionalArcQaPass, formatEmotionalArcQaLog } from "./passes/emotional-arc-qa-pass";
 import { runInteractionQaPass, formatInteractionQaLog } from "./passes/interaction-qa-pass";
 import { runPropsQaPass, formatPropsQaLog } from "./passes/props-qa-pass";
-import { runVisualDiscoveryPass, formatVisualDiscoveryLog } from "./passes/visual-discovery-pass";
+import {
+  runVisualWorldDiscoveryPass,
+  formatVisualWorldDiscoveryLog,
+  type VisualWorldDiscoveryPassResult,
+} from "./passes/visual-world-discovery-pass";
 import { runCanonResolverPass, formatCanonResolverLog } from "./passes/canon-resolver-pass";
 import { runStoryContractCompletenessQa, formatStoryContractCompletenessLog } from "./passes/story-contract-completeness-qa";
 import {
@@ -149,6 +155,11 @@ export interface RunPremiumV3PipelineInput {
 
 export interface RunPremiumV3PipelineResult {
   v3RenderSucceeded: boolean;
+  /** Résumé découverte monde (IA vs regex) — audit / `Job.output`. */
+  visualWorldDiscovery?: Pick<
+    VisualWorldDiscoveryPassResult,
+    "discoverySource" | "visualWorldComposeMeta"
+  > | null;
 }
 
 function assertPremiumOnlyV3Config(input: Pick<RunPremiumV3PipelineInput, "pipelineV3Enabled" | "premiumV3OnlyEnabled">) {
@@ -361,8 +372,12 @@ export async function runPremiumV3Pipeline(
   }
 
   let v3RenderSucceeded = false;
+  let visualWorldDiscoveryAudit: Pick<
+    VisualWorldDiscoveryPassResult,
+    "discoverySource" | "visualWorldComposeMeta"
+  > | null = null;
   if (!input.pipelineV3Enabled) {
-    return { v3RenderSucceeded };
+    return { v3RenderSucceeded, visualWorldDiscovery: null };
   }
 
   const pipelineStartMs = Date.now();
@@ -452,6 +467,10 @@ export async function runPremiumV3Pipeline(
 
     // P1.4 — Visual Discovery Pass : détection automatique des entités visuelles.
     // Ce pass détecte les lieux, PNJ, robots, hybrides, créatures depuis le texte narratif.
+    const styleBibleJson = JSON.stringify(
+      buildStyleBibleFromUserProject({ project: input.project, stylePacks: input.stylePacks }),
+    ).slice(0, 4000);
+
     const discoveryInput = {
       chapterId: input.chapterId,
       beats: resolvedProductionOutline?.beats?.map((b: { beatId?: string; summary?: string; whyThisBeatExists?: string }) => ({
@@ -472,9 +491,38 @@ export async function runPremiumV3Pipeline(
         name: loc.name ?? loc.id,
         description: typeof loc.visualDNA?.description === "string" ? loc.visualDNA.description : undefined,
       })),
+      premiumV3OnlyEnabled: Boolean(input.premiumV3OnlyEnabled),
+      projectGenre: typeof input.project?.primaryGenre === "string" ? input.project.primaryGenre : null,
+      projectTone: typeof input.project?.tone === "string" ? input.project.tone : null,
+      styleBibleJson,
+      composerBeats: resolvedProductionOutline?.beats?.map(
+        (b: {
+          beatId: string;
+          summary: string;
+          whyThisBeatExists: string;
+          dramaticChange: string;
+          involvedCharacters?: string[];
+        }) => ({
+          beatId: b.beatId,
+          summary: b.summary,
+          whyThisBeatExists: b.whyThisBeatExists,
+          dramaticChange: b.dramaticChange,
+          involvedCharacterIds: b.involvedCharacters ?? [],
+        }),
+      ),
     };
-    const visualDiscoveryResult = runVisualDiscoveryPass(discoveryInput);
-    console.info(formatVisualDiscoveryLog(visualDiscoveryResult));
+    const visualDiscoveryResult = await runVisualWorldDiscoveryPass(discoveryInput);
+    visualWorldDiscoveryAudit = {
+      discoverySource: visualDiscoveryResult.discoverySource,
+      visualWorldComposeMeta: visualDiscoveryResult.visualWorldComposeMeta,
+    };
+    console.info(formatVisualWorldDiscoveryLog(visualDiscoveryResult));
+    if (visualDiscoveryResult.visualWorldComposeMeta?.path === "regex_after_compose_error") {
+      console.warn(
+        `[pipeline:v3:visual-world-compose_fallback] chapterId=${input.chapterId} ` +
+          `summary=${visualDiscoveryResult.visualWorldComposeMeta.composeErrorSummary ?? "unknown"}`,
+      );
+    }
 
     // P1.5 — Canon Resolver : résolution canonique des entités détectées.
     const canonResolverResult = runCanonResolverPass({
@@ -614,12 +662,26 @@ export async function runPremiumV3Pipeline(
             richSource,
             canonicalRuntimePlan,
           );
-          panelBlueprintsForPremiumPath = mergedBlueprints;
+          const envHydrated =
+            visualDiscoveryResult.visualWorldContract
+              ? hydrateBlueprintsWithEnvironmentDna({
+                  blueprints: mergedBlueprints,
+                  visualWorld: visualDiscoveryResult.visualWorldContract,
+                })
+              : mergedBlueprints;
+          const npcPropHydrated =
+            visualDiscoveryResult.visualWorldContract
+              ? hydrateBlueprintsWithVisualWorldNpcAndProps({
+                  blueprints: envHydrated,
+                  visualWorld: visualDiscoveryResult.visualWorldContract,
+                })
+              : envHydrated;
+          panelBlueprintsForPremiumPath = npcPropHydrated;
           if (productionPlanForStoryboard) {
-            productionPlanForStoryboard.panelBlueprints = mergedBlueprints;
+            productionPlanForStoryboard.panelBlueprints = npcPropHydrated;
           }
           console.info(
-            `[pipeline:v3:canonical-runtime] panels=${mergedBlueprints.length} source=merged_rich_blueprints qa_valid=${canonicalRuntimePlan.qa.valid}`,
+            `[pipeline:v3:canonical-runtime] panels=${npcPropHydrated.length} source=merged_rich_blueprints qa_valid=${canonicalRuntimePlan.qa.valid}`,
           );
         } else {
           if (input.premiumV3OnlyEnabled) {
@@ -1638,5 +1700,5 @@ export async function runPremiumV3Pipeline(
     `[pipeline:v3:report] chapterId=${input.chapterId} v3RenderSucceeded=${v3RenderSucceeded} ${timingReport}`,
   );
 
-  return { v3RenderSucceeded };
+  return { v3RenderSucceeded, visualWorldDiscovery: visualWorldDiscoveryAudit };
 }

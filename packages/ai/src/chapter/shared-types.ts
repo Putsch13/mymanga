@@ -4,7 +4,7 @@
  * pour éviter un cycle avec `chapter-pipeline.ts` (qui orchestre ces modules).
  */
 
-import type { SceneContinuityPayload, StructuredBeatPayload } from "@manga-ai-studio/core";
+import type { SceneContinuityPayload, StructuredBeatPayload, VisualWorldContract } from "@manga-ai-studio/core";
 
 export type ProjectContextForChapter = {
   project: {
@@ -48,11 +48,16 @@ export type ProjectContextForChapter = {
     lockedCanon?: unknown;
   } | null;
   locations?: Array<{
+    id?: string;
     name: string;
     type?: string | null;
     description?: string | null;
     aliases?: string[];
     visualBrief?: string | null;
+    establishedVisualBrief?: string | null;
+    canonImageUrl?: string | null;
+    visualRefs?: unknown;
+    metadata?: Record<string, unknown> | null;
     canonLocked?: boolean;
   }>;
   intentEntities?: Array<{
@@ -245,4 +250,6 @@ export type GeneratedChapterBundle = {
     timelineEvents: Array<Record<string, unknown>>;
     openLoops: string[];
   };
+  /** Présent quand le bundle a été généré avec un contrat monde (ex. estimate premium, builder). */
+  visualWorldContract?: VisualWorldContract | null;
 };

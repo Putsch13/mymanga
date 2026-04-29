@@ -14,6 +14,8 @@ export type PanelContinuityPreflight = {
   requiredProps: string[];
   missing: string[];
   warnings: string[];
+  /** Beat / panel impose un décor explicite mais `environmentVisualDna` est absent. */
+  missingEnvironmentDna: boolean;
   blocking: boolean;
 };
 
@@ -47,7 +49,8 @@ export function computePanelContinuityPreflights(
     }
 
     const loc = bp.requiredLocationSignals ?? [];
-    if (loc.length > 0 && !bp.environmentVisualDna) {
+    const missingEnvironmentDna = loc.length > 0 && !bp.environmentVisualDna;
+    if (missingEnvironmentDna) {
       warnings.push("environment_visual_dna_missing_for_location_signals");
     }
 
@@ -59,10 +62,15 @@ export function computePanelContinuityPreflights(
     }
 
     const critical = bp.criticality === "critical" || bp.contractualCritical === true;
+    const missingDnaForRequired =
+      requiredHeroIds.length > 0
+      && requiredHeroIds.some((id) => !dna.has(id));
+    const missingCharacterForCritical =
+      requiredHeroIds.length > 0
+      && (missingDnaForRequired || !bp.characterVisualDna || bp.characterVisualDna.length === 0);
     const blocking =
       critical
-      && requiredHeroIds.length > 0
-      && (!bp.characterVisualDna || bp.characterVisualDna.length === 0);
+      && (missingCharacterForCritical || missingEnvironmentDna);
 
     return {
       panelId: bp.panelId,
@@ -73,6 +81,7 @@ export function computePanelContinuityPreflights(
       requiredProps: (bp.requiredProps ?? []).map((p) => p.canonicalName),
       missing,
       warnings,
+      missingEnvironmentDna,
       blocking,
     };
   });
@@ -81,5 +90,16 @@ export function computePanelContinuityPreflights(
 export function continuityPreflightBlockingReasons(
   preflights: PanelContinuityPreflight[],
 ): string[] {
-  return preflights.filter((p) => p.blocking).map((p) => `${p.panelId}:critical_panel_without_character_visual_dna`);
+  return preflights.filter((p) => p.blocking).map((p) => {
+    if (p.missingEnvironmentDna) {
+      return `${p.panelId}:critical_panel_missing_environment_visual_dna`;
+    }
+    const missingIds = p.missing
+      .filter((m) => m.startsWith("character_visual_dna_missing:"))
+      .map((m) => m.slice("character_visual_dna_missing:".length));
+    if (missingIds.length > 0) {
+      return `${p.panelId}:critical_panel_without_character_visual_dna:ids=${missingIds.join(",")}`;
+    }
+    return `${p.panelId}:critical_panel_without_character_visual_dna`;
+  });
 }

@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./legacy/npc-ontology": "./src/legacy/npc-ontology.ts",
+    "./legacy/location-ontology": "./src/legacy/location-ontology.ts",
+    "./legacy/creature-ontology": "./src/legacy/creature-ontology.ts",
+    "./scene-blueprint": "./src/scene-blueprint.ts"
   },
   "dependencies": {
     "zod": "^3.24.2"

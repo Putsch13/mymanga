@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
-import { NPC_ONTOLOGY, resolveNpcWithAiFallback } from "@manga-ai-studio/world";
+import { resolveNpcWithAiFallback } from "@manga-ai-studio/world";
+import { NPC_ONTOLOGY } from "@manga-ai-studio/world/legacy/npc-ontology";
 import { detectSpeciesInDescription, resolveSpeciesArchetype } from "@manga-ai-studio/memory";
 import { prisma } from "@manga-ai-studio/db";
 import { pickDeterministicHook } from "@/lib/npc/pick-deterministic-hook";
@@ -93,6 +94,41 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     }
   }
 
+  // IA d'abord quand OpenAI est disponible — le scoring catalogue legacy
+  // n'est exécuté qu'en secours (pas d'API key ou échec LLM).
+  if (openai) {
+    try {
+      const aiNpc = await resolveNpcWithAiFallback(
+        { rawDescription: body.rawDescription, universe, tone, sceneLocation: body.sceneLocation },
+        async (messages) => {
+          const completion = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages,
+            response_format: { type: "json_object" },
+            max_tokens: 400,
+          });
+          return completion.choices[0]?.message?.content ?? "{}";
+        },
+      );
+
+      return NextResponse.json({
+        strategy: "ai_generated",
+        confidence: 0.85,
+        topMatch: {
+          label: aiNpc.label,
+          visualCues: aiNpc.visualCues,
+          interactionHooks: aiNpc.interactionHooks,
+        },
+        visualPromptFragment: aiNpc.promptFragment,
+        promptFragment: aiNpc.promptFragment,
+        interactionHooks: aiNpc.interactionHooks,
+        narrativeHook: aiNpc.narrativeHook,
+      });
+    } catch (err) {
+      console.warn("[npc-resolve] ai_primary_failed_fallback_catalog", err);
+    }
+  }
+
   const scored = NPC_ONTOLOGY.map((entry) => {
     let score = 0;
     const words = desc.split(/\s+/).filter(w => w.length >= 3);
@@ -122,9 +158,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   const forceAI = !scored[0] || scored[0].score < 4;
   const best = scored[0]?.entry;
 
-  if (best && confidence > 0.3 && !forceAI) {
-    // P0.2 — hook déterministe basé sur un hash des entrées stables.
-    // Math.random() cassait la reproductibilité audit/debug/replay.
+  const catalogMatchResponse = () => {
+    if (!best || !(confidence > 0.3 && !forceAI)) return null;
     const deterministicHook = pickDeterministicHook(best.interactionHooks, {
       projectId,
       rawDescription: body.rawDescription,
@@ -132,7 +167,6 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       tone: body.tone,
       sceneLocation: body.sceneLocation,
     });
-    // AUDIT COMMIT 6 — champ visuel séparé du hook narratif.
     const visualPromptFragment = best.visualCues.slice(0, 3).join(", ");
     return NextResponse.json({
       strategy: scored.length > 1 ? "catalog_blend" : "catalog_match",
@@ -147,26 +181,32 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       interactionHooks: best.interactionHooks,
       narrativeHook: deterministicHook ?? "",
     });
-  }
+  };
+
+  const catalogFallbackResponse = () => {
+    if (!best) return null;
+    const visualPromptFragment = best.visualCues.slice(0, 2).join(", ");
+    return NextResponse.json({
+      strategy: "catalog_fallback",
+      confidence,
+      topMatch: {
+        label: best.label,
+        visualCues: best.visualCues,
+        interactionHooks: best.interactionHooks,
+      },
+      visualPromptFragment,
+      promptFragment: visualPromptFragment,
+      interactionHooks: best.interactionHooks,
+      narrativeHook: safeNarrativeHook(best.interactionHooks),
+    });
+  };
+
+  const catalogMatch = openai ? null : catalogMatchResponse();
+  if (catalogMatch) return catalogMatch;
 
   if (!openai) {
-    if (best) {
-      // AUDIT COMMIT 6 — visuel / narratif explicitement séparés.
-      const visualPromptFragment = best.visualCues.slice(0, 2).join(", ");
-      return NextResponse.json({
-        strategy: "catalog_fallback",
-        confidence,
-        topMatch: {
-          label: best.label,
-          visualCues: best.visualCues,
-          interactionHooks: best.interactionHooks,
-        },
-        visualPromptFragment,
-        promptFragment: visualPromptFragment,
-        interactionHooks: best.interactionHooks,
-        narrativeHook: safeNarrativeHook(best.interactionHooks),
-      });
-    }
+    const fb = catalogFallbackResponse();
+    if (fb) return fb;
     return NextResponse.json({
       strategy: "ai_generated",
       confidence: 0,
@@ -182,50 +222,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     });
   }
 
-  try {
-    const aiNpc = await resolveNpcWithAiFallback(
-      { rawDescription: body.rawDescription, universe, tone, sceneLocation: body.sceneLocation },
-      async (messages) => {
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages,
-          response_format: { type: "json_object" },
-          max_tokens: 400,
-        });
-        return completion.choices[0]?.message?.content ?? "{}";
-      },
-    );
+  const fbAfterAi = catalogFallbackResponse();
+  if (fbAfterAi) return fbAfterAi;
 
-    return NextResponse.json({
-      strategy: "ai_generated",
-      confidence: 0.85,
-      topMatch: {
-        label: aiNpc.label,
-        visualCues: aiNpc.visualCues,
-        interactionHooks: aiNpc.interactionHooks,
-      },
-      visualPromptFragment: aiNpc.promptFragment,
-      promptFragment: aiNpc.promptFragment,
-      interactionHooks: aiNpc.interactionHooks,
-      narrativeHook: aiNpc.narrativeHook,
-    });
-  } catch {
-    if (best) {
-      const visualPromptFragment = best.visualCues.slice(0, 2).join(", ");
-      return NextResponse.json({
-        strategy: "catalog_fallback",
-        confidence,
-        topMatch: {
-          label: best.label,
-          visualCues: best.visualCues,
-          interactionHooks: best.interactionHooks,
-        },
-        visualPromptFragment,
-        promptFragment: visualPromptFragment,
-        interactionHooks: best.interactionHooks,
-        narrativeHook: safeNarrativeHook(best.interactionHooks),
-      });
-    }
-    return NextResponse.json({ error: "resolution_failed" }, { status: 500 });
-  }
+  return NextResponse.json({ error: "resolution_failed" }, { status: 500 });
 }

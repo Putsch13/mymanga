@@ -234,6 +234,8 @@ function buildReadyStudio() {
             requiredCharacterIds: isCutaway ? [] : ["hero-1"],
             dialogueCarrier: isCutaway ? undefined : ("speaker_visible" as const),
             dialogueLines: isCutaway ? undefined : ([{ speaker: "hero-1", text: "Ok." }] as const),
+            speakerAnchorCharacterId: isCutaway ? null : "hero-1",
+            speakerAnchorCharacterName: isCutaway ? null : "Héros",
           };
         }),
       },
@@ -248,19 +250,35 @@ const ctxChapter = { params: Promise.resolve({ id: "project-1", chapterId: "chap
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Les tests Chapter Studio sont des tests unitaires : forcer le mode non
+  // premium-only pour rester déterministes (sinon un shell avec
+  // PIPELINE_V3_PREMIUM_ONLY=true déclenche continuité / gates premium).
+  process.env.PIPELINE_V3_PREMIUM_ONLY = "false";
   // P0.6 — fixtures contiennent 1 blueprint pour 75 images ; on active le flag legacy.
   process.env.MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY = "true";
   getAppUserMock.mockResolvedValue(user);
   checkRateLimitMock.mockResolvedValue({ ok: true });
   getGenerationStackStatusMock.mockReturnValue({
-    canGenerateChapters: true,
-    canRunV3Premium: true,
-    hasFal: true,
-    hasStoragePersistence: true,
-    hasOpenAI: true,
-    visionPremiumQaEnvReady: true,
+    configuredProviders: ["fal"],
+    preferredImageProvider: "fal",
     operationalStatus: "FULLY_OPERATIONAL",
     degradedModes: [],
+    isDegraded: false,
+    hasOpenAI: true,
+    hasFal: true,
+    hasStoragePersistence: true,
+    allowMockImageProvider: true,
+    canGenerateImages: true,
+    canGenerateChapters: true,
+    canRunV3Premium: true,
+    visionPremiumQaEnvReady: true,
+    premiumVisualQaPreflight: {
+      ok: true,
+      missing: [],
+      strictlyRequired: false,
+      launchBlocked: false,
+    },
+    blockers: [],
     warnings: [],
   });
   estimateChapterTextTokensFromRulesMock.mockResolvedValue(42);

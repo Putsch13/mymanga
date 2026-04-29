@@ -368,6 +368,17 @@ export type {
   VisualDiscoveryPassInput,
   VisualDiscoveryPassResult,
 } from "./passes/visual-discovery-pass";
+// P0 bis — Visual World Discovery (IA premium + legacy regex)
+export {
+  runVisualWorldDiscoveryPass,
+  formatVisualWorldDiscoveryLog,
+  visualWorldContractToDiscoveryContract,
+  shouldUseAiVisualWorldDiscovery,
+} from "./passes/visual-world-discovery-pass";
+export type {
+  VisualWorldDiscoveryPassInput,
+  VisualWorldDiscoveryPassResult,
+} from "./passes/visual-world-discovery-pass";
 // P1.5 — Canon Resolver Pass
 export {
   runCanonResolverPass,

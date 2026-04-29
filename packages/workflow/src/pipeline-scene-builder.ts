@@ -3,7 +3,7 @@ import {
   type StoryboardPanel,
   type RoutingContext,
 } from "@manga-ai-studio/ai";
-import { type PanelCharacterPlan } from "@manga-ai-studio/core";
+import { type PanelCharacterPlan, type VisualWorldContract, type VisualWorldNpcGroup } from "@manga-ai-studio/core";
 import type { SceneBlueprint } from "@manga-ai-studio/world";
 import { buildRoutingContextV2 } from "./routing-context";
 
@@ -77,7 +77,7 @@ export function buildSceneKeyframeDraft(input: {
     backgroundDensity?: string | null;
     cameraLanguage?: string | null;
   } | null;
-  persistentSceneExtras: Array<{ archetype: string; anchorSlot: string }>;
+  persistentSceneExtras: Array<{ archetypeId: string; archetypeLabel: string; anchorSlot: string }>;
 }) {
   const styleLine = [
     input.stylePack?.renderFamily,
@@ -86,7 +86,7 @@ export function buildSceneKeyframeDraft(input: {
     input.stylePack?.contrastProfile,
   ].filter(Boolean).join(", ");
   const extrasLine = input.persistentSceneExtras
-    .map((extra) => `${extra.archetype}:${extra.anchorSlot}`)
+    .map((extra) => `${extra.archetypeLabel}:${extra.anchorSlot}`)
     .slice(0, 5)
     .join(", ");
   const positivePrompt = [
@@ -167,34 +167,85 @@ export function buildRoutingContext(
   });
 }
 
+export type SceneExtraRequirement = {
+  archetypeId: string;
+  archetypeLabel: string;
+  source: "legacy" | "ai_generated";
+  anchorSlot: string;
+};
+
+function anchorSlotForNpcGroup(g: VisualWorldNpcGroup, index: number): string {
+  const raw = (g.relationToLocation ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 48);
+  if (raw.length > 0) return raw;
+  return `vw-npc-${index}-${g.id.replace(/[^a-z0-9]+/gi, "").slice(0, 12)}`;
+}
+
+/**
+ * Extras requis pour une scène : groupes PNJ du `VisualWorldContract` liés au beat,
+ * sinon inférence regex legacy (`inferRequiredSceneExtras`).
+ */
+export function inferRequiredSceneExtrasWithVisualWorld(
+  vw: VisualWorldContract | null | undefined,
+  scene: { summary: string; location: string; characters: string[] },
+  beatId: string | null | undefined,
+): SceneExtraRequirement[] {
+  if (vw && beatId) {
+    const groups = vw.npcGroups.filter((g) => g.requiredBeatIds.includes(beatId));
+    if (groups.length > 0) {
+      return groups.slice(0, 4).map((g, i) => ({
+        archetypeId: g.id,
+        archetypeLabel: g.label,
+        source: "ai_generated" as const,
+        anchorSlot: anchorSlotForNpcGroup(g, i),
+      }));
+    }
+  }
+  return inferRequiredSceneExtras(scene);
+}
+
 export function inferRequiredSceneExtras(scene: {
   summary: string;
   location: string;
   characters: string[];
-}) {
+}): SceneExtraRequirement[] {
   const text = `${scene.summary} ${scene.location}`.toLowerCase();
-  const extras: Array<{ archetype: "bartender" | "client" | "guard" | "server" | "crowd" | "merchant" | "passerby" | "other"; anchorSlot: string }> = [];
+  const extras: SceneExtraRequirement[] = [];
+  const push = (slug: string, label: string, anchorSlot: string) => {
+    extras.push({
+      archetypeId: `inferred:${slug}`,
+      archetypeLabel: label,
+      source: "legacy",
+      anchorSlot,
+    });
+  };
   if (/(taverne|bar|auberge|café|cafe)/.test(text)) {
-    extras.push({ archetype: "bartender", anchorSlot: "service-counter" });
-    extras.push({ archetype: "client", anchorSlot: "ambient-left" });
+    push("bartender", "Barman", "service-counter");
+    push("client", "Client", "ambient-left");
   }
   if (/(marché|market|bazaar|boutique)/.test(text)) {
-    extras.push({ archetype: "merchant", anchorSlot: "stall-front" });
-    extras.push({ archetype: "passerby", anchorSlot: "lane-depth" });
+    push("merchant", "Marchand", "stall-front");
+    push("passerby", "Passant", "lane-depth");
   }
   if (/(prison|surveillance|checkpoint|guard|garde|palais|banque)/.test(text)) {
-    extras.push({ archetype: "guard", anchorSlot: "security-edge" });
+    push("guard", "Garde", "security-edge");
   }
-  if (/(arène|arena|foule|crowd|festival)/.test(text)) extras.push({ archetype: "crowd", anchorSlot: "backdrop-crowd" });
+  if (/(arène|arena|foule|crowd|festival)/.test(text)) push("crowd", "Foule", "backdrop-crowd");
   if (/(lycée|lycee|école|ecole|school|campus|cour de récré|cour du lycée|classe)/.test(text)) {
-    extras.push({ archetype: "crowd", anchorSlot: "student-yard" });
-    extras.push({ archetype: "passerby", anchorSlot: "corridor-depth" });
+    push("crowd", "Foule (cour)", "student-yard");
+    push("passerby", "Passant", "corridor-depth");
   }
   if (/(moque|ridicul|humili|entouré de ses amis|autour de ses amis|raillerie)/.test(text)) {
-    extras.push({ archetype: "crowd", anchorSlot: "mocking-ring" });
+    push("crowd", "Foule (moqueurs)", "mocking-ring");
   }
   if (extras.length === 0 && scene.characters.length <= 2) {
-    extras.push({ archetype: "passerby", anchorSlot: "ambient-depth" });
+    push("passerby", "Passant", "ambient-depth");
   }
   return extras.slice(0, 3);
 }

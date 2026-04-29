@@ -4,6 +4,7 @@ import {
   buildPromptNegativeBlock,
   describeCharacterWithCanon,
   detectNegationsInPositive,
+  formatEnvironmentDnaForPrompt,
 } from "./minimal-panel-prompt-builder";
 import { createDefaultChapterStyleBible } from "../contracts/chapter-style-bible";
 import type { PanelRenderSpec } from "../contracts/panel-render-spec";
@@ -369,6 +370,41 @@ describe("buildMinimalPanelPrompt", () => {
     );
     expect(r.positive).toContain("Clairière magique");
     expect(r.positive.toLowerCase()).not.toContain("environment: unknown");
+  });
+
+  it("capte environmentDNA avec plafonds (anchors, lighting, props, avoid)", () => {
+    const dna = formatEnvironmentDnaForPrompt({
+      description: "D".repeat(300),
+      visualAnchors: ["a1", "a2", "a3", "a4", "a5"],
+      lighting: ["l1", "l2", "l3"],
+      recurringProps: ["p1", "p2", "p3", "p4"],
+      negativeConstraints: ["n1", "n2", "n3"],
+    });
+    expect(dna.startsWith("D".repeat(200))).toBe(true);
+    expect(dna).toContain("a1");
+    expect(dna).toContain("a3");
+    expect(dna).not.toContain("a4");
+    expect(dna).toContain("Light: l1; l2.");
+    expect(dna).not.toContain("l3");
+    expect(dna).toContain("Props: p1; p2; p3.");
+    expect(dna).not.toContain("p4");
+    expect(dna).toContain("Avoid: n1; n2.");
+    expect(dna).not.toContain("n3");
+    expect(dna.length).toBeLessThanOrEqual(520);
+  });
+
+  it("injecte le suffixe DNA dans le prompt positif", () => {
+    const r = buildMinimalPanelPrompt(
+      makeSpec({
+        environmentDNA: {
+          visualAnchors: ["stone arch", "wet cobbles"],
+          lighting: ["overcast"],
+        },
+      }),
+    );
+    expect(r.positive).toContain("DNA:");
+    expect(r.positive).toContain("stone arch");
+    expect(r.positive).toContain("overcast");
   });
 });
 
