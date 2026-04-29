@@ -32,6 +32,7 @@ export type PanelRenderCharacterRole = "hero" | "support" | "enemy" | "npc";
 
 /** ADN visuel structuré (studio / mémoire) — préféré aux champs plats quand présent. */
 export interface PanelRenderCharacterVisualDna {
+  displayName?: string | null;
   eyeColor?: string | null;
   hairColor?: string | null;
   hairStyle?: string | null;

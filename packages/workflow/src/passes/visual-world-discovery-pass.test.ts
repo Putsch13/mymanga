@@ -72,4 +72,21 @@ describe("runVisualWorldDiscoveryPass — traçabilité", () => {
     expect(res.discoverySource).toBe("regex_legacy");
     expect(formatVisualWorldDiscoveryLog(res)).toContain("vwPath=regex_only");
   });
+
+  it("premium strict sans OPENAI ni VISUAL_WORLD_ALLOW_REGEX_FALLBACK → échec explicite", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "");
+    vi.stubEnv("VISUAL_WORLD_ALLOW_REGEX_FALLBACK", "");
+    await expect(
+      runVisualWorldDiscoveryPass(baseInput({ premiumV3OnlyEnabled: true })),
+    ).rejects.toThrow(/visual-world-discovery|OPENAI|composeVisualWorldContract/i);
+  });
+
+  it("premium strict sans OPENAI mais avec VISUAL_WORLD_ALLOW_REGEX_FALLBACK → regex", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "");
+    vi.stubEnv("VISUAL_WORLD_ALLOW_REGEX_FALLBACK", "1");
+    const res = await runVisualWorldDiscoveryPass(baseInput({ premiumV3OnlyEnabled: true }));
+    expect(res.visualWorldComposeMeta?.path).toBe("regex_after_compose_error");
+    expect(res.discoverySource).toBe("regex_legacy");
+    expect(res.visualWorldContract).toBeNull();
+  });
 });

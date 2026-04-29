@@ -104,6 +104,7 @@ describe("hydrateBlueprintsWithVisualWorldNpcAndProps", () => {
     expect(out.requiredProps?.length).toBe(1);
     expect(out.requiredProps?.[0].id).toBe("prop-crate");
     expect(out.requiredProps?.[0].canonicalName).toBe("Caisse scellée");
+    expect(out.requiredProps?.[0].source).toBe("visual_world_contract");
   });
 
   it("ne remplace pas les entrées existantes avec le même id", () => {

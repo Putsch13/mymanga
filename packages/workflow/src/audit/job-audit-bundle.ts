@@ -33,7 +33,7 @@ import type {
   NpcGroupContract,
   NonHumanVisualContract,
 } from "@manga-ai-studio/core";
-import type { ChapterVisualDiscoveryContract } from "../passes/visual-discovery-pass";
+import type { ChapterVisualDiscoveryContract } from "../passes/legacy-visual-discovery-pass";
 import type { CanonResolvedVisualContract } from "../passes/canon-resolver-pass";
 
 export interface JobAuditMeta {

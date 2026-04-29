@@ -21,7 +21,7 @@ import {
   type ContractSourceHashes,
 } from "./chapter-generation-contract";
 import {
-  legacyDialogueToTextContract,
+  buildPanelTextContractFromFragments,
   type PanelTextContract,
 } from "./panel-text-contract";
 import type { ContractCharacterVisualDna } from "../characters/merge-character-visual-dna";
@@ -83,15 +83,27 @@ function mapRole(
 }
 
 function mapPanelNarrativeRole(bp: PanelBlueprintPremium): PanelNarrativeRole {
-  if (Array.isArray(bp.dialogueLines) && bp.dialogueLines.some((d) => d.text?.trim())) return "dialogue";
-  if (bp.narrationText?.trim()) return "emotion";
+  const hasBlueprintDialogue =
+    Array.isArray(bp.dialogueLines) && bp.dialogueLines.some((d) => d.text?.trim());
+  const bundleDialogues = bp.panelTextBundle?.dialogues;
+  const hasBundleDialogue =
+    Array.isArray(bundleDialogues) && bundleDialogues.some((d) => d.text?.trim());
+  const hasNarration =
+    Boolean(bp.narrationText?.trim()) || Boolean(bp.panelTextBundle?.narration?.trim());
+  if (hasBlueprintDialogue || hasBundleDialogue) return "dialogue";
+  if (hasNarration) return "emotion";
   if (bp.cutawayType && bp.cutawayType !== "none") return "insert";
   if (bp.subjectFocus === "environment") return "establishing";
   return "action";
 }
 
 function panelTextFromBlueprint(panelId: string, bp: PanelBlueprintPremium): PanelTextContract {
-  return legacyDialogueToTextContract(panelId, bp.dialogueLines ?? null, bp.narrationText ?? null);
+  return buildPanelTextContractFromFragments({
+    panelId,
+    dialogueLines: bp.dialogueLines ?? null,
+    narration: bp.narrationText ?? null,
+    panelTextBundle: bp.panelTextBundle ?? null,
+  });
 }
 
 function emptySourceHashes(): ContractSourceHashes {

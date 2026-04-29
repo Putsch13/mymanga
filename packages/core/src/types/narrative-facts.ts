@@ -91,7 +91,13 @@ export interface RequiredProp {
   visibilityMode: PropVisibilityMode;
   mustBeVisible: boolean;
   confidence: number;
-  source: "canon" | "continuity" | "story_inference" | "location_inference";
+  source:
+    | "canon"
+    | "continuity"
+    | "story_inference"
+    | "location_inference"
+    /** Props / objets imposés par le `VisualWorldContract` (compositeur IA). */
+    | "visual_world_contract";
   /**
    * P0.4 — Catégorie de propriétaire. Défaut: "unassigned".
    * Les props `guard` ou `enemy` ne doivent pas être attribués au héros.

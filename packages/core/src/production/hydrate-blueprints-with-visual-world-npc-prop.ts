@@ -39,7 +39,7 @@ function visualWorldPropToRequiredProp(p: VisualWorldPropDna, beatId: string): R
     visibilityMode: p.continuityPolicy === "symbolic" ? "foreground_insert" : "background_support",
     mustBeVisible: p.continuityPolicy !== "single_use",
     confidence: 0.88,
-    source: "story_inference",
+    source: "visual_world_contract",
     ownerCategory,
     ownerId: p.ownerCharacterId ?? null,
   };

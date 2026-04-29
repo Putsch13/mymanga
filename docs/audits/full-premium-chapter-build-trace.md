@@ -18,7 +18,7 @@ Job Creation → Inngest/run-now
 run-premium-v3-pipeline.ts
     ├── story-pass.ts (StoryArchitect LLM)
     ├── storyboard-pass.ts (MangaEditor LLM)
-    ├── visual-discovery-pass.ts
+    ├── visual-world-discovery-pass.ts (compose + valide VisualWorldContract ; legacy regex en support interne)
     ├── canon-resolver-pass.ts
     ├── load-chapter-visual-memory.ts
     ├── dialogue-scene-writer.ts

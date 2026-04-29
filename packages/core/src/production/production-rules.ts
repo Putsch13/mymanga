@@ -154,17 +154,15 @@ export function isPremiumImageMockAllowed(): boolean {
 }
 
 /**
- * Vérifie si le pipeline legacy est activé.
- * En production, le legacy doit être désactivé pour forcer V3.
- * 
- * Contrôlé par: ENABLE_LEGACY_PIPELINE=true/false
- * Par défaut: false en production, true en dev/test (pour compatibilité)
+ * Pipeline legacy (narrative-pass + image-generation-pass hors v3).
+ *
+ * Activé uniquement si `ENABLE_LEGACY_PIPELINE=true`. Sinon `false`, y compris
+ * hors production (P0.5 — legacy désactivé par défaut ; opt-in explicite).
  */
 export function isLegacyPipelineEnabled(): boolean {
   if (process.env.ENABLE_LEGACY_PIPELINE === "true") return true;
   if (process.env.ENABLE_LEGACY_PIPELINE === "false") return false;
-  const env = process.env.NODE_ENV ?? "development";
-  return env !== "production";
+  return false;
 }
 
 /**

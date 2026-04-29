@@ -7,6 +7,8 @@ export {
   isPipelineV3StoryboardEnabled,
   isPipelineV3RenderFalEnabled,
   isPipelineV3MangaEditorLlmEnabled,
+  isPipelineV3StoryArchitectLlmEnabled,
+  isPipelineV3PremiumOnlyEnabled,
   isLegacyPipelineEnabled,
   getPipelineFeatureFlags,
 } from "./pipeline-feature-flags";
@@ -357,7 +359,7 @@ export type {
 export {
   runVisualDiscoveryPass,
   formatVisualDiscoveryLog,
-} from "./passes/visual-discovery-pass";
+} from "./passes/legacy-visual-discovery-pass";
 export type {
   DiscoveredEntityKind,
   DiscoverySource,
@@ -367,7 +369,7 @@ export type {
   ChapterVisualDiscoveryContract,
   VisualDiscoveryPassInput,
   VisualDiscoveryPassResult,
-} from "./passes/visual-discovery-pass";
+} from "./passes/legacy-visual-discovery-pass";
 // P0 bis — Visual World Discovery (IA premium + legacy regex)
 export {
   runVisualWorldDiscoveryPass,

@@ -85,9 +85,12 @@ function panelHasDialogueOrSfx(panel: Record<string, unknown>): boolean {
   const dialogue = panel.dialogue as unknown[] | undefined;
   const sfx = panel.sfx as unknown[] | undefined;
   const narration = panel.narration as string | undefined;
+  const bundle = panel.panelTextBundle as { dialogues?: unknown[] } | null | undefined;
+  const bundleDialogues = bundle?.dialogues;
 
   return (
     (Array.isArray(dialogue) && dialogue.length > 0) ||
+    (Array.isArray(bundleDialogues) && bundleDialogues.length > 0) ||
     (Array.isArray(sfx) && sfx.length > 0) ||
     Boolean(narration)
   );

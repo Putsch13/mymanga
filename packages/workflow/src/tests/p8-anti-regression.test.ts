@@ -15,7 +15,7 @@ import {
   findBeatsWithMissingSpeakerPanels,
   isHeroRole,
 } from "@manga-ai-studio/core";
-import { runVisualDiscoveryPass } from "../passes/visual-discovery-pass";
+import { runVisualDiscoveryPass } from "../passes/legacy-visual-discovery-pass";
 import {
   runPropsQaPass,
   isNarrativeFunctionProp,

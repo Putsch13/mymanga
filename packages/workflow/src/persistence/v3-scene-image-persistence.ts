@@ -26,19 +26,25 @@
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import {
   buildReaderPanelSlots,
-  legacyDialogueToTextContract,
+  buildPanelTextContractFromFragments,
   type GenerationDebugSnapshot,
 } from "@manga-ai-studio/core";
 import type {
   FalRenderRoute,
+  PanelRenderPanelTextPayload,
   PanelRenderSpec,
   StoryboardPlan,
   StoryboardPageV3 as StoryboardPage,
   StoryboardPanelV3 as StoryboardPanel,
 } from "@manga-ai-studio/ai";
+import { buildPanelRenderTextPayloadFromStoryboardPanel } from "../passes/enrich-panel-render-spec";
 import { persistImageIfNeeded, type PersistedImageResult } from "../pipeline-image-persistence";
 import { buildVisualQaInputFromRenderSpec, runVisualPanelQaWithOptionalVision } from "@manga-ai-studio/ai";
 import type { VisualQaResult } from "@manga-ai-studio/ai";
+
+function panelTextPayloadForPersist(panel: StoryboardPanel, spec: PanelRenderSpec): PanelRenderPanelTextPayload {
+  return spec.panelTextPayload ?? buildPanelRenderTextPayloadFromStoryboardPanel(panel).panelTextPayload;
+}
 
 export type PanelFinalStatus =
   | "passed"
@@ -183,6 +189,8 @@ async function preparePanelData(
       ? "completed"
       : "pending";
 
+  const panelTextForPersist = panelTextPayloadForPersist(panel, record.spec);
+
   const generationDebugSnapshot: GenerationDebugSnapshot = {
     version: "v2",
     panelId: panel.panelId,
@@ -229,9 +237,9 @@ async function preparePanelData(
       mustAvoid: panel.mustNotShow,
     },
     text: {
-      dialogues: panel.dialogue,
-      narration: panel.narration ?? null,
-      sfx: panel.sfx ?? [],
+      dialogues: panelTextForPersist.dialogue ?? [],
+      narration: panelTextForPersist.narration ?? null,
+      sfx: panelTextForPersist.sfx ?? [],
       reservedZones: [],
       preferredAnchorZones: panel.textPlacementHint?.preferredAnchorZones ?? [],
       overflowStrategy: panel.textPlacementHint?.overflowStrategy ?? "caption_strip",
@@ -256,11 +264,9 @@ async function preparePanelData(
   };
 
   const reserveTextArea =
-    (Array.isArray(panel.dialogue) && panel.dialogue.length > 0)
-    || Boolean(panel.narration?.trim())
-    || (Array.isArray(panel.sfx) && panel.sfx.length > 0)
-    || Boolean(record.spec.panelTextPayload?.dialogue?.length)
-    || Boolean(record.spec.panelTextPayload?.narration?.trim());
+    (Array.isArray(panelTextForPersist.dialogue) && panelTextForPersist.dialogue.length > 0)
+    || Boolean(panelTextForPersist.narration?.trim())
+    || (Array.isArray(panelTextForPersist.sfx) && panelTextForPersist.sfx.length > 0);
 
   let visualQa: VisualQaResult | null = null;
   if (record.visualQa != null) {
@@ -294,11 +300,12 @@ async function preparePanelData(
     V3RenderedPanelRecord["renderAttempts"]
   >;
 
-  const textContract = legacyDialogueToTextContract(
-    panel.panelId,
-    panel.dialogue ?? null,
-    panel.narration ?? null,
-  );
+  const textContract = buildPanelTextContractFromFragments({
+    panelId: panel.panelId,
+    dialogueLines: panelTextForPersist.dialogue?.length ? panelTextForPersist.dialogue : null,
+    narration: panelTextForPersist.narration ?? null,
+    sfx: panelTextForPersist.sfx ?? null,
+  });
 
   const metadata = {
     v3: true,
@@ -314,9 +321,9 @@ async function preparePanelData(
     actionLine: record.spec.actionLine,
     emotionLine: record.spec.emotionLine,
     textContract,
-    dialogue: panel.dialogue,
-    narration: panel.narration ?? null,
-    sfx: panel.sfx ?? [],
+    dialogue: panelTextForPersist.dialogue ?? [],
+    narration: panelTextForPersist.narration ?? null,
+    sfx: panelTextForPersist.sfx ?? [],
     textMeta: panel.textPlacementHint
       ? {
           preferredAnchorZones: panel.textPlacementHint.preferredAnchorZones ?? [],

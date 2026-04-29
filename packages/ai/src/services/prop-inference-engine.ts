@@ -560,7 +560,10 @@ export function inferRequiredPropsFromBeat(
     .filter(Boolean)
     .join(" ");
 
-  const universeType = detectUniverseFromContext(beat, context);
+  /** En premium sans templates univers, éviter la détection regex de « universe » (inutile pour les domaines vides). */
+  const universeType = context.suppressUniverseTemplateProps
+    ? (context.universeType ?? "generic")
+    : detectUniverseFromContext(beat, context);
   const enrichedContext = { ...context, universeType };
   const props: RequiredProp[] = [];
   const seenNames = new Set<string>();
@@ -588,7 +591,7 @@ export function inferRequiredPropsFromBeat(
         visibilityMode: p.continuityPolicy === "symbolic" ? "foreground_insert" : "background_support",
         mustBeVisible: p.continuityPolicy === "recurring" || p.continuityPolicy === "symbolic",
         confidence: 0.92,
-        source: "story_inference",
+        source: "visual_world_contract",
         ownerCategory,
         ownerId: p.ownerCharacterId ?? null,
       });

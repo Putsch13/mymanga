@@ -8,7 +8,7 @@
  * L'objectif est de permettre à l'utilisateur d'écrire naturellement sans
  * devoir encoder manuellement chaque entité.
  *
- * @module visual-discovery-pass
+ * @module legacy-visual-discovery-pass
  */
 
 import type { ProductionOutline } from "@manga-ai-studio/core";

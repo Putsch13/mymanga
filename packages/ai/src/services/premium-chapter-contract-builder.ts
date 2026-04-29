@@ -281,7 +281,7 @@ export function buildPremiumChapterContract(
     projectGenre,
     projectTone,
     heroCharacterId,
-    premiumStrictChapterSourcing: process.env.PIPELINE_V3_PREMIUM_ONLY === "true",
+    premiumStrictChapterSourcing: isPipelineV3PremiumOnlyEnabled(),
     suppressUniverseTemplateProps: isPipelineV3PremiumOnlyEnabled(),
     ...(visualWorldPropsForBeat ? { visualWorldPropsForBeat } : {}),
   };
@@ -518,7 +518,7 @@ export async function buildPremiumChapterContractAsync(
     projectGenre,
     projectTone,
     heroCharacterId,
-    premiumStrictChapterSourcing: process.env.PIPELINE_V3_PREMIUM_ONLY === "true",
+    premiumStrictChapterSourcing: isPipelineV3PremiumOnlyEnabled(),
     suppressUniverseTemplateProps: isPipelineV3PremiumOnlyEnabled(),
     ...(visualWorldPropsForBeat ? { visualWorldPropsForBeat } : {}),
   };

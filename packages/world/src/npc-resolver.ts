@@ -73,6 +73,10 @@ export type AiNpcResolver = (
   localCandidates: ProceduralEntity[],
 ) => Promise<ProceduralEntity[]>;
 
+/**
+ * Résolution PNJ : **IA d’abord** (sans biais catalogue), puis second passage
+ * IA avec les entités catalogue comme **indices seulement**, puis repli `local`.
+ */
 export async function resolveNpcWithAI(
   input: SceneBlueprintInput,
   seed: number,
@@ -82,16 +86,21 @@ export async function resolveNpcWithAI(
   const local = resolveNpcLocally(input, seed, desiredCount);
 
   try {
-    const aiEntities = await aiResolver(input, local.entities);
-    if (aiEntities.length > 0) {
-      return {
-        entities: aiEntities,
-        source: "ai",
-        confidence: 0.9,
-      };
+    const primary = await aiResolver(input, []);
+    if (primary.length > 0) {
+      return { entities: primary, source: "ai", confidence: 0.9 };
     }
   } catch {
-    /* secours catalogue ci-dessous */
+    /* second essai avec hints catalogue */
+  }
+
+  try {
+    const hinted = await aiResolver(input, local.entities);
+    if (hinted.length > 0) {
+      return { entities: hinted, source: "ai", confidence: 0.88 };
+    }
+  } catch {
+    /* secours catalogue */
   }
 
   return {

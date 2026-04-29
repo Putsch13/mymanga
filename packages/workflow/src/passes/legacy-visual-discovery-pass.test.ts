@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { runVisualDiscoveryPass } from "./visual-discovery-pass";
+import { runVisualDiscoveryPass } from "./legacy-visual-discovery-pass";
 
 describe("VisualDiscoveryPass", () => {
   it("détecte les lieux depuis le texte narratif", () => {

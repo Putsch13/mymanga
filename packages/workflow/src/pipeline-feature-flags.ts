@@ -7,7 +7,18 @@
  *
  * On lit les variables à chaque appel (pas de cache module-level) pour
  * permettre l'override en runtime par les tests / par override job.
+ *
+ * `isPipelineV3PremiumOnlyEnabled` et `isLegacyPipelineEnabled` sont
+ * réexportés depuis `@manga-ai-studio/core` (`production-rules`) — une
+ * seule source de vérité avec estimate / launch / assert-premium.
  */
+
+import {
+  isLegacyPipelineEnabled,
+  isPipelineV3PremiumOnlyEnabled,
+} from "@manga-ai-studio/core";
+
+export { isLegacyPipelineEnabled, isPipelineV3PremiumOnlyEnabled };
 
 function parseBoolEnv(name: string, fallback = false): boolean {
   const raw = process.env[name];
@@ -64,42 +75,6 @@ export function isPipelineV3MangaEditorLlmEnabled(): boolean {
  */
 export function isPipelineV3StoryArchitectLlmEnabled(): boolean {
   return parseBoolEnv("PIPELINE_V3_STORY_ARCHITECT_LLM", true);
-}
-
-/**
- * Quand `true`, le premium passe UNIQUEMENT par la pipeline v3
- * (StoryPass → StoryboardPass → RenderPass). Les passes legacy
- * (narrative-pass + image-generation-pass) ne s'exécutent plus pour
- * le premium. Requiert `PIPELINE_V3_STORYBOARD=true` ET
- * `PIPELINE_V3_RENDER_FAL=true` (sinon pas de rendu image réel).
- *
- * COMMIT B — défaut bascule à `true`. Le render-pass v3 persiste
- * désormais `SceneImage` directement, ce qui ferme le dernier frein
- * au premium-only. Toute exception v3 fait échouer le job (aucun
- * fallback silencieux). Un opérateur peut encore désactiver
- * `PIPELINE_V3_PREMIUM_ONLY=false` pour conserver le filet legacy
- * pendant un incident, mais ce n'est plus le chemin par défaut.
- */
-export function isPipelineV3PremiumOnlyEnabled(): boolean {
-  return parseBoolEnv("PIPELINE_V3_PREMIUM_ONLY", true);
-}
-
-/**
- * P0.5 — Quand `false` (défaut), le pipeline legacy (narrative-pass +
- * image-generation-pass) est INTERDIT. Il throw si on essaie de l'exécuter.
- *
- * Le legacy a été remplacé par la pipeline v3 qui corrige :
- * - padding 40→75 panels
- * - routing aveugle
- * - prompts contradictoires
- * - referencePolicy NONE sur héros
- * - coverage mensongère
- *
- * Ce flag existe uniquement pour permettre un rollback d'urgence en cas
- * d'incident prod critique. Aucun nouveau job ne devrait passer par legacy.
- */
-export function isLegacyPipelineEnabled(): boolean {
-  return parseBoolEnv("ENABLE_LEGACY_PIPELINE", false);
 }
 
 /**

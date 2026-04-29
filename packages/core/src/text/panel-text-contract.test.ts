@@ -102,4 +102,62 @@ describe("PanelTextContract", () => {
     const c = buildPanelTextContractFromFragments({ dialogue: ["x", "y"] });
     expect(c.dialogues.map((d) => d.text)).toEqual(["x", "y"]);
   });
+
+  it("accepte dialogueLines au format blueprint (speaker + text)", () => {
+    const c = buildPanelTextContractFromFragments({
+      panelId: "pb",
+      dialogueLines: [{ speaker: "Lyra", text: "Stop." }],
+    });
+    expect(c.dialogues[0]?.speakerName).toBe("Lyra");
+    expect(c.dialogues[0]?.text).toBe("Stop.");
+  });
+
+  it("puise panelTextBundle.dialogues si dialogueLines est vide", () => {
+    const c = buildPanelTextContractFromFragments({
+      panelId: "bun",
+      dialogueLines: [],
+      panelTextBundle: { dialogues: [{ speaker: "X", text: "Hi" }] },
+    });
+    expect(c.dialogues[0]?.text).toBe("Hi");
+  });
+
+  it("priorise dialogueLines sur panelTextBundle", () => {
+    const c = buildPanelTextContractFromFragments({
+      panelId: "prio",
+      dialogueLines: [{ speaker: "A", text: "first" }],
+      panelTextBundle: { dialogues: [{ speaker: "B", text: "second" }] },
+    });
+    expect(c.dialogues).toHaveLength(1);
+    expect(c.dialogues[0]?.text).toBe("first");
+  });
+
+  it("fusionne narration blueprint et bundle quand les deux sont présents", () => {
+    const c = buildPanelTextContractFromFragments({
+      panelId: "nar",
+      dialogueLines: [{ line: "Hi", speakerLabel: "A" }],
+      narration: "Intro.",
+      panelTextBundle: { narration: "Suite." },
+    });
+    expect(c.narration).toContain("Intro.");
+    expect(c.narration).toContain("Suite.");
+  });
+
+  it("inclut les SFX du bundle sur un panneau narration sans lignes structurées", () => {
+    const c = buildPanelTextContractFromFragments({
+      panelId: "sfx",
+      narration: "Crash.",
+      panelTextBundle: { sfx: ["BOOM"] },
+    });
+    expect(c.sfx.some((s) => s.text === "BOOM")).toBe(true);
+  });
+
+  it("réserve la zone texte pour un panneau SFX uniquement (validation)", () => {
+    const c = buildPanelTextContractFromFragments({
+      panelId: "sfxonly",
+      panelTextBundle: { sfx: ["BOOM"] },
+    });
+    expect(c.placement.reserveTextArea).toBe(true);
+    const r = validatePanelTextContract(c);
+    expect(r.valid).toBe(true);
+  });
 });

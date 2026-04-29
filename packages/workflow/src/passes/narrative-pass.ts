@@ -28,6 +28,8 @@ import {
   type ChapterLookProfile,
   buildApprovedChapterOutlineReplayFromOutlineBeats,
   type VisualWorldContract,
+  buildPanelTextContractFromFragments,
+  textContractToLegacyDialogue,
 } from "@manga-ai-studio/core";
 import {
   buildPanelIntentCard,
@@ -112,6 +114,38 @@ import type { PipelineContext } from "../pipeline-types";
  */
 const STD_NEGATIVE = LEGACY_STD_NEGATIVE;
 const PANEL_DRAFT_SIZE = getPremiumImageSize("PANEL_DRAFT");
+
+/**
+ * Dialogue scene legacy + champs blueprint premium (`dialogueLines`, `panelTextBundle`)
+ * alignés sur `buildPanelTextContractFromFragments` (PR9).
+ */
+function legacyScenePanelUnifiedDialogue(
+  panel: Record<string, any>,
+  blueprint: Record<string, unknown> | undefined,
+): Array<{ speaker: string; text: string }> {
+  const bp = blueprint ?? {};
+  const fromBp = Array.isArray(bp.dialogueLines) ? (bp.dialogueLines as Array<{ speaker?: string; text?: string }>) : null;
+  const fromPanel =
+    Array.isArray(panel.dialogues) && panel.dialogues.length > 0
+      ? (panel.dialogues as Array<{ speaker?: string; text?: string }>)
+      : panel.dialogue && typeof panel.dialogue === "object"
+        ? [panel.dialogue as { speaker?: string; text?: string }]
+        : null;
+  const dialogueLines = fromBp && fromBp.length > 0 ? fromBp : fromPanel;
+  const sfxRaw = panel.sfx;
+  const sfx = Array.isArray(sfxRaw) ? sfxRaw : sfxRaw != null && sfxRaw !== "" ? [String(sfxRaw)] : null;
+  const bundle =
+    (typeof bp.panelTextBundle === "object" && bp.panelTextBundle !== null ? bp.panelTextBundle : null)
+    ?? (typeof panel.panelTextBundle === "object" && panel.panelTextBundle !== null ? panel.panelTextBundle : null);
+  const contract = buildPanelTextContractFromFragments({
+    panelId: String(panel.panelId ?? panel.panelNumber ?? "panel"),
+    dialogueLines: dialogueLines?.length ? dialogueLines : null,
+    narration: typeof panel.narration === "string" ? panel.narration : null,
+    sfx,
+    panelTextBundle: bundle as never,
+  });
+  return textContractToLegacyDialogue(contract);
+}
 
 /**
  * Alias local du type extrait. On garde le nom historique `PlannedImage`
@@ -768,7 +802,7 @@ export async function runNarrativePass(
 
     if (finalPanelBlueprints.length === 0 && revisedBundle.outline.beats.length > 0) {
       console.log(`[pipeline] b3-1 generating panel blueprints dynamically for ${revisedBundle.outline.beats.length} beats`);
-      const { buildPanelBlueprintsFromBeat, inferNarrativeFactsFromBeat, inferRequiredPropsFromBeat } = await import("@manga-ai-studio/ai");
+      const { buildPanelBlueprintsFromBeat, inferNarrativeFactsFromBeat, inferRequiredPropsFromBeat, indexVisualWorldPropsByBeat } = await import("@manga-ai-studio/ai");
       const heroCharacterId = rawCharacters.find((c) => isHeroRole(c.roleType))?.id ?? null;
       const knownUniverseTypes = ["ninja","cyberpunk","post_apo","school_life","mecha","fantasy","military","medical","urban","generic"] as const;
       type UniverseType = (typeof knownUniverseTypes)[number];
@@ -809,6 +843,7 @@ export async function runNarrativePass(
       let panelCounter = 1;
       let usedLlmEnrichment = false;
       const allDynamicBlueprints: typeof finalPanelBlueprints = [];
+      const visualWorldPropsForBeat = indexVisualWorldPropsByBeat(composedVisualWorldContract ?? undefined);
 
       for (const beat of revisedBundle.outline.beats) {
         try {
@@ -863,13 +898,14 @@ export async function runNarrativePass(
             console.warn(`[pipeline:llm-facts] LLM enrichment failed for beat=${productionBeat.beatId}, using heuristic facts`);
           }
 
-          // Step 4: props
+          // Step 4: props — aligné estimate / premium-contract-builder : VisualWorldContract + strict sourcing.
           const props = inferRequiredPropsFromBeat(productionBeat, finalFacts, {
             universeType,
             projectGenre: context.project.primaryGenre ?? undefined,
             projectTone: context.project.tone ?? undefined,
             suppressUniverseTemplateProps: isPipelineV3PremiumOnlyEnabled(),
-            // I05: heroCharacterId intentionally omitted
+            premiumStrictChapterSourcing: isPipelineV3PremiumOnlyEnabled(),
+            ...(visualWorldPropsForBeat ? { visualWorldPropsForBeat, heroCharacterId } : {}),
           });
 
           // Step 5: blueprints
@@ -1598,6 +1634,7 @@ export async function runNarrativePass(
               });
 
               const bpRec = panelPremiumBlueprint as Record<string, unknown> | undefined;
+              const unifiedDialogueLines = legacyScenePanelUnifiedDialogue(panel as Record<string, any>, bpRec);
               // Utiliser le subjectFocus POST shot-plan (panelContract) pour être aligné avec le prompt composé
               const contractSubjectFocus = (panelContract as Record<string, unknown>).subjectFocus as string | null ?? null;
               const panelCast = buildPanelCast({
@@ -1621,7 +1658,7 @@ export async function runNarrativePass(
                 mood: panel.mood,
                 scenePurpose: scene.purpose,
                 sfx: panel.sfx ? [panel.sfx] : null,
-                dialogueCount: (panel.dialogues?.length ?? 0) + (panel.dialogue ? 1 : 0),
+                dialogueCount: unifiedDialogueLines.length,
                 cameraShot: panel.camera,
                 cameraAngle: panelContract.cameraAngle,
                 // BUG-25 : passer le pageRole du beat structuré (source fiable) pour
@@ -1828,9 +1865,9 @@ export async function runNarrativePass(
               camera: combatDirection ? `${panel.camera}, ${combatDirection.framing}` : panel.camera,
               mood: panel.mood,
               contentIntensityLayer: intensityLayer,
-              dialogueHint: panel.dialogues?.length
-                ? panel.dialogues.slice(0, 2).map((d: any) => `${d.speaker}: ${d.text}`).join(" / ")
-                : panel.dialogue ? `${panel.dialogue.speaker}: ${panel.dialogue.text}` : undefined,
+              dialogueHint: unifiedDialogueLines.length
+                ? unifiedDialogueLines.slice(0, 2).map((d) => `${d.speaker}: ${d.text}`).join(" / ")
+                : undefined,
               sceneContext: [
                 sceneBlueprint.promptBridge.sceneContextLine,
                 scene.summary,
@@ -1958,8 +1995,8 @@ export async function runNarrativePass(
               combatDirection,
               textScale: panel.textScale ?? "normal",
               sfx: panel.sfx,
-              dialogue: panel.dialogue,
-              dialogues: panel.dialogues,
+              dialogue: unifiedDialogueLines[0] ?? null,
+              dialogues: unifiedDialogueLines,
               narration: panel.narration,
               layout: storyboardPage.layout,
               panelContract: (() => {

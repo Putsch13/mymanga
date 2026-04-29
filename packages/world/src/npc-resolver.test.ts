@@ -9,14 +9,19 @@
  *   - `buildControlledNpcFallback` produit toujours un NPC valide,
  *   - `resolveNpcWithAiFallback` tombe en fallback contrôlé si le LLM échoue
  *     ou produit une sortie invalide.
+ *   - `resolveNpcWithAI` appelle l’IA sans candidats catalogue, puis avec hints,
+ *     puis catalogue local.
  */
 import { describe, it, expect } from "vitest";
 import {
   parseAiGeneratedNpc,
   buildControlledNpcFallback,
   resolveNpcWithAiFallback,
+  resolveNpcWithAI,
   aiGeneratedNpcSchema,
 } from "./npc-resolver";
+import type { ProceduralEntity } from "./types";
+import { buildFixedRegressionSuite } from "./qa-suites";
 
 const validPayload = {
   label: "garde impérial",
@@ -111,6 +116,79 @@ describe("buildControlledNpcFallback", () => {
   it("tronque les labels trop longs", () => {
     const fallback = buildControlledNpcFallback({ rawDescription: "x".repeat(500) });
     expect(fallback.label.length).toBeLessThanOrEqual(80);
+  });
+});
+
+const minimalProceduralNpc = (id: string, label: string, sourceOntologyId: string): ProceduralEntity => ({
+  id,
+  label,
+  kind: "npc",
+  role: "extra",
+  visualCues: ["silhouette lisible"],
+  interactionHooks: ["présence de fond"],
+  sourceOntologyId,
+});
+
+describe("resolveNpcWithAI — ordre IA d’abord", () => {
+  const blueprintInput = () => buildFixedRegressionSuite()[0]!.input;
+
+  it("utilise la sortie IA du premier appel (candidats vides) sans passer par le catalogue", async () => {
+    const r = await resolveNpcWithAI(
+      blueprintInput(),
+      7,
+      async (_input, candidates) => {
+        expect(candidates).toHaveLength(0);
+        return [minimalProceduralNpc("ai-only", "PNJ sur mesure", "ai-generated")];
+      },
+      1,
+    );
+    expect(r.source).toBe("ai");
+    expect(r.entities[0]?.label).toBe("PNJ sur mesure");
+  });
+
+  it("enchaîne premier appel vide puis second appel avec hints catalogue", async () => {
+    const phases: string[] = [];
+    const r = await resolveNpcWithAI(
+      blueprintInput(),
+      11,
+      async (_input, candidates) => {
+        phases.push(candidates.length === 0 ? "primary_no_catalog" : "hinted_with_catalog");
+        if (candidates.length === 0) return [];
+        return [minimalProceduralNpc("hint-1", "Depuis indices", "hint")];
+      },
+      1,
+    );
+    expect(phases).toEqual(["primary_no_catalog", "hinted_with_catalog"]);
+    expect(r.source).toBe("ai");
+    expect(r.entities[0]?.label).toBe("Depuis indices");
+  });
+
+  it("replie sur le catalogue local si l’IA ne renvoie rien", async () => {
+    const r = await resolveNpcWithAI(
+      blueprintInput(),
+      99,
+      async () => [],
+      1,
+    );
+    expect(r.source).toBe("local");
+    expect(r.entities.length).toBeGreaterThan(0);
+  });
+
+  it("si le premier appel IA throw, tente le second passage puis catalogue", async () => {
+    let n = 0;
+    const r = await resolveNpcWithAI(
+      blueprintInput(),
+      3,
+      async (_input, candidates) => {
+        n += 1;
+        if (candidates.length === 0) throw new Error("primary_fail");
+        return [minimalProceduralNpc("recover", "Récupéré", "ai-recover")];
+      },
+      1,
+    );
+    expect(n).toBe(2);
+    expect(r.source).toBe("ai");
+    expect(r.entities[0]?.label).toBe("Récupéré");
   });
 });
 

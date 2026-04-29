@@ -13,10 +13,15 @@ import {
   isHeroRole,
   isAntagonistRole,
   isSupportingRole,
+  type CharacterVisualDna,
+  buildPanelTextContractFromFragments,
+  textContractToLegacyDialogue,
+  type PanelTextBundle,
 } from "@manga-ai-studio/core";
 import type { ChapterStyleBible } from "../contracts/chapter-style-bible";
 import type {
   PanelRenderCharacterRole,
+  PanelRenderCharacterVisualDna,
   PanelRenderSpec,
   PanelRenderVisibleCharacter,
 } from "../contracts/panel-render-spec";
@@ -38,6 +43,8 @@ export interface CharacterInfo {
   outfitSignature?: string | null;
   canonSignatureText?: string | null;
   forbiddenVisualDrift?: string[] | null;
+  /** ADN studio complet quand disponible (prioritaire sur les champs plats). */
+  characterVisualDna?: CharacterVisualDna | null;
 }
 
 export interface BuildPanelRenderSpecInput {
@@ -54,6 +61,30 @@ const DIALOGUE_FORWARD_RENDER_MODES = new Set<StoryboardPanel["renderMode"]>([
   "character_focus",
   "aftermath_dialogue",
 ]);
+
+function buildVisibleCharacterVisualDna(match: CharacterInfo): PanelRenderCharacterVisualDna {
+  const c = match.characterVisualDna;
+  return {
+    displayName: c?.displayName ?? null,
+    hairColor: c?.hairColor ?? match.hairColor ?? null,
+    eyeColor: c?.eyeColor ?? match.eyeColor ?? null,
+    hairStyle: match.hairStyle ?? null,
+    skinTone: match.skinTone ?? null,
+    outfitSignature: c?.outfitSignature ?? match.outfitSignature ?? null,
+  };
+}
+
+function resolvedStoryboardDialogueLines(panel: StoryboardPanel): Array<{ speaker: string; text: string }> {
+  const bundle = (panel as StoryboardPanel & { panelTextBundle?: PanelTextBundle | null }).panelTextBundle ?? null;
+  const contract = buildPanelTextContractFromFragments({
+    panelId: panel.panelId,
+    dialogueLines: panel.dialogue?.length ? panel.dialogue : null,
+    narration: panel.narration ?? null,
+    sfx: panel.sfx ?? null,
+    panelTextBundle: bundle,
+  });
+  return textContractToLegacyDialogue(contract);
+}
 
 export function buildPanelRenderSpec(
   input: BuildPanelRenderSpecInput,
@@ -74,17 +105,17 @@ export function buildPanelRenderSpec(
       expressionIntent: null,
       hairColor: match.hairColor ?? null,
       eyeColor: match.eyeColor ?? null,
-      canonSignatureText: match.canonSignatureText ?? null,
-      forbiddenDrift: Array.isArray(match.forbiddenVisualDrift)
-        ? match.forbiddenVisualDrift.filter((x): x is string => typeof x === "string")
-        : [],
-      visualDNA: {
-        hairColor: match.hairColor ?? null,
-        eyeColor: match.eyeColor ?? null,
-        hairStyle: match.hairStyle ?? null,
-        skinTone: match.skinTone ?? null,
-        outfitSignature: match.outfitSignature ?? null,
-      },
+      canonSignatureText: match.characterVisualDna?.canonSignatureText ?? match.canonSignatureText ?? null,
+      forbiddenDrift: (() => {
+        const fromCanon = match.characterVisualDna?.forbiddenDrift;
+        if (Array.isArray(fromCanon) && fromCanon.length > 0) {
+          return fromCanon.filter((x): x is string => typeof x === "string");
+        }
+        return Array.isArray(match.forbiddenVisualDrift)
+          ? match.forbiddenVisualDrift.filter((x): x is string => typeof x === "string")
+          : [];
+      })(),
+      visualDNA: buildVisibleCharacterVisualDna(match),
     });
   }
 
@@ -101,6 +132,8 @@ export function buildPanelRenderSpec(
     targetAspectRatio: panel.targetAspectRatio ?? inferredLayout.targetAspectRatio,
     slotType: panel.slotType ?? inferredLayout.slotType,
   };
+
+  const dialogueLines = resolvedStoryboardDialogueLines(panel);
 
   return {
     panelId: panel.panelId,
@@ -119,8 +152,8 @@ export function buildPanelRenderSpec(
     actionLine: panel.actionLine,
     emotionLine: panel.emotionLine,
     dialogueIntent:
-      panel.dialogue.length > 0
-        ? panel.dialogue.map((d) => `${d.speaker}: ${d.text}`).join(" | ")
+      dialogueLines.length > 0
+        ? dialogueLines.map((d) => `${d.speaker}: ${d.text}`).join(" | ")
         : DIALOGUE_FORWARD_RENDER_MODES.has(panel.renderMode) || panel.panelPurpose === "dialogue_anchor"
           ? panel.actionLine.trim() || null
           : null,

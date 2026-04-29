@@ -25,7 +25,7 @@ import { assertStableImageUrl } from "@/lib/images/assert-stable-image-url";
 import { assertStableCanonicalAsset } from "@/lib/images/assert-stable-canonical-asset";
 import { toProxiedServerUrl } from "@/lib/images/proxy-url.server";
 import { logCanonAudit } from "@/lib/canon/canon-audit-log";
-import { resolveCharacterVisualCanon, type CharacterCanonInput } from "@/lib/canon/resolve-character-visual-canon";
+import { resolveCharacterVisualCanon, type CharacterCanonInput } from "@manga-ai-studio/core";
 import {
   serializeBodyStateForPrompt,
   serializeWardrobeProfileForPrompt,

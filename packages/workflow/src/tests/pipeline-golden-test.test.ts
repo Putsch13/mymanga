@@ -18,7 +18,7 @@ import { buildChapterCastContract, validateChapterCastContract } from "@manga-ai
 import { buildChapterStoryContract } from "@manga-ai-studio/core";
 import { buildLocationContract, validateLocationContract } from "@manga-ai-studio/core";
 import { buildNpcGroupContract, validateNpcGroupContract } from "@manga-ai-studio/core";
-import { runVisualDiscoveryPass } from "../passes/visual-discovery-pass";
+import { runVisualDiscoveryPass } from "../passes/legacy-visual-discovery-pass";
 import { runCanonResolverPass } from "../passes/canon-resolver-pass";
 
 describe("P10.26 — Pipeline Golden Test", () => {

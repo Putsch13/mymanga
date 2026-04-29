@@ -1,17 +1,27 @@
 /**
  * Enrichissement des PanelRenderSpec juste avant generatePanelImage :
  * ADN, continuité, layout, texte, LoRA — sans modifier renderMode / shotType.
+ *
+ * Texte panel : `panelTextPayload` est dérivé via `buildPanelTextContractFromFragments`
+ * (même règles que le contrat de génération chapitre) pour éviter la divergence
+ * dialogue / narration / SFX entre chemins parallèles.
  */
 
 import type {
   ChapterVisualMemory,
   FalRenderRoute,
   PanelRenderCharacterVisualDna,
+  PanelRenderPanelTextPayload,
   PanelRenderPreviousPanelRef,
   PanelRenderSpec,
   PanelRenderVisibleCharacter,
 } from "@manga-ai-studio/ai";
 import type { StoryboardPanel } from "@manga-ai-studio/ai/contracts";
+import type { PanelTextBundle, PanelTextContract } from "@manga-ai-studio/core";
+import {
+  buildPanelTextContractFromFragments,
+  textContractToLegacyDialogue,
+} from "@manga-ai-studio/core";
 import {
   buildLoraByCharacterIdMap,
   resolvePanelLoraBindings,
@@ -89,6 +99,42 @@ function resolveEnvironmentDna(
   return null;
 }
 
+export type StoryboardPanelWithOptionalTextBundle = StoryboardPanel & {
+  panelTextBundle?: PanelTextBundle | null;
+};
+
+/**
+ * Construit le payload texte render + lignes dialogue pour résolution LoRA,
+ * à partir du storyboard et optionnellement d’un `panelTextBundle` collé
+ * sur l’objet panel (compat forward sans élargir encore le type contrat IA).
+ */
+export function buildPanelRenderTextPayloadFromStoryboardPanel(
+  panel: StoryboardPanel,
+): {
+  panelTextPayload: PanelRenderPanelTextPayload;
+  dialogueForSpeakers: Array<{ speaker: string; text: string }>;
+  textContract: PanelTextContract;
+} {
+  const p = panel as StoryboardPanelWithOptionalTextBundle;
+  const textContract = buildPanelTextContractFromFragments({
+    panelId: panel.panelId,
+    dialogueLines: panel.dialogue?.length ? panel.dialogue : null,
+    narration: panel.narration ?? null,
+    sfx: panel.sfx ?? null,
+    panelTextBundle: p.panelTextBundle ?? null,
+  });
+  const dialogueForSpeakers = textContractToLegacyDialogue(textContract);
+  return {
+    panelTextPayload: {
+      dialogue: dialogueForSpeakers,
+      narration: textContract.narration ?? null,
+      sfx: textContract.sfx.map((e) => e.text),
+    },
+    dialogueForSpeakers,
+    textContract,
+  };
+}
+
 function resolvePreviousPanelRef(
   spec: PanelRenderSpec,
   previousPanel: StoryboardPanel | null,
@@ -130,8 +176,10 @@ export function enrichPanelRenderSpecForRenderPass(input: EnrichPanelRenderSpecI
   const { spec, panel, visualMemory, mainCharacterIds, route, previousPanel } = input;
   const base = spec.layoutMeta ?? {};
 
+  const { panelTextPayload, dialogueForSpeakers } = buildPanelRenderTextPayloadFromStoryboardPanel(panel);
+
   const speakerCharacterIds: string[] = [];
-  for (const line of panel.dialogue ?? []) {
+  for (const line of dialogueForSpeakers) {
     const speaker = typeof line.speaker === "string" ? line.speaker.trim() : "";
     if (!speaker) continue;
     const hit = spec.visibleCharacters.find(
@@ -166,11 +214,7 @@ export function enrichPanelRenderSpecForRenderPass(input: EnrichPanelRenderSpecI
     mandatoryVisibleEntities: buildMandatoryVisibleEntities(spec, panel),
     environmentDNA: resolveEnvironmentDna(panel, visualMemory),
     previousPanelRef: resolvePreviousPanelRef(spec, previousPanel, visualMemory),
-    panelTextPayload: {
-      dialogue: [...panel.dialogue],
-      narration: panel.narration ?? null,
-      sfx: [...(panel.sfx ?? [])],
-    },
+    panelTextPayload,
     loraBindings: loraResult.loraBindings.length > 0 ? loraResult.loraBindings : spec.loraBindings,
   };
 

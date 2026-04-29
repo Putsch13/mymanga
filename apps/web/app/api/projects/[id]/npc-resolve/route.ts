@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
+import { isPipelineV3PremiumOnlyEnabled } from "@manga-ai-studio/core";
 import { resolveNpcWithAiFallback } from "@manga-ai-studio/world";
 import { NPC_ONTOLOGY } from "@manga-ai-studio/world/legacy/npc-ontology";
 import { detectSpeciesInDescription, resolveSpeciesArchetype } from "@manga-ai-studio/memory";
@@ -94,8 +95,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     }
   }
 
-  // IA d'abord quand OpenAI est disponible — le scoring catalogue legacy
-  // n'est exécuté qu'en secours (pas d'API key ou échec LLM).
+  // IA d'abord quand OpenAI est disponible. `resolveNpcWithAiFallback` ne throw
+  // pas (fallback Zod / LLM interne) ; ce try/catch reste une défense si le client
+  // OpenAI ou un futur refactor lève une erreur synchrone.
   if (openai) {
     try {
       const aiNpc = await resolveNpcWithAiFallback(
@@ -125,7 +127,21 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         narrativeHook: aiNpc.narrativeHook,
       });
     } catch (err) {
-      console.warn("[npc-resolve] ai_primary_failed_fallback_catalog", err);
+      console.warn("[npc-resolve] ai_primary_failed", err);
+      if (isPipelineV3PremiumOnlyEnabled()) {
+        const message = err instanceof Error ? err.message : String(err);
+        return NextResponse.json(
+          {
+            error: "ai_npc_resolution_failed",
+            code: "NPC_AI_RESOLUTION_FAILED",
+            message:
+              "La résolution PNJ par IA a échoué en mode premium strict : le repli catalogue legacy est désactivé. " +
+              "Vérifie OpenAI ou réessaie.",
+            details: message.slice(0, 400),
+          },
+          { status: 502 },
+        );
+      }
     }
   }
 

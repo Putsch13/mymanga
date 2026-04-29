@@ -116,7 +116,7 @@ export function createDialogueTextContract(
     narration: options?.narration ?? null,
     sfx: options?.sfx ?? [],
     placement: {
-      reserveTextArea: hasDialogues || hasNarration,
+      reserveTextArea: hasDialogues || hasNarration || hasSfx,
       preferredAnchorZones: options?.preferredAnchorZones ?? [],
       avoidFaces: true,
       overflowStrategy: "bubble_stack",
@@ -253,19 +253,62 @@ export function legacyDialogueToTextContract(
   return createDialogueTextContract(panelId, dialogues, { narration });
 }
 
+/** Ligne issue du writer premium (`line`) ou du blueprint / bundle (`speaker` + `text`). */
+export type DialogueLineFragment =
+  | { line: string; speakerLabel?: string | null; characterId?: string | null }
+  | { speaker: string; text: string }
+  /** Données legacy / DB où `speaker` peut être absent. */
+  | { speaker?: string; text?: string };
+
+function normalizeDialogueFragmentRows(
+  rows: readonly DialogueLineFragment[] | null | undefined,
+): Array<{ line: string; speakerLabel: string | null; characterId: string | null }> {
+  if (!rows?.length) return [];
+  const out: Array<{ line: string; speakerLabel: string | null; characterId: string | null }> = [];
+  for (const d of rows) {
+    if ("line" in d && typeof d.line === "string") {
+      const line = d.line.trim();
+      if (!line) continue;
+      out.push({
+        line,
+        speakerLabel: d.speakerLabel?.trim() ? d.speakerLabel.trim() : null,
+        characterId: d.characterId?.trim() ? d.characterId.trim() : null,
+      });
+      continue;
+    }
+    if ("text" in d) {
+      const text = String((d as { text?: string }).text ?? "").trim();
+      if (!text) continue;
+      const speaker = String((d as { speaker?: string }).speaker ?? "").trim();
+      out.push({ line: text, speakerLabel: speaker || null, characterId: null });
+    }
+  }
+  return out;
+}
+
 /**
- * Normalise les fragments épars (blueprint / panel legacy) vers un `PanelTextContract`.
+ * Normalise les fragments épars (blueprint / panel legacy / `panelTextBundle`) vers un `PanelTextContract`.
+ *
+ * Priorité dialogue : `dialogueLines` → sinon `panelTextBundle.dialogues` → sinon `dialogue[]` / string.
+ * Narration / SFX : fusion de tous les champs fournis (blueprint + bundle).
  */
 export function buildPanelTextContractFromFragments(input: {
   panelId?: string | null;
-  dialogueLines?: readonly { characterId?: string | null; speakerLabel?: string | null; line: string }[] | null;
+  dialogueLines?: readonly DialogueLineFragment[] | null;
+  panelTextBundle?: Readonly<{
+    dialogues?: ReadonlyArray<{ speaker: string; text: string }> | null;
+    narration?: string | null;
+    sfx?: readonly string[] | null;
+  }> | null;
   dialogue?: readonly string[] | string | null;
   narration?: string | null;
   narrationLines?: readonly string[] | null;
   sfx?: readonly string[] | null;
 }): PanelTextContract {
   const pid = (input.panelId && String(input.panelId).trim()) || "panel";
-  const structured = (input.dialogueLines ?? []).filter((d) => d.line.trim().length > 0);
+  const structuredPrimary = normalizeDialogueFragmentRows(input.dialogueLines);
+  const structuredBundle = normalizeDialogueFragmentRows(input.panelTextBundle?.dialogues ?? null);
+  const structured = structuredPrimary.length > 0 ? structuredPrimary : structuredBundle;
   if (structured.length > 0) {
     const dialogues: PanelDialogueEntry[] = structured.map((d) => ({
       speakerId: d.characterId ?? undefined,
@@ -275,9 +318,13 @@ export function buildPanelTextContractFromFragments(input: {
     const narrationParts = [
       ...(typeof input.narration === "string" && input.narration.trim() ? [input.narration.trim()] : []),
       ...((input.narrationLines ?? []).map((t) => String(t).trim()).filter(Boolean)),
+      ...(typeof input.panelTextBundle?.narration === "string" && input.panelTextBundle.narration.trim()
+        ? [input.panelTextBundle.narration.trim()]
+        : []),
     ];
     const narrationJoined = narrationParts.length > 0 ? narrationParts.join("\n") : null;
-    const sfx: PanelSfxEntry[] = (input.sfx ?? [])
+    const sfxRaw = [...(input.sfx ?? []), ...(input.panelTextBundle?.sfx ?? [])];
+    const sfx: PanelSfxEntry[] = sfxRaw
       .map((t) => String(t).trim())
       .filter(Boolean)
       .map((text) => ({ text, kind: "ambient" as SfxKind }));
@@ -286,7 +333,15 @@ export function buildPanelTextContractFromFragments(input: {
   const narrationJoined = [
     ...(typeof input.narration === "string" && input.narration.trim() ? [input.narration.trim()] : []),
     ...((input.narrationLines ?? []).map((t) => String(t).trim()).filter(Boolean)),
+    ...(typeof input.panelTextBundle?.narration === "string" && input.panelTextBundle.narration.trim()
+      ? [input.panelTextBundle.narration.trim()]
+      : []),
   ].join("\n") || null;
+
+  const mergedSfx: PanelSfxEntry[] = [...(input.sfx ?? []), ...(input.panelTextBundle?.sfx ?? [])]
+    .map((t) => String(t).trim())
+    .filter(Boolean)
+    .map((text) => ({ text, kind: "ambient" as SfxKind }));
 
   const rawLines: string[] = [];
   if (Array.isArray(input.dialogue)) {
@@ -299,14 +354,21 @@ export function buildPanelTextContractFromFragments(input: {
   }
 
   if (rawLines.length === 0) {
+    if (mergedSfx.length > 0 || narrationJoined?.trim()) {
+      return createDialogueTextContract(pid, [], { narration: narrationJoined, sfx: mergedSfx });
+    }
     return legacyDialogueToTextContract(pid, null, narrationJoined);
   }
   if (rawLines.length === 1) {
-    return legacyDialogueToTextContract(pid, rawLines[0]!, narrationJoined);
+    return createDialogueTextContract(
+      pid,
+      [{ speakerName: "Unknown", text: rawLines[0]! }],
+      { narration: narrationJoined, sfx: mergedSfx },
+    );
   }
-  const dialogues: PanelDialogueEntry[] = rawLines.map((text) => ({
+  const dialoguesFlat: PanelDialogueEntry[] = rawLines.map((text) => ({
     speakerName: "Character",
     text,
   }));
-  return createDialogueTextContract(pid, dialogues, { narration: narrationJoined });
+  return createDialogueTextContract(pid, dialoguesFlat, { narration: narrationJoined, sfx: mergedSfx });
 }

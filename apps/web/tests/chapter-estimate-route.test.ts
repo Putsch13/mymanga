@@ -124,6 +124,7 @@ vi.mock("@manga-ai-studio/ai", () => ({
   // Couche LLM — retourne null en test (pas de clé API)
   enrichNarrativeFactsWithLLM: vi.fn().mockResolvedValue(null),
   mergeNarrativeFacts: vi.fn().mockImplementation((heuristic: unknown[]) => heuristic),
+  indexVisualWorldPropsByBeat: vi.fn().mockReturnValue(undefined),
   // Sprint B — shot plan est ajouté au productionPlan. Mock minimal qui
   // renvoie une structure stable pour ne pas casser les tests existants.
   buildChapterShotPlan: vi.fn().mockImplementation(

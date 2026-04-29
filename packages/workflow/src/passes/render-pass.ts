@@ -554,12 +554,11 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
 
     const providerPreview = buildProviderPayloadPreview(enrichedSpec, route);
     const canonicalPanelForDump = canonicalByPanelId.get(enrichedSpec.panelId) ?? null;
+    const ptp = enrichedSpec.panelTextPayload;
     const reserveTextAreaForDump =
-      (Array.isArray(panel.dialogue) && panel.dialogue.length > 0)
-      || Boolean(panel.narration?.trim())
-      || (Array.isArray(panel.sfx) && panel.sfx.length > 0)
-      || Boolean(enrichedSpec.panelTextPayload?.dialogue?.length)
-      || Boolean(enrichedSpec.panelTextPayload?.narration?.trim());
+      (Array.isArray(ptp?.dialogue) && ptp.dialogue.length > 0)
+      || Boolean(ptp?.narration?.trim())
+      || (Array.isArray(ptp?.sfx) && ptp.sfx.length > 0);
     await dumpPanelDebugArtifacts({
       chapterId: input.chapterId,
       panelId: enrichedSpec.panelId,

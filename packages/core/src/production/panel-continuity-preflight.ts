@@ -8,6 +8,8 @@ import type { PanelBlueprintPremium } from "../types/narrative-facts";
 export type PanelContinuityPreflight = {
   panelId: string;
   requiredHeroIds: string[];
+  /** Locuteur ancré quand `dialogueCarrier === "speaker_visible"` — doit avoir une entrée DNA. */
+  anchorSpeakerCharacterId: string | null;
   requiredNpcIds: string[];
   requiredEntityIds: string[];
   requiredLocationSignals: string[];
@@ -24,8 +26,11 @@ function characterDnaIds(bp: PanelBlueprintPremium): Set<string> {
 }
 
 /**
- * Un panel est **bloquant** en premium uniquement s’il est critique (ou contractuellement critique),
- * impose des personnages visibles, et n’a aucune entrée `characterVisualDna` (sous-spécifié).
+ * Préflight continuité : DNA personnage pour les IDs requis + must-show,
+ * locuteur ancré (`speaker_visible` + `speakerAnchorCharacterId`), et décor
+ * (`environmentVisualDna`) lorsque le beat impose des signaux lieu.
+ * Bloque les panels critiques incomplets, et tout panel avec bulle locuteur
+ * visible sans DNA pour l’ancre parlante.
  */
 export function computePanelContinuityPreflights(
   blueprints: PanelBlueprintPremium[],
@@ -34,11 +39,16 @@ export function computePanelContinuityPreflights(
     const requiredHeroIds = [
       ...new Set([...(bp.requiredCharacterIds ?? []), ...(bp.mustShowCharacterIds ?? [])]),
     ];
+    const speakerAnchorId =
+      bp.dialogueCarrier === "speaker_visible" && bp.speakerAnchorCharacterId?.trim()
+        ? bp.speakerAnchorCharacterId.trim()
+        : null;
+    const idsRequiringCharacterDna = [...new Set([...requiredHeroIds, ...(speakerAnchorId ? [speakerAnchorId] : [])])];
     const dna = characterDnaIds(bp);
     const missing: string[] = [];
     const warnings: string[] = [];
 
-    for (const id of requiredHeroIds) {
+    for (const id of idsRequiringCharacterDna) {
       if (!dna.has(id)) missing.push(`character_visual_dna_missing:${id}`);
     }
 
@@ -63,18 +73,23 @@ export function computePanelContinuityPreflights(
 
     const critical = bp.criticality === "critical" || bp.contractualCritical === true;
     const missingDnaForRequired =
-      requiredHeroIds.length > 0
-      && requiredHeroIds.some((id) => !dna.has(id));
+      idsRequiringCharacterDna.length > 0
+      && idsRequiringCharacterDna.some((id) => !dna.has(id));
     const missingCharacterForCritical =
-      requiredHeroIds.length > 0
+      idsRequiringCharacterDna.length > 0
       && (missingDnaForRequired || !bp.characterVisualDna || bp.characterVisualDna.length === 0);
+    const missingSpeakerAnchorDna =
+      bp.dialogueCarrier === "speaker_visible"
+      && Boolean(speakerAnchorId)
+      && !dna.has(speakerAnchorId!);
     const blocking =
-      critical
-      && (missingCharacterForCritical || missingEnvironmentDna);
+      (critical && (missingCharacterForCritical || missingEnvironmentDna))
+      || missingSpeakerAnchorDna;
 
     return {
       panelId: bp.panelId,
       requiredHeroIds,
+      anchorSpeakerCharacterId: speakerAnchorId,
       requiredNpcIds: [],
       requiredEntityIds: ent,
       requiredLocationSignals: loc,
@@ -93,6 +108,12 @@ export function continuityPreflightBlockingReasons(
   return preflights.filter((p) => p.blocking).map((p) => {
     if (p.missingEnvironmentDna) {
       return `${p.panelId}:critical_panel_missing_environment_visual_dna`;
+    }
+    if (
+      p.anchorSpeakerCharacterId
+      && p.missing.includes(`character_visual_dna_missing:${p.anchorSpeakerCharacterId}`)
+    ) {
+      return `${p.panelId}:speaker_visible_missing_character_visual_dna:${p.anchorSpeakerCharacterId}`;
     }
     const missingIds = p.missing
       .filter((m) => m.startsWith("character_visual_dna_missing:"))

@@ -79,4 +79,21 @@ describe("computePanelContinuityPreflights", () => {
       "p1:critical_panel_missing_environment_visual_dna",
     ]);
   });
+
+  it("bloque un panel dialogue speaker_visible sans DNA pour l’ancre parlante", () => {
+    const [p] = computePanelContinuityPreflights([
+      minimalBp({
+        criticality: "medium",
+        dialogueCarrier: "speaker_visible",
+        speakerAnchorCharacterId: "spk-1",
+        requiredCharacterIds: [],
+        mustShowCharacterIds: [],
+      }),
+    ]);
+    expect(p.blocking).toBe(true);
+    expect(p.anchorSpeakerCharacterId).toBe("spk-1");
+    expect(continuityPreflightBlockingReasons([p])).toEqual([
+      "p1:speaker_visible_missing_character_visual_dna:spk-1",
+    ]);
+  });
 });

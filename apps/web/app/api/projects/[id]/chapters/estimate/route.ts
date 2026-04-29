@@ -259,7 +259,7 @@ export async function POST(req: Request, ctx: Ctx) {
     projectGenre: context.project.primaryGenre ?? null,
     projectTone: context.project.tone ?? null,
     heroCharacterId,
-    premiumStrictChapterSourcing: process.env.PIPELINE_V3_PREMIUM_ONLY === "true",
+    premiumStrictChapterSourcing: isPipelineV3PremiumOnlyEnabled(),
     suppressUniverseTemplateProps: isPipelineV3PremiumOnlyEnabled(),
     ...(visualWorldPropsForBeat ? { visualWorldPropsForBeat } : {}),
   };
@@ -674,15 +674,6 @@ export async function POST(req: Request, ctx: Ctx) {
       ok: continuityPreflightOk,
       blockers: continuityBlockers,
       panelCount: continuityPreflights.length,
-    },
-    /** Plan canonique + QA structurelle sur les blueprints réels (même source que le launch). */
-    canonicalProductionPlan: {
-      format: canonicalPlan.format,
-      beatCount: canonicalPlan.beatCount,
-      panelCount: canonicalPlan.metrics.totalPanels,
-      metrics: canonicalPlan.metrics,
-      rhythm: canonicalPlan.rhythm,
-      qa: canonicalPlan.qa,
     },
   });
 }

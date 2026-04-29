@@ -275,6 +275,7 @@ describe("prop-inference-engine — props VisualWorld par beat", () => {
     const medal = props.find((p) => p.canonicalName === "Médaille du mérite");
     expect(medal).toBeDefined();
     expect(medal?.id.startsWith("prop_vw_")).toBe(true);
+    expect(medal?.source).toBe("visual_world_contract");
   });
 
   it("attribue ownerCategory=npc pour un prop VW lié à un personnage autre que le héros", () => {
@@ -305,5 +306,6 @@ describe("prop-inference-engine — props VisualWorld par beat", () => {
     });
     const bag = props.find((p) => p.canonicalName === "Sac du mentor");
     expect(bag?.ownerCategory).toBe("npc");
+    expect(bag?.source).toBe("visual_world_contract");
   });
 });

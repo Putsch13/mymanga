@@ -20,6 +20,7 @@ import { flattenPagesToPanels, type PipelinePanel, type UniversalMangaPage, type
 import {
   buildReaderPanelSlots,
   textContractToLegacyDialogue,
+  buildPanelTextContractFromFragments,
   type PanelTextContract,
   type ReaderTextPlacementHint,
 } from "@manga-ai-studio/core";
@@ -156,6 +157,33 @@ function sceneImageToUniversalPanel(img: SceneImage, sceneId: string): Universal
     narrationFromContract = textContractRaw.narration ?? undefined;
     sfxFromContract =
       textContractRaw.sfx.length > 0 ? textContractRaw.sfx.map((s) => s.text) : undefined;
+  } else {
+    const single = rawMetadata?.dialogue;
+    const multi = rawMetadata?.dialogues;
+    const primaryLines =
+      Array.isArray(multi) && multi.length > 0
+        ? (multi as Array<{ speaker?: string; text?: string }>)
+        : single && typeof single === "object" && !Array.isArray(single)
+          ? [single as { speaker?: string; text?: string }]
+          : typeof single === "string" && single.trim()
+            ? [{ speaker: "Unknown", text: single.trim() }]
+            : null;
+    const synthesized = buildPanelTextContractFromFragments({
+      panelId: String(rawMetadata?.panelId ?? img.id),
+      dialogueLines: primaryLines?.some((l) => String(l.text ?? "").trim()) ? primaryLines : null,
+      narration: typeof rawMetadata?.narration === "string" ? rawMetadata.narration : null,
+      sfx: Array.isArray(rawMetadata?.sfx) ? (rawMetadata.sfx as string[]) : null,
+      panelTextBundle:
+        typeof rawMetadata?.panelTextBundle === "object" && rawMetadata.panelTextBundle !== null
+          ? (rawMetadata.panelTextBundle as never)
+          : null,
+    });
+    const legacy = textContractToLegacyDialogue(synthesized);
+    if (legacy.length > 0 || synthesized.narration?.trim() || synthesized.sfx.length > 0) {
+      dialoguesFromLegacy = legacy.length > 0 ? legacy : undefined;
+      narrationFromContract = synthesized.narration ?? undefined;
+      sfxFromContract = synthesized.sfx.length > 0 ? synthesized.sfx.map((s) => s.text) : undefined;
+    }
   }
 
   const dialogueArray = Array.isArray(img.metadata?.dialogue)

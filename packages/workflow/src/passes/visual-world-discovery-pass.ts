@@ -5,18 +5,16 @@
  */
 
 import { composeVisualWorldContract } from "@manga-ai-studio/ai";
-import type {
-  BeatVisualBinding,
-  ChapterVisualDiscoveryContract,
-  DiscoveredVisualEntity,
-  VisualDiscoveryPassInput,
-  VisualDiscoveryPassResult,
-} from "./visual-discovery-pass";
 import {
-  runVisualDiscoveryPass,
+  type BeatVisualBinding,
+  type ChapterVisualDiscoveryContract,
   DEFAULT_FORBIDDEN_VISUAL_PROPS,
   DEFAULT_SUSPICIOUS_VISUAL_PROPS,
-} from "./visual-discovery-pass";
+  type DiscoveredVisualEntity,
+  runVisualDiscoveryPass,
+  type VisualDiscoveryPassInput,
+  type VisualDiscoveryPassResult,
+} from "./legacy-visual-discovery-pass";
 import type {
   VisualWorldContract,
   VisualWorldNpcGroup,

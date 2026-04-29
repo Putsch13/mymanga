@@ -214,17 +214,8 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
     };
 
     const mergedEstimateContext = (() => {
-      if (!json.estimateContext && !json.canonicalProductionPlan) return undefined;
-      const base = json.estimateContext ?? {
-        estimatedAt: new Date().toISOString(),
-        estimateSource: json.estimateMode === "existing_chapter" ? "existing_chapter" : "new_chapter",
-      };
-      return {
-        ...base,
-        ...(!base.canonicalProductionPlan && json.canonicalProductionPlan
-          ? { canonicalProductionPlan: json.canonicalProductionPlan }
-          : {}),
-      };
+      if (!json.estimateContext) return undefined;
+      return json.estimateContext;
     })();
 
     const nextDraft: ChapterStudioData = {

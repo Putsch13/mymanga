@@ -14,7 +14,7 @@ import type {
   ChapterVisualDiscoveryContract,
   DiscoveredVisualEntity,
   CanonLevel,
-} from "./visual-discovery-pass";
+} from "./legacy-visual-discovery-pass";
 
 /**
  * Entité résolue par le CanonResolver.
