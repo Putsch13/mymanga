@@ -1,5 +1,5 @@
 import { prisma } from "@manga-ai-studio/db";
-import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
+import type { CharacterCanon, PanelBlueprintPremium } from "@manga-ai-studio/core";
 import { setJobProgress, mergeJobOutput } from "./pipeline-job";
 import { normalizeCreativeControls, type PipelineJobInput } from "./pipeline-quality";
 import {
@@ -15,6 +15,27 @@ import {
 import { extractPriorChapterDialogueSnippets } from "./load-prior-chapter-dialogue-snippets";
 import { runPremiumV3Pipeline } from "./run-premium-v3-pipeline";
 import { runLegacyCompatibleChapterPipeline } from "./legacy/run-legacy-compatible-chapter-pipeline";
+
+/** Extrait `data.characterCanons` du JSON `chapter.outline` (snapshot studio embarqué). */
+function characterCanonsByIdFromChapterOutline(outline: unknown): Record<string, CharacterCanon> | undefined {
+  if (!outline || typeof outline !== "object") return undefined;
+  const root = outline as Record<string, unknown>;
+  const data =
+    root.data && typeof root.data === "object" && !Array.isArray(root.data)
+      ? (root.data as Record<string, unknown>)
+      : root;
+  const list = data.characterCanons;
+  if (!Array.isArray(list) || list.length === 0) return undefined;
+  const out: Record<string, CharacterCanon> = {};
+  for (const item of list) {
+    if (!item || typeof item !== "object") continue;
+    const id = (item as { characterId?: unknown }).characterId;
+    if (typeof id === "string" && id.length > 0) {
+      out[id] = item as CharacterCanon;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 function resolvePrimaryLoraForPipelineCharacter(
   characterId: string,
@@ -245,6 +266,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       chapterLocationName,
       priorChapterDialogueSnippets,
       sceneDialogueEnrich: sceneDialogueEnrichFromJob,
+      characterCanonsById: characterCanonsByIdFromChapterOutline(chapter.outline),
     });
 
     // P3 — gate : en mode premium-only, on SAUTE la pipeline legacy

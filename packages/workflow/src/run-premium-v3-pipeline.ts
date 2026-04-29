@@ -18,6 +18,7 @@ import {
   ensureCanonicalProductionPlan,
   mergeRawBlueprintsWithCanonicalRhythm,
   resolveProductionOutlineForPremiumPipeline,
+  hydrateBlueprintsWithCharacterDna,
   hydrateBlueprintsWithEnvironmentDna,
   hydrateBlueprintsWithVisualWorldNpcAndProps,
   buildChapterCastContract,
@@ -29,6 +30,7 @@ import {
   buildChapterGenerationContractFromPremiumPlan,
   assertValidChapterGenerationContract,
   type CanonicalChapterProductionPlan,
+  type CharacterCanon,
   type PanelBlueprintPremium,
   type ChapterCastContract,
   type ChapterStoryContract,
@@ -146,6 +148,8 @@ export interface RunPremiumV3PipelineInput {
   premiumV3OnlyEnabled: boolean;
   productionPlanPages?: Array<{ pageNumber: number; panelCount: number; beatIds?: string[] | null }>;
   panelBlueprints?: PanelBlueprintPremium[];
+  /** Studio / snapshot — enrichit `characterVisualDna` comme estimate & launch. */
+  characterCanonsById?: Record<string, CharacterCanon> | null;
   chapterLocationName?: string | null;
   /** Répliques du chapitre précédent (normalisées) — alimente le dialoguiste scène si activé. */
   priorChapterDialogueSnippets?: string[] | null;
@@ -662,13 +666,26 @@ export async function runPremiumV3Pipeline(
             richSource,
             canonicalRuntimePlan,
           );
+          const characterRows = input.rawCharacters.map((c) => ({
+            id: c.id,
+            name: c.name,
+            hairColor: c.hairColor ?? null,
+            eyeColor: c.eyeColor ?? null,
+            appearance: c.canonSignatureText?.trim() || null,
+            outfitDefault: c.outfitSignature?.trim() || null,
+          }));
+          const dnaHydrated = hydrateBlueprintsWithCharacterDna({
+            blueprints: mergedBlueprints,
+            characters: characterRows,
+            characterCanonsById: input.characterCanonsById ?? null,
+          });
           const envHydrated =
             visualDiscoveryResult.visualWorldContract
               ? hydrateBlueprintsWithEnvironmentDna({
-                  blueprints: mergedBlueprints,
+                  blueprints: dnaHydrated,
                   visualWorld: visualDiscoveryResult.visualWorldContract,
                 })
-              : mergedBlueprints;
+              : dnaHydrated;
           const npcPropHydrated =
             visualDiscoveryResult.visualWorldContract
               ? hydrateBlueprintsWithVisualWorldNpcAndProps({
