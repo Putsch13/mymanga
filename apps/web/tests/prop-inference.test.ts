@@ -24,6 +24,39 @@ function makeBeat(overrides: Partial<ProductionBeat> = {}): ProductionBeat {
   };
 }
 
+describe("prop-inference — alignement estimate (premium + monde visuel)", () => {
+  it("injecte une prop VW avec suppressUniverseTemplateProps (même combinaison que la route estimate)", async () => {
+    const { inferRequiredPropsFromBeat, indexVisualWorldPropsByBeat } = await import("@manga-ai-studio/ai");
+    const beat = makeBeat({
+      beatId: "beat-est-parity",
+      summary: "Scène sobre sans mot-clé catalogue.",
+      narrativeFunction: "dialogue",
+    });
+    const vwIndex = indexVisualWorldPropsByBeat({
+      props: [
+        {
+          id: "p-parity",
+          canonicalName: "Amulette du pacte",
+          category: "accessory",
+          visualDescription: "obsidienne",
+          ownerCharacterId: null,
+          locationId: null,
+          requiredBeatIds: ["beat-est-parity"],
+          continuityPolicy: "recurring",
+        },
+      ],
+    });
+    const props = inferRequiredPropsFromBeat(beat, [], {
+      suppressUniverseTemplateProps: true,
+      premiumStrictChapterSourcing: true,
+      visualWorldPropsForBeat: vwIndex,
+    });
+    const amulet = props.find((p) => p.canonicalName === "Amulette du pacte");
+    expect(amulet?.source).toBe("visual_world_contract");
+    expect(amulet?.id.startsWith("prop_vw_")).toBe(true);
+  });
+});
+
 describe("prop-inference — combat ninja", () => {
   it("infère kunai et shuriken pour un beat ninja avec action de lancer", () => {
     const beat = makeBeat({

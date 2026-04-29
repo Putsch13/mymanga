@@ -64,6 +64,7 @@ const inferRequiredPropsFromBeatMock = vi.fn();
 const buildPanelBlueprintsFromBeatMock = vi.fn();
 const computeChapterFocusBudgetMock = vi.fn();
 const computePremiumReadinessScoreMock = vi.fn();
+const indexVisualWorldPropsByBeatMock = vi.fn();
 
 vi.mock("@manga-ai-studio/ai", () => ({
   generateChapterBundle: generateChapterBundleMock,
@@ -124,7 +125,7 @@ vi.mock("@manga-ai-studio/ai", () => ({
   // Couche LLM — retourne null en test (pas de clé API)
   enrichNarrativeFactsWithLLM: vi.fn().mockResolvedValue(null),
   mergeNarrativeFacts: vi.fn().mockImplementation((heuristic: unknown[]) => heuristic),
-  indexVisualWorldPropsByBeat: vi.fn().mockReturnValue(undefined),
+  indexVisualWorldPropsByBeat: indexVisualWorldPropsByBeatMock,
   // Sprint B — shot plan est ajouté au productionPlan. Mock minimal qui
   // renvoie une structure stable pour ne pas casser les tests existants.
   buildChapterShotPlan: vi.fn().mockImplementation(
@@ -239,6 +240,7 @@ beforeEach(() => {
     npcPanels: 2,
   });
   computePremiumReadinessScoreMock.mockReturnValue(0.85);
+  indexVisualWorldPropsByBeatMock.mockReturnValue(undefined);
 });
 
 describe("chapter estimate route", () => {
@@ -534,5 +536,53 @@ describe("chapter estimate route", () => {
     expect(payload.productionPlan.cutawayCoverage).toBeDefined();
     expect(typeof payload.productionPlan.cutawayCoverage.count).toBe("number");
     expect(typeof payload.productionPlan.cutawayCoverage.ratio).toBe("number");
+  });
+
+  it("PIPELINE_V3_PREMIUM_ONLY : propage flags + index VW vers inferRequiredPropsFromBeat", async () => {
+    vi.stubEnv("PIPELINE_V3_PREMIUM_ONLY", "true");
+    indexVisualWorldPropsByBeatMock.mockReturnValue({
+      beat_1: [
+        {
+          id: "vw-key",
+          canonicalName: "Clé du sanctuaire",
+          category: "key",
+          visualDescription: "bronze oxydé",
+          ownerCharacterId: null,
+          locationId: null,
+          requiredBeatIds: ["beat_1"],
+          continuityPolicy: "symbolic" as const,
+        },
+      ],
+    });
+    prismaMock.chapter.findFirst.mockResolvedValue({ chapterNumber: 2 });
+
+    try {
+      const mod = await import("../app/api/projects/[id]/chapters/estimate/route");
+      await mod.POST(
+        new Request("http://localhost", {
+          method: "POST",
+          body: JSON.stringify({ userIntent: "Vérifier le contexte props premium." }),
+        }),
+        ctx,
+      );
+
+      expect(indexVisualWorldPropsByBeatMock).toHaveBeenCalled();
+      expect(inferRequiredPropsFromBeatMock).toHaveBeenCalled();
+      expect(inferRequiredPropsFromBeatMock).toHaveBeenCalledWith(
+        expect.objectContaining({ beatId: "beat_1" }),
+        expect.any(Array),
+        expect.objectContaining({
+          premiumStrictChapterSourcing: true,
+          suppressUniverseTemplateProps: true,
+          visualWorldPropsForBeat: expect.objectContaining({
+            beat_1: expect.arrayContaining([
+              expect.objectContaining({ canonicalName: "Clé du sanctuaire" }),
+            ]),
+          }),
+        }),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
