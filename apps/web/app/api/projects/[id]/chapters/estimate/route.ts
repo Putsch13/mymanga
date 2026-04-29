@@ -609,6 +609,15 @@ export async function POST(req: Request, ctx: Ctx) {
       },
       aiReadiness,
       premiumBlockingReasons,
+      launchAlignedReady: planReady,
+      planStatus: planReady ? "ready" : "incomplete",
+      continuityPreflight: {
+        ok: continuityPreflightOk,
+        blockers: continuityBlockers,
+        panelCount: continuityPreflights.length,
+      },
+      characterRefResolutionOk,
+      finalStructuralQaValid: finalStructuralQa.valid,
     },
     contextPreview: {
       recentChapters: context.recentChapters,

@@ -634,6 +634,21 @@ export const estimateContextSchema = z.object({
   /** P1.2 — état des moteurs IA au moment de l’estimation (persisté avec le snapshot). */
   aiReadiness: chapterAiReadinessSchema.optional(),
   premiumBlockingReasons: z.array(z.string()).optional(),
+  /**
+   * P0.2 — même agrégat que `planReady` côté POST /estimate : le snapshot studio
+   * sait si le dernier estimate était aligné launch (QA canonique, refs, continuity).
+   */
+  launchAlignedReady: z.boolean().optional(),
+  planStatus: z.enum(["ready", "incomplete"]).optional(),
+  continuityPreflight: z
+    .object({
+      ok: z.boolean(),
+      blockers: z.array(z.string()),
+      panelCount: z.number().int().min(0),
+    })
+    .optional(),
+  characterRefResolutionOk: z.boolean().optional(),
+  finalStructuralQaValid: z.boolean().optional(),
 });
 
 export type EstimateContext = z.infer<typeof estimateContextSchema>;

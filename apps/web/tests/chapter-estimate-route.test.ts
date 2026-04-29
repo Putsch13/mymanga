@@ -269,6 +269,13 @@ describe("chapter estimate route", () => {
     });
     expect(payload.estimateContext?.aiReadiness?.outline?.status).toBe("real");
     expect(Array.isArray(payload.estimateContext?.premiumBlockingReasons)).toBe(true);
+    expect(typeof payload.estimateContext?.launchAlignedReady).toBe("boolean");
+    expect(payload.estimateContext?.planStatus).toMatch(/ready|incomplete/);
+    expect(payload.estimateContext?.continuityPreflight).toMatchObject({
+      ok: expect.any(Boolean),
+      blockers: expect.any(Array),
+      panelCount: expect.any(Number),
+    });
     expect(payload.targetChapter.chapterNumber).toBe(3);
     expect(buildProjectContextMock).toHaveBeenCalledWith(
       prismaMock,
@@ -558,13 +565,14 @@ describe("chapter estimate route", () => {
 
     try {
       const mod = await import("../app/api/projects/[id]/chapters/estimate/route");
-      await mod.POST(
+      const response = await mod.POST(
         new Request("http://localhost", {
           method: "POST",
           body: JSON.stringify({ userIntent: "Vérifier le contexte props premium." }),
         }),
         ctx,
       );
+      const payload = await response.json();
 
       expect(indexVisualWorldPropsByBeatMock).toHaveBeenCalled();
       expect(inferRequiredPropsFromBeatMock).toHaveBeenCalled();
@@ -580,6 +588,9 @@ describe("chapter estimate route", () => {
             ]),
           }),
         }),
+      );
+      expect(payload.estimateContext?.launchAlignedReady).toBe(
+        payload.planStatus === "ready",
       );
     } finally {
       vi.unstubAllEnvs();

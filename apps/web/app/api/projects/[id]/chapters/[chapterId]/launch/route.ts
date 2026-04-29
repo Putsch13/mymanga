@@ -617,6 +617,14 @@ export async function POST(_req: Request, ctx: Ctx) {
     console.log(
       `[launch] estimate_context chapterId=${chapterId} targetChapterId=${estimateContext.targetChapterId ?? "none"} estimateSource=${estimateContext.estimateSource ?? "unknown"} estimatedAt=${estimateContext.estimatedAt ?? "unknown"} divergence=${estimateContext.targetChapterId && estimateContext.targetChapterId !== chapterId ? "YES" : "NO"}`,
     );
+    if (estimateContext.launchAlignedReady === false) {
+      console.warn(
+        `[launch] estimate_snapshot_not_launch_aligned chapterId=${chapterId} ` +
+          `continuity_ok=${estimateContext.continuityPreflight?.ok ?? "n/a"} ` +
+          `blockers_count=${estimateContext.continuityPreflight?.blockers?.length ?? 0} — ` +
+          "le snapshot indique que le dernier estimate n’était pas prêt ; le launch vérifie quand même les blueprints actuels.",
+      );
+    }
   }
 
   // Logs premium structurés
