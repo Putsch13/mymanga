@@ -10,6 +10,7 @@ import {
   continuityPreflightBlockingReasons,
   hydrateBlueprintsWithCharacterDna,
   hydrateBlueprintsWithEnvironmentDna,
+  hydrateBlueprintsWithVisualWorldNpcAndProps,
   type PanelBlueprintPremium,
   type ProductionOutline,
   type ProductionPlan,
@@ -242,6 +243,10 @@ export async function PATCH(req: Request, ctx: Ctx) {
         });
         if (rebuiltContract.visualWorldContract) {
           bps = hydrateBlueprintsWithEnvironmentDna({
+            blueprints: bps,
+            visualWorld: rebuiltContract.visualWorldContract,
+          });
+          bps = hydrateBlueprintsWithVisualWorldNpcAndProps({
             blueprints: bps,
             visualWorld: rebuiltContract.visualWorldContract,
           });

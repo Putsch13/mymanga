@@ -22,6 +22,7 @@ import {
   continuityPreflightBlockingReasons,
   hydrateBlueprintsWithCharacterDna,
   hydrateBlueprintsWithEnvironmentDna,
+  hydrateBlueprintsWithVisualWorldNpcAndProps,
   hydratePanelProvenanceOnBlueprints,
   isHeroRole,
   isPipelineV3PremiumOnlyEnabled,
@@ -423,6 +424,12 @@ export async function POST(req: Request, ctx: Ctx) {
     blueprints: allBlueprints,
     visualWorld: bundle.visualWorldContract ?? null,
   });
+  if (bundle.visualWorldContract) {
+    allBlueprints = hydrateBlueprintsWithVisualWorldNpcAndProps({
+      blueprints: allBlueprints,
+      visualWorld: bundle.visualWorldContract,
+    });
+  }
 
   const structuralFromPersistedBlueprints = runStructuralQaOnPremiumBlueprints({
     chapterId: estimateChapterId,

@@ -11,6 +11,7 @@ import {
   isPipelineV3PremiumOnlyEnabled,
   hydrateBlueprintsWithCharacterDna,
   hydrateBlueprintsWithEnvironmentDna,
+  hydrateBlueprintsWithVisualWorldNpcAndProps,
   visualWorldContractSchema,
   PREMIUM_PANEL_RANGE,
   type PanelBlueprintPremium,
@@ -339,6 +340,10 @@ export async function POST(_req: Request, ctx: Ctx) {
     const vwLaunch = visualWorldContractSchema.safeParse(snapshot.data.visualWorldContract);
     if (vwLaunch.success) {
       bpForContinuity = hydrateBlueprintsWithEnvironmentDna({
+        blueprints: bpForContinuity as PanelBlueprintPremium[],
+        visualWorld: vwLaunch.data,
+      }) as typeof bpForContinuity;
+      bpForContinuity = hydrateBlueprintsWithVisualWorldNpcAndProps({
         blueprints: bpForContinuity as PanelBlueprintPremium[],
         visualWorld: vwLaunch.data,
       }) as typeof bpForContinuity;
