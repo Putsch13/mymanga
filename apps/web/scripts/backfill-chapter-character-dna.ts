@@ -71,7 +71,9 @@ async function main() {
   });
 
   if (isPipelineV3PremiumOnlyEnabled()) {
-    const preflights = computePanelContinuityPreflights(hydrated);
+    const preflights = computePanelContinuityPreflights(hydrated, {
+      strictEnvironmentLocationBinding: true,
+    });
     const blockers = continuityPreflightBlockingReasons(preflights);
     console.log(
       `[backfill] continuity_preflight panels=${preflights.length} blockers=${blockers.length}`,

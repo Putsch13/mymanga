@@ -282,7 +282,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
 
   const premiumOnly = isPipelineV3PremiumOnlyEnabled();
   const continuityPreflights = premiumOnly
-    ? computePanelContinuityPreflights(resolvedPanelBlueprints)
+    ? computePanelContinuityPreflights(resolvedPanelBlueprints, { strictEnvironmentLocationBinding: true })
     : [];
   const continuityBlockers = premiumOnly
     ? continuityPreflightBlockingReasons(continuityPreflights)

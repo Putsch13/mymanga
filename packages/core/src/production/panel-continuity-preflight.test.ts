@@ -76,8 +76,36 @@ describe("computePanelContinuityPreflights", () => {
     expect(p.missingEnvironmentDna).toBe(true);
     expect(p.blocking).toBe(true);
     expect(continuityPreflightBlockingReasons([p])).toEqual([
-      "p1:critical_panel_missing_environment_visual_dna",
+      "p1:missing_environment_visual_dna",
     ]);
+  });
+
+  it("strictEnvironmentLocationBinding : bloque un panel medium avec signaux lieu mais sans environmentVisualDna", () => {
+    const [p] = computePanelContinuityPreflights(
+      [
+        minimalBp({
+          requiredCharacterIds: [],
+          criticality: "medium",
+          requiredLocationSignals: ["port"],
+        }),
+      ],
+      { strictEnvironmentLocationBinding: true },
+    );
+    expect(p.missingEnvironmentDna).toBe(true);
+    expect(p.blocking).toBe(true);
+    expect(continuityPreflightBlockingReasons([p])).toEqual(["p1:missing_environment_visual_dna"]);
+  });
+
+  it("strictEnvironmentLocationBinding désactivé : medium avec signaux lieu reste non bloquant", () => {
+    const [p] = computePanelContinuityPreflights([
+      minimalBp({
+        requiredCharacterIds: [],
+        criticality: "medium",
+        requiredLocationSignals: ["port"],
+      }),
+    ]);
+    expect(p.missingEnvironmentDna).toBe(true);
+    expect(p.blocking).toBe(false);
   });
 
   it("bloque un panel dialogue speaker_visible sans DNA pour l’ancre parlante", () => {

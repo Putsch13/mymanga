@@ -350,7 +350,9 @@ export async function POST(_req: Request, ctx: Ctx) {
     }
   }
   if (Array.isArray(bpForContinuity) && bpForContinuity.length > 0 && isPipelineV3PremiumOnlyEnabled()) {
-    const continuityPreflights = computePanelContinuityPreflights(bpForContinuity as PanelBlueprintPremium[]);
+    const continuityPreflights = computePanelContinuityPreflights(bpForContinuity as PanelBlueprintPremium[], {
+      strictEnvironmentLocationBinding: isPipelineV3PremiumOnlyEnabled(),
+    });
     const continuityBlockers = continuityPreflightBlockingReasons(continuityPreflights);
     if (continuityBlockers.length > 0) {
       logLaunchBlock(

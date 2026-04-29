@@ -5,6 +5,15 @@
 
 import type { PanelBlueprintPremium } from "../types/narrative-facts";
 
+export type PanelContinuityPreflightOptions = {
+  /**
+   * Mode premium strict : tout panel avec `requiredLocationSignals` non vide
+   * doit avoir `environmentVisualDna` (aligné hydrate VW + estimate/launch).
+   * Par défaut : seuls les panels `critical` / `contractualCritical` bloquent sur décor absent.
+   */
+  strictEnvironmentLocationBinding?: boolean;
+};
+
 export type PanelContinuityPreflight = {
   panelId: string;
   requiredHeroIds: string[];
@@ -34,7 +43,9 @@ function characterDnaIds(bp: PanelBlueprintPremium): Set<string> {
  */
 export function computePanelContinuityPreflights(
   blueprints: PanelBlueprintPremium[],
+  options?: PanelContinuityPreflightOptions,
 ): PanelContinuityPreflight[] {
+  const strictEnv = options?.strictEnvironmentLocationBinding === true;
   return blueprints.map((bp) => {
     const requiredHeroIds = [
       ...new Set([...(bp.requiredCharacterIds ?? []), ...(bp.mustShowCharacterIds ?? [])]),
@@ -84,7 +95,8 @@ export function computePanelContinuityPreflights(
       && !dna.has(speakerAnchorId!);
     const blocking =
       (critical && (missingCharacterForCritical || missingEnvironmentDna))
-      || missingSpeakerAnchorDna;
+      || missingSpeakerAnchorDna
+      || (strictEnv && missingEnvironmentDna);
 
     return {
       panelId: bp.panelId,
@@ -107,7 +119,7 @@ export function continuityPreflightBlockingReasons(
 ): string[] {
   return preflights.filter((p) => p.blocking).map((p) => {
     if (p.missingEnvironmentDna) {
-      return `${p.panelId}:critical_panel_missing_environment_visual_dna`;
+      return `${p.panelId}:missing_environment_visual_dna`;
     }
     if (
       p.anchorSpeakerCharacterId
