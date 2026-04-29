@@ -103,6 +103,7 @@ import { setJobProgress, mergeJobOutput } from "../pipeline-job";
 import {
   resolveEffectivePanelBlueprints,
   findPanelBlueprint,
+  mergeRequiredPropNamesFromPanelBlueprints,
   type PipelineJobInput,
 } from "../pipeline-quality";
 import type { PipelineContext } from "../pipeline-types";
@@ -1033,6 +1034,10 @@ export async function runNarrativePass(
         console.warn("[pipeline:shot-diversity] violations:", diversityReport.violations.map((v: any) => v.type));
       }
       finalPanelBlueprints = diversifiedBlueprints;
+    }
+
+    if (finalPanelBlueprints.length > 0) {
+      mergeRequiredPropNamesFromPanelBlueprints(finalPanelBlueprints, beatInferredPropNamesByBeatId);
     }
 
     // T07: Chapter ShotPlan — plan de coupe bout en bout

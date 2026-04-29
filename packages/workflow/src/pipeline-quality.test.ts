@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   resolveEffectivePanelBlueprints,
   findPanelBlueprint,
+  mergeRequiredPropNamesFromPanelBlueprints,
   normalizeCreativeControls,
 } from "./pipeline-quality";
 
@@ -66,6 +67,36 @@ describe("findPanelBlueprint", () => {
 
   it("returns undefined for empty blueprints", () => {
     expect(findPanelBlueprint([], 0, 1)).toBeUndefined();
+  });
+});
+
+describe("mergeRequiredPropNamesFromPanelBlueprints", () => {
+  it("agrège les requiredProps par beatId", () => {
+    const into = new Map<string, string[]>();
+    mergeRequiredPropNamesFromPanelBlueprints(
+      [
+        {
+          beatId: "b1",
+          requiredProps: [{ canonicalName: "épée" }, { canonicalName: "bouclier" }] as any[],
+        },
+        { beatId: "b1", requiredProps: [{ canonicalName: "épée" }, { canonicalName: "torche" }] as any[] },
+        { beatId: "b2", requiredProps: [{ canonicalName: "clé" }] as any[] },
+      ] as any[],
+      into,
+    );
+    expect(new Set(into.get("b1"))).toEqual(new Set(["épée", "bouclier", "torche"]));
+    expect(into.get("b2")).toEqual(["clé"]);
+  });
+
+  it("union avec les entrées existantes et respecte maxPerBeat", () => {
+    const into = new Map<string, string[]>([["b1", ["existant"]]]);
+    mergeRequiredPropNamesFromPanelBlueprints(
+      [{ beatId: "b1", requiredProps: [{ canonicalName: "a" }, { canonicalName: "b" }] as any[] }] as any[],
+      into,
+      2,
+    );
+    expect(into.get("b1")?.length).toBe(2);
+    expect(new Set(into.get("b1"))).toEqual(new Set(["existant", "a"]));
   });
 });
 

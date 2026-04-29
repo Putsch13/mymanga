@@ -83,6 +83,41 @@ export function findPanelBlueprint(
   return targetGroup[panelNumber - 1] ?? targetGroup[targetGroup.length - 1];
 }
 
+/** Plafond par défaut pour `requiredPropNames` agrégés (keyframes / prompt bridge). */
+export const DEFAULT_MAX_REQUIRED_PROP_NAMES_PER_BEAT = 16;
+
+/**
+ * Fusionne les `requiredProps` des blueprints premium par `beatId` dans une carte mutable.
+ * Utile pour aligner les scene keyframes sur les props déjà portées par le plan studio
+ * ou post-`enforceShotDiversity`, en plus du chemin blueprints dynamiques.
+ */
+export function mergeRequiredPropNamesFromPanelBlueprints(
+  blueprints: PanelBlueprintPremium[],
+  into: Map<string, string[]>,
+  maxPerBeat: number = DEFAULT_MAX_REQUIRED_PROP_NAMES_PER_BEAT,
+): void {
+  const byBeat = new Map<string, Set<string>>();
+  for (const [beatId, arr] of into) {
+    byBeat.set(beatId, new Set(arr));
+  }
+  for (const bp of blueprints) {
+    const beatId = bp.beatId;
+    if (!beatId || typeof beatId !== "string") continue;
+    let set = byBeat.get(beatId);
+    if (!set) {
+      set = new Set();
+      byBeat.set(beatId, set);
+    }
+    for (const p of bp.requiredProps ?? []) {
+      const n = typeof p.canonicalName === "string" ? p.canonicalName.trim() : "";
+      if (n.length > 0) set.add(n);
+    }
+  }
+  for (const [beatId, set] of byBeat) {
+    into.set(beatId, [...set].slice(0, maxPerBeat));
+  }
+}
+
 export function normalizeCreativeControls(
   value: Partial<CreativityControls> | undefined,
   canonStrictness: number | null | undefined,
