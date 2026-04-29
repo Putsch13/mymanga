@@ -55,6 +55,7 @@ function buildBaseSnapshotPatch() {
     },
     characterSelection: {
       heroCharacterId: "hero",
+      coreCastCharacterIds: ["hero"],
       activeCharacterIds: ["hero"],
       lockedCharacterIds: ["hero"],
       speakingCharacterIds: ["hero"],

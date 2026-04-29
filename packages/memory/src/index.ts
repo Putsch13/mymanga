@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from "@manga-ai-studio/db";
+import { isSecondaryHeroRole } from "@manga-ai-studio/core";
 export * from "./scene-extras-registry";
 export * from "./species-resolver";
 export * from "./dialogue-memory";
@@ -355,6 +356,7 @@ export async function buildProjectContext(
       visualStyle: project.visualStyle,
     },
     focusCharacterIds: [...focusSet],
+    secondaryHeroCharacterId: orderedCharacters.find((c) => isSecondaryHeroRole(c.roleType))?.id ?? null,
     settings: project.settings,
     stylePack: latestStylePack
       ? {

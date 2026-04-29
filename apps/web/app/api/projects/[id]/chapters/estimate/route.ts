@@ -21,6 +21,7 @@ import {
   computePanelContinuityPreflights,
   continuityPreflightBlockingReasons,
   hydrateBlueprintsWithCharacterDna,
+  hydrateBlueprintsWithEnvironmentDna,
   hydratePanelProvenanceOnBlueprints,
   isHeroRole,
   isPipelineV3PremiumOnlyEnabled,
@@ -416,6 +417,11 @@ export async function POST(req: Request, ctx: Ctx) {
       outfitDefault: c.outfitDefault ?? null,
     })),
     characterCanonsById: characterCanonsById ?? null,
+  });
+
+  allBlueprints = hydrateBlueprintsWithEnvironmentDna({
+    blueprints: allBlueprints,
+    visualWorld: bundle.visualWorldContract ?? null,
   });
 
   const structuralFromPersistedBlueprints = runStructuralQaOnPremiumBlueprints({

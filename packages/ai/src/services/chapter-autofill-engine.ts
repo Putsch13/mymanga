@@ -440,6 +440,7 @@ function buildFallbackAutofill(
     patch.characterSelection = {
       ...patch.characterSelection,
       heroCharacterId: firstChar.id,
+      coreCastCharacterIds: [firstChar.id],
       activeCharacterIds: [],
       lockedCharacterIds: [],
       speakingCharacterIds: [],

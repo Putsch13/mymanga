@@ -10,6 +10,8 @@ import {
   hydratePanelProvenanceOnBlueprints,
   isPipelineV3PremiumOnlyEnabled,
   hydrateBlueprintsWithCharacterDna,
+  hydrateBlueprintsWithEnvironmentDna,
+  visualWorldContractSchema,
   PREMIUM_PANEL_RANGE,
   type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
@@ -334,6 +336,13 @@ export async function POST(_req: Request, ctx: Ctx) {
       characters: chars,
       characterCanonsById: canonMap,
     }) as typeof bpForContinuity;
+    const vwLaunch = visualWorldContractSchema.safeParse(snapshot.data.visualWorldContract);
+    if (vwLaunch.success) {
+      bpForContinuity = hydrateBlueprintsWithEnvironmentDna({
+        blueprints: bpForContinuity as PanelBlueprintPremium[],
+        visualWorld: vwLaunch.data,
+      }) as typeof bpForContinuity;
+    }
   }
   if (Array.isArray(bpForContinuity) && bpForContinuity.length > 0 && isPipelineV3PremiumOnlyEnabled()) {
     const continuityPreflights = computePanelContinuityPreflights(bpForContinuity as PanelBlueprintPremium[]);

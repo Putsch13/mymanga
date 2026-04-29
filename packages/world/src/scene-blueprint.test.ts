@@ -12,6 +12,15 @@ describe("scene blueprint", () => {
     expect(blueprint.promptBridge.environmentLine).toContain("location signals");
   });
 
+  it("n'utilise pas les ontologies legacy quand disableOntologySelections", () => {
+    const base = buildFixedRegressionSuite()[0].input;
+    const bp = buildSceneBlueprint(base, { disableOntologySelections: true });
+    expect(bp.procedural.selectedLocations.primary.every((e) => e.sourceOntologyId.startsWith("narrative-"))).toBe(
+      true,
+    );
+    expect(bp.procedural.selectedNpcs.primary.length).toBeGreaterThan(0);
+  });
+
   it("passes fixed regression suite", () => {
     const report = runBlueprintSuite("fixed_regression_suite", buildFixedRegressionSuite());
     if (report.failed > 0) {

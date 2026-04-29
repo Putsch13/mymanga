@@ -101,6 +101,10 @@ const ALIAS_TABLE: Record<string, CanonicalCharacterRoleValue> = {
   secondary: "secondary",
   secondaire: "secondary",
   secondary_core: "secondary",
+  secondary_hero: "secondary",
+  hero_2: "secondary",
+  co_hero: "secondary",
+  deuteragonist: "secondary",
   personnage_secondaire: "secondary",
   // NPCs (EN + FR)
   recurring_npc: "recurring_npc",
@@ -156,6 +160,11 @@ export function canonicalizeCharacterRoleType(
  */
 export function isHeroRole(value: unknown): boolean {
   return canonicalizeCharacterRoleType(value) === "hero";
+}
+
+/** Co-protagoniste / héros secondaire (rôle `secondary` canonique). */
+export function isSecondaryHeroRole(value: unknown): boolean {
+  return canonicalizeCharacterRoleType(value) === "secondary";
 }
 
 export function isAntagonistRole(value: unknown): boolean {

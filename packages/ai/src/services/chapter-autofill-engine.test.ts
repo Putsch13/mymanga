@@ -65,6 +65,7 @@ describe("chapter-autofill-engine (sans OpenAI)", () => {
       },
       characterSelection: {
         heroCharacterId: "char-1",
+        coreCastCharacterIds: ["char-1"],
         activeCharacterIds: [],
         lockedCharacterIds: [],
         speakingCharacterIds: [],

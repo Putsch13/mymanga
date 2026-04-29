@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { chapterAiReadinessSchema } from "../ai-readiness";
 import { PREMIUM_PANEL_RANGE } from "../premium-panel-range";
+import { visualWorldContractSchema } from "../visual-world/visual-world-contract";
 import type { ApprovedChapterOutline } from "./approved-outline";
 import type {
   NarrativeFact,
@@ -297,6 +298,10 @@ export type ChapterNarrativeContract = z.infer<typeof chapterNarrativeContractSc
 
 export const chapterCharacterSelectionSchema = z.object({
   heroCharacterId: z.string().optional().nullable(),
+  /** Héros / co-protagoniste officiel (contrat studio — QA, prompts, équilibre). */
+  secondaryHeroCharacterId: z.string().optional().nullable(),
+  /** Cast narratif principal (héros, héros 2, antagonistes récurrents). */
+  coreCastCharacterIds: z.array(z.string()).default([]),
   activeCharacterIds: z.array(z.string()).default([]),
   lockedCharacterIds: z.array(z.string()).default([]),
   speakingCharacterIds: z.array(z.string()).default([]),
@@ -695,6 +700,8 @@ export const chapterStudioDataSchema = z.object({
   /** P1.2 — dernier état readiness IA (optionnel ; peut être rafraîchi au launch). */
   aiReadiness: chapterAiReadinessSchema.optional(),
   premiumBlockingReasons: z.array(z.string()).optional(),
+  /** Contrat monde visuel IA (persisté avec le snapshot pour estimate/launch). */
+  visualWorldContract: visualWorldContractSchema.optional(),
 });
 
 export type ChapterStudioData = z.infer<typeof chapterStudioDataSchema>;

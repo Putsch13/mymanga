@@ -124,6 +124,12 @@ export async function POST(req: Request, ctx: Ctx) {
   const initialCharacterSelection = focusCharacterIds.length > 0 || resolvedHeroCharacterId
     ? {
         heroCharacterId: resolvedHeroCharacterId ?? undefined,
+        coreCastCharacterIds: [
+          ...new Set([
+            ...(resolvedHeroCharacterId ? [resolvedHeroCharacterId] : []),
+            ...focusCharacterIds,
+          ]),
+        ],
         activeCharacterIds: focusCharacterIds,
         lockedCharacterIds: [] as string[],
         speakingCharacterIds: [] as string[],
@@ -156,7 +162,19 @@ export async function POST(req: Request, ctx: Ctx) {
             arcImportance: body.studioDraft.intent?.arcImportance ?? null,
           },
           // Persister characterSelection dès la création
-          characterSelection: initialCharacterSelection ?? body.studioDraft.characterSelection,
+          characterSelection: (() => {
+            const fromDraft = body.studioDraft.characterSelection;
+            const base = initialCharacterSelection ?? fromDraft;
+            if (!base) return fromDraft;
+            const core =
+              Array.isArray(base.coreCastCharacterIds) && base.coreCastCharacterIds.length > 0
+                ? base.coreCastCharacterIds
+                : [...new Set([
+                  ...(base.heroCharacterId ? [base.heroCharacterId] : []),
+                  ...(base.activeCharacterIds ?? []),
+                ])];
+            return { ...base, coreCastCharacterIds: core };
+          })(),
         },
         {
           chapterNumber,

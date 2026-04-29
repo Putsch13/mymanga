@@ -1118,6 +1118,7 @@ export async function runNarrativePass(
     // `locationRecord.establishedVisualBrief` sur l'array `knownLocations` qui
     // pouvait laisser un brief fantôme en mémoire si Tx B rollbackait.
     const establishedBriefsThisTx = new Map<string, string>();
+    const sceneBlueprintBuildOpts = { disableOntologySelections: isPipelineV3PremiumOnlyEnabled() };
     await prisma.$transaction(
       async (tx) => {
         for (let index = 0; index < revisedBundle.script.scenes.length; index++) {
@@ -1324,7 +1325,7 @@ export async function runNarrativePass(
                 styleRules: [],
                 loreConstraints: [],
               },
-            }),
+            }, sceneBlueprintBuildOpts),
             stylePack: stylePack
               ? {
                   renderFamily: stylePack.renderFamily,
@@ -1554,7 +1555,7 @@ export async function runNarrativePass(
                         : undefined,
                     }
                   : undefined,
-              });
+              }, sceneBlueprintBuildOpts);
               const sceneBlueprints = sceneBlueprintsByScene.get(index) ?? [];
               sceneBlueprints.push(sceneBlueprint);
               sceneBlueprintsByScene.set(index, sceneBlueprints);

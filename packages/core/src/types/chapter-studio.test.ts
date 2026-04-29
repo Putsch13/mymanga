@@ -62,6 +62,7 @@ describe("chapter studio domain", () => {
       },
       characterSelection: {
         heroCharacterId: "hero",
+        coreCastCharacterIds: ["hero", "mentor"],
         activeCharacterIds: ["hero", "mentor"],
         lockedCharacterIds: ["hero"],
         speakingCharacterIds: ["hero", "mentor"],

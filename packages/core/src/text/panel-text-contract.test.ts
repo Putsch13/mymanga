@@ -9,6 +9,7 @@ import {
   createDialogueTextContract,
   validatePanelTextContract,
   mergeTextContracts,
+  buildPanelTextContractFromFragments,
   type PanelTextContract,
 } from "../generation/panel-text-contract";
 
@@ -84,5 +85,21 @@ describe("PanelTextContract", () => {
     expect(merged.dialogues).toHaveLength(1);
     expect(merged.dialogues[0].speakerName).toBe("b");
     expect(merged.narration).toBe("Tension.");
+  });
+
+  it("buildPanelTextContractFromFragments priorise dialogueLines structurés", () => {
+    const c = buildPanelTextContractFromFragments({
+      panelId: "p9",
+      dialogueLines: [{ line: "Salut", speakerLabel: "A" }],
+      dialogue: ["ignoré"],
+    });
+    expect(c.hasText).toBe(true);
+    expect(c.dialogues[0]?.text).toBe("Salut");
+    expect(c.dialogues[0]?.speakerName).toBe("A");
+  });
+
+  it("buildPanelTextContractFromFragments aplatit dialogue[]", () => {
+    const c = buildPanelTextContractFromFragments({ dialogue: ["x", "y"] });
+    expect(c.dialogues.map((d) => d.text)).toEqual(["x", "y"]);
   });
 });

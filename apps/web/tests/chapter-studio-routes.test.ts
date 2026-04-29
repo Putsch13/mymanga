@@ -133,6 +133,7 @@ function buildReadyStudio() {
       },
       characterSelection: {
         heroCharacterId: "hero-1",
+        coreCastCharacterIds: ["hero-1", "support-1"],
         activeCharacterIds: ["hero-1", "support-1"],
         lockedCharacterIds: ["hero-1"],
         speakingCharacterIds: ["hero-1"],
@@ -879,6 +880,7 @@ describe("routes Chapter Studio", () => {
           data: {
             characterSelection: {
               heroCharacterId: "hero-2",
+              coreCastCharacterIds: ["hero-2", "support-1"],
               activeCharacterIds: ["hero-2", "support-1"],
             },
           },

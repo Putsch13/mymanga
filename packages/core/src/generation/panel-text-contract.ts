@@ -252,3 +252,61 @@ export function legacyDialogueToTextContract(
 
   return createDialogueTextContract(panelId, dialogues, { narration });
 }
+
+/**
+ * Normalise les fragments épars (blueprint / panel legacy) vers un `PanelTextContract`.
+ */
+export function buildPanelTextContractFromFragments(input: {
+  panelId?: string | null;
+  dialogueLines?: readonly { characterId?: string | null; speakerLabel?: string | null; line: string }[] | null;
+  dialogue?: readonly string[] | string | null;
+  narration?: string | null;
+  narrationLines?: readonly string[] | null;
+  sfx?: readonly string[] | null;
+}): PanelTextContract {
+  const pid = (input.panelId && String(input.panelId).trim()) || "panel";
+  const structured = (input.dialogueLines ?? []).filter((d) => d.line.trim().length > 0);
+  if (structured.length > 0) {
+    const dialogues: PanelDialogueEntry[] = structured.map((d) => ({
+      speakerId: d.characterId ?? undefined,
+      speakerName: (d.speakerLabel?.trim() || d.characterId || "Speaker").toString(),
+      text: d.line.trim(),
+    }));
+    const narrationParts = [
+      ...(typeof input.narration === "string" && input.narration.trim() ? [input.narration.trim()] : []),
+      ...((input.narrationLines ?? []).map((t) => String(t).trim()).filter(Boolean)),
+    ];
+    const narrationJoined = narrationParts.length > 0 ? narrationParts.join("\n") : null;
+    const sfx: PanelSfxEntry[] = (input.sfx ?? [])
+      .map((t) => String(t).trim())
+      .filter(Boolean)
+      .map((text) => ({ text, kind: "ambient" as SfxKind }));
+    return createDialogueTextContract(pid, dialogues, { narration: narrationJoined, sfx });
+  }
+  const narrationJoined = [
+    ...(typeof input.narration === "string" && input.narration.trim() ? [input.narration.trim()] : []),
+    ...((input.narrationLines ?? []).map((t) => String(t).trim()).filter(Boolean)),
+  ].join("\n") || null;
+
+  const rawLines: string[] = [];
+  if (Array.isArray(input.dialogue)) {
+    for (const line of input.dialogue) {
+      const t = String(line).trim();
+      if (t) rawLines.push(t);
+    }
+  } else if (typeof input.dialogue === "string" && input.dialogue.trim()) {
+    rawLines.push(input.dialogue.trim());
+  }
+
+  if (rawLines.length === 0) {
+    return legacyDialogueToTextContract(pid, null, narrationJoined);
+  }
+  if (rawLines.length === 1) {
+    return legacyDialogueToTextContract(pid, rawLines[0]!, narrationJoined);
+  }
+  const dialogues: PanelDialogueEntry[] = rawLines.map((text) => ({
+    speakerName: "Character",
+    text,
+  }));
+  return createDialogueTextContract(pid, dialogues, { narration: narrationJoined });
+}

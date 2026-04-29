@@ -18,6 +18,7 @@ import {
   type PanelBlueprintPremium,
   type ProductionOutline,
   type ProductionPlan,
+  type VisualWorldContract,
 } from "@manga-ai-studio/core";
 import { buildPremiumChapterContractAsync, composeVisualWorldContract } from "@manga-ai-studio/ai";
 import { prisma } from "@manga-ai-studio/db";
@@ -65,6 +66,8 @@ export interface PremiumChapterContractResult {
   readinessReport: ReturnType<typeof buildChapterReadinessReport> | null;
   panelBlueprints: unknown[];
   coverage: PremiumContractCoverage;
+  /** Monde visuel IA composé en même temps que le contrat (persisté au snapshot). */
+  visualWorldContract?: VisualWorldContract;
 }
 
 export interface BuildPremiumContractInput {
@@ -260,6 +263,7 @@ export async function buildPremiumChapterContractFromApprovedOutline(
     readinessReport: null,
     panelBlueprints,
     coverage,
+    visualWorldContract,
   };
 }
 
@@ -315,6 +319,7 @@ export function mergePremiumContractIntoSnapshot(
       projectCanon: existingData.projectCanon,
       characterCanons: existingData.characterCanons,
       locationCanons: existingData.locationCanons,
+      visualWorldContract: premiumContract.visualWorldContract ?? existingData.visualWorldContract,
     },
   };
 }

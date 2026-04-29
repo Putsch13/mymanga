@@ -118,6 +118,7 @@ export function buildPremiumStudioData(beatCount = 10) {
   return {
     characterSelection: {
       heroCharacterId: "hero-1",
+      coreCastCharacterIds: ["hero-1", "support-1"],
       activeCharacterIds: ["hero-1", "support-1"],
       lockedCharacterIds: ["hero-1"],
     },

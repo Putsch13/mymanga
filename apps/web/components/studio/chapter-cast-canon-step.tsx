@@ -62,6 +62,8 @@ export function ChapterCastCanonStep({
       ...draft,
       characterSelection: {
         heroCharacterId: draft.characterSelection?.heroCharacterId ?? null,
+        secondaryHeroCharacterId: draft.characterSelection?.secondaryHeroCharacterId ?? null,
+        coreCastCharacterIds: draft.characterSelection?.coreCastCharacterIds ?? [],
         activeCharacterIds: draft.characterSelection?.activeCharacterIds ?? [],
         lockedCharacterIds: draft.characterSelection?.lockedCharacterIds ?? [],
         speakingCharacterIds: draft.characterSelection?.speakingCharacterIds ?? [],

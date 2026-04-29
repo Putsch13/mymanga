@@ -5,6 +5,7 @@ import {
   isAntagonistRole,
   isHeroRole,
   isNpcRole,
+  isSecondaryHeroRole,
   isSupportingRole,
   normalizeCharacterRoleType,
 } from "./character-role";
@@ -80,5 +81,9 @@ describe("normalizeCharacterRoleType (P2.1)", () => {
     expect(isNpcRole("pnj")).toBe(true);
     expect(isNpcRole("recurring_npc")).toBe(true);
     expect(isNpcRole("hero")).toBe(false);
+    expect(isSecondaryHeroRole("deuteragonist")).toBe(true);
+    expect(isSecondaryHeroRole("hero_2")).toBe(true);
+    expect(isSecondaryHeroRole("secondary")).toBe(true);
+    expect(isSecondaryHeroRole("MAIN_CHARACTER")).toBe(false);
   });
 });

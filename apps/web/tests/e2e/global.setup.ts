@@ -233,6 +233,7 @@ export default async function globalSetup() {
       },
       characterSelection: {
         heroCharacterId: "hero-e2e",
+        coreCastCharacterIds: ["hero-e2e", "ally-e2e"],
         activeCharacterIds: ["hero-e2e", "ally-e2e"],
         lockedCharacterIds: ["hero-e2e"],
         speakingCharacterIds: ["hero-e2e", "ally-e2e"],
@@ -300,6 +301,7 @@ export default async function globalSetup() {
       },
       characterSelection: {
         heroCharacterId: "hero-e2e",
+        coreCastCharacterIds: ["hero-e2e"],
         activeCharacterIds: ["hero-e2e"],
         lockedCharacterIds: ["hero-e2e"],
         speakingCharacterIds: ["hero-e2e"],

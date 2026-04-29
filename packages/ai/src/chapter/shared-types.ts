@@ -20,6 +20,8 @@ export type ProjectContextForChapter = {
     intensityLayer?: string | null;
   };
   focusCharacterIds?: string[];
+  /** Personnage avec rôle secondaire / co-protagoniste détecté dans le projet. */
+  secondaryHeroCharacterId?: string | null;
   settings?: {
     violenceLevel?: number | null;
     romanceLevel?: number | null;

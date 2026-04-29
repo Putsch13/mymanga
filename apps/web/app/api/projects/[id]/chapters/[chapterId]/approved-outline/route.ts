@@ -9,6 +9,7 @@ import {
   computePanelContinuityPreflights,
   continuityPreflightBlockingReasons,
   hydrateBlueprintsWithCharacterDna,
+  hydrateBlueprintsWithEnvironmentDna,
   type PanelBlueprintPremium,
   type ProductionOutline,
   type ProductionPlan,
@@ -233,11 +234,20 @@ export async function PATCH(req: Request, ctx: Ctx) {
       for (const c of canons) {
         characterCanonsById[c.characterId] = c;
       }
-      const hydratedBps = hydrateBlueprintsWithCharacterDna({
-        blueprints: rawBps,
-        characters: rows,
-        characterCanonsById: Object.keys(characterCanonsById).length > 0 ? characterCanonsById : undefined,
-      });
+      const hydratedBps = (() => {
+        let bps = hydrateBlueprintsWithCharacterDna({
+          blueprints: rawBps,
+          characters: rows,
+          characterCanonsById: Object.keys(characterCanonsById).length > 0 ? characterCanonsById : undefined,
+        });
+        if (rebuiltContract.visualWorldContract) {
+          bps = hydrateBlueprintsWithEnvironmentDna({
+            blueprints: bps,
+            visualWorld: rebuiltContract.visualWorldContract,
+          });
+        }
+        return bps;
+      })();
       resolvedProductionPlan = {
         ...planRecord,
         panelBlueprints: hydratedBps,
@@ -324,6 +334,14 @@ export async function PATCH(req: Request, ctx: Ctx) {
 
   const persistedCharacterSelection = {
     heroCharacterId: heroCharacterId ?? undefined,
+    secondaryHeroCharacterId:
+      typeof characterSelection.secondaryHeroCharacterId === "string"
+      && characterSelection.secondaryHeroCharacterId.length > 0
+        ? characterSelection.secondaryHeroCharacterId
+        : undefined,
+    coreCastCharacterIds: Array.isArray(characterSelection.coreCastCharacterIds)
+      ? characterSelection.coreCastCharacterIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+      : [],
     activeCharacterIds: resolvedActiveCharacterIds,
     lockedCharacterIds: Array.isArray(characterSelection.lockedCharacterIds)
       ? characterSelection.lockedCharacterIds.filter((id): id is string => typeof id === "string" && id.length > 0)
@@ -368,6 +386,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
       productionOutline: resolvedProductionOutline,
       productionPlan: resolvedProductionPlan,
       characterSelection: persistedCharacterSelection,
+      visualWorldContract: rebuiltContract.visualWorldContract,
     },
     {
       chapterNumber: chapter.chapterNumber,
