@@ -9,6 +9,7 @@
  *   - SceneImage sans persistedUrl / mediaAsset associé (completed)
  *   - SceneImage completed mais QA failed
  *   - SceneImage validated sans textContract
+ *   - (PR9) champs legacy dialogue/narration/sfx absents si textContract valide — normal
  *   - SceneImage sans promptHash
  *   - SceneImage sans narrativeContractHash
  *   - panels dupliqués sur même chapterId + panelNumber

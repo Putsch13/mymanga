@@ -2,6 +2,11 @@
  * Moteur d'inférence automatique des props narratifs.
  * Déduit les accessoires/armes/objets automatiquement en fonction de l'histoire,
  * sans configuration manuelle utilisateur.
+ *
+ * PR4 — validation / owner : logique partagée dans
+ * `prop-evidence-validator.ts` et `prop-owner-resolver.ts` (importés ici).
+ * En premium IA-first (`visualWorldContractActive` / `suppressUniverseTemplateProps`),
+ * les catalogues univers ne servent plus de source créative principale.
  */
 
 import type {
@@ -52,6 +57,11 @@ export interface PropInferenceContext {
    * (`requiredBeatIds` sur chaque entrée). Fusionnés avant les templates / faits.
    */
   visualWorldPropsForBeat?: Readonly<Record<string, readonly VisualWorldPropDna[]>> | null;
+  /**
+   * Chapitre avec monde visuel composé (contrat présent) : ne pas utiliser les catalogues
+   * `getUniverseProps` comme source créative, même si `props` du contrat est vide ou non indexé par beat.
+   */
+  visualWorldContractActive?: boolean;
 }
 
 // ─── Domaines de props ────────────────────────────────────────────────────────
@@ -560,8 +570,16 @@ export function inferRequiredPropsFromBeat(
     .filter(Boolean)
     .join(" ");
 
-  /** En premium sans templates univers, éviter la détection regex de « universe » (inutile pour les domaines vides). */
-  const universeType = context.suppressUniverseTemplateProps
+  const hasVisualWorldPropIndex =
+    context.visualWorldPropsForBeat != null
+    && Object.values(context.visualWorldPropsForBeat).some((arr) => Array.isArray(arr) && arr.length > 0);
+  const suppressUniverseTemplates =
+    context.suppressUniverseTemplateProps === true
+    || hasVisualWorldPropIndex
+    || context.visualWorldContractActive === true;
+
+  /** Avec `suppressUniverseTemplates`, éviter la détection regex d’univers (IA-first + contrat monde). */
+  const universeType = suppressUniverseTemplates
     ? (context.universeType ?? "generic")
     : detectUniverseFromContext(beat, context);
   const enrichedContext = { ...context, universeType };
@@ -598,9 +616,9 @@ export function inferRequiredPropsFromBeat(
     }
   }
 
-  // Mode premium strict : pas de catalogue univers ni de domaines regex additionnels —
-  // seuls les faits narratifs (et plus tard le VisualWorldContract côté appelant) alimentent les props.
-  const allDomains: PropTemplate[][] = context.suppressUniverseTemplateProps
+  // IA-first : pas de catalogue univers quand le caller impose `suppressUniverseTemplateProps`
+  // ou qu’un index `VisualWorldContract` est déjà fourni pour ce chapitre.
+  const allDomains: PropTemplate[][] = suppressUniverseTemplates
     ? []
     : [getUniverseProps(universeType), ...getAdditionalDomainsOnlyIfExplicitlySignaled(text)];
 

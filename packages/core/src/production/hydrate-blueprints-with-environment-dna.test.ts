@@ -29,7 +29,7 @@ function minimalVw(overrides: Partial<VisualWorldContract> = {}): VisualWorldCon
     creatures: [],
     vehicles: [],
     factions: [],
-    beatBindings: [{ beatId: "b1", locationId: locId, primaryPropIds: [], npcGroupIds: [] }],
+    beatBindings: [{ beatId: "b1", locationId: locId, primaryPropIds: [], npcGroupIds: [], creatureIds: [], vehicleIds: [], factionIds: [] }],
     ...overrides,
   };
 }
@@ -87,5 +87,7 @@ describe("hydrateBlueprintsWithEnvironmentDna", () => {
     expect(out.environmentVisualDna?.locationName).toBe("Port");
     expect(out.environmentVisualDna?.anchorId).toBe("loc-1");
     expect(out.environmentVisualDna?.architectureHints).toContain("entrepôts");
+    expect(out.environmentVisualDna?.atmosphere).toContain("brume");
+    expect(out.environmentVisualDna?.visualAnchors).toContain("grues");
   });
 });

@@ -16,6 +16,18 @@ import {
   type ContinuityState,
 } from "../contracts/continuity-state";
 
+/** Lieu connu pour l’IA1 — aligné chargement DB / studio (pas seulement id+nom). */
+export type StoryArchitectLocationInput = {
+  id: string | null;
+  name: string;
+  type?: string | null;
+  description?: string | null;
+  visualBrief?: string | null;
+  establishedVisualBrief?: string | null;
+  canonLocked?: boolean | null;
+  aliases?: string[];
+};
+
 export interface StoryArchitectInput {
   chapterId: string;
   chapterNumber: number;
@@ -25,7 +37,7 @@ export interface StoryArchitectInput {
   targetBeatCount?: number;
   continuityBefore?: ContinuityState | null;
   mainCharacters?: Array<{ id: string; name: string; roleType?: string | null }>;
-  locations?: Array<{ id: string | null; name: string }>;
+  locations?: StoryArchitectLocationInput[];
 }
 
 export interface StoryArchitectOutput {

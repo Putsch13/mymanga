@@ -153,6 +153,25 @@ describe("buildMinimalPanelPrompt", () => {
     expect(r.positive.toLowerCase()).toContain("crimson hair");
   });
 
+  it("injecte les trigger words LoRA dans le bloc STYLE (PR7)", () => {
+    const r = buildMinimalPanelPrompt(
+      makeSpec({
+        loraBindings: [
+          {
+            characterId: "c1",
+            characterName: "Miya",
+            url: "https://example.com/lora.safetensors",
+            triggerWord: "miyastyle",
+            scale: 0.85,
+            source: "character_lora",
+          },
+        ],
+      }),
+    );
+    expect(r.positive).toContain("LoRA cues:");
+    expect(r.positive.toLowerCase()).toContain("miyastyle");
+  });
+
   it("injecte hairColor + eyeColor du personnage dans le prompt", () => {
     const r = buildMinimalPanelPrompt(
       makeSpec({
@@ -248,6 +267,28 @@ describe("buildMinimalPanelPrompt", () => {
     expect(line).toContain("white hair");
     expect(line).toContain("twin tails with red ribbons");
     expect(line).toContain("wearing school blazer with armband");
+  });
+
+  it("describeCharacterWithCanon inclut les traits configurateur (structure)", () => {
+    const line = describeCharacterWithCanon({
+      characterId: "c1",
+      name: "Kai",
+      role: "hero",
+      poseIntent: null,
+      expressionIntent: null,
+      visualDNA: {
+        eyeColor: "green",
+        hairColor: "black",
+        faceShape: "heart-shaped",
+        jawline: "angular",
+        eyeShape: "almond",
+        noseStyle: "straight narrow",
+      },
+    });
+    expect(line).toContain("structure:");
+    expect(line.toLowerCase()).toContain("heart-shaped");
+    expect(line.toLowerCase()).toContain("angular");
+    expect(line.toLowerCase()).toContain("almond");
   });
 
   it("ENVIRONMENT: sans locationName mais avec environmentLocks, évite neutral setting", () => {
@@ -372,11 +413,13 @@ describe("buildMinimalPanelPrompt", () => {
     expect(r.positive.toLowerCase()).not.toContain("environment: unknown");
   });
 
-  it("capte environmentDNA avec plafonds (anchors, lighting, props, avoid)", () => {
+  it("capte environmentDNA avec plafonds (anchors, arch, atmos, lighting, props, avoid)", () => {
     const dna = formatEnvironmentDnaForPrompt({
       description: "D".repeat(300),
       visualAnchors: ["a1", "a2", "a3", "a4", "a5"],
-      lighting: ["l1", "l2", "l3"],
+      architectureHints: ["col1", "col2", "col3", "col4"],
+      atmosphere: ["m1", "m2", "m3"],
+      lighting: ["overcast", "rim light", "neon spill"],
       recurringProps: ["p1", "p2", "p3", "p4"],
       negativeConstraints: ["n1", "n2", "n3"],
     });
@@ -384,8 +427,12 @@ describe("buildMinimalPanelPrompt", () => {
     expect(dna).toContain("a1");
     expect(dna).toContain("a3");
     expect(dna).not.toContain("a4");
-    expect(dna).toContain("Light: l1; l2.");
-    expect(dna).not.toContain("l3");
+    expect(dna).toContain("Arch: col1; col2; col3.");
+    expect(dna).not.toContain("col4");
+    expect(dna).toContain("Atmos: m1; m2.");
+    expect(dna).not.toContain("m3");
+    expect(dna).toContain("Light: overcast; rim light.");
+    expect(dna).not.toContain("neon spill");
     expect(dna).toContain("Props: p1; p2; p3.");
     expect(dna).not.toContain("p4");
     expect(dna).toContain("Avoid: n1; n2.");
@@ -405,6 +452,79 @@ describe("buildMinimalPanelPrompt", () => {
     expect(r.positive).toContain("DNA:");
     expect(r.positive).toContain("stone arch");
     expect(r.positive).toContain("overcast");
+  });
+
+  it("injecte npcVisualDna (world presence) dans le bloc ENVIRONMENT du prompt", () => {
+    const r = buildMinimalPanelPrompt(
+      makeSpec({
+        npcVisualDna: [
+          {
+            continuityId: "npc-dock-1",
+            displayName: "Dock worker",
+            category: "laborer",
+            visualMarkers: ["oil-stained coveralls", "hard hat"],
+          },
+        ],
+      }),
+    );
+    expect(r.positive).toContain("World presence");
+    expect(r.positive).toContain("Dock worker");
+    expect(r.positive.toLowerCase()).toContain("hard hat");
+  });
+
+  it("priorise créature / véhicule / faction avant les PNJ crowd dans le prompt", () => {
+    const r = buildMinimalPanelPrompt(
+      makeSpec({
+        npcVisualDna: [
+          {
+            continuityId: "npc-a",
+            displayName: "Crowd A",
+            category: "passerby",
+            visualMarkers: ["blurred"],
+          },
+          {
+            continuityId: "cre-1",
+            displayName: "River wyrm",
+            category: "creature",
+            visualMarkers: ["iridescent scales", "steam from nostrils"],
+          },
+          {
+            continuityId: "veh-1",
+            displayName: "Patrol skiff",
+            category: "vehicle",
+            visualMarkers: ["rusted hull"],
+          },
+        ],
+      }),
+    );
+    const idxCreature = r.positive.indexOf("Creature:");
+    const idxCrowd = r.positive.indexOf("Crowd A");
+    expect(idxCreature).toBeGreaterThan(-1);
+    expect(idxCrowd).toBeGreaterThan(-1);
+    expect(idxCreature).toBeLessThan(idxCrowd);
+    expect(r.positive).toContain("Vehicle:");
+  });
+
+  it("injecte worldPropsVisualDna (Key props) dans le bloc ENVIRONMENT", () => {
+    const r = buildMinimalPanelPrompt(
+      makeSpec({
+        worldPropsVisualDna: [
+          {
+            id: "prop-1",
+            canonicalName: "Sealed crate",
+            category: "container",
+            visualDescription: "wooden crate with wax seals and rope handles",
+            ownerCharacterId: null,
+            locationId: null,
+            requiredBeatIds: ["b1"],
+            continuityPolicy: "recurring",
+          },
+        ],
+      }),
+    );
+    expect(r.positive).toContain("Key props");
+    expect(r.positive).toContain("Sealed crate");
+    expect(r.positive.toLowerCase()).toContain("wax");
   });
 });
 

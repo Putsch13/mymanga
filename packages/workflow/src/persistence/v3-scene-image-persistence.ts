@@ -26,27 +26,22 @@
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import {
   buildReaderPanelSlots,
-  buildPanelTextContractFromFragments,
+  stripLegacyPanelTextFieldsWhenContractPresent,
   textContractToLegacyDialogue,
+  resolveStoryboardTextContractForPersistence,
   type GenerationDebugSnapshot,
   type PanelTextBundle,
 } from "@manga-ai-studio/core";
 import type {
   FalRenderRoute,
-  PanelRenderPanelTextPayload,
   PanelRenderSpec,
   StoryboardPlan,
   StoryboardPageV3 as StoryboardPage,
   StoryboardPanelV3 as StoryboardPanel,
 } from "@manga-ai-studio/ai";
-import { buildPanelRenderTextPayloadFromStoryboardPanel } from "../passes/enrich-panel-render-spec";
 import { persistImageIfNeeded, type PersistedImageResult } from "../pipeline-image-persistence";
 import { buildVisualQaInputFromRenderSpec, runVisualPanelQaWithOptionalVision } from "@manga-ai-studio/ai";
 import type { VisualQaResult } from "@manga-ai-studio/ai";
-
-function panelTextPayloadForPersist(panel: StoryboardPanel, spec: PanelRenderSpec): PanelRenderPanelTextPayload {
-  return spec.panelTextPayload ?? buildPanelRenderTextPayloadFromStoryboardPanel(panel).panelTextPayload;
-}
 
 export type PanelFinalStatus =
   | "passed"
@@ -191,21 +186,35 @@ async function preparePanelData(
       ? "completed"
       : "pending";
 
-  const panelTextForPersist = panelTextPayloadForPersist(panel, record.spec);
   const panelTextBundle =
     typeof (panel as { panelTextBundle?: unknown }).panelTextBundle === "object"
     && (panel as { panelTextBundle?: unknown }).panelTextBundle !== null
       ? ((panel as { panelTextBundle?: PanelTextBundle | null }).panelTextBundle ?? null)
       : null;
 
-  /** Même merge que `buildPanelRenderTextPayloadFromStoryboardPanel` : payload rendu + bundle épars. */
-  const textContract = buildPanelTextContractFromFragments({
-    panelId: panel.panelId,
-    dialogueLines: panelTextForPersist.dialogue?.length ? panelTextForPersist.dialogue : null,
-    narration: panelTextForPersist.narration ?? null,
-    sfx: panelTextForPersist.sfx ?? null,
-    panelTextBundle,
-  });
+  /**
+   * PR9 — Contrat texte : priorité au `textContract` studio sur le panel ;
+   * `panelTextPayload` du spec ne l’écrase que s’il n’y a pas de contrat persisté.
+   */
+  const pExt = panel as StoryboardPanel & {
+    textContract?: unknown;
+    dialogues?: Array<{ speaker: string; text: string }> | null;
+  };
+  const textContract = resolveStoryboardTextContractForPersistence(
+    {
+      panelId: panel.panelId,
+      textContract: pExt.textContract,
+      dialogue: Array.isArray(panel.dialogue) && panel.dialogue.length > 0 ? panel.dialogue : null,
+      dialogues:
+        (!panel.dialogue || panel.dialogue.length === 0) && Array.isArray(pExt.dialogues) && pExt.dialogues.length > 0
+          ? pExt.dialogues
+          : null,
+      narration: panel.narration ?? null,
+      sfx: panel.sfx ?? null,
+      panelTextBundle,
+    },
+    { specPanelTextPayload: record.spec.panelTextPayload ?? null },
+  );
   const legacyDialogueLines = textContractToLegacyDialogue(textContract);
   const narrationPersist = textContract.narration ?? null;
   const sfxPersist = textContract.sfx.map((e) => e.text);
@@ -316,7 +325,7 @@ async function preparePanelData(
     V3RenderedPanelRecord["renderAttempts"]
   >;
 
-  const metadata = {
+  const metadata = stripLegacyPanelTextFieldsWhenContractPresent({
     v3: true,
     panelId: panel.panelId,
     globalPanelIndex: panel.globalPanelIndex,
@@ -330,9 +339,7 @@ async function preparePanelData(
     actionLine: record.spec.actionLine,
     emotionLine: record.spec.emotionLine,
     textContract,
-    dialogue: legacyDialogueLines,
-    narration: narrationPersist,
-    sfx: sfxPersist,
+    /** PR9 — pas de doublon top-level : lecture via `synthesizePanelTextContractFromLooseMetadata` / `textContract`. */
     textMeta: panel.textPlacementHint
       ? {
           preferredAnchorZones: panel.textPlacementHint.preferredAnchorZones ?? [],
@@ -344,7 +351,7 @@ async function preparePanelData(
     generationDebugSnapshot,
     visualQa: visualQaForMetadata,
     renderAttempts: renderAttemptsForMetadata,
-  } as unknown as Prisma.InputJsonValue;
+  }) as unknown as Prisma.InputJsonValue;
 
   const routingDecision = {
     modelId: record.route.modelId,

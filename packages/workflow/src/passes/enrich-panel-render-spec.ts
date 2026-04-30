@@ -2,9 +2,8 @@
  * Enrichissement des PanelRenderSpec juste avant generatePanelImage :
  * ADN, continuité, layout, texte, LoRA — sans modifier renderMode / shotType.
  *
- * Texte panel : `panelTextPayload` est dérivé via `buildPanelTextContractFromFragments`
- * (même règles que le contrat de génération chapitre) pour éviter la divergence
- * dialogue / narration / SFX entre chemins parallèles.
+ * Texte panel : `panelTextPayload` + `PanelTextContract` via
+ * `resolvePanelTextContractFromStoryboardPanelLike` (PR9, contrat embarqué prioritaire).
  */
 
 import type {
@@ -17,9 +16,9 @@ import type {
   PanelRenderVisibleCharacter,
 } from "@manga-ai-studio/ai";
 import type { StoryboardPanel } from "@manga-ai-studio/ai/contracts";
-import type { PanelTextBundle, PanelTextContract } from "@manga-ai-studio/core";
+import type { EnvironmentVisualDna, PanelTextBundle, PanelTextContract } from "@manga-ai-studio/core";
 import {
-  buildPanelTextContractFromFragments,
+  resolvePanelTextContractFromStoryboardPanelLike,
   textContractToLegacyDialogue,
 } from "@manga-ai-studio/core";
 import {
@@ -65,38 +64,75 @@ function buildMandatoryVisibleEntities(spec: PanelRenderSpec, panel: StoryboardP
   return [...out];
 }
 
+/**
+ * Fusionne `panel.environmentVisualDna` (hydraté depuis VisualWorldContract / studio)
+ * dans le record passé au prompt (`formatEnvironmentDnaForPrompt` lit les mêmes clés
+ * ou leurs alias : `lightingHints`, `propAnchors`, `forbiddenDrift`, `visualAnchors`).
+ */
+function mergeBlueprintEnvironmentVisualDna(
+  record: Record<string, unknown>,
+  dna: EnvironmentVisualDna | null | undefined,
+): void {
+  if (!dna) return;
+  if (dna.visualAnchors?.length) {
+    record.visualAnchors = dna.visualAnchors;
+  }
+  if (dna.architectureHints?.length) {
+    record.architectureHints = dna.architectureHints;
+  }
+  if (dna.atmosphere?.length) {
+    record.atmosphere = dna.atmosphere;
+  }
+  if (dna.lightingHints?.length) {
+    record.lightingHints = dna.lightingHints;
+  }
+  if (dna.propAnchors?.length) {
+    record.propAnchors = dna.propAnchors;
+  }
+  if (dna.forbiddenDrift?.length) {
+    record.forbiddenDrift = dna.forbiddenDrift;
+  }
+  const loc = typeof dna.locationName === "string" ? dna.locationName.trim() : "";
+  if (loc && !record.description) {
+    record.description = loc;
+  }
+}
+
 function resolveEnvironmentDna(
   panel: StoryboardPanel,
   memory: ChapterVisualMemory,
 ): Record<string, unknown> | null {
+  const record: Record<string, unknown> = {};
+
   const anchorId = panel.visualAnchors?.environmentAnchorId;
   if (anchorId) {
     const env = memory.environments.get(anchorId);
     if (env) {
-      return {
-        anchorId: env.anchorId,
-        locationId: env.locationId,
-        locationName: env.locationName,
-        refUrl: env.refUrl,
-        defaultWeight: env.defaultWeight,
-      };
+      record.anchorId = env.anchorId;
+      record.locationId = env.locationId;
+      record.locationName = env.locationName;
+      record.refUrl = env.refUrl;
+      record.defaultWeight = env.defaultWeight;
     }
   }
+
   const locName = panel.locationName?.trim();
-  if (locName) {
+  if (locName && !record.locationName) {
     for (const env of memory.environments.values()) {
       if (env.locationName === locName) {
-        return {
-          anchorId: env.anchorId,
-          locationId: env.locationId,
-          locationName: env.locationName,
-          refUrl: env.refUrl,
-          defaultWeight: env.defaultWeight,
-        };
+        record.anchorId = env.anchorId;
+        record.locationId = env.locationId;
+        record.locationName = env.locationName;
+        record.refUrl = env.refUrl;
+        record.defaultWeight = env.defaultWeight;
+        break;
       }
     }
   }
-  return null;
+
+  mergeBlueprintEnvironmentVisualDna(record, panel.environmentVisualDna);
+
+  return Object.keys(record).length > 0 ? record : null;
 }
 
 export type StoryboardPanelWithOptionalTextBundle = StoryboardPanel & {
@@ -115,10 +151,17 @@ export function buildPanelRenderTextPayloadFromStoryboardPanel(
   dialogueForSpeakers: Array<{ speaker: string; text: string }>;
   textContract: PanelTextContract;
 } {
-  const p = panel as StoryboardPanelWithOptionalTextBundle;
-  const textContract = buildPanelTextContractFromFragments({
+  const p = panel as StoryboardPanelWithOptionalTextBundle & {
+    dialogues?: Array<{ speaker: string; text: string }> | null;
+  };
+  const textContract = resolvePanelTextContractFromStoryboardPanelLike({
     panelId: panel.panelId,
-    dialogueLines: panel.dialogue?.length ? panel.dialogue : null,
+    textContract: p.textContract,
+    dialogue: Array.isArray(panel.dialogue) && panel.dialogue.length > 0 ? panel.dialogue : null,
+    dialogues:
+      (!panel.dialogue || panel.dialogue.length === 0) && Array.isArray(p.dialogues) && p.dialogues.length > 0
+        ? p.dialogues
+        : null,
     narration: panel.narration ?? null,
     sfx: panel.sfx ?? null,
     panelTextBundle: p.panelTextBundle ?? null,

@@ -40,6 +40,12 @@ interface AuditResult {
 
 const WORKSPACE_ROOT = path.resolve(__dirname, "../../..");
 
+/** Frontières documentées : seuls ces fichiers peuvent importer `./legacy/…` (P1.15). */
+const WORKFLOW_LEGACY_ENTRYPOINTS = new Set([
+  "packages/workflow/src/index.ts",
+  "packages/workflow/src/run-full-chapter-pipeline.ts",
+]);
+
 const PREMIUM_FILES = [
   "packages/workflow/src/run-premium-v3-pipeline.ts",
   "packages/workflow/src/passes/render-pass.ts",
@@ -99,15 +105,15 @@ function analyzeFile(filePath: string, content: string, isPremiumFile: boolean):
     
     if (line.includes("import") || line.includes("from")) {
       for (const { pattern, reason } of FORBIDDEN_IMPORTS) {
-        if (pattern.test(line)) {
-          violations.push({
+        if (!pattern.test(line)) continue;
+        if (WORKFLOW_LEGACY_ENTRYPOINTS.has(filePath) && /\.\/legacy\//i.test(line)) continue;
+        violations.push({
             file: filePath,
             line: lineNum,
             importPath: line.trim(),
             reason,
             severity: isPremiumFile ? "error" : "warning",
           });
-        }
       }
     }
     

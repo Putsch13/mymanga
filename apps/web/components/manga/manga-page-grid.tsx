@@ -3,7 +3,11 @@
 import type React from "react";
 import type { AnyPanelMood } from "./manga-panel";
 import { getStableImageUrl } from "@/lib/images/get-stable-image-url";
-import type { GenerationDebugSnapshot, ReaderTextPlacementHint } from "@manga-ai-studio/core";
+import type {
+  GenerationDebugSnapshot,
+  PanelTextContract,
+  ReaderTextPlacementHint,
+} from "@manga-ai-studio/core";
 
 type DemoPanel = {
   id: string;
@@ -27,9 +31,8 @@ import {
   getReaderLayoutDescriptor,
   type PageLayoutTemplate,
   type ReadingDirection,
-  buildPanelTextContractFromFragments,
   textContractToLegacyDialogue,
-  type PanelTextContract,
+  synthesizePanelTextContractFromLooseMetadata,
 } from "@manga-ai-studio/core";
 // P1-4 : source of truth unique (packages/core) — plus de copie locale.
 
@@ -155,6 +158,11 @@ export interface UniversalPanel {
     overlayReadingDirection?: ReadingDirection;
   };
   generationDebugSnapshot?: GenerationDebugSnapshot;
+  /**
+   * PR9 — contrat texte (persisté ou synthétisé). `dialogue` / `dialogues`
+   * restent des dérivés pour l’UI legacy.
+   */
+  textContract?: PanelTextContract | null;
 }
 
 // LAY-2 : types étendus pour les nouveaux templates de layout
@@ -232,101 +240,42 @@ export interface PipelineScene {
 
 type MangaGridLayout = "A" | "B" | "C" | "D" | "E" | "F";
 
-function isPanelTextContractLike(value: unknown): value is PanelTextContract {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const o = value as Record<string, unknown>;
-  return (
-    typeof o.panelId === "string"
-    && typeof o.hasText === "boolean"
-    && Array.isArray(o.dialogues)
-    && o.placement !== null
-    && typeof o.placement === "object"
-    && !Array.isArray(o.placement)
-  );
-}
-
 /**
- * Texte panel (legacy pipeline) : même priorité que le reader (`textContract`
- * persisté → sinon `buildPanelTextContractFromFragments`).
+ * Texte panel (legacy pipeline) : même source que le reader — toujours
+ * `synthesizePanelTextContractFromLooseMetadata` (contrat persisté retourné tel quel s’il est valide).
  */
 function universalTextFieldsFromPipelinePanel(img: PipelinePanel): Pick<
   UniversalPanel,
-  "dialogue" | "dialogues" | "speaker" | "narration" | "sfx"
+  "dialogue" | "dialogues" | "speaker" | "narration" | "sfx" | "textContract"
 > {
   const meta = img.metadata as Record<string, unknown> | undefined;
   if (!meta) {
     return {};
   }
   const panelId = String(meta.panelId ?? (img as { id?: string }).id ?? "panel");
-  const textContractRaw = meta.textContract;
-  let dialoguesFromLegacy: Array<{ speaker: string; text: string }> | undefined;
-  let narrationFromContract: string | undefined;
-  let sfxFromContract: string[] | undefined;
+  const textContract = synthesizePanelTextContractFromLooseMetadata(meta, panelId);
+  const legacy = textContractToLegacyDialogue(textContract);
+  const dialoguesFromLegacy = legacy.length > 0 ? legacy : undefined;
+  const narrationFromContract = textContract.narration ?? undefined;
+  const sfxFromContract =
+    textContract.sfx.length > 0 ? textContract.sfx.map((s) => s.text) : undefined;
 
-  if (isPanelTextContractLike(textContractRaw)) {
-    const legacy = textContractToLegacyDialogue(textContractRaw);
-    dialoguesFromLegacy = legacy.length > 0 ? legacy : undefined;
-    narrationFromContract = textContractRaw.narration ?? undefined;
-    sfxFromContract =
-      textContractRaw.sfx.length > 0 ? textContractRaw.sfx.map((s) => s.text) : undefined;
-  } else {
-    const single = meta.dialogue;
-    const multi = meta.dialogues;
-    const primaryLines =
-      Array.isArray(multi) && multi.length > 0
-        ? (multi as Array<{ speaker?: string; text?: string }>)
-        : single && typeof single === "object" && !Array.isArray(single)
-          ? [single as { speaker?: string; text?: string }]
-          : typeof single === "string" && single.trim()
-            ? [{ speaker: "Unknown", text: single.trim() }]
-            : null;
-    const synthesized = buildPanelTextContractFromFragments({
-      panelId,
-      dialogueLines: primaryLines?.some((l) => String(l.text ?? "").trim()) ? primaryLines : null,
-      narration: typeof meta.narration === "string" ? meta.narration : null,
-      sfx: Array.isArray(meta.sfx) ? (meta.sfx as string[]) : typeof meta.sfx === "string" ? [meta.sfx] : null,
-      panelTextBundle:
-        typeof meta.panelTextBundle === "object" && meta.panelTextBundle !== null
-          ? (meta.panelTextBundle as never)
-          : null,
-    });
-    const legacy = textContractToLegacyDialogue(synthesized);
-    if (legacy.length > 0 || synthesized.narration?.trim() || synthesized.sfx.length > 0) {
-      dialoguesFromLegacy = legacy.length > 0 ? legacy : undefined;
-      narrationFromContract = synthesized.narration ?? undefined;
-      sfxFromContract = synthesized.sfx.length > 0 ? synthesized.sfx.map((s) => s.text) : undefined;
-    }
-  }
-
-  const dialogueArray = Array.isArray(meta.dialogue)
-    ? meta.dialogue
-    : meta.dialogue
-      ? [meta.dialogue]
-      : undefined;
-  const dialogues =
-    dialoguesFromLegacy
-    ?? (Array.isArray(meta.dialogues) ? meta.dialogues : dialogueArray);
+  const dialogues = dialoguesFromLegacy;
   const firstDialogue =
     Array.isArray(dialogues) && dialogues.length > 0
       ? (dialogues[0] as { speaker?: string; text?: string })
       : undefined;
 
-  const legacySfxMeta = meta.sfx;
   const sfxString: string | undefined =
-    sfxFromContract && sfxFromContract.length > 0
-      ? sfxFromContract.join(" · ")
-      : Array.isArray(legacySfxMeta)
-        ? legacySfxMeta.join(" · ")
-        : typeof legacySfxMeta === "string"
-          ? legacySfxMeta
-          : undefined;
+    sfxFromContract && sfxFromContract.length > 0 ? sfxFromContract.join(" · ") : undefined;
 
   return {
     dialogue: firstDialogue?.text,
     dialogues,
     speaker: firstDialogue?.speaker,
-    narration: narrationFromContract ?? (typeof meta.narration === "string" ? meta.narration : undefined),
+    narration: narrationFromContract,
     sfx: sfxString,
+    textContract,
   };
 }
 

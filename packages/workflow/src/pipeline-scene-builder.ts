@@ -3,7 +3,12 @@ import {
   type StoryboardPanel,
   type RoutingContext,
 } from "@manga-ai-studio/ai";
-import { type PanelCharacterPlan, type VisualWorldContract, type VisualWorldNpcGroup } from "@manga-ai-studio/core";
+import {
+  type PanelCharacterPlan,
+  type VisualWorldContract,
+  type VisualWorldNpcGroup,
+  legacyDialogueLinesFromStoryboardPanelLike,
+} from "@manga-ai-studio/core";
 import type { SceneBlueprint } from "@manga-ai-studio/world";
 import { buildRoutingContextV2 } from "./routing-context";
 
@@ -58,10 +63,26 @@ export function buildPanelCharacterPlan(input: {
         : input.purpose === "reaction" || input.purpose === "dialogue"
           ? "low"
           : "medium",
-    speakingPriority: (input.panel.dialogues ?? [])
-      .map((dialogue) => dialogue.speaker)
-      .concat(input.panel.dialogue?.speaker ? [input.panel.dialogue.speaker] : [])
-      .filter((speaker, index, all) => Boolean(speaker) && all.indexOf(speaker) === index),
+    speakingPriority: (() => {
+      const p = input.panel;
+      const dialogueArray =
+        Array.isArray(p.dialogues) && p.dialogues.length > 0
+          ? p.dialogues
+          : p.dialogue && typeof p.dialogue === "object" && "text" in p.dialogue
+            ? [p.dialogue]
+            : null;
+      const sfxArr = typeof p.sfx === "string" && p.sfx.trim() ? [p.sfx.trim()] : null;
+      const lines = legacyDialogueLinesFromStoryboardPanelLike({
+        panelId: input.panelId,
+        dialogue: dialogueArray,
+        narration: typeof p.narration === "string" ? p.narration : null,
+        sfx: sfxArr,
+        panelTextBundle: null,
+      });
+      return lines
+        .map((d) => d.speaker)
+        .filter((speaker, index, all) => Boolean(speaker) && all.indexOf(speaker) === index);
+    })(),
   };
 }
 

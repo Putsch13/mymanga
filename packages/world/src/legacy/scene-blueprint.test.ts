@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildSceneBlueprint } from "./scene-blueprint";
-import { buildFixedRegressionSuite, buildMetamorphicPair, buildProceduralStressSuite, runBlueprintSuite } from "./qa-suites";
+import { buildFixedRegressionSuite, buildMetamorphicPair, buildProceduralStressSuite, runBlueprintSuite } from "../qa-suites";
 
 describe("scene blueprint", () => {
   it("builds a structured blueprint before final prompt composition", () => {

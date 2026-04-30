@@ -42,6 +42,7 @@ async function main() {
               eyeColor: true,
               appearance: true,
               outfitDefault: true,
+              stableVisualDNA: true,
             },
           },
         },
@@ -72,8 +73,30 @@ async function main() {
 
   let pipeline = hydrateBlueprintsWithCharacterDna({
     blueprints: bps as PanelBlueprintPremium[],
-    characters: chapter.project.characters,
+    characters: chapter.project.characters.map((c) => {
+      const raw = c as Record<string, unknown>;
+      return {
+        id: c.id,
+        name: c.name,
+        hairColor: c.hairColor ?? null,
+        eyeColor: c.eyeColor ?? null,
+        appearance: typeof raw.appearance === "string" ? raw.appearance : null,
+        outfitDefault: typeof raw.outfitDefault === "string" ? raw.outfitDefault : null,
+        stableVisualDNA:
+          raw.stableVisualDNA !== null
+          && typeof raw.stableVisualDNA === "object"
+          && !Array.isArray(raw.stableVisualDNA)
+            ? (raw.stableVisualDNA as Record<string, unknown>)
+            : null,
+      };
+    }),
     characterCanonsById,
+    ...(typeof snapshot.data.characterSelection?.secondaryHeroCharacterId === "string"
+      && snapshot.data.characterSelection.secondaryHeroCharacterId.trim().length > 0
+      ? {
+          coProtagonistCharacterIds: [snapshot.data.characterSelection.secondaryHeroCharacterId.trim()] as const,
+        }
+      : {}),
   });
 
   const rawVw = (snapshot.data as { visualWorldContract?: unknown }).visualWorldContract;

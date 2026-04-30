@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildFixedRegressionSuite } from "./qa-suites";
-import { buildSceneBlueprint } from "./scene-blueprint";
+import { buildSceneBlueprint } from "./legacy/scene-blueprint";
 import { runPropertyValidators, validateEnvironmentInteraction } from "./property-validators";
 
 describe("property validators", () => {

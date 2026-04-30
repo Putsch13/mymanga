@@ -16,6 +16,7 @@
  */
 
 import { prisma, type Prisma } from "@manga-ai-studio/db";
+import { stripLegacyPanelTextFieldsWhenContractPresent } from "@manga-ai-studio/core";
 import type { getPremiumImageSize } from "@manga-ai-studio/ai";
 import type {
   LegacyPendingImageWrite,
@@ -49,6 +50,10 @@ export async function persistPlannedImages(
         for (const pi of imgSlice) {
           const panelDebugTraceData =
             (pi.baseMetadata as Record<string, unknown>).panelDebugTrace ?? null;
+          const normalizedMetadata = stripLegacyPanelTextFieldsWhenContractPresent(
+            pi.baseMetadata as Record<string, unknown>,
+          );
+          const metaJson = normalizedMetadata as unknown as Prisma.InputJsonValue;
           const imageData = {
             renderingMode: "PANEL_DRAFT" as const,
             sceneKeyframeId: pi.sceneKeyframeId,
@@ -58,7 +63,7 @@ export async function persistPlannedImages(
             width: panelDraftSize.width,
             height: panelDraftSize.height,
             referenceImageIds: pi.panelCanonRefs as unknown as Prisma.InputJsonValue,
-            metadata: pi.baseMetadata as unknown as Prisma.InputJsonValue,
+            metadata: metaJson,
             panelCast: pi.panelCast as unknown as Prisma.InputJsonValue,
             debugTrace: (panelDebugTraceData ?? null) as unknown as Prisma.InputJsonValue,
           };
@@ -79,7 +84,7 @@ export async function persistPlannedImages(
             await tx.sceneImage.update({
               where: { id: existingImage.id },
               data: {
-                metadata: pi.baseMetadata as unknown as Prisma.InputJsonValue,
+                metadata: metaJson,
                 panelCast: pi.panelCast as unknown as Prisma.InputJsonValue,
                 debugTrace: (panelDebugTraceData ?? null) as unknown as Prisma.InputJsonValue,
               },
@@ -109,7 +114,7 @@ export async function persistPlannedImages(
               negativePrompt: pi.composedNegative ?? pi.panel.negativePrompt,
             },
             sceneIndex: pi.sceneIndex,
-            baseMetadata: pi.baseMetadata,
+            baseMetadata: normalizedMetadata,
           });
         }
       },

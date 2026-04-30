@@ -3,6 +3,7 @@
  */
 
 import type { PanelBlueprintPremium, SubjectFocus } from "@manga-ai-studio/core";
+import { legacyDialogueLinesFromBlueprintPremium } from "@manga-ai-studio/core";
 import { getRequiredVisualEntityIds } from "./visual-entity-ids";
 import type { VisualEntity } from "./visual-entity-registry";
 
@@ -38,7 +39,7 @@ export function blueprintTextBlob(bp: PanelBlueprintPremium): string {
     bp.sceneContextLabel ?? "",
     bp.narrationText ?? "",
     ...(bp.notes ?? []),
-    ...((bp.dialogueLines ?? []).map((l) => `${l.speaker} ${l.text}`)),
+    ...((legacyDialogueLinesFromBlueprintPremium(bp)).map((l) => `${l.speaker} ${l.text}`)),
   ];
   return parts.join(" ").toLowerCase();
 }

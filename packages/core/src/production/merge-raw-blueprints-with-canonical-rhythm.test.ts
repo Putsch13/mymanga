@@ -43,6 +43,7 @@ describe("mergeRawBlueprintsWithCanonicalRhythm", () => {
       expect(merged[i]!.provenance?.origin).toBe("author_raw_merged");
       expect(merged[i]!.provenance?.canonicalPanelId).toBe(canonical.panels[i]!.panelId);
       expect(merged[i]!.provenance?.canonicalBeatId).toBe(canonical.panels[i]!.beatId);
+      expect(merged[i]!.textContract).toBeDefined();
     }
   });
 

@@ -29,7 +29,12 @@ export function extractDialogueSnippetsFromChapterOutline(
   const rawBps = plan?.panelBlueprints;
   if (!Array.isArray(rawBps) || rawBps.length === 0) return undefined;
 
-  const snippets = collectDialogueSnippetsFromBlueprints(rawBps as Pick<PanelBlueprintPremium, "dialogueLines">[]);
+  const snippets = collectDialogueSnippetsFromBlueprints(
+    rawBps as Pick<
+      PanelBlueprintPremium,
+      "panelId" | "dialogueLines" | "textContract" | "panelTextBundle" | "narrationText" | "sfxCues"
+    >[],
+  );
   if (snippets.length === 0) return undefined;
   return snippets.slice(0, max);
 }

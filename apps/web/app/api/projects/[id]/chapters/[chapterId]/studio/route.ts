@@ -8,7 +8,7 @@ import {
   hydratePanelProvenanceOnBlueprints,
   type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
-import { computePremiumReadinessScore } from "@manga-ai-studio/ai";
+import { computePremiumReadinessScore, type PremiumReadinessCastContext } from "@manga-ai-studio/ai";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
@@ -287,6 +287,15 @@ export async function PATCH(req: Request, ctx: Ctx) {
     snapshot.data.productionOutline
     ?? (existingStudioData.productionOutline as typeof snapshot.data.productionOutline | undefined);
   const narrativeDigest = computeNarrativeMemoryDigestFromOutline(outlineForDigest);
+  const selReadiness = snapshot.data.characterSelection;
+  const premiumReadinessCast: PremiumReadinessCastContext | undefined =
+    selReadiness
+      ? {
+          heroCharacterId: selReadiness.heroCharacterId?.trim() ?? null,
+          secondaryHeroCharacterId: selReadiness.secondaryHeroCharacterId?.trim() ?? null,
+          deuteragonistCharacterId: selReadiness.deuteragonistCharacterId?.trim() ?? null,
+        }
+      : undefined;
   const mergedProductionPlan =
     Array.isArray(mergedBps) && mergedBps.length > 0
       ? (() => {
@@ -296,7 +305,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
           return {
             ...mppRec,
             panelBlueprints: hydratedBps,
-            premiumReadinessScore: computePremiumReadinessScore(hydratedBps),
+            premiumReadinessScore: computePremiumReadinessScore(hydratedBps, premiumReadinessCast),
           } as Record<string, unknown>;
         })()
       : mergedProductionPlanRaw;

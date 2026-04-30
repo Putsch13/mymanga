@@ -8,7 +8,7 @@
  * valides ; les fallbacks réutilisent les helpers de `storyboard-from-premium-plan`.
  */
 
-import type { PanelBlueprintPremium, SubjectFocus } from "@manga-ai-studio/core";
+import { requiredPropsToWorldPropsVisualDna, type PanelBlueprintPremium, type SubjectFocus, legacyDialogueLinesFromBlueprintPremium, resolvePanelTextContractFromBlueprintPremium } from "@manga-ai-studio/core";
 import type {
   PanelPurpose,
   StoryboardCameraAngle,
@@ -189,7 +189,7 @@ function approvedBlueprintToStoryboardPanel(
 
   const dialogue = Array.isArray(ex.dialogue)
     ? (ex.dialogue as StoryboardPanel["dialogue"])
-    : (bp.dialogueLines ?? []);
+    : legacyDialogueLinesFromBlueprintPremium(bp);
 
   const narration =
     typeof ex.narration === "string"
@@ -197,6 +197,11 @@ function approvedBlueprintToStoryboardPanel(
       : bp.narrationText ?? null;
 
   const sfx = Array.isArray(ex.sfx) ? (ex.sfx as string[]) : (bp.sfxCues ?? []);
+
+  const textContract =
+    ex.textContract !== undefined && ex.textContract !== null
+      ? (ex.textContract as StoryboardPanel["textContract"])
+      : resolvePanelTextContractFromBlueprintPremium(bp);
 
   const mustNotShow = Array.isArray(ex.mustNotShow)
     ? ex.mustNotShow.filter((x): x is string => typeof x === "string")
@@ -259,6 +264,7 @@ function approvedBlueprintToStoryboardPanel(
     dialogue,
     narration,
     sfx,
+    textContract,
     mustShow: mergeMustShow(bp, ex),
     mustNotShow,
     continuityNotes,
@@ -275,6 +281,9 @@ function approvedBlueprintToStoryboardPanel(
       ? (ex.characterVisualDna as typeof bp.characterVisualDna)
       : (bp.characterVisualDna ?? []),
     npcVisualDna: Array.isArray(ex.npcVisualDna) ? (ex.npcVisualDna as typeof bp.npcVisualDna) : (bp.npcVisualDna ?? []),
+    worldPropsVisualDna: Array.isArray(ex.worldPropsVisualDna)
+      ? (ex.worldPropsVisualDna as NonNullable<StoryboardPanel["worldPropsVisualDna"]>)
+      : requiredPropsToWorldPropsVisualDna(bp.requiredProps ?? [], bp.beatId),
     environmentVisualDna:
       ex.environmentVisualDna !== undefined
         ? (ex.environmentVisualDna as typeof bp.environmentVisualDna)

@@ -10,11 +10,12 @@
  * Les fonctions sont `await`-ables et renvoient le payload metadata
  * construit (utile pour les tests).
  *
- * Règle : AUCUN changement de clé ni d'ordre dans le spread `metadata`,
- * c'est copié-collé 1:1 depuis route.ts.
+ * Règle : ordre des spreads inchangé. PR9 : si `textContract` valide,
+ * `stripLegacyPanelTextFieldsWhenContractPresent` retire dialogue/dialogues/narration/sfx redondants.
  */
 
 import type { Prisma, PrismaClient } from "@manga-ai-studio/db";
+import { stripLegacyPanelTextFieldsWhenContractPresent } from "@manga-ai-studio/core";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -43,7 +44,7 @@ export async function persistRetryBlocked(params: {
     where: { id: panelId },
     data: {
       status: "blocked",
-      metadata: ({
+      metadata: stripLegacyPanelTextFieldsWhenContractPresent({
         ...baseMetadata,
         blockedReason: params.reason,
         generationLog: params.generationLog,
@@ -53,7 +54,7 @@ export async function persistRetryBlocked(params: {
           availableLoras: params.availableLoras,
         },
         retryReferenceTrace: params.retryReferenceTrace,
-      } as unknown) as Prisma.InputJsonValue,
+      }) as unknown as Prisma.InputJsonValue,
     },
   });
 }
@@ -74,7 +75,7 @@ export async function persistRetryPersistFailed(params: {
     where: { id: panelId },
     data: {
       status: "failed",
-      metadata: ({
+      metadata: stripLegacyPanelTextFieldsWhenContractPresent({
         ...baseMetadata,
         error: params.error,
         generationLog: params.generationLog,
@@ -84,7 +85,7 @@ export async function persistRetryPersistFailed(params: {
           availableLoras: params.availableLoras,
         },
         retryReferenceTrace: params.retryReferenceTrace,
-      } as unknown) as Prisma.InputJsonValue,
+      }) as unknown as Prisma.InputJsonValue,
     },
   });
 }
@@ -104,7 +105,7 @@ export async function persistRetryException(params: {
     where: { id: panelId },
     data: {
       status: "failed",
-      metadata: ({
+      metadata: stripLegacyPanelTextFieldsWhenContractPresent({
         ...baseMetadata,
         error: params.errorMessage,
         retryReferenceDecision: {
@@ -113,7 +114,7 @@ export async function persistRetryException(params: {
           availableLoras: params.availableLoras,
         },
         retryReferenceTrace: params.retryReferenceTrace,
-      } as unknown) as Prisma.InputJsonValue,
+      }) as unknown as Prisma.InputJsonValue,
     },
   });
 }
@@ -200,7 +201,7 @@ export async function persistRetrySuccess(input: PersistRetrySuccessInput): Prom
       model: providerInfo.model,
       consistencyScore: (validation.qualityScores as { releaseScore?: number | null } | undefined)?.releaseScore ?? validationScore,
       routingDecision,
-      metadata: ({
+      metadata: stripLegacyPanelTextFieldsWhenContractPresent({
         ...baseMetadata,
         previousImageUrl:
           typeof previousImageUrl === "string" && previousImageUrl.length > 0
@@ -288,7 +289,7 @@ export async function persistRetrySuccess(input: PersistRetrySuccessInput): Prom
             : typeof baseMetadata.retryAttemptIndex === "number"
               ? ((baseMetadata.retryAttemptIndex as number) + 1)
               : 1,
-      } as unknown) as Prisma.InputJsonValue,
+      }) as unknown as Prisma.InputJsonValue,
     },
   });
 }

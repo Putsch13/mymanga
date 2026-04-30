@@ -238,8 +238,15 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     });
   }
 
-  const fbAfterAi = catalogFallbackResponse();
-  if (fbAfterAi) return fbAfterAi;
-
-  return NextResponse.json({ error: "resolution_failed" }, { status: 500 });
+  // OPENAI configuré : pas de repli catalogue legacy après la branche IA
+  // (alignement IA-first ; le catalogue reste disponible uniquement sans clé OpenAI).
+  return NextResponse.json(
+    {
+      error: "ai_npc_resolution_exhausted",
+      code: "NPC_AI_EXHAUSTED",
+      message:
+        "La résolution PNJ par IA n'a pas abouti ; le repli catalogue legacy est désactivé lorsque OpenAI est configuré. Réessayez ou vérifiez la configuration.",
+    },
+    { status: 503 },
+  );
 }

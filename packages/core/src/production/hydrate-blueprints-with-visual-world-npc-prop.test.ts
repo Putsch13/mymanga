@@ -58,6 +58,9 @@ function minimalVw(overrides: Partial<VisualWorldContract> = {}): VisualWorldCon
         locationId: locId,
         primaryPropIds: ["prop-crate"],
         npcGroupIds: ["npc-guard"],
+        creatureIds: [],
+        vehicleIds: [],
+        factionIds: [],
       },
     ],
     ...overrides,
@@ -132,5 +135,74 @@ describe("hydrateBlueprintsWithVisualWorldNpcAndProps", () => {
       visualWorld: vw,
     });
     expect(out.requiredProps?.[0].canonicalName).toBe("Ancien nom");
+  });
+
+  it("injecte créatures, véhicules et factions liés au beat comme npcVisualDna catégorisés", () => {
+    const vw = minimalVw({
+      creatures: [
+        { id: "cr1", label: "Bête", visualDescription: "Massive shadow beast", requiredBeatIds: ["b1"] },
+      ],
+      vehicles: [{ id: "v1", label: "Van", visualDescription: "Black van", requiredBeatIds: ["b1"] }],
+      factions: [{ id: "f1", label: "Syndicat", visualMarkers: ["red armbands"], requiredBeatIds: ["b1"] }],
+    });
+    const [out] = hydrateBlueprintsWithVisualWorldNpcAndProps({
+      blueprints: [minimalBlueprint()],
+      visualWorld: vw,
+    });
+    const byId = new Map(out.npcVisualDna?.map((d) => [d.continuityId, d]));
+    expect(byId.get("npc-guard")?.category).toBe("antagonist_support");
+    expect(byId.get("cr1")?.category).toBe("creature");
+    expect(byId.get("v1")?.category).toBe("vehicle");
+    expect(byId.get("f1")?.category).toBe("faction");
+    expect(out.npcVisualDna?.length).toBe(4);
+  });
+
+  it("lie une créature au beat via beatBinding.creatureIds même sans requiredBeatIds sur la créature", () => {
+    const locId = "loc-1";
+    const vw: VisualWorldContract = {
+      chapterId: "ch1",
+      source: "ai_generated",
+      locations: [
+        {
+          id: locId,
+          label: "Port",
+          kind: "exterior",
+          description: "Quai",
+          visualAnchors: [],
+          architecture: [],
+          lighting: [],
+          atmosphere: [],
+          recurringProps: [],
+          negativeConstraints: [],
+          source: "ai_generated",
+          canonPolicy: "temporary",
+        },
+      ],
+      props: [],
+      npcGroups: [],
+      creatures: [
+        { id: "cr-bound", label: "Wyrm", visualDescription: "Long serpent métallique", requiredBeatIds: [] },
+      ],
+      vehicles: [],
+      factions: [],
+      beatBindings: [
+        {
+          beatId: "b1",
+          locationId: locId,
+          primaryPropIds: [],
+          npcGroupIds: [],
+          creatureIds: ["cr-bound"],
+          vehicleIds: [],
+          factionIds: [],
+        },
+      ],
+    };
+    const [out] = hydrateBlueprintsWithVisualWorldNpcAndProps({
+      blueprints: [minimalBlueprint()],
+      visualWorld: vw,
+    });
+    const cr = out.npcVisualDna?.find((d) => d.continuityId === "cr-bound");
+    expect(cr?.category).toBe("creature");
+    expect(cr?.displayName).toBe("Wyrm");
   });
 });

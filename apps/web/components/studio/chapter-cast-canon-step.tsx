@@ -63,6 +63,7 @@ export function ChapterCastCanonStep({
       characterSelection: {
         heroCharacterId: draft.characterSelection?.heroCharacterId ?? null,
         secondaryHeroCharacterId: draft.characterSelection?.secondaryHeroCharacterId ?? null,
+        deuteragonistCharacterId: draft.characterSelection?.deuteragonistCharacterId ?? null,
         coreCastCharacterIds: draft.characterSelection?.coreCastCharacterIds ?? [],
         activeCharacterIds: draft.characterSelection?.activeCharacterIds ?? [],
         lockedCharacterIds: draft.characterSelection?.lockedCharacterIds ?? [],
@@ -107,6 +108,7 @@ export function ChapterCastCanonStep({
 
   const [npcRawDescription, setNpcRawDescription] = useState("");
   const [resolvingNpc, setResolvingNpc] = useState(false);
+  const [npcResolveError, setNpcResolveError] = useState<string | null>(null);
   const [resolvedNpcs, setResolvedNpcs] = useState<Array<{
     label: string;
     promptFragment: string;
@@ -117,6 +119,7 @@ export function ChapterCastCanonStep({
   async function handleResolveNpc() {
     if (!npcRawDescription.trim() || resolvingNpc) return;
     setResolvingNpc(true);
+    setNpcResolveError(null);
     try {
       const res = await fetch(`/api/projects/${projectId}/npc-resolve`, {
         method: "POST",
@@ -127,8 +130,10 @@ export function ChapterCastCanonStep({
           tone: "épique",
         }),
       });
-      if (!res.ok) throw new Error("resolve failed");
       const data = await res.json() as {
+        error?: string;
+        message?: string;
+        code?: string;
         topMatch?: { label: string; visualCues: string[]; interactionHooks: string[] };
         // AUDIT COMMIT 6 — on consomme en priorité `visualPromptFragment` ;
         // `promptFragment` reste en back-compat court-terme.
@@ -137,6 +142,16 @@ export function ChapterCastCanonStep({
         narrativeHook?: string;
         strategy?: string;
       };
+      if (!res.ok) {
+        const msg =
+          typeof data.message === "string" && data.message.trim().length > 0
+            ? data.message
+            : res.status === 503 || res.status === 502
+              ? "La résolution PNJ par IA n’a pas abouti. Réessaie dans un instant ou vérifie la configuration OpenAI."
+              : "La résolution PNJ a échoué.";
+        setNpcResolveError(msg);
+        return;
+      }
       if (data.topMatch) {
         setResolvedNpcs(prev => [
           ...prev,
@@ -153,7 +168,7 @@ export function ChapterCastCanonStep({
         setNpcRawDescription("");
       }
     } catch {
-      // silencieux — l'utilisateur peut réessayer
+      setNpcResolveError("Impossible de contacter le serveur. Réessaie.");
     } finally {
       setResolvingNpc(false);
     }
@@ -280,6 +295,54 @@ export function ChapterCastCanonStep({
 
             {catalog.length > 0 ? (
               <CharacterPicker
+                label="Héros 2 / co-protagoniste"
+                characters={catalog}
+                value={draft.characterSelection?.secondaryHeroCharacterId ?? null}
+                onChange={(v) =>
+                  updateCharacterSelection({ secondaryHeroCharacterId: typeof v === "string" ? v : null })}
+                multiple={false}
+                placeholder="Optionnel…"
+                dataStudioField="studio-secondary-hero-character"
+              />
+            ) : (
+              <div className="space-y-2">
+                <Label>Héros 2 / co-protagoniste</Label>
+                <Input
+                  data-studio-field="studio-secondary-hero-character"
+                  value={draft.characterSelection?.secondaryHeroCharacterId ?? ""}
+                  onChange={(e) =>
+                    updateCharacterSelection({ secondaryHeroCharacterId: e.target.value || null })}
+                  placeholder="ID optionnel"
+                />
+              </div>
+            )}
+
+            {catalog.length > 0 ? (
+              <CharacterPicker
+                label="Déuteragoniste"
+                characters={catalog}
+                value={draft.characterSelection?.deuteragonistCharacterId ?? null}
+                onChange={(v) =>
+                  updateCharacterSelection({ deuteragonistCharacterId: typeof v === "string" ? v : null })}
+                multiple={false}
+                placeholder="Optionnel (distinct du héros 2)…"
+                dataStudioField="studio-deuteragonist-character"
+              />
+            ) : (
+              <div className="space-y-2">
+                <Label>Déuteragoniste</Label>
+                <Input
+                  data-studio-field="studio-deuteragonist-character"
+                  value={draft.characterSelection?.deuteragonistCharacterId ?? ""}
+                  onChange={(e) =>
+                    updateCharacterSelection({ deuteragonistCharacterId: e.target.value || null })}
+                  placeholder="ID optionnel"
+                />
+              </div>
+            )}
+
+            {catalog.length > 0 ? (
+              <CharacterPicker
                 label="Personnages actifs"
                 characters={catalog}
                 value={draft.characterSelection?.activeCharacterIds ?? []}
@@ -379,7 +442,10 @@ export function ChapterCastCanonStep({
             <Textarea
               placeholder="Ex : un vieux gardien borgne qui cache quelque chose, une foule hostile, un enfant qui observe…"
               value={npcRawDescription}
-              onChange={e => setNpcRawDescription(e.target.value)}
+              onChange={(e) => {
+                setNpcRawDescription(e.target.value);
+                setNpcResolveError(null);
+              }}
               onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void handleResolveNpc(); }}
               rows={2}
               className="resize-none text-sm"
@@ -397,6 +463,11 @@ export function ChapterCastCanonStep({
                 : <Sparkles className="h-3 w-3" />}
               {resolvingNpc ? "Analyse…" : "Analyser"}
             </Button>
+            {npcResolveError && (
+              <p className="text-xs text-destructive" role="alert">
+                {npcResolveError}
+              </p>
+            )}
 
             {resolvedNpcs.length > 0 && (
               <div className="space-y-2">

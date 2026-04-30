@@ -11,6 +11,8 @@
  *      et `resolveSpeciesArchetype` est appelé, le résultat est renvoyé.
  *   6. Fallback IA : catalog vide + pas d'OpenAI → réponse "ai_generated"
  *      de type placeholder (pas de crash).
+ *   7. OPENAI configuré + échec IA : pas de repli catalogue (503 hors premium,
+ *      502 en premium strict).
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -56,12 +58,14 @@ function makeRequest(body: unknown): Request {
 }
 
 beforeEach(() => {
+  vi.resetModules();
   vi.clearAllMocks();
   // Par défaut : user authentifié + projet possédé
   getAppUserMock.mockResolvedValue({ id: "user-1", email: "a@b.com" });
   prismaMock.project.findFirst.mockResolvedValue({ id: "p1" });
   detectSpeciesInDescriptionMock.mockReturnValue(null);
   delete process.env.OPENAI_API_KEY;
+  delete process.env.PIPELINE_V3_PREMIUM_ONLY;
 });
 
 describe("POST /api/projects/[id]/npc-resolve (P2.1 route-level)", () => {
@@ -220,5 +224,36 @@ describe("POST /api/projects/[id]/npc-resolve (P2.1 route-level)", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.isSpecies).not.toBe(true);
+  });
+
+  it("OPENAI configuré + échec IA hors premium → 503 sans repli catalogue (IA-first)", async () => {
+    process.env.OPENAI_API_KEY = "sk-test-key-for-route";
+    resolveNpcWithAiFallbackMock.mockRejectedValueOnce(new Error("openai_down"));
+    const { POST } = await import("../app/api/projects/[id]/npc-resolve/route");
+    const res = await POST(
+      makeRequest({
+        rawDescription: "un vieux mage aux longs cheveux blancs qui maîtrise le feu",
+        universe: "fantasy",
+      }) as never,
+      { params: Promise.resolve({ id: "p1" }) },
+    );
+    expect(res.status).toBe(503);
+    const json = await res.json();
+    expect(json.code).toBe("NPC_AI_EXHAUSTED");
+    expect(json.error).toBe("ai_npc_resolution_exhausted");
+  });
+
+  it("OPENAI configuré + échec IA en premium strict → 502", async () => {
+    process.env.OPENAI_API_KEY = "sk-test-key-for-route";
+    process.env.PIPELINE_V3_PREMIUM_ONLY = "true";
+    resolveNpcWithAiFallbackMock.mockRejectedValueOnce(new Error("openai_down"));
+    const { POST } = await import("../app/api/projects/[id]/npc-resolve/route");
+    const res = await POST(
+      makeRequest({ rawDescription: "marchand ambulant exotique xyz123" }) as never,
+      { params: Promise.resolve({ id: "p1" }) },
+    );
+    expect(res.status).toBe(502);
+    const json = await res.json();
+    expect(json.code).toBe("NPC_AI_RESOLUTION_FAILED");
   });
 });

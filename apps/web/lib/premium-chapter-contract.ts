@@ -20,7 +20,7 @@ import {
   type ProductionPlan,
   type VisualWorldContract,
 } from "@manga-ai-studio/core";
-import { buildPremiumChapterContractAsync, composeVisualWorldContract, toComposeVisualWorldKnownLocation } from "@manga-ai-studio/ai";
+import { buildPremiumChapterContractAsync, composeVisualWorldContract, toComposeVisualWorldKnownLocation, type PremiumReadinessCastContext } from "@manga-ai-studio/ai";
 import { prisma } from "@manga-ai-studio/db";
 
 // ─── Constante canonique des champs premium ───────────────────────────────────
@@ -97,6 +97,8 @@ export interface BuildPremiumContractInput {
    * sur les blueprints après merge.
    */
   studioSnapshot?: ChapterStudioSnapshot | null;
+  /** Héros 2 / co‑protagoniste (snapshot studio) — hydratation DNA alignée launch/estimate. */
+  secondaryHeroCharacterId?: string | null;
 }
 
 // ─── buildPremiumChapterContractFromApprovedOutline ───────────────────────────
@@ -119,6 +121,7 @@ export async function buildPremiumChapterContractFromApprovedOutline(
           outfitDefault: string | null;
         }>;
         characterCanonsById: Record<string, import("@manga-ai-studio/core").CharacterCanon> | null;
+        coProtagonistCharacterIds?: readonly string[] | null;
       }
     | undefined;
 
@@ -140,9 +143,19 @@ export async function buildPremiumChapterContractFromApprovedOutline(
       characterCanonsById[c.characterId] = c;
     }
     if (rows.length > 0) {
+      const sel = input.studioSnapshot?.data?.characterSelection;
+      const secFromInput = input.secondaryHeroCharacterId?.trim();
+      const secFromSnap = sel?.secondaryHeroCharacterId?.trim();
+      const deutFromSnap = sel?.deuteragonistCharacterId?.trim();
+      const coProtagonistCharacterIds = [...new Set(
+        [secFromInput, secFromSnap, deutFromSnap].filter((x): x is string => Boolean(x)),
+      )];
       characterDnaHydration = {
         characters: rows,
         characterCanonsById: Object.keys(characterCanonsById).length > 0 ? characterCanonsById : null,
+        ...(coProtagonistCharacterIds.length > 0
+          ? { coProtagonistCharacterIds: coProtagonistCharacterIds as readonly string[] }
+          : {}),
       };
     }
   }
@@ -165,11 +178,14 @@ export async function buildPremiumChapterContractFromApprovedOutline(
           select: {
             id: true,
             name: true,
+            type: true,
             description: true,
             visualBrief: true,
             establishedVisualBrief: true,
             canonImageUrl: true,
             canonLocked: true,
+            metadata: true,
+            visualRefs: true,
           },
         }),
       ]);
@@ -207,6 +223,19 @@ export async function buildPremiumChapterContractFromApprovedOutline(
     }
   }
 
+  const selForReadiness = input.studioSnapshot?.data?.characterSelection;
+  const premiumReadinessCast: PremiumReadinessCastContext | undefined =
+    selForReadiness != null || input.heroCharacterId != null || input.secondaryHeroCharacterId != null
+      ? {
+          heroCharacterId: input.heroCharacterId ?? selForReadiness?.heroCharacterId?.trim() ?? null,
+          secondaryHeroCharacterId:
+            input.secondaryHeroCharacterId?.trim()
+            || selForReadiness?.secondaryHeroCharacterId?.trim()
+            || null,
+          deuteragonistCharacterId: selForReadiness?.deuteragonistCharacterId?.trim() || null,
+        }
+      : undefined;
+
   const raw = await buildPremiumChapterContractAsync({
     approvedOutline: input.approvedOutline,
     heroCharacterId: input.heroCharacterId ?? null,
@@ -226,6 +255,7 @@ export async function buildPremiumChapterContractFromApprovedOutline(
       : undefined,
     characterDnaHydration,
     visualWorldContract: visualWorldContract ?? undefined,
+    premiumReadinessCast,
   });
 
   const outlineResult = productionOutlineSchema.safeParse(raw.productionOutline);
@@ -394,6 +424,8 @@ export interface GenerationJobInputOptions {
   snapshot: ChapterStudioSnapshot;
   approvedOutline: ApprovedChapterOutline;
   heroCharacterId?: string | null;
+  /** Co-protagoniste / héros 2 (studio `characterSelection`). */
+  secondaryHeroCharacterId?: string | null;
   selectedPlotLabel?: string | null;
   creativityControls?: Record<string, unknown> | null;
   focusCharacterIds?: string[];
@@ -903,6 +935,7 @@ export function buildGenerationJobInputFromSnapshot(opts: GenerationJobInputOpti
     source: opts.source,
     chapterId: opts.chapterId,
     heroCharacterId: opts.heroCharacterId ?? null,
+    secondaryHeroCharacterId: opts.secondaryHeroCharacterId ?? null,
     focusCharacterIds: opts.focusCharacterIds ?? [],
     activeNpcIds: opts.activeNpcIds ?? [],
     activeCreatureIds: opts.activeCreatureIds ?? [],

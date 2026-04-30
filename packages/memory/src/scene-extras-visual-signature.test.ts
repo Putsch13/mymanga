@@ -14,6 +14,16 @@ describe("buildSceneExtraVisualSignature", () => {
     expect(sig.silhouette).toBe("average");
   });
 
+  it("pour db_canon, reflète le libellé studio comme ai_generated (pas le template guard)", () => {
+    const sig = buildSceneExtraVisualSignature({
+      archetypeId: "canon:npc-merchants",
+      archetypeLabel: "Échoppes du vieux port",
+      source: "db_canon",
+    });
+    expect(sig.outfit).toBe("Échoppes du vieux port");
+    expect(sig.genderPresentation).toBe("varied");
+  });
+
   it("pour legacy inferred, conserve les templates connus", () => {
     const sig = buildSceneExtraVisualSignature({
       archetypeId: "inferred:guard",

@@ -29,8 +29,10 @@ import {
   type ChapterLookProfile,
   buildApprovedChapterOutlineReplayFromOutlineBeats,
   type VisualWorldContract,
-  buildPanelTextContractFromFragments,
-  textContractToLegacyDialogue,
+  legacyDialogueLinesFromStoryboardPanelLike,
+  legacyDialogueLinesFromBlueprintPremium,
+  resolvePanelTextContractFromStoryboardPanelLike,
+  type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
 import {
   buildPanelIntentCard,
@@ -54,7 +56,7 @@ import {
   validateSceneSnapshotAgainstKernel,
   applySceneEventsToKernel,
 } from "@manga-ai-studio/continuity";
-import { buildSceneBlueprint } from "@manga-ai-studio/world/scene-blueprint";
+import { buildSceneBlueprint } from "@manga-ai-studio/world/legacy/scene-blueprint";
 import type { SceneBlueprint } from "@manga-ai-studio/world";
 import { buildPanelContract } from "../build-panel-contract";
 import {
@@ -118,35 +120,53 @@ const STD_NEGATIVE = LEGACY_STD_NEGATIVE;
 const PANEL_DRAFT_SIZE = getPremiumImageSize("PANEL_DRAFT");
 
 /**
- * Dialogue scene legacy + champs blueprint premium (`dialogueLines`, `panelTextBundle`)
- * alignés sur `buildPanelTextContractFromFragments` (PR9).
+ * Dialogue scène legacy + blueprint premium — **PR9** : même chemin que storyboard / render-spec
+ * (`legacyDialogueLinesFromStoryboardPanelLike` → `PanelTextContract`).
  */
 function legacyScenePanelUnifiedDialogue(
   panel: Record<string, any>,
   blueprint: Record<string, unknown> | undefined,
 ): Array<{ speaker: string; text: string }> {
   const bp = blueprint ?? {};
-  const fromBp = Array.isArray(bp.dialogueLines) ? (bp.dialogueLines as Array<{ speaker?: string; text?: string }>) : null;
+  const pid = String(panel.panelId ?? panel.panelNumber ?? "panel");
+  const fromBpLines = legacyDialogueLinesFromBlueprintPremium({
+    panelId: typeof bp.panelId === "string" ? bp.panelId : pid,
+    dialogueLines: Array.isArray(bp.dialogueLines) ? (bp.dialogueLines as Array<{ speaker?: string; text: string }>) : undefined,
+    textContract: bp.textContract,
+    panelTextBundle:
+      typeof bp.panelTextBundle === "object" && bp.panelTextBundle !== null && !Array.isArray(bp.panelTextBundle)
+        ? (bp.panelTextBundle as PanelBlueprintPremium["panelTextBundle"])
+        : null,
+    narrationText: typeof bp.narrationText === "string" ? bp.narrationText : null,
+    sfxCues: Array.isArray(bp.sfxCues) ? (bp.sfxCues as string[]) : undefined,
+  });
   const fromPanel =
     Array.isArray(panel.dialogues) && panel.dialogues.length > 0
       ? (panel.dialogues as Array<{ speaker?: string; text?: string }>)
       : panel.dialogue && typeof panel.dialogue === "object"
         ? [panel.dialogue as { speaker?: string; text?: string }]
         : null;
-  const dialogueLines = fromBp && fromBp.length > 0 ? fromBp : fromPanel;
+  const dialogueLines = fromBpLines.length > 0 ? fromBpLines : fromPanel;
+  const dialogueForContract = dialogueLines?.length
+    ? dialogueLines
+        .map((row) => ({
+          speaker: row.speaker,
+          text: String(row.text ?? "").trim(),
+        }))
+        .filter((row) => row.text.length > 0)
+    : null;
   const sfxRaw = panel.sfx;
   const sfx = Array.isArray(sfxRaw) ? sfxRaw : sfxRaw != null && sfxRaw !== "" ? [String(sfxRaw)] : null;
   const bundle =
     (typeof bp.panelTextBundle === "object" && bp.panelTextBundle !== null ? bp.panelTextBundle : null)
     ?? (typeof panel.panelTextBundle === "object" && panel.panelTextBundle !== null ? panel.panelTextBundle : null);
-  const contract = buildPanelTextContractFromFragments({
+  return legacyDialogueLinesFromStoryboardPanelLike({
     panelId: String(panel.panelId ?? panel.panelNumber ?? "panel"),
-    dialogueLines: dialogueLines?.length ? dialogueLines : null,
+    dialogue: dialogueForContract?.length ? dialogueForContract : null,
     narration: typeof panel.narration === "string" ? panel.narration : null,
     sfx,
     panelTextBundle: bundle as never,
   });
-  return textContractToLegacyDialogue(contract);
 }
 
 /**
@@ -366,6 +386,7 @@ export async function runNarrativePass(
       creativityControls: effectiveCreativeControls,
       context,
       approvedOutline: approvedOutlineForBundle,
+      // Idem estimate : un seul bootstrap premium avec pool legacy avant composition VW.
       allowLegacyLocationInference: isPipelineV3PremiumOnlyEnabled() ? true : undefined,
     });
 
@@ -383,11 +404,14 @@ export async function runNarrativePass(
             select: {
               id: true,
               name: true,
+              type: true,
               description: true,
               visualBrief: true,
               establishedVisualBrief: true,
               canonImageUrl: true,
               canonLocked: true,
+              metadata: true,
+              visualRefs: true,
             },
           }),
         ]);
@@ -455,6 +479,7 @@ export async function runNarrativePass(
           context,
           approvedOutline: approvedReplay,
           visualWorldContract: vw,
+          allowLegacyLocationInference: isPipelineV3PremiumOnlyEnabled() ? false : undefined,
         });
         composedVisualWorldContract = vw;
       } catch (e) {
@@ -926,6 +951,7 @@ export async function runNarrativePass(
             projectGenre: context.project.primaryGenre ?? undefined,
             projectTone: context.project.tone ?? undefined,
             suppressUniverseTemplateProps: isPipelineV3PremiumOnlyEnabled(),
+            visualWorldContractActive: Boolean(composedVisualWorldContract),
             premiumStrictChapterSourcing: isPipelineV3PremiumOnlyEnabled(),
             ...(visualWorldPropsForBeat ? { visualWorldPropsForBeat, heroCharacterId } : {}),
           });
@@ -1671,6 +1697,24 @@ export async function runNarrativePass(
 
               const bpRec = panelPremiumBlueprint as Record<string, unknown> | undefined;
               const unifiedDialogueLines = legacyScenePanelUnifiedDialogue(panel as Record<string, any>, bpRec);
+              const panelMetadataId = panelPremiumBlueprint?.panelId ?? `${createdScene.id}:${panel.panelNumber}`;
+              const panelTextBundleRaw = (panel as Record<string, unknown>).panelTextBundle;
+              const panelTextBundleForContract =
+                panelTextBundleRaw && typeof panelTextBundleRaw === "object" && !Array.isArray(panelTextBundleRaw)
+                  ? (panelTextBundleRaw as {
+                      dialogues?: ReadonlyArray<{ speaker: string; text: string }> | null;
+                      narration?: string | null;
+                      sfx?: readonly string[] | null;
+                    })
+                  : null;
+              const persistedTextContract = resolvePanelTextContractFromStoryboardPanelLike({
+                panelId: panelMetadataId,
+                textContract: (panel as Record<string, unknown>).textContract,
+                dialogue: unifiedDialogueLines.length > 0 ? unifiedDialogueLines : null,
+                narration: panel.narration ?? null,
+                sfx: Array.isArray(panel.sfx) ? panel.sfx : null,
+                panelTextBundle: panelTextBundleForContract,
+              });
               // Utiliser le subjectFocus POST shot-plan (panelContract) pour être aligné avec le prompt composé
               const contractSubjectFocus = (panelContract as Record<string, unknown>).subjectFocus as string | null ?? null;
               const panelCast = buildPanelCast({
@@ -2016,7 +2060,7 @@ export async function runNarrativePass(
 
             const baseMetadata = {
               // Identifiants pour que le shot compliance + quality report retrouvent le blueprint
-              panelId: panelPremiumBlueprint?.panelId ?? `${createdScene.id}:${panel.panelNumber}`,
+              panelId: panelMetadataId,
               beatId: panelPremiumBlueprint?.beatId ?? revisedBundle.outline.beats[index]?.id ?? null,
               caption: panel.caption,
               camera: panel.camera,
@@ -2033,6 +2077,7 @@ export async function runNarrativePass(
               sfx: panel.sfx,
               dialogue: unifiedDialogueLines[0] ?? null,
               dialogues: unifiedDialogueLines,
+              textContract: persistedTextContract,
               narration: panel.narration,
               layout: storyboardPage.layout,
               panelContract: (() => {

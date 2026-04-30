@@ -36,8 +36,7 @@ import type {
 } from "@manga-ai-studio/core";
 import {
   CANONICAL_PACKET_VERSION,
-  buildPanelTextContractFromFragments,
-  textContractToLegacyDialogue,
+  synthesizePanelTextContractFromLooseMetadata,
 } from "@manga-ai-studio/core";
 import type { ChapterImagePlanItem } from "./chapter-image-plan-builder";
 
@@ -179,72 +178,19 @@ function mapNpcContext(planItem: ChapterImagePlanItem): NpcContextEntry[] {
   }));
 }
 
-function isPersistedPanelTextContract(value: unknown): value is import("@manga-ai-studio/core").PanelTextContract {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const o = value as Record<string, unknown>;
-  return (
-    typeof o.panelId === "string"
-    && typeof o.hasText === "boolean"
-    && Array.isArray(o.dialogues)
-    && o.placement !== null
-    && typeof o.placement === "object"
-    && !Array.isArray(o.placement)
-  );
-}
-
 function mapDialogueContext(
   baseMetadata: Record<string, unknown>,
 ): DialogueContext | null {
-  const tc = baseMetadata.textContract;
-  if (isPersistedPanelTextContract(tc)) {
-    const lines = tc.dialogues
-      .filter((d) => d.text.trim())
-      .map((d) => ({
-        speakerId: d.speakerId ?? null,
-        speakerName: d.speakerName,
-        text: d.text,
-        emotion: d.emotion ?? null,
-      }));
-    if (lines.length === 0) return null;
-    return { primarySpeakerId: lines[0]!.speakerId, lines, dialogueBeat: null };
-  }
-
-  const dialogues = baseMetadata.dialogues as Array<Record<string, unknown>> | undefined;
-  const single = baseMetadata.dialogue;
-  const primaryLines =
-    Array.isArray(dialogues) && dialogues.length > 0
-      ? dialogues.map((d) => ({
-          speaker: String(d.speaker ?? d.speakerName ?? ""),
-          text: String(d.text ?? ""),
-        }))
-      : typeof single === "object" && single !== null && !Array.isArray(single)
-        ? [
-            {
-              speaker: String((single as Record<string, unknown>).speaker ?? ""),
-              text: String((single as Record<string, unknown>).text ?? ""),
-            },
-          ]
-        : typeof single === "string" && single.trim()
-          ? [{ speaker: "Unknown", text: single.trim() }]
-          : null;
-
-  const contract = buildPanelTextContractFromFragments({
-    panelId: String((baseMetadata.panelId as string | undefined) ?? "panel"),
-    dialogueLines: primaryLines?.some((l) => l.text.trim()) ? primaryLines : null,
-    narration: typeof baseMetadata.narration === "string" ? baseMetadata.narration : null,
-    sfx: Array.isArray(baseMetadata.sfx) ? (baseMetadata.sfx as string[]) : null,
-    panelTextBundle: (typeof baseMetadata.panelTextBundle === "object" && baseMetadata.panelTextBundle !== null
-      ? baseMetadata.panelTextBundle
-      : null) as never,
-  });
-
-  const legacy = textContractToLegacyDialogue(contract).filter((d) => d.text.trim());
-  const lines: DialogueContext["lines"] = legacy.map((d) => ({
-    speakerId: null,
-    speakerName: d.speaker,
-    text: d.text,
-    emotion: null,
-  }));
+  const panelId = String((baseMetadata.panelId as string | undefined) ?? "panel");
+  const contract = synthesizePanelTextContractFromLooseMetadata(baseMetadata, panelId);
+  const lines: DialogueContext["lines"] = contract.dialogues
+    .filter((d) => d.text.trim())
+    .map((d) => ({
+      speakerId: d.speakerId ?? null,
+      speakerName: d.speakerName,
+      text: d.text,
+      emotion: d.emotion ?? null,
+    }));
   if (lines.length === 0) return null;
   return { primarySpeakerId: lines[0]!.speakerId, lines, dialogueBeat: null };
 }

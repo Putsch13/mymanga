@@ -80,7 +80,23 @@ function buildUserPrompt(input: StoryArchitectInput): string {
     .map((c) => `- id=${c.id} name="${c.name}" role=${c.roleType ?? "?"}`)
     .join("\n");
   const locs = (input.locations ?? [])
-    .map((l) => `- id=${l.id ?? "null"} name="${l.name}"`)
+    .map((l) => {
+      const head = `- id=${l.id ?? "null"} name="${l.name}"`;
+      const bits: string[] = [];
+      if (l.type?.trim()) bits.push(`type=${l.type.trim()}`);
+      if (l.description?.trim()) {
+        const d = l.description.trim();
+        bits.push(`desc=${d.length > 180 ? `${d.slice(0, 180)}…` : d}`);
+      }
+      const vb = [l.visualBrief, l.establishedVisualBrief]
+        .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+        .join(" | ");
+      if (vb) bits.push(`brief=${vb.length > 160 ? `${vb.slice(0, 160)}…` : vb}`);
+      if (l.aliases?.length) bits.push(`aliases=${l.aliases.slice(0, 6).join(", ")}`);
+      if (l.canonLocked === true) bits.push("canon_locked=true");
+      if (bits.length === 0) return head;
+      return `${head}\n  ${bits.join(" | ")}`;
+    })
     .join("\n");
 
   return `CHAPTER:

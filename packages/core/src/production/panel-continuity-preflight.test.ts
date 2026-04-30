@@ -140,4 +140,52 @@ describe("computePanelContinuityPreflights", () => {
       "p1:speaker_visible_missing_character_visual_dna:spk-1",
     ]);
   });
+
+  it("strictCharacterDnaBinding : bloque si requiredNpcCount > entrées npcVisualDna", () => {
+    const [p] = computePanelContinuityPreflights(
+      [
+        minimalBp({
+          criticality: "medium",
+          requiredNpcCount: 2,
+          npcVisualDna: [{ continuityId: "n1", displayName: "PNJ A", category: "guard" }],
+        }),
+      ],
+      { strictCharacterDnaBinding: true },
+    );
+    expect(p.blocking).toBe(true);
+    expect(p.missing.some((m) => m.startsWith("npc_visual_dna_insufficient:"))).toBe(true);
+    expect(continuityPreflightBlockingReasons([p])).toEqual([
+      "p1:npc_visual_dna_insufficient:need_2_have_1",
+    ]);
+  });
+
+  it("strictCharacterDnaBinding : inclut requiredCharacters (alias) dans les IDs exigeant du DNA", () => {
+    const [p] = computePanelContinuityPreflights(
+      [
+        minimalBp({
+          requiredCharacterIds: [],
+          requiredCharacters: ["co-hero-2"],
+          criticality: "medium",
+        }),
+      ],
+      { strictCharacterDnaBinding: true },
+    );
+    expect(p.blocking).toBe(true);
+    expect(continuityPreflightBlockingReasons([p])).toEqual([
+      "p1:missing_character_visual_dna:ids=co-hero-2",
+    ]);
+  });
+
+  it("hors strict : requiredNpcCount > npcVisualDna reste avertissement non bloquant", () => {
+    const [p] = computePanelContinuityPreflights([
+      minimalBp({
+        criticality: "medium",
+        requiredNpcCount: 2,
+        npcVisualDna: [{ continuityId: "n1", displayName: "PNJ A", category: "guard" }],
+      }),
+    ]);
+    expect(p.blocking).toBe(false);
+    expect(p.warnings.some((w) => w.startsWith("npc_visual_dna:"))).toBe(true);
+    expect(p.missing.some((m) => m.includes("npc_visual"))).toBe(false);
+  });
 });

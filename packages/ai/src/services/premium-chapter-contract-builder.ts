@@ -21,7 +21,12 @@ import type { PanelBlueprintPremium, RequiredProp, VisualWorldContract } from "@
 import { inferNarrativeFactsFromBeat, type NarrativeExtractionContext } from "./narrative-fact-extractor";
 import { enrichNarrativeFactsWithLLM, mergeNarrativeFacts } from "./narrative-fact-llm-enricher";
 import { inferRequiredPropsFromBeat, indexVisualWorldPropsByBeat } from "./prop-inference-engine";
-import { buildPanelBlueprintsFromBeat, computeChapterFocusBudget, computePremiumReadinessScore } from "./panel-blueprint-builder";
+import {
+  buildPanelBlueprintsFromBeat,
+  computeChapterFocusBudget,
+  computePremiumReadinessScore,
+  type PremiumReadinessCastContext,
+} from "./panel-blueprint-builder";
 
 function assertFinalStructuralQaAfterMerge(input: {
   chapterId: string;
@@ -84,9 +89,13 @@ export interface BuildPremiumChapterContractInput {
       outfitDefault?: string | null;
     }>;
     characterCanonsById?: Record<string, CharacterCanon> | null;
+    /** Héros 2 / co‑protagoniste — DNA sur panels avec personnages. */
+    coProtagonistCharacterIds?: readonly string[] | null;
   };
   /** Monde visuel IA (lieux / décor par beat) — hydratation `environmentVisualDna` après merge. */
   visualWorldContract?: VisualWorldContract | null;
+  /** Cast studio pour pénalités readiness (héros 2 / déuteragoniste). */
+  premiumReadinessCast?: PremiumReadinessCastContext | null;
 }
 
 function applyOptionalCharacterDnaHydration(
@@ -99,6 +108,7 @@ function applyOptionalCharacterDnaHydration(
     blueprints,
     characters: h.characters,
     characterCanonsById: h.characterCanonsById ?? undefined,
+    coProtagonistCharacterIds: h.coProtagonistCharacterIds ?? undefined,
   });
 }
 
@@ -277,12 +287,14 @@ export function buildPremiumChapterContract(
     recentContinuityEvents,
   };
   const visualWorldPropsForBeat = indexVisualWorldPropsByBeat(input.visualWorldContract);
+  const visualWorldContractActive = input.visualWorldContract != null;
   const universeContext = {
     projectGenre,
     projectTone,
     heroCharacterId,
     premiumStrictChapterSourcing: isPipelineV3PremiumOnlyEnabled(),
     suppressUniverseTemplateProps: isPipelineV3PremiumOnlyEnabled(),
+    visualWorldContractActive,
     ...(visualWorldPropsForBeat ? { visualWorldPropsForBeat } : {}),
   };
 
@@ -382,7 +394,7 @@ export function buildPremiumChapterContract(
     `[premium-contract] canonical_panel_count=${allBlueprints.length} status=${panelCountStatus} required_range=${minPanels}-${maxPanels} minimumPanels=${minimumPanels}`,
   );
   const focusBudget = computeChapterFocusBudget(allBlueprints);
-  const premiumReadinessScore = computePremiumReadinessScore(allBlueprints);
+  const premiumReadinessScore = computePremiumReadinessScore(allBlueprints, input.premiumReadinessCast);
 
   const productionOutline = {
     source: "premium_rebuilt" as const,
@@ -514,12 +526,14 @@ export async function buildPremiumChapterContractAsync(
     recentContinuityEvents,
   };
   const visualWorldPropsForBeat = indexVisualWorldPropsByBeat(input.visualWorldContract);
+  const visualWorldContractActive = input.visualWorldContract != null;
   const universeContext = {
     projectGenre,
     projectTone,
     heroCharacterId,
     premiumStrictChapterSourcing: isPipelineV3PremiumOnlyEnabled(),
     suppressUniverseTemplateProps: isPipelineV3PremiumOnlyEnabled(),
+    visualWorldContractActive,
     ...(visualWorldPropsForBeat ? { visualWorldPropsForBeat } : {}),
   };
 
@@ -661,7 +675,7 @@ export async function buildPremiumChapterContractAsync(
     `[premium-contract-async] canonical_panel_count=${allBlueprints.length} status=${panelCountStatus} required_range=${minPanels}-${maxPanels} minimumPanels=${minimumPanels}`,
   );
   const focusBudget = computeChapterFocusBudget(allBlueprints);
-  const premiumReadinessScore = computePremiumReadinessScore(allBlueprints);
+  const premiumReadinessScore = computePremiumReadinessScore(allBlueprints, input.premiumReadinessCast);
 
   const productionOutline = {
     source: "premium_rebuilt" as const,

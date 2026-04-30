@@ -47,6 +47,7 @@ import {
   PRODUCTION_RULES,
   type CanonicalChapterProductionPlan,
   type CanonicalPanelPlan,
+  type CharacterVisualDna,
 } from "@manga-ai-studio/core";
 import {
   buildRetryPrompt,
@@ -222,6 +223,8 @@ export interface RunRenderPassInput {
     loraTriggerWord?: string | null;
     loraScale?: number | null;
     forbiddenVisualDrift?: string[] | null;
+    /** DNA complet studio / pipeline — prioritaire sur les champs plats pour le prompt. */
+    characterVisualDna?: CharacterVisualDna | null;
   }>;
   mainCharacterIds: string[];
   allowedLocations?: string[];

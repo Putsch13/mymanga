@@ -7,7 +7,11 @@
 
 import OpenAI from "openai";
 import { z } from "zod";
-import type { PanelBlueprintPremium, ProductionOutline } from "@manga-ai-studio/core";
+import {
+  syncBlueprintTextContractFromTextFragments,
+  type PanelBlueprintPremium,
+  type ProductionOutline,
+} from "@manga-ai-studio/core";
 import { getDialogueStyleProfile } from "./dialogue-style-director";
 import { validateDialogueVariety } from "./dialogue-variety-guard";
 
@@ -200,6 +204,8 @@ Réponds uniquement avec JSON : {"lines":[{"panelId","speaker","text"}]}`,
           bp.panelTextBundle.dialogues = bp.dialogueLines;
           bp.panelTextBundle.reservedZones = bp.panelTextBundle.reservedZones ?? ["top_right"];
         }
+
+        syncBlueprintTextContractFromTextFragments(bp);
 
         bp.notes = [...(bp.notes ?? []), "scene_dialogue_llm", "speaker_panel_enforced"];
         linesWritten += 1;

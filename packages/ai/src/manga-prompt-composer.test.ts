@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildFixedRegressionSuite } from "@manga-ai-studio/world";
-import { buildSceneBlueprint } from "@manga-ai-studio/world/scene-blueprint";
+import { buildSceneBlueprint } from "@manga-ai-studio/world/legacy/scene-blueprint";
 import { composeMangaPanelPrompt } from "./manga-prompt-composer";
 
 describe("composeMangaPanelPrompt with scene blueprint", () => {

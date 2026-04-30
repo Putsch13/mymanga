@@ -5,7 +5,7 @@
  */
 
 import type { StoryboardPlan } from "@manga-ai-studio/ai/contracts";
-import { buildPanelTextContractFromFragments } from "@manga-ai-studio/core";
+import { resolvePanelTextContractFromStoryboardPanelLike } from "@manga-ai-studio/core";
 import { getPanelPromptFingerprint } from "./panel-prompt-fingerprint";
 import { repairStoryboardPlanRepeatedPromptFingerprints } from "./repair-repeated-prompt-fingerprints";
 
@@ -84,20 +84,37 @@ function isCloseup(panel: Record<string, unknown>): boolean {
 
 function panelHasDialogueOrSfx(panel: Record<string, unknown>): boolean {
   const panelId = typeof panel.panelId === "string" && panel.panelId.length > 0 ? panel.panelId : "panel";
-  const dialogue = panel.dialogue as unknown;
-  const dialogueLines =
-    Array.isArray(dialogue) && dialogue.length > 0
-      ? (dialogue as Array<{ speaker?: string; text?: string }>)
-      : null;
-  const contract = buildPanelTextContractFromFragments({
+  const rawDialogue = panel.dialogue as unknown;
+  const dialogueLines: Array<{ speaker?: string; text: string }> | null = (() => {
+    if (Array.isArray(rawDialogue) && rawDialogue.length > 0) {
+      return rawDialogue as Array<{ speaker?: string; text: string }>;
+    }
+    if (
+      rawDialogue != null
+      && typeof rawDialogue === "object"
+      && !Array.isArray(rawDialogue)
+      && "text" in (rawDialogue as object)
+    ) {
+      const text = String((rawDialogue as { text?: unknown }).text ?? "").trim();
+      if (!text) return null;
+      return [{ speaker: (rawDialogue as { speaker?: string }).speaker, text }];
+    }
+    return null;
+  })();
+  const dialoguesRaw = panel.dialogues as unknown;
+  const bundleRaw = panel.panelTextBundle;
+  const contract = resolvePanelTextContractFromStoryboardPanelLike({
     panelId,
-    dialogueLines,
+    textContract: panel.textContract,
+    dialogue: dialogueLines,
+    dialogues:
+      (!dialogueLines || dialogueLines.length === 0) && Array.isArray(dialoguesRaw) && dialoguesRaw.length > 0
+        ? (dialoguesRaw as Array<{ speaker?: string; text: string }>)
+        : null,
     narration: typeof panel.narration === "string" ? panel.narration : null,
     sfx: Array.isArray(panel.sfx) ? (panel.sfx as string[]) : null,
     panelTextBundle:
-      typeof panel.panelTextBundle === "object" && panel.panelTextBundle !== null && !Array.isArray(panel.panelTextBundle)
-        ? (panel.panelTextBundle as never)
-        : null,
+      typeof bundleRaw === "object" && bundleRaw !== null && !Array.isArray(bundleRaw) ? (bundleRaw as never) : null,
   });
   return contract.hasText;
 }

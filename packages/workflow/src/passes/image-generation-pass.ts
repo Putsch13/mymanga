@@ -20,6 +20,7 @@ import {
   validateShotCompliance,
   isHeroRole,
   PREMIUM_PANEL_RANGE,
+  stripLegacyPanelTextFieldsWhenContractPresent,
   type StableImageReference,
   type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
@@ -711,12 +712,12 @@ export async function runImageGenerationPass(
           data: {
             status: "blocked",
             failureReason: `canonical_prompt_strict_mode:${effectiveSource.blockReason ?? "canonical_packet_missing"}`,
-            metadata: ({
+            metadata: stripLegacyPanelTextFieldsWhenContractPresent({
               ...item.baseMetadata,
               blockedReason: effectiveSource.blockReason ?? "canonical_packet_missing",
               needsCanonicalPacketRebuild: true,
               effectivePromptWarnings: effectiveSource.warnings,
-            } as unknown) as Prisma.InputJsonValue,
+            }) as unknown as Prisma.InputJsonValue,
           },
         });
         return "fail";
@@ -829,12 +830,12 @@ export async function runImageGenerationPass(
             where: { id: item.sceneImageId },
             data: {
               status: "blocked",
-              metadata: ({
+              metadata: stripLegacyPanelTextFieldsWhenContractPresent({
                 ...item.baseMetadata,
                 preflight,
                 blockedReason: preflight.reasons.join(","),
                 referenceTrace: panelReferenceTrace,
-              } as unknown) as Prisma.InputJsonValue,
+              }) as unknown as Prisma.InputJsonValue,
             },
           });
           return "fail";
@@ -947,7 +948,10 @@ export async function runImageGenerationPass(
                 persistedUrl: cachedEnvUrl,
                 provider: "cache",
                 failureReason: null,
-                metadata: ({ ...item.baseMetadata, cachedFrom: envCacheKey } as unknown) as Prisma.InputJsonValue,
+                metadata: stripLegacyPanelTextFieldsWhenContractPresent({
+                  ...item.baseMetadata,
+                  cachedFrom: envCacheKey,
+                } as Record<string, unknown>) as unknown as Prisma.InputJsonValue,
               },
             });
             console.log(`[pipeline] env_cache_hit sceneImageId=${item.sceneImageId} key=${envCacheKey}`);
@@ -1272,11 +1276,11 @@ export async function runImageGenerationPass(
             data: {
               status: "blocked",
               failureReason: "initial_generation_failed",
-              metadata: ({
+              metadata: stripLegacyPanelTextFieldsWhenContractPresent({
                 ...item.baseMetadata,
                 blockedReason: "initial_generation_failed",
                 referenceTrace: panelReferenceTrace,
-              } as unknown) as Prisma.InputJsonValue,
+              }) as unknown as Prisma.InputJsonValue,
             },
           });
           return "fail";
@@ -1536,14 +1540,14 @@ export async function runImageGenerationPass(
             data: {
               status: "failed",
               failureReason: `persist_failed: ${persisted.reason}`,
-              metadata: ({
+              metadata: stripLegacyPanelTextFieldsWhenContractPresent({
                 ...item.baseMetadata,
                 error: persisted.reason,
                 persistError: persisted.message,
                 debugSourceUrl: persisted.debugSourceUrl,
                 generationLog: bestAttempt.generation.log,
                 referenceTrace: panelReferenceTrace,
-              } as unknown) as Prisma.InputJsonValue,
+              }) as unknown as Prisma.InputJsonValue,
             },
           });
           return "fail";
@@ -1718,7 +1722,7 @@ export async function runImageGenerationPass(
             consistencyScore: combinedConsistencyScore,
             routingDecision: finalRouting as unknown as Prisma.InputJsonValue,
             ...(enrichedDebugTrace ? { debugTrace: enrichedDebugTrace as unknown as Prisma.InputJsonValue } : {}),
-            metadata: ({
+            metadata: stripLegacyPanelTextFieldsWhenContractPresent({
               ...item.baseMetadata,
               // P0.4 — promptDebug : prompt final réellement envoyé + info runtime
               promptDebug: promptDebugSnapshot as unknown as Record<string, unknown>,
@@ -1791,7 +1795,7 @@ export async function runImageGenerationPass(
               rerollCount,
               rerollKind: bestAttempt.rerollKind,
               scenePass: finalRouting.panelCategory === "ESTABLISHING_ENVIRONMENT" ? "scene_first" : "single_or_light_ref",
-            } as unknown) as Prisma.InputJsonValue,
+            }) as unknown as Prisma.InputJsonValue,
           },
         });
 
@@ -1815,10 +1819,10 @@ export async function runImageGenerationPass(
             status: "failed",
             failureReason: msg,
             retryCount: { increment: 1 },
-            metadata: ({
+            metadata: stripLegacyPanelTextFieldsWhenContractPresent({
               ...item.baseMetadata,
               error: msg,
-            } as unknown) as Prisma.InputJsonValue,
+            }) as unknown as Prisma.InputJsonValue,
           },
         });
         return "fail";

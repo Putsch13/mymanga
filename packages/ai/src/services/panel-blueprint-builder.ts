@@ -39,12 +39,13 @@ export {
 export type { PanelBlueprintContext } from "./blueprints/base-builder";
 export { buildPanelBlueprintsFromBeat } from "./blueprints/base-builder";
 
-export { expandBlueprintsToMinimum } from "./blueprints/blueprint-enrichment";
+export { expandBlueprintsToMinimum } from "./blueprints/minimum-blueprint-expansion";
 
 export type {
   ShotVarietyReport,
   CutawayBudgetReport,
   ContractualFocusAdequacyReport,
+  PremiumReadinessCastContext,
 } from "./blueprints/blueprint-budgets";
 export {
   computeChapterFocusBudget,

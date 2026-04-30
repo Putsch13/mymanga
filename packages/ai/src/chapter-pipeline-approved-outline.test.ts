@@ -147,8 +147,8 @@ describe("generateChapterBundle with approved outline", () => {
       vehicles: [],
       factions: [],
       beatBindings: [
-        { beatId: "beat_1", locationId: "loc-roof", primaryPropIds: [], npcGroupIds: [] },
-        { beatId: "beat_2", locationId: "loc-roof", primaryPropIds: [], npcGroupIds: [] },
+        { beatId: "beat_1", locationId: "loc-roof", primaryPropIds: [], npcGroupIds: [], creatureIds: [], vehicleIds: [], factionIds: [] },
+        { beatId: "beat_2", locationId: "loc-roof", primaryPropIds: [], npcGroupIds: [], creatureIds: [], vehicleIds: [], factionIds: [] },
       ],
     };
 
@@ -223,7 +223,7 @@ describe("generateChapterBundle with approved outline", () => {
       creatures: [],
       vehicles: [],
       factions: [],
-      beatBindings: [{ beatId: "beat_1", locationId: "loc-roof", primaryPropIds: [], npcGroupIds: [] }],
+      beatBindings: [{ beatId: "beat_1", locationId: "loc-roof", primaryPropIds: [], npcGroupIds: [], creatureIds: [], vehicleIds: [], factionIds: [] }],
     };
 
     await expect(

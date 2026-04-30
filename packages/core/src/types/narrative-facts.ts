@@ -9,6 +9,7 @@ import type {
   ReaderTextPlacementHint,
 } from "./reader-page-format";
 import type { SceneContinuitySnapshot } from "./generation-debug-snapshot";
+import type { PanelTextContract } from "../generation/panel-text-contract";
 
 // ─── Narrative Facts ──────────────────────────────────────────────────────────
 
@@ -299,6 +300,11 @@ export interface PanelBlueprintPremium {
   rebalancedFromCutaway?: boolean;
   /** Texte et zones réservées pour la composition lecteur (hors FAL). */
   panelTextBundle?: PanelTextBundle | null;
+  /**
+   * PR9 — Contrat texte unique (aligné sur `dialogueLines` / `narrationText` / `sfxCues` / `panelTextBundle`).
+   * Hydraté à la projection canonique et recalculé après merge avec le rythme canonique.
+   */
+  textContract?: PanelTextContract | null;
 }
 
 // ─── Focus Budget ─────────────────────────────────────────────────────────────

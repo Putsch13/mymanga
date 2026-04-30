@@ -54,6 +54,47 @@ describe("prop-inference-engine — premium suppressUniverseTemplateProps", () =
     const names = props.map((p) => p.canonicalName.toLowerCase());
     expect(names.some((n) => n.includes("smartphone") || n.includes("téléphone") || n.includes("phone"))).toBe(true);
   });
+
+  it("supprime les templates univers dès qu’un index VisualWorld non vide est fourni (sans suppress explicite)", () => {
+    const beat = makeBeat({
+      beatId: "b-vw",
+      summary: "Le ninja lance un kunai sur son adversaire.",
+      narrativeFunction: "combat",
+    });
+    const props = inferRequiredPropsFromBeat(beat, [], {
+      universeType: "ninja",
+      suppressUniverseTemplateProps: false,
+      visualWorldPropsForBeat: {
+        "b-vw": [
+          {
+            id: "p1",
+            canonicalName: "Épée rouillée",
+            category: "weapon",
+            visualDescription: "Lame oxydée, garde simple.",
+            ownerCharacterId: null,
+            locationId: null,
+            requiredBeatIds: ["b-vw"],
+            continuityPolicy: "recurring",
+          },
+        ],
+      },
+    });
+    const names = props.map((p) => p.canonicalName.toLowerCase());
+    expect(names.some((n) => n.includes("épée") || n.includes("epee"))).toBe(true);
+    expect(names.some((n) => n.includes("kunai"))).toBe(false);
+  });
+  it("supprime les templates univers quand visualWorldContractActive même sans index props par beat", () => {
+    const beat = makeBeat({
+      summary: "Le ninja lance un kunai sur son adversaire.",
+      narrativeFunction: "combat",
+    });
+    const props = inferRequiredPropsFromBeat(beat, [], {
+      universeType: "ninja",
+      suppressUniverseTemplateProps: false,
+      visualWorldContractActive: true,
+    });
+    expect(props.map((p) => p.canonicalName.toLowerCase()).some((n) => n.includes("kunai"))).toBe(false);
+  });
 });
 
 describe("prop-inference-engine — kunai/shuriken ninja", () => {

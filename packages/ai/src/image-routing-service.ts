@@ -1,6 +1,6 @@
 import { moderationOutcomeForImage } from "@manga-ai-studio/moderation";
 import type { ContentIntensityLayer } from "@manga-ai-studio/moderation";
-import { computeFalSceneAssessment } from "./fal-scene-strategy";
+import { computeFalSceneAssessment } from "./fal-scene-heuristics";
 import type { ImageProviderId, ImageRoutingDecision, ImageWorkflow, RoutingContext } from "./types";
 
 const DEFAULT_FLUX_MODEL = "fal-ai/flux/dev";

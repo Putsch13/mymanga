@@ -16,7 +16,7 @@ import {
   PREMIUM_PANEL_RANGE,
   type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
-import { computeShotVarietyBudget, computeContractualFocusAdequacy, computePremiumReadinessScore } from "@manga-ai-studio/ai";
+import { computeShotVarietyBudget, computeContractualFocusAdequacy, computePremiumReadinessScore, type PremiumReadinessCastContext } from "@manga-ai-studio/ai";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { isUnlimitedAdminEmail } from "@/lib/auth/get-app-user";
 import { prisma } from "@manga-ai-studio/db";
@@ -228,6 +228,19 @@ export async function POST(_req: Request, ctx: Ctx) {
     typeof chapterCharacterSelection.heroCharacterId === "string" && chapterCharacterSelection.heroCharacterId.length > 0
       ? chapterCharacterSelection.heroCharacterId
       : null;
+  const secondaryHeroCharacterId =
+    typeof chapterCharacterSelection.secondaryHeroCharacterId === "string"
+    && chapterCharacterSelection.secondaryHeroCharacterId.length > 0
+      ? chapterCharacterSelection.secondaryHeroCharacterId
+      : null;
+  const deuteragonistCharacterId =
+    typeof chapterCharacterSelection.deuteragonistCharacterId === "string"
+    && chapterCharacterSelection.deuteragonistCharacterId.trim().length > 0
+      ? chapterCharacterSelection.deuteragonistCharacterId.trim()
+      : null;
+  const coProtagonistCharacterIdsForHydration = [...new Set(
+    [secondaryHeroCharacterId, deuteragonistCharacterId].filter((x): x is string => Boolean(x)),
+  )];
   const activeNpcIds = Array.isArray(snapshotDataRecord.activeNpcIds)
     ? snapshotDataRecord.activeNpcIds.filter(
         (id): id is string => typeof id === "string" && id.length > 0,
@@ -328,14 +341,31 @@ export async function POST(_req: Request, ctx: Ctx) {
         eyeColor: true,
         appearance: true,
         outfitDefault: true,
+        stableVisualDNA: true,
       },
     });
     const canonList = snapshot.data.characterCanons ?? [];
     const canonMap = new Map(canonList.map((c) => [c.characterId, c] as const));
     bpForContinuity = hydrateBlueprintsWithCharacterDna({
       blueprints: bpForContinuity as PanelBlueprintPremium[],
-      characters: chars,
+      characters: chars.map((c) => ({
+        id: c.id,
+        name: c.name,
+        hairColor: c.hairColor,
+        eyeColor: c.eyeColor,
+        appearance: c.appearance,
+        outfitDefault: c.outfitDefault,
+        stableVisualDNA:
+          c.stableVisualDNA !== null
+          && typeof c.stableVisualDNA === "object"
+          && !Array.isArray(c.stableVisualDNA)
+            ? (c.stableVisualDNA as Record<string, unknown>)
+            : null,
+      })),
       characterCanonsById: canonMap,
+      ...(coProtagonistCharacterIdsForHydration.length > 0
+        ? { coProtagonistCharacterIds: coProtagonistCharacterIdsForHydration as readonly string[] }
+        : {}),
     }) as typeof bpForContinuity;
     const vwLaunch = visualWorldContractSchema.safeParse(snapshot.data.visualWorldContract);
     if (vwLaunch.success) {
@@ -385,7 +415,12 @@ export async function POST(_req: Request, ctx: Ctx) {
     let score: number | null = null;
     let scoreSource: "recomputed_from_blueprints" | "persisted_metadata" = "persisted_metadata";
     if (Array.isArray(bps) && bps.length > 0) {
-      score = computePremiumReadinessScore(bps as PanelBlueprintPremium[]);
+      const premiumReadinessCast: PremiumReadinessCastContext = {
+        heroCharacterId,
+        secondaryHeroCharacterId,
+        deuteragonistCharacterId,
+      };
+      score = computePremiumReadinessScore(bps as PanelBlueprintPremium[], premiumReadinessCast);
       scoreSource = "recomputed_from_blueprints";
     } else if (ppRec && typeof ppRec.premiumReadinessScore === "number") {
       score = ppRec.premiumReadinessScore as number;
@@ -707,6 +742,7 @@ export async function POST(_req: Request, ctx: Ctx) {
       creativityControls:
         snapshot.data.creativityControls == null ? null : asRecord(snapshot.data.creativityControls),
       heroCharacterId,
+      secondaryHeroCharacterId,
       focusCharacterIds,
       activeNpcIds,
       activeCreatureIds,

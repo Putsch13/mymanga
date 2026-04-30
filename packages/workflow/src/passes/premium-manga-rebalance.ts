@@ -4,6 +4,7 @@
  */
 
 import type { CutawayType, PanelBlueprintPremium, SubjectFocus } from "@manga-ai-studio/core";
+import { blueprintPrimaryDialogueLineCount } from "@manga-ai-studio/core";
 import {
   blueprintTextBlob,
   buildReadingOrderIndexMap,
@@ -34,7 +35,7 @@ import {
 import { runMangaStructureQaOnBlueprints } from "./manga-structure-qa";
 
 function isDialogueHeavyBeat(bp: PanelBlueprintPremium): boolean {
-  return (bp.dialogueLines?.length ?? 0) > 0 || bp.dialogueCarrier === "speaker_visible";
+  return blueprintPrimaryDialogueLineCount(bp) > 0 || bp.dialogueCarrier === "speaker_visible";
 }
 
 /** Cutaway « dur » : plafonné sévèrement (ouverture, splash, révélation majeure, etc.). */

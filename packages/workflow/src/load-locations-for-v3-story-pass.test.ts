@@ -8,7 +8,7 @@ vi.mock("@manga-ai-studio/db", () => ({
   prisma: prismaMock,
 }));
 
-import { loadLocationsForV3StoryPass } from "./load-locations-for-v3-story-pass";
+import { loadLocationsForV3StoryPass, premiumV3PipelineLocationsToStoryArchitectLocations } from "./load-locations-for-v3-story-pass";
 
 describe("loadLocationsForV3StoryPass", () => {
   beforeEach(() => {
@@ -25,18 +25,26 @@ describe("loadLocationsForV3StoryPass", () => {
       {
         id: "loc-b",
         name: "Dojo",
+        type: "intérieur",
+        aliases: ["salle d'arts martiaux"],
         metadata: { tone: "calme" },
         visualBrief: "Tatamis",
         establishedVisualBrief: null,
         description: "Intérieur",
+        canonImageUrl: null,
+        canonLocked: false,
       },
       {
         id: "loc-a",
         name: "Rue",
+        type: "extérieur",
+        aliases: [],
         metadata: {},
         visualBrief: null,
         establishedVisualBrief: "Pluie",
         description: null,
+        canonImageUrl: "https://x/y.png",
+        canonLocked: true,
       },
     ]);
     const out = await loadLocationsForV3StoryPass({
@@ -53,12 +61,52 @@ describe("loadLocationsForV3StoryPass", () => {
     expect(out[0]!.visualDNA).toMatchObject({
       visualBrief: null,
       establishedVisualBrief: "Pluie",
+      type: "extérieur",
+      canonLocked: true,
+    });
+  });
+
+  it("premiumV3PipelineLocationsToStoryArchitectLocations propage brief / type / aliases", () => {
+    const arch = premiumV3PipelineLocationsToStoryArchitectLocations([
+      {
+        id: "L1",
+        name: "Port",
+        visualDNA: {
+          type: "dock",
+          description: "Quai humide",
+          visualBrief: "Grues",
+          establishedVisualBrief: null,
+          canonLocked: true,
+          aliases: ["harbor", "dock 7"],
+        },
+      },
+    ]);
+    expect(arch).toHaveLength(1);
+    expect(arch[0]).toMatchObject({
+      id: "L1",
+      name: "Port",
+      type: "dock",
+      description: "Quai humide",
+      visualBrief: "Grues",
+      canonLocked: true,
+      aliases: ["harbor", "dock 7"],
     });
   });
 
   it("dédoublonne les ids passés au findMany", async () => {
     prismaMock.location.findMany.mockResolvedValue([
-      { id: "x", name: "Lieu X", metadata: null, visualBrief: null, establishedVisualBrief: null, description: null },
+      {
+        id: "x",
+        name: "Lieu X",
+        type: null,
+        aliases: [],
+        metadata: null,
+        visualBrief: null,
+        establishedVisualBrief: null,
+        description: null,
+        canonImageUrl: null,
+        canonLocked: false,
+      },
     ]);
     await loadLocationsForV3StoryPass({ projectId: "p1", locationIds: ["x", "x"] });
     expect(prismaMock.location.findMany.mock.calls[0]![0].where.id.in).toEqual(["x"]);

@@ -9,7 +9,7 @@
  * "magicien", "Tokyo") entre l'intent utilisateur et les panels générés.
  */
 
-import type { PanelBlueprintPremium, ProductionOutline } from "@manga-ai-studio/core";
+import { legacyDialogueLinesFromBlueprintPremium, type PanelBlueprintPremium, type ProductionOutline } from "@manga-ai-studio/core";
 
 export interface BeatNarrativeContract {
   beatId: string;
@@ -177,7 +177,7 @@ export function validatePanelsAgainstContracts(
         ...(bp.mayShowCharacterIds ?? []),
         ...(bp.speakerAnchorCharacterId ? [bp.speakerAnchorCharacterId] : []),
         ...(bp.speakerAnchorCharacterName ? [bp.speakerAnchorCharacterName] : []),
-        ...((bp.dialogueLines ?? []).map((d) => d.speaker)),
+        ...(legacyDialogueLinesFromBlueprintPremium(bp).map((d) => d.speaker)),
       ])
       .map((c) => c.toLowerCase());
 

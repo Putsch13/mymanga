@@ -10,6 +10,7 @@ import {
 
 export type PipelineJobInput = {
   heroCharacterId?: string | null;
+  secondaryHeroCharacterId?: string | null;
   focusCharacterIds?: string[];
   activeNpcIds?: string[];
   activeCreatureIds?: string[];

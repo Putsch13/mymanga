@@ -7,6 +7,9 @@
  *   - Une distinction claire entre héros, personnages actifs, supports et PNJ
  *   - Le héros est toujours dans activeCharacterIds
  *   - focusCharacterIds ne remplace jamais heroCharacterId
+ *   - secondaryHeroCharacterId (optionnel) : co‑protagoniste / héros 2 — reste
+ *     « support » dans members (P2.7) mais est priorisé pour l’éditeur storyboard
+ *     et les scènes duo.
  *
  * Le pipeline DOIT valider ce contrat AVANT de construire le storyboard.
  * Si le contrat est invalide, le job échoue tôt avec une erreur claire.
@@ -82,6 +85,12 @@ export const chapterCastContractSchema = z.object({
    */
   heroCharacterId: z.string().min(1),
   /**
+   * Héros secondaire (studio) : même chapitre, rôle « support » dans members,
+   * mais présent dans activeCharacterIds et placé juste après le héros pour
+   * les passes éditoriales (duo, manga editor).
+   */
+  secondaryHeroCharacterId: z.string().min(1).nullable().optional(),
+  /**
    * IDs des personnages actifs (incluant le héros).
    * Ce sont les personnages qui peuvent apparaître dans les panels.
    */
@@ -123,6 +132,12 @@ export const CAST_CONTRACT_ERROR_CODES = {
   HERO_ROLE_MISMATCH: "E_CAST_HERO_ROLE_MISMATCH",
   /** P2.7 — Un personnage non-héros a le rôle "hero" */
   NON_HERO_AS_PROTAGONIST: "E_CAST_NON_HERO_AS_PROTAGONIST",
+  /** Héros secondaire identique au héros principal */
+  SECONDARY_SAME_AS_HERO: "E_CAST_SECONDARY_SAME_AS_HERO",
+  /** Héros secondaire absent des actifs */
+  SECONDARY_NOT_IN_ACTIVE: "E_CAST_SECONDARY_NOT_IN_ACTIVE",
+  /** Héros secondaire inconnu du cast fourni */
+  SECONDARY_UNKNOWN_CHARACTER: "E_CAST_SECONDARY_UNKNOWN_CHARACTER",
 } as const;
 
 export type CastContractErrorCode =
@@ -177,8 +192,27 @@ export function validateChapterCastContract(
     });
   }
 
-  // Règle 4 : supportCharacterIds doivent être dans activeCharacterIds
+  const secondaryTrimmed = contract.secondaryHeroCharacterId?.trim();
   const activeSet = new Set(contract.activeCharacterIds ?? []);
+
+  if (secondaryTrimmed) {
+    if (secondaryTrimmed === contract.heroCharacterId) {
+      issues.push({
+        code: CAST_CONTRACT_ERROR_CODES.SECONDARY_SAME_AS_HERO,
+        message: "secondaryHeroCharacterId must differ from heroCharacterId",
+        characterId: secondaryTrimmed,
+      });
+    }
+    if (!activeSet.has(secondaryTrimmed)) {
+      issues.push({
+        code: CAST_CONTRACT_ERROR_CODES.SECONDARY_NOT_IN_ACTIVE,
+        message: `secondaryHeroCharacterId=${secondaryTrimmed} must be in activeCharacterIds`,
+        characterId: secondaryTrimmed,
+      });
+    }
+  }
+
+  // Règle 4 : supportCharacterIds doivent être dans activeCharacterIds
   for (const supportId of contract.supportCharacterIds ?? []) {
     if (!activeSet.has(supportId)) {
       issues.push({
@@ -268,6 +302,8 @@ export function assertValidChapterCastContract(contract: ChapterCastContract): v
 export function buildChapterCastContract(input: {
   chapterId: string;
   heroCharacterId: string | null | undefined;
+  /** Héros 2 (studio) — fusionné dans activeCharacterIds après le héros. */
+  secondaryHeroCharacterId?: string | null;
   focusCharacterIds?: string[];
   activeCharacterIds?: string[];
   characters: Array<{
@@ -297,20 +333,63 @@ export function buildChapterCastContract(input: {
   }
 
   // Construire activeCharacterIds
-  const activeIds = input.activeCharacterIds?.length
+  let activeIds = input.activeCharacterIds?.length
     ? [...input.activeCharacterIds]
     : input.focusCharacterIds?.length
       ? [...input.focusCharacterIds]
       : [heroId];
+
+  const charMap = new Map(input.characters.map((c) => [c.id, c]));
 
   // S'assurer que le héros est dans actifs
   if (!activeIds.includes(heroId)) {
     activeIds.unshift(heroId);
   }
 
+  const secondaryRaw =
+    typeof input.secondaryHeroCharacterId === "string" && input.secondaryHeroCharacterId.trim().length > 0
+      ? input.secondaryHeroCharacterId.trim()
+      : null;
+  if (secondaryRaw) {
+    if (secondaryRaw === heroId) {
+      throw new ChapterCastContractError({
+        ok: false,
+        issues: [
+          {
+            code: CAST_CONTRACT_ERROR_CODES.SECONDARY_SAME_AS_HERO,
+            message: "secondaryHeroCharacterId cannot equal heroCharacterId",
+            characterId: secondaryRaw,
+          },
+        ],
+      });
+    }
+    if (!charMap.has(secondaryRaw)) {
+      throw new ChapterCastContractError({
+        ok: false,
+        issues: [
+          {
+            code: CAST_CONTRACT_ERROR_CODES.SECONDARY_UNKNOWN_CHARACTER,
+            message: `secondaryHeroCharacterId=${secondaryRaw} is not in the chapter character list`,
+            characterId: secondaryRaw,
+          },
+        ],
+      });
+    }
+    const withoutSecondary = activeIds.filter((id) => id !== secondaryRaw);
+    const heroIndex = withoutSecondary.indexOf(heroId);
+    if (heroIndex === -1) {
+      activeIds = [heroId, secondaryRaw, ...withoutSecondary.filter((id) => id !== heroId)];
+    } else {
+      activeIds = [
+        ...withoutSecondary.slice(0, heroIndex + 1),
+        secondaryRaw,
+        ...withoutSecondary.slice(heroIndex + 1),
+      ];
+    }
+  }
+
   // Construire les membres avec rôles
   const members: ChapterCastMember[] = [];
-  const charMap = new Map(input.characters.map((c) => [c.id, c]));
 
   for (const charId of activeIds) {
     const char = charMap.get(charId);
@@ -366,6 +445,7 @@ export function buildChapterCastContract(input: {
   return {
     chapterId: input.chapterId,
     heroCharacterId: heroId,
+    secondaryHeroCharacterId: secondaryRaw,
     activeCharacterIds: activeIds,
     supportCharacterIds: supportIds,
     antagonistCharacterIds: antagonistIds,
@@ -379,10 +459,26 @@ export function buildChapterCastContract(input: {
  */
 export function formatCastContractLog(contract: ChapterCastContract): string {
   const hero = contract.heroCharacterId;
+  const secondary = contract.secondaryHeroCharacterId?.trim();
   const active = contract.activeCharacterIds.join(",");
   const support = contract.supportCharacterIds.join(",") || "none";
   const npcGroups = contract.npcGroups.map((g) => g.label).join(",") || "none";
-  return `[cast-contract] hero=${hero} active=${active} support=${support} npcGroups=${npcGroups}`;
+  const secondaryPart = secondary && secondary.length > 0 ? ` secondary=${secondary}` : "";
+  return `[cast-contract] hero=${hero}${secondaryPart} active=${active} support=${support} npcGroups=${npcGroups}`;
+}
+
+/**
+ * Ordre des IDs passés au manga editor / storyboard : héros, héros 2 si défini,
+ * puis le reste des actifs (stable).
+ */
+export function orderedEditorHeroCharacterIds(contract: ChapterCastContract): string[] {
+  const hero = contract.heroCharacterId;
+  const sec = contract.secondaryHeroCharacterId?.trim();
+  if (sec && sec.length > 0 && sec !== hero) {
+    const rest = contract.activeCharacterIds.filter((id) => id !== hero && id !== sec);
+    return [hero, sec, ...rest];
+  }
+  return [...contract.activeCharacterIds];
 }
 
 /**

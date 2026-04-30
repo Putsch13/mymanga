@@ -145,6 +145,12 @@ export async function loadCharactersForPipeline(
       speciesLabel: typeof continuityProfile.speciesLabel === "string" ? continuityProfile.speciesLabel : null,
       dialogueMode: typeof continuityProfile.dialogueMode === "string" ? continuityProfile.dialogueMode : null,
       recurrencePolicy: typeof continuityProfile.recurrencePolicy === "string" ? continuityProfile.recurrencePolicy : null,
+      stableVisualDNA:
+        raw.stableVisualDNA !== null
+        && typeof raw.stableVisualDNA === "object"
+        && !Array.isArray(raw.stableVisualDNA)
+          ? (raw.stableVisualDNA as Record<string, unknown>)
+          : null,
     };
   });
 }

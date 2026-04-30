@@ -14,8 +14,11 @@ export type PanelContinuityPreflightOptions = {
   strictEnvironmentLocationBinding?: boolean;
   /**
    * Mode premium strict : tout `requiredCharacterIds` ∪ `mustShowCharacterIds` ∪
+   * `requiredCharacters` (alias legacy / merge canonique) ∪
    * locuteur `speaker_visible` doit avoir une entrée `characterVisualDna` (pas seulement
    * les panels `critical` / `contractualCritical`).
+   * De plus : si `requiredNpcCount` > 0, le nombre d’entrées `npcVisualDna` doit être ≥ ce compte
+   * (sinon blocage, aligné « pas de PNJ critique sans visual DNA »).
    */
   strictCharacterDnaBinding?: boolean;
 };
@@ -41,9 +44,10 @@ function characterDnaIds(bp: PanelBlueprintPremium): Set<string> {
 }
 
 /**
- * Préflight continuité : DNA personnage pour les IDs requis + must-show,
- * locuteur ancré (`speaker_visible` + `speakerAnchorCharacterId`), et décor
- * (`environmentVisualDna`) lorsque le beat impose des signaux lieu.
+ * Préflight continuité : DNA personnage pour les IDs requis + must-show + `requiredCharacters`,
+ * locuteur ancré (`speaker_visible` + `speakerAnchorCharacterId`), décor
+ * (`environmentVisualDna`) lorsque le beat impose des signaux lieu, et
+ * en mode strict le **nombre** d’entrées `npcVisualDna` vs `requiredNpcCount`.
  * Bloque les panels critiques incomplets, et tout panel avec bulle locuteur
  * visible sans DNA pour l’ancre parlante.
  */
@@ -55,7 +59,11 @@ export function computePanelContinuityPreflights(
   const strictChar = options?.strictCharacterDnaBinding === true;
   return blueprints.map((bp) => {
     const requiredHeroIds = [
-      ...new Set([...(bp.requiredCharacterIds ?? []), ...(bp.mustShowCharacterIds ?? [])]),
+      ...new Set([
+        ...(bp.requiredCharacterIds ?? []),
+        ...(bp.mustShowCharacterIds ?? []),
+        ...(bp.requiredCharacters ?? []),
+      ]),
     ];
     const speakerAnchorId =
       bp.dialogueCarrier === "speaker_visible" && bp.speakerAnchorCharacterId?.trim()
@@ -72,8 +80,13 @@ export function computePanelContinuityPreflights(
 
     const npcNeed = bp.requiredNpcCount ?? 0;
     const npcHave = bp.npcVisualDna?.length ?? 0;
-    if (npcNeed > 0 && npcHave < npcNeed) {
-      warnings.push(`npc_visual_dna: need_at_least_${npcNeed}_entries_have_${npcHave}`);
+    const npcDnaInsufficient = npcNeed > 0 && npcHave < npcNeed;
+    if (npcDnaInsufficient) {
+      if (strictChar) {
+        missing.push(`npc_visual_dna_insufficient:need_${npcNeed}_have_${npcHave}`);
+      } else {
+        warnings.push(`npc_visual_dna: need_at_least_${npcNeed}_entries_have_${npcHave}`);
+      }
     }
 
     const loc = bp.requiredLocationSignals ?? [];
@@ -103,11 +116,13 @@ export function computePanelContinuityPreflights(
     const missingAnyRequiredCharacterDna =
       idsRequiringCharacterDna.length > 0
       && idsRequiringCharacterDna.some((id) => !dna.has(id));
+    const strictNpcDnaGap = strictChar && npcDnaInsufficient;
     const blocking =
       (critical && (missingCharacterForCritical || missingEnvironmentDna))
       || missingSpeakerAnchorDna
       || (strictEnv && missingEnvironmentDna)
-      || (strictChar && missingAnyRequiredCharacterDna);
+      || (strictChar && missingAnyRequiredCharacterDna)
+      || strictNpcDnaGap;
 
     return {
       panelId: bp.panelId,
@@ -137,6 +152,10 @@ export function continuityPreflightBlockingReasons(
       && p.missing.includes(`character_visual_dna_missing:${p.anchorSpeakerCharacterId}`)
     ) {
       return `${p.panelId}:speaker_visible_missing_character_visual_dna:${p.anchorSpeakerCharacterId}`;
+    }
+    const npcInsufficient = p.missing.find((m) => m.startsWith("npc_visual_dna_insufficient:"));
+    if (npcInsufficient) {
+      return `${p.panelId}:${npcInsufficient}`;
     }
     const missingIds = p.missing
       .filter((m) => m.startsWith("character_visual_dna_missing:"))

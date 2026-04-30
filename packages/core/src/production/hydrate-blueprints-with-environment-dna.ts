@@ -12,7 +12,9 @@ export function visualWorldLocationToEnvironmentDna(loc: VisualWorldLocation): E
   return {
     locationName: loc.label,
     anchorId: loc.id,
+    visualAnchors: [...loc.visualAnchors].slice(0, 6),
     architectureHints: [...loc.architecture].slice(0, 6),
+    atmosphere: [...loc.atmosphere].slice(0, 4),
     propAnchors: [...loc.recurringProps].slice(0, 6),
     lightingHints: [...loc.lighting].slice(0, 4),
     forbiddenDrift: [...loc.negativeConstraints].slice(0, 8),
@@ -28,10 +30,14 @@ function mergeEnv(prev: EnvironmentVisualDna, next: EnvironmentVisualDna): Envir
   return {
     locationName: prev.locationName?.trim() || next.locationName,
     anchorId: prev.anchorId?.trim() || next.anchorId || null,
+    visualAnchors:
+      prev.visualAnchors && prev.visualAnchors.length > 0 ? prev.visualAnchors : next.visualAnchors,
     architectureHints:
       prev.architectureHints && prev.architectureHints.length > 0
         ? prev.architectureHints
         : next.architectureHints,
+    atmosphere:
+      prev.atmosphere && prev.atmosphere.length > 0 ? prev.atmosphere : next.atmosphere,
     propAnchors:
       prev.propAnchors && prev.propAnchors.length > 0 ? prev.propAnchors : next.propAnchors,
     lightingHints:

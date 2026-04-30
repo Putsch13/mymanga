@@ -21,9 +21,11 @@ import {
   hydrateBlueprintsWithCharacterDna,
   hydrateBlueprintsWithEnvironmentDna,
   hydrateBlueprintsWithVisualWorldNpcAndProps,
+  characterVisualDnaForRenderFromPremiumRow,
   buildChapterCastContract,
   assertValidChapterCastContract,
   formatCastContractLog,
+  orderedEditorHeroCharacterIds,
   buildChapterStoryContract,
   assertValidChapterStoryContract,
   formatStoryContractLog,
@@ -34,20 +36,22 @@ import {
   type PanelBlueprintPremium,
   type ChapterCastContract,
   type ChapterStoryContract,
+  legacyDialogueLinesFromStoryboardPanelLike,
 } from "@manga-ai-studio/core";
+import type { StoryboardPanel } from "@manga-ai-studio/ai";
 import { createDefaultPanelImageGenerator } from "./passes/default-panel-image-generator";
 import { loadChapterVisualMemory } from "./passes/load-chapter-visual-memory";
 import { runPageQaPass } from "./passes/page-qa-pass";
 import { runRenderPass } from "./passes/render-pass";
 import { runStoryPass } from "./passes/story-pass";
 import { buildStoryboardPlanFromApprovedProductionPlan } from "./build-storyboard-plan-from-approved-production-plan";
-import { buildStoryboardPlanFromCanonicalPlan } from "./legacy/build-storyboard-plan-from-canonical-plan";
+import { buildStoryboardPlanFromCanonicalPlan } from "./build-storyboard-plan-from-canonical-plan";
 import { buildStoryArcFromProductionPlan } from "./build-story-arc-from-production-plan";
 import { buildStoryboardPlanFromPremiumBlueprints } from "./passes/storyboard-from-premium-plan";
 import { runStoryboardPass } from "./passes/storyboard-pass";
 import { buildStyleBibleFromUserProject } from "./chapter-style-bible-resolver";
 import { isPipelineV3RenderFalEnabled } from "./pipeline-feature-flags";
-import { loadLocationsForV3StoryPass, type PremiumV3PipelineLocation, v3PipelineLocationsToKnownLocations, v3PipelineLocationToResolverUserLocation } from "./load-locations-for-v3-story-pass";
+import { loadLocationsForV3StoryPass, type PremiumV3PipelineLocation, premiumV3PipelineLocationsToStoryArchitectLocations, v3PipelineLocationsToKnownLocations, v3PipelineLocationToResolverUserLocation } from "./load-locations-for-v3-story-pass";
 import {
   loadChapterVisualContractUi,
   saveChapterVisualContractSnapshot,
@@ -121,6 +125,8 @@ export interface PremiumV3PipelineCharacter {
   loraUrl?: string | null;
   loraTriggerWord?: string | null;
   loraScale?: number | null;
+  /** JSON configurateur — hydratation `visualCanonExcerpt` sur blueprints. */
+  stableVisualDNA?: Record<string, unknown> | null;
 }
 
 export interface RunPremiumV3PipelineInput {
@@ -138,6 +144,8 @@ export interface RunPremiumV3PipelineInput {
   /** Plan premium persisté : source de vérité en mode approved_plan_driven. */
   productionPlan?: Record<string, unknown> | null;
   heroCharacterId?: string | null;
+  /** Héros 2 (studio) — intégré au cast contract et priorisé pour le storyboard duo. */
+  secondaryHeroCharacterId?: string | null;
   focusCharacterIds: string[];
   activeNpcIds?: string[];
   activeCreatureIds?: string[];
@@ -433,6 +441,7 @@ export async function runPremiumV3Pipeline(
     const castContract: ChapterCastContract = buildChapterCastContract({
       chapterId: input.chapterId,
       heroCharacterId: input.heroCharacterId ?? null,
+      secondaryHeroCharacterId: input.secondaryHeroCharacterId ?? null,
       focusCharacterIds: input.focusCharacterIds,
       characters: input.rawCharacters.map((c) => ({
         id: c.id,
@@ -665,11 +674,15 @@ export async function runPremiumV3Pipeline(
             eyeColor: c.eyeColor ?? null,
             appearance: c.canonSignatureText?.trim() || null,
             outfitDefault: c.outfitSignature?.trim() || null,
+            stableVisualDNA: c.stableVisualDNA ?? null,
           }));
           const dnaHydrated = hydrateBlueprintsWithCharacterDna({
             blueprints: mergedBlueprints,
             characters: characterRows,
             characterCanonsById: input.characterCanonsById ?? null,
+            ...(input.secondaryHeroCharacterId
+              ? { coProtagonistCharacterIds: [input.secondaryHeroCharacterId] as const }
+              : {}),
           });
           const envHydrated =
             visualDiscoveryResult.visualWorldContract
@@ -1003,7 +1016,7 @@ export async function runPremiumV3Pipeline(
           name: c.name,
           roleType: c.roleType ?? null,
         })),
-        locations: locationsForStory.map((l) => ({ id: l.id, name: l.name })),
+        locations: premiumV3PipelineLocationsToStoryArchitectLocations(locationsForStory),
       });
       timings.story_pass_ms = Date.now() - storyStart;
       storyArc = storyPassResult.storyArc;
@@ -1037,7 +1050,7 @@ export async function runPremiumV3Pipeline(
             }
           : await runStoryboardPass({
               storyArc: storyPassResult.storyArc,
-              heroCharacterIds: castContract.activeCharacterIds,
+              heroCharacterIds: orderedEditorHeroCharacterIds(castContract),
               projectFormat,
               targetPanelCount: PREMIUM_PANEL_RANGE.target,
             });
@@ -1146,14 +1159,26 @@ export async function runPremiumV3Pipeline(
 
     // P3.16 — Interaction QA
     const interactionQa = runInteractionQaPass({
-      panels: storyboardPanels.map((p: { panelId: string; renderMode?: string; visibleCharacterIds?: string[]; dialogueLines?: Array<{ speaker?: string; text: string }>; actionLine?: string; shotType?: string }) => ({
-        panelId: p.panelId,
-        renderMode: p.renderMode,
-        visibleCharacterIds: p.visibleCharacterIds,
-        dialogueLines: p.dialogueLines,
-        actionLine: p.actionLine,
-        shotType: p.shotType,
-      })),
+      panels: storyboardPanels.map((raw) => {
+        const p = raw as StoryboardPanel;
+        const dialogueLines = legacyDialogueLinesFromStoryboardPanelLike({
+          panelId: p.panelId,
+          textContract: p.textContract,
+          dialogue: Array.isArray(p.dialogue) && p.dialogue.length > 0 ? p.dialogue : null,
+          dialogues: null,
+          narration: p.narration ?? null,
+          sfx: p.sfx ?? null,
+          panelTextBundle: (p as { panelTextBundle?: unknown }).panelTextBundle as never ?? null,
+        });
+        return {
+          panelId: p.panelId,
+          renderMode: p.renderMode,
+          visibleCharacterIds: (p as { visibleCharacterIds?: string[] }).visibleCharacterIds ?? p.characters,
+          dialogueLines,
+          actionLine: p.actionLine,
+          shotType: p.shotType,
+        };
+      }),
       strictMode: Boolean(input.premiumV3OnlyEnabled),
     });
     console.log(`[pipeline:v3:interaction-qa] ${formatInteractionQaLog(interactionQa)}`);
@@ -1614,6 +1639,7 @@ export async function runPremiumV3Pipeline(
           loraUrl: c.loraUrl ?? null,
           loraTriggerWord: c.loraTriggerWord ?? null,
           loraScale: c.loraScale ?? null,
+          characterVisualDna: characterVisualDnaForRenderFromPremiumRow(c),
         })),
         mainCharacterIds: castContract.activeCharacterIds,
         premiumOutOfContractPromptCheck: input.premiumV3OnlyEnabled,

@@ -147,6 +147,11 @@ export async function POST(req: Request, ctx: Ctx) {
     typeof chapterCharacterSelection.heroCharacterId === "string" && chapterCharacterSelection.heroCharacterId.length > 0
       ? chapterCharacterSelection.heroCharacterId
       : null;
+  const secondaryHeroCharacterId =
+    typeof chapterCharacterSelection.secondaryHeroCharacterId === "string"
+    && chapterCharacterSelection.secondaryHeroCharacterId.length > 0
+      ? chapterCharacterSelection.secondaryHeroCharacterId
+      : null;
   const activeNpcIds = Array.isArray(snapshotDataRecord.activeNpcIds)
     ? snapshotDataRecord.activeNpcIds.filter(
         (id): id is string => typeof id === "string" && id.length > 0,
@@ -265,6 +270,7 @@ export async function POST(req: Request, ctx: Ctx) {
       selectedPlotLabel: selectedPlotLabel ?? "bold",
       creativityControls: (creativityControls ?? null) as Record<string, unknown> | null,
       heroCharacterId,
+      secondaryHeroCharacterId,
       focusCharacterIds,
       activeNpcIds,
       activeCreatureIds,

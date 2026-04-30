@@ -32,7 +32,7 @@ import type {
   SubjectBalance,
 } from "@manga-ai-studio/core";
 import { isNonHeroDominantIntent } from "@manga-ai-studio/core";
-import { translateStructuredPrompt } from "./prompt-translator";
+import { translateStructuredPrompt } from "./structured-prompt-lang";
 
 export interface CanonicalPromptRecipeInput {
   imageIntentType: ImageIntentType;

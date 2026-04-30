@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeFalSceneAssessment } from "./fal-scene-strategy";
+import { computeFalSceneAssessment } from "./fal-scene-heuristics";
 
 describe("computeFalSceneAssessment hero lock policy", () => {
   it("n'autorise pas NONE quand un héros est en close-up", () => {

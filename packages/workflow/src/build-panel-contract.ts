@@ -3,12 +3,42 @@
  * Le panel n'est plus un prompt libre, c'est une spécification visuelle contrôlée.
  */
 
-import type { PanelContract } from "@manga-ai-studio/core";
 import type {
+  PanelContract,
   PanelBlueprintPremium,
   BeatNarrativeContract,
 } from "@manga-ai-studio/core";
+import { legacyDialogueLinesFromStoryboardPanelLike, blueprintPrimaryDialogueLineCount } from "@manga-ai-studio/core";
 import type { StoryboardPanel } from "@manga-ai-studio/ai";
+
+/** PR9 — même agrégation que narrative-pass / pipeline-scene-builder (legacy bundle). */
+function legacyStoryboardPanelDialogueLines(panel: StoryboardPanel, panelId: string) {
+  const p = panel as StoryboardPanel & {
+    dialogues?: Array<{ speaker: string; text: string }>;
+    dialogue?: { speaker: string; text: string } | Array<{ speaker: string; text: string }>;
+    textContract?: unknown;
+  };
+  const dialogueArray =
+    Array.isArray(p.dialogues) && p.dialogues.length > 0
+      ? p.dialogues
+      : Array.isArray(p.dialogue) && p.dialogue.length > 0
+        ? p.dialogue
+        : p.dialogue && typeof p.dialogue === "object" && "text" in p.dialogue
+          ? [p.dialogue as { speaker: string; text: string }]
+          : null;
+  return legacyDialogueLinesFromStoryboardPanelLike({
+    panelId,
+    textContract: p.textContract,
+    dialogue: dialogueArray,
+    narration: typeof p.narration === "string" ? p.narration : null,
+    sfx: Array.isArray(p.sfx)
+      ? p.sfx.map((s) => String(s).trim()).filter(Boolean)
+      : typeof p.sfx === "string" && p.sfx.trim()
+        ? [p.sfx.trim()]
+        : null,
+    panelTextBundle: null,
+  });
+}
 
 export interface PanelContractInput {
   panelId: string;
@@ -54,6 +84,7 @@ export async function buildPanelContract(input: PanelContractInput): Promise<Pan
   const purpose = deducePurpose(panel, {
     panelBlueprint: input.panelBlueprint,
     beatNarrativeContract: input.beatNarrativeContract,
+    panelId: input.panelId,
   });
   const shotType = deduceShotType(panel);
   const cameraAngle = deduceCameraAngle(panel);
@@ -76,8 +107,10 @@ export async function buildPanelContract(input: PanelContractInput): Promise<Pan
   });
   const mustNotShow = buildMustNotShow(shotType, input.sceneContext.location, sceneText);
 
-  const dialogueCount =
-    (panel.dialogues?.length ?? 0) + (panel.dialogue ? 1 : 0);
+  const bp = input.panelBlueprint;
+  const fromPanelCount = legacyStoryboardPanelDialogueLines(panel, input.panelId).length;
+  const fromBpCount = bp ? blueprintPrimaryDialogueLineCount(bp) : 0;
+  const dialogueCount = Math.max(fromPanelCount, fromBpCount);
   const textBoxPlan: PanelContract["textBoxPlan"] = {
     narration: Boolean(panel.narration),
     dialogueCount,
@@ -91,7 +124,6 @@ export async function buildPanelContract(input: PanelContractInput): Promise<Pan
   };
 
   // Merge premium blueprint fields if provided
-  const bp = input.panelBlueprint;
   const premiumFields: Partial<PanelContract> = bp
     ? {
         subjectFocus: bp.subjectFocus,
@@ -183,6 +215,7 @@ function deducePurpose(
   opts: {
     panelBlueprint?: PanelBlueprintPremium;
     beatNarrativeContract?: BeatNarrativeContract;
+    panelId?: string;
   } = {},
 ): PanelContract["purpose"] {
   const bpPurpose = opts.panelBlueprint?.purpose;
@@ -220,7 +253,8 @@ function deducePurpose(
   }
 
   // Structural, text-independent signals first.
-  if (panel.dialogue || (panel.dialogues?.length ?? 0) > 0) {
+  const pid = opts.panelId?.trim() || `panel-${panel.panelNumber}`;
+  if (legacyStoryboardPanelDialogueLines(panel, pid).length > 0) {
     return "dialogue";
   }
 

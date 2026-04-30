@@ -11,6 +11,6 @@ Ce dossier regroupe les **points d’entrée du pipeline narratif + génération
 ## Fichiers
 
 - `run-legacy-compatible-chapter-pipeline.ts` — orchestration legacy appelée par `run-full-chapter-pipeline.ts`.
-- `build-storyboard-plan-from-canonical-plan.ts` — pont **canonique → storyboard** (hors `PIPELINE_V3_PREMIUM_ONLY`) ; importé uniquement par `run-premium-v3-pipeline.ts` pour le chemin non–premium-only.
+- `build-storyboard-plan-from-canonical-plan.ts` — déplacé vers `../build-storyboard-plan-from-canonical-plan.ts` (P1.15 : le premium v3 ne doit pas importer `./legacy/`).
 
 Les passes elles-mêmes restent sous `../passes/` (volume / imports relatifs).

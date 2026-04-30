@@ -1,4 +1,4 @@
-import { buildSceneBlueprint } from "./scene-blueprint";
+import { buildSceneBlueprint } from "./legacy/scene-blueprint";
 import { runPropertyValidators } from "./property-validators";
 import { hashSeed } from "./seeded-rng";
 import type { SceneBlueprintQaCase, SceneBlueprintQaReport, SceneBlueprintInput } from "./types";

@@ -1,4 +1,5 @@
 import type { generateChapterBundle } from "@manga-ai-studio/ai";
+import { legacyDialogueLinesFromStoryboardPanelLike } from "@manga-ai-studio/core";
 
 type PipelineBundle = Awaited<ReturnType<typeof generateChapterBundle>>;
 
@@ -56,7 +57,30 @@ export function enforceBundleIntegrity(bundle: PipelineBundle): { bundle: Pipeli
     const normalizedPanels = originalPanels
       .slice(0, 6)
       .map((panel, panelIndex) => {
-        const speaker = panel.dialogue?.speaker?.trim();
+        const rawDialogue = panel.dialogue as unknown;
+        const dialogueLines =
+          Array.isArray(rawDialogue) && rawDialogue.length > 0
+            ? (rawDialogue as Array<{ speaker?: string; text: string }>)
+            : rawDialogue && typeof rawDialogue === "object" && !Array.isArray(rawDialogue) && "text" in rawDialogue
+              ? [rawDialogue as { speaker?: string; text: string }]
+              : null;
+        const lines = legacyDialogueLinesFromStoryboardPanelLike({
+          panelId: `page${pageIndex + 1}-p${panelIndex + 1}`,
+          textContract: (panel as Record<string, unknown>).textContract,
+          dialogue: dialogueLines,
+          dialogues:
+            (!dialogueLines || dialogueLines.length === 0) && Array.isArray(panel.dialogues) && panel.dialogues.length > 0
+              ? panel.dialogues
+              : null,
+          narration: typeof panel.narration === "string" ? panel.narration : null,
+          sfx: Array.isArray(panel.sfx)
+            ? (panel.sfx as string[]).map((s) => String(s).trim()).filter(Boolean)
+            : typeof panel.sfx === "string" && panel.sfx.trim()
+              ? [panel.sfx.trim()]
+              : null,
+          panelTextBundle: null,
+        });
+        const speaker = lines[0]?.speaker?.trim();
         const normalizedCharacters = [...new Set((panel.characters ?? []).filter(Boolean))];
         if (speaker && !/narrateur|narration/i.test(speaker)) {
           const hasSpeaker = normalizedCharacters.some((c) => c.toLowerCase() === speaker.toLowerCase());

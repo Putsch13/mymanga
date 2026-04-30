@@ -3,7 +3,7 @@
  * (sans persistance DB — prêt à être injecté dans des prompts ou garde-fous).
  */
 
-import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
+import { legacyDialogueLinesFromBlueprintPremium, type PanelBlueprintPremium } from "@manga-ai-studio/core";
 
 export function normalizeDialogueSnippet(text: string): string {
   return text
@@ -15,14 +15,17 @@ export function normalizeDialogueSnippet(text: string): string {
     .slice(0, 96);
 }
 
-/** Snippets uniques, ordre de parcours des blueprints. */
+/** Snippets uniques, ordre de parcours des blueprints (PR9 : priorité `textContract`). */
 export function collectDialogueSnippetsFromBlueprints(
-  blueprints: Pick<PanelBlueprintPremium, "dialogueLines">[],
+  blueprints: Pick<
+    PanelBlueprintPremium,
+    "panelId" | "dialogueLines" | "textContract" | "panelTextBundle" | "narrationText" | "sfxCues"
+  >[],
 ): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const bp of blueprints) {
-    for (const line of bp.dialogueLines ?? []) {
+    for (const line of legacyDialogueLinesFromBlueprintPremium(bp)) {
       const n = normalizeDialogueSnippet(line.text);
       if (n.length === 0 || seen.has(n)) continue;
       seen.add(n);

@@ -372,3 +372,31 @@ export function buildPanelTextContractFromFragments(input: {
   }));
   return createDialogueTextContract(pid, dialoguesFlat, { narration: narrationJoined, sfx: mergedSfx });
 }
+
+/** Champs texte blueprint alignés sur `PanelBlueprintPremium` (sans importer narrative-facts). */
+export type BlueprintTextFieldsLike = {
+  panelId: string;
+  dialogueLines?: ReadonlyArray<{ speaker?: string; text: string }> | null | undefined;
+  narrationText?: string | null;
+  sfxCues?: readonly string[] | null | undefined;
+  panelTextBundle?: Readonly<{
+    dialogues?: ReadonlyArray<{ speaker: string; text: string }> | null;
+    narration?: string | null;
+    sfx?: readonly string[] | null;
+  }> | null;
+};
+
+/**
+ * PR9 — Construit un `PanelTextContract` à partir des champs blueprint (source unique après merge).
+ */
+export function buildPanelTextContractFromBlueprintTextFields(
+  fields: BlueprintTextFieldsLike,
+): PanelTextContract {
+  return buildPanelTextContractFromFragments({
+    panelId: fields.panelId,
+    dialogueLines: fields.dialogueLines ?? null,
+    narration: fields.narrationText ?? null,
+    sfx: fields.sfxCues ? [...fields.sfxCues] : null,
+    panelTextBundle: fields.panelTextBundle ?? null,
+  });
+}

@@ -50,6 +50,7 @@ export type LoadedCharacterForPipeline = {
   speciesLabel?: string | null;
   dialogueMode?: string | null;
   recurrencePolicy?: string | null;
+  stableVisualDNA?: Record<string, unknown> | null;
 };
 
 export async function queueAutoLoraTrainingIfEligible(input: {

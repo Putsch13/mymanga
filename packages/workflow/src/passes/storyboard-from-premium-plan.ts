@@ -1,5 +1,11 @@
-import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
-import { PAGE_LAYOUT_CONFIGS, type PageLayoutTemplate } from "@manga-ai-studio/core";
+import {
+  PAGE_LAYOUT_CONFIGS,
+  requiredPropsToWorldPropsVisualDna,
+  legacyDialogueLinesFromBlueprintPremium,
+  resolvePanelTextContractFromBlueprintPremium,
+  type PageLayoutTemplate,
+  type PanelBlueprintPremium,
+} from "@manga-ai-studio/core";
 import { inferStoryboardPanelLayoutMeta } from "@manga-ai-studio/ai";
 import type {
   PanelPurpose,
@@ -395,9 +401,10 @@ export function buildStoryboardPlanFromPremiumBlueprints(args: {
         locationName: resolveBlueprintLocationName(bp, args.chapterLocationName),
         actionLine: bp.purpose,
         emotionLine: "",
-        dialogue: bp.dialogueLines ?? [],
+        dialogue: legacyDialogueLinesFromBlueprintPremium(bp),
         narration: bp.narrationText ?? null,
         sfx: bp.sfxCues ?? [],
+        textContract: resolvePanelTextContractFromBlueprintPremium(bp),
         mustShow: [
           ...bp.requiredProps.map((prop) => prop.canonicalName),
           ...extractNonLocationMustShow(bp, resolveBlueprintLocationName(bp, args.chapterLocationName)),
@@ -419,6 +426,7 @@ export function buildStoryboardPlanFromPremiumBlueprints(args: {
         continuityState: bp.continuityState ?? null,
         characterVisualDna: bp.characterVisualDna ?? [],
         npcVisualDna: bp.npcVisualDna ?? [],
+        worldPropsVisualDna: requiredPropsToWorldPropsVisualDna(bp.requiredProps ?? [], bp.beatId),
         environmentVisualDna: bp.environmentVisualDna ?? null,
       };
     });

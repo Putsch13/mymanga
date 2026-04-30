@@ -97,6 +97,9 @@ vi.mock("@manga-ai-studio/ai", () => ({
       locationId: "loc-mock",
       primaryPropIds: [] as string[],
       npcGroupIds: [] as string[],
+      creatureIds: [] as string[],
+      vehicleIds: [] as string[],
+      factionIds: [] as string[],
     })),
   })),
   inferNarrativeFactsFromBeat: inferNarrativeFactsFromBeatMock,
@@ -582,6 +585,7 @@ describe("chapter estimate route", () => {
         expect.objectContaining({
           premiumStrictChapterSourcing: true,
           suppressUniverseTemplateProps: true,
+          visualWorldContractActive: false,
           visualWorldPropsForBeat: expect.objectContaining({
             beat_1: expect.arrayContaining([
               expect.objectContaining({ canonicalName: "Clé du sanctuaire" }),

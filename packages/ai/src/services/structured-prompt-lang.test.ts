@@ -3,7 +3,7 @@ import {
   composePrioritizedPrompt,
   optimizePromptForFal,
   truncateByBudget,
-} from "./prompt-translator";
+} from "./structured-prompt-lang";
 
 describe("truncateByBudget", () => {
   it("preserves all segments when under budget", () => {

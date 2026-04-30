@@ -77,6 +77,26 @@ describe("runPreRenderPremiumQa — texte panel (contrat unique)", () => {
     expect(result.stats.hasDialogueOrSfx).toBe(true);
     expect(result.issues.find((i) => i.includes("action_chapter_without_dialogue"))).toBeUndefined();
   });
+
+  it("détecte un dialogue objet unique (hors tableau)", () => {
+    const plan = makePlan([
+      {
+        ...makePanel({
+          dialogue: { speaker: "Maya", text: "Maintenant !" } as unknown as StoryboardPanel["dialogue"],
+          actionLine: "Le combat s'intensifie.",
+        }),
+      } as StoryboardPanel,
+    ]);
+    const result = runPreRenderPremiumQa({
+      storyboardPlan: plan,
+      chapterSummary: "Combat et explosion sur le champ.",
+      chapterUserIntent: null,
+      chapterLocationName: null,
+      mainCharacterNames: [],
+    });
+    expect(result.stats.hasDialogueOrSfx).toBe(true);
+    expect(result.issues.find((i) => i.includes("action_chapter_without_dialogue"))).toBeUndefined();
+  });
 });
 
 describe("runPreRenderPremiumQaOrThrow — repeated prompts repair", () => {

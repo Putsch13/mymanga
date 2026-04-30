@@ -18,6 +18,7 @@
  *     chapter-visual-memory : jamais referencePolicy NONE)
  */
 
+import type { NpcVisualDna, VisualWorldPropDna } from "@manga-ai-studio/core";
 import type { ChapterStyleBible } from "./chapter-style-bible";
 import type {
   PanelPurpose,
@@ -38,6 +39,22 @@ export interface PanelRenderCharacterVisualDna {
   hairStyle?: string | null;
   skinTone?: string | null;
   outfitSignature?: string | null;
+  /** Extrait `stableVisualDNA` / configurateur (déjà plafonné côté core). */
+  visualCanonExcerpt?: string | null;
+  perceivedAge?: string | null;
+  silhouetteType?: string | null;
+  distinctiveMarksLine?: string | null;
+  accessoriesLine?: string | null;
+  /** Traits configurateur additionnels (PR7 / PR8) — prompt minimal avec plafond dédié. */
+  faceShape?: string | null;
+  eyeShape?: string | null;
+  eyeSize?: string | null;
+  eyebrowStyle?: string | null;
+  hairLength?: string | null;
+  hairTexture?: string | null;
+  noseStyle?: string | null;
+  mouthStyle?: string | null;
+  jawline?: string | null;
 }
 
 export interface PanelRenderVisibleCharacter {
@@ -176,6 +193,13 @@ export interface PanelRenderSpec {
   mandatoryVisibleEntities?: string[];
   /** ADN décor / lieu résolu depuis la mémoire visuelle. */
   environmentDNA?: Record<string, unknown> | null;
+  /**
+   * PNJ visibles / monde (storyboard → render spec, issu du VisualWorldContract / studio).
+   * Consommé par le prompt minimal (plafonné) en complément des héros `visibleCharacters`.
+   */
+  npcVisualDna?: NpcVisualDna[] | null;
+  /** Props monde / beat (VW + `RequiredProp` mappés) pour le prompt image. */
+  worldPropsVisualDna?: VisualWorldPropDna[] | null;
   /** Lien explicite vers le rendu du panel précédent. */
   previousPanelRef?: PanelRenderPreviousPanelRef | null;
   /** Dialogue, narration, SFX du storyboard pour le rendu / logs. */

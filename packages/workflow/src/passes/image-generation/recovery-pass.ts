@@ -20,7 +20,7 @@ import { runRoutedImageGeneration, type StoryboardPanel } from "@manga-ai-studio
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { persistImageIfNeeded } from "../../pipeline-image-persistence";
 import { setJobProgress } from "../../pipeline-job";
-import type { StableImageReference } from "@manga-ai-studio/core";
+import { type StableImageReference, stripLegacyPanelTextFieldsWhenContractPresent } from "@manga-ai-studio/core";
 import { buildStableImageReference, resolveStableImageReferences } from "../../stable-image-refs";
 
 type PlannedImage = {
@@ -175,7 +175,7 @@ export async function runRecoveryPass(params: RecoveryParams): Promise<RecoveryR
             provider: recoveryResult.result.provider,
             model: recoveryResult.result.model,
             failureReason: null,
-            metadata: ({
+            metadata: stripLegacyPanelTextFieldsWhenContractPresent({
               ...failedShot.item.baseMetadata,
               recoveryPass: true,
               recoveryRefsUsed: recoveryRefUrls.length,
@@ -186,7 +186,7 @@ export async function runRecoveryPass(params: RecoveryParams): Promise<RecoveryR
               mimeType: persisted.persisted ? persisted.mimeType : null,
               debugSourceUrl: persisted.debugSourceUrl,
               sourceUrl: recoveryResult.result.imageUrl,
-            } as unknown) as Prisma.InputJsonValue,
+            }) as unknown as Prisma.InputJsonValue,
           },
         });
       }

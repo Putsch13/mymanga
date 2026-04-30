@@ -4,6 +4,7 @@
  */
 
 import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
+import { syncBlueprintTextContractFromTextFragments } from "@manga-ai-studio/core";
 
 function splitSentences(text: string): string[] {
   const t = text.trim();
@@ -18,6 +19,7 @@ function syncBundleNarration(bp: PanelBlueprintPremium): void {
     ...(bp.panelTextBundle ?? {}),
     narration: bp.narrationText,
   };
+  syncBlueprintTextContractFromTextFragments(bp);
 }
 
 /**

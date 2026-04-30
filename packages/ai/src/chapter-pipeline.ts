@@ -514,7 +514,10 @@ export async function generateChapterBundle(input: {
   visualWorldContract?: VisualWorldContract | null;
   /**
    * Premium (`PIPELINE_V3_PREMIUM_ONLY`) : par défaut **interdit** l’heuristique `legacyInferLocationPoolStrings`
-   * sans `visualWorldContract` peuplé — sauf si `true` (bootstrap estimate / pipeline avant composition VW).
+   * sans `visualWorldContract` peuplé — sauf si `true` (bootstrap estimate / job avant composition VW).
+   *
+   * **Après** composition VW : passer `false` (ou omettre, défaut = `false` en premium) pour que chaque beat
+   * utilise `selectBeatLocationFromVisualWorld` (strict) au lieu du chemin relâché `beatLocationSceneStringFromVisualWorld`.
    */
   allowLegacyLocationInference?: boolean;
 }): Promise<GeneratedChapterBundle> {

@@ -5,7 +5,14 @@
 
 import type { NpcVisualDna } from "../types/generation-debug-snapshot";
 import type { PanelBlueprintPremium, RequiredProp } from "../types/narrative-facts";
-import type { VisualWorldContract, VisualWorldNpcGroup, VisualWorldPropDna } from "../visual-world/visual-world-contract";
+import type {
+  CreatureVisualDna,
+  FactionVisualDna,
+  VehicleVisualDna,
+  VisualWorldContract,
+  VisualWorldNpcGroup,
+  VisualWorldPropDna,
+} from "../visual-world/visual-world-contract";
 
 export type HydrateBlueprintsWithVisualWorldNpcPropInput = {
   blueprints: PanelBlueprintPremium[];
@@ -21,6 +28,36 @@ function npcGroupToVisualDna(g: VisualWorldNpcGroup): NpcVisualDna {
     category: g.role,
     visualMarkers: markers,
     forbiddenDrift: undefined,
+  };
+}
+
+function creatureToNpcDna(c: CreatureVisualDna): NpcVisualDna {
+  return {
+    continuityId: c.id,
+    displayName: c.label,
+    category: "creature",
+    visualMarkers: [c.visualDescription.trim()],
+  };
+}
+
+function vehicleToNpcDna(v: VehicleVisualDna): NpcVisualDna {
+  return {
+    continuityId: v.id,
+    displayName: v.label,
+    category: "vehicle",
+    visualMarkers: [v.visualDescription.trim()],
+  };
+}
+
+function factionToNpcDna(f: FactionVisualDna): NpcVisualDna {
+  const markers = [...f.visualMarkers.map((s) => s.trim()).filter(Boolean), f.label.trim()].filter(
+    (s, i, a) => a.indexOf(s) === i,
+  );
+  return {
+    continuityId: f.id,
+    displayName: f.label,
+    category: "faction",
+    visualMarkers: markers.length > 0 ? markers : [f.label],
   };
 }
 
@@ -65,6 +102,19 @@ function npcIdsForBeat(vw: VisualWorldContract, beatId: string, bindingNpcIds: s
   return [...set];
 }
 
+/** Ids liés au beat : explicites sur `beatBinding` + entités dont `requiredBeatIds` contient ce beat. */
+function linkedEntityIdsForBeat<T extends { id: string; requiredBeatIds: string[] }>(
+  entities: readonly T[],
+  beatId: string,
+  bindingIds: readonly string[],
+): string[] {
+  const set = new Set<string>(bindingIds);
+  for (const e of entities) {
+    if (e.requiredBeatIds.includes(beatId)) set.add(e.id);
+  }
+  return [...set];
+}
+
 function mergeNpcDna(existing: NpcVisualDna[] | undefined, added: NpcVisualDna[]): NpcVisualDna[] {
   const byId = new Map((existing ?? []).map((d) => [d.continuityId ?? d.displayName ?? "", { ...d }]));
   for (const d of added) {
@@ -94,16 +144,34 @@ export function hydrateBlueprintsWithVisualWorldNpcAndProps(
   const vw = input.visualWorld;
   const npcById = new Map(vw.npcGroups.map((g) => [g.id, g]));
   const propById = new Map(vw.props.map((p) => [p.id, p]));
+  const creatureById = new Map(vw.creatures.map((c) => [c.id, c]));
+  const vehicleById = new Map(vw.vehicles.map((v) => [v.id, v]));
+  const factionById = new Map(vw.factions.map((f) => [f.id, f]));
 
   return input.blueprints.map((bp) => {
     const bb = bindingForBeat(vw, bp.beatId);
     const npcIds = npcIdsForBeat(vw, bp.beatId, bb?.npcGroupIds ?? []);
     const propIds = propIdsForBeat(vw, bp.beatId, bb?.primaryPropIds ?? []);
+    const creatureIds = linkedEntityIdsForBeat(vw.creatures, bp.beatId, bb?.creatureIds ?? []);
+    const vehicleIds = linkedEntityIdsForBeat(vw.vehicles, bp.beatId, bb?.vehicleIds ?? []);
+    const factionIds = linkedEntityIdsForBeat(vw.factions, bp.beatId, bb?.factionIds ?? []);
 
     const npcDnas: NpcVisualDna[] = [];
     for (const id of npcIds) {
       const g = npcById.get(id);
       if (g) npcDnas.push(npcGroupToVisualDna(g));
+    }
+    for (const id of creatureIds) {
+      const c = creatureById.get(id);
+      if (c) npcDnas.push(creatureToNpcDna(c));
+    }
+    for (const id of vehicleIds) {
+      const v = vehicleById.get(id);
+      if (v) npcDnas.push(vehicleToNpcDna(v));
+    }
+    for (const id of factionIds) {
+      const f = factionById.get(id);
+      if (f) npcDnas.push(factionToNpcDna(f));
     }
 
     const reqProps: RequiredProp[] = [];

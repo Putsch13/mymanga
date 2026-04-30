@@ -52,6 +52,8 @@ export type ProjectContextForChapter = {
   locations?: Array<{
     id?: string;
     name: string;
+    /** Clé stable cross-chapitres (Prisma `Location.slug`). */
+    slug?: string | null;
     type?: string | null;
     description?: string | null;
     aliases?: string[];
@@ -61,6 +63,8 @@ export type ProjectContextForChapter = {
     visualRefs?: unknown;
     metadata?: Record<string, unknown> | null;
     canonLocked?: boolean;
+    parentLocationId?: string | null;
+    firstSeenChapterId?: string | null;
   }>;
   intentEntities?: Array<{
     name: string;
@@ -92,6 +96,8 @@ export type ProjectContextForChapter = {
     wardrobeProfile?: Record<string, unknown>;
     visualProfile?: Record<string, unknown>;
     continuityProfile?: Record<string, unknown>;
+    /** Traits visuels verrouillés (configurateur / studio). */
+    stableVisualDNA?: Record<string, unknown> | null;
     entityKind?: string | null;
     speciesLabel?: string | null;
     dialogueMode?: string | null;

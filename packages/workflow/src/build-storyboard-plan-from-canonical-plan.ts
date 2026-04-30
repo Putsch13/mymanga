@@ -2,6 +2,8 @@
  * Storyboard déterministe : les blueprints narratifs viennent du plan de production
  * enrichi (`productionPlanShell.panelBlueprints`) quand présents ; le plan canonique
  * ne sert qu'à aligner rythme, IDs et pagination via `mergeRawBlueprintsWithCanonicalRhythm`.
+ *
+ * (Hors `legacy/` — utilisé par le chemin premium v3 ; P1.15 audit:legacy.)
  */
 
 import type { CanonicalChapterProductionPlan, PanelBlueprintPremium } from "@manga-ai-studio/core";
@@ -9,7 +11,7 @@ import { mergeRawBlueprintsWithCanonicalRhythm } from "@manga-ai-studio/core";
 import {
   buildStoryboardPlanFromApprovedProductionPlan,
   type BuildStoryboardPlanFromApprovedProductionPlanInput,
-} from "../build-storyboard-plan-from-approved-production-plan";
+} from "./build-storyboard-plan-from-approved-production-plan";
 
 export interface BuildStoryboardPlanFromCanonicalPlanInput
   extends Omit<BuildStoryboardPlanFromApprovedProductionPlanInput, "productionPlan"> {

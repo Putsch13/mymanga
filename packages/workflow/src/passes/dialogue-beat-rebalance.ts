@@ -8,12 +8,17 @@ import {
   type DialogueStyleProfile,
 } from "@manga-ai-studio/ai";
 import type { CutawayType, PanelBlueprintPremium, PanelTextBundle, ProductionOutline } from "@manga-ai-studio/core";
+import {
+  blueprintPrimaryDialogueLineCount,
+  legacyDialogueLinesFromBlueprintPremium,
+  syncBlueprintTextContractFromTextFragments,
+} from "@manga-ai-studio/core";
 import { blueprintTextBlob } from "./premium-manga-cutaway";
 import type { VisualEntity } from "./visual-entity-registry";
 import { pickPrimaryActorForBeat } from "./visual-entity-registry";
 
 export function isDialogueBeatPanel(bp: PanelBlueprintPremium): boolean {
-  if ((bp.dialogueLines?.length ?? 0) > 0) return true;
+  if (blueprintPrimaryDialogueLineCount(bp) > 0) return true;
   const purpose = String(bp.purpose ?? "").toLowerCase();
   const blob = blueprintTextBlob(bp);
   if (purpose.includes("dialogue")) return true;
@@ -99,15 +104,20 @@ function convertPanelToListenerReactionPanel(
 function ensureTextAnchorOnBeat(beatPanels: PanelBlueprintPremium[]): void {
   const target = pickConvertiblePanel(beatPanels);
   if (!target) return;
+  const dlg =
+    target.dialogueLines?.length
+      ? target.dialogueLines.map((l) => ({ speaker: l.speaker, text: l.text }))
+      : legacyDialogueLinesFromBlueprintPremium(target).map((l) => ({ speaker: l.speaker, text: l.text }));
   const bundle: PanelTextBundle = {
     ...(target.panelTextBundle ?? {}),
-    dialogues: target.dialogueLines?.map((l) => ({ speaker: l.speaker, text: l.text })),
+    dialogues: dlg.length > 0 ? dlg : undefined,
     narration: target.narrationText ?? null,
     reservedZones: [...(target.panelTextBundle?.reservedZones ?? []), "bottom_band", "side_margin"],
     preferredAnchorZones: ["near_speaker_head"],
     overflowStrategy: "caption_strip",
   };
   target.panelTextBundle = bundle;
+  syncBlueprintTextContractFromTextFragments(target);
   target.notes = [...(target.notes ?? []), "forced_reserved_text_zones"];
 }
 
@@ -355,12 +365,13 @@ export function ensureDialogueAndSfxForPremiumBlueprints(input: EnsureDialogueAn
       combatSfxAdded += 1;
     }
 
-    if (isDialogueBeatPanel(bp) && (!bp.dialogueLines || bp.dialogueLines.length === 0)) {
+    if (isDialogueBeatPanel(bp) && blueprintPrimaryDialogueLineCount(bp) === 0) {
       const match = extractedDialogues.find((d) =>
         bp.purpose.toLowerCase().includes(d.speaker.toLowerCase()),
       );
       if (match) {
         bp.dialogueLines = [{ speaker: match.speaker, text: match.text }];
+        syncBlueprintTextContractFromTextFragments(bp);
         bp.notes = [...(bp.notes ?? []), "auto_dialogue_from_intent"];
         dialogueEnriched += 1;
       }
@@ -369,7 +380,7 @@ export function ensureDialogueAndSfxForPremiumBlueprints(input: EnsureDialogueAn
     const beatSummary = beatSummaryById.get(bp.beatId) ?? normalizeBeatText(input.chapterSummary ?? "");
     if (
       !isCutawayPanel(bp)
-      && (!bp.dialogueLines || bp.dialogueLines.length === 0)
+      && blueprintPrimaryDialogueLineCount(bp) === 0
       && !bp.narrationText
       && beatSummary
     ) {
@@ -390,12 +401,14 @@ export function ensureDialogueAndSfxForPremiumBlueprints(input: EnsureDialogueAn
         if (contextual.mode === "dialogue" && contextual.text) {
           bp.dialogueLines = [{ speaker: contextual.speaker ?? "", text: contextual.text }];
           bp.dialogueLinesAnchored = Math.max(1, bp.dialogueLinesAnchored ?? 0);
+          syncBlueprintTextContractFromTextFragments(bp);
           bp.notes = [...(bp.notes ?? []), "auto_dialogue_from_beat_context"];
           dialogueEnriched += 1;
           continue;
         }
         if (contextual.mode === "thought" && contextual.text) {
           bp.narrationText = contextual.text;
+          syncBlueprintTextContractFromTextFragments(bp);
           bp.notes = [...(bp.notes ?? []), "auto_thought_from_beat_context"];
           narrativeContextAdded += 1;
           continue;
@@ -404,6 +417,7 @@ export function ensureDialogueAndSfxForPremiumBlueprints(input: EnsureDialogueAn
           bp.narrationText = contextual.text;
           const bundle = ensureTextBundle(bp);
           bundle.narration = contextual.text;
+          syncBlueprintTextContractFromTextFragments(bp);
           bp.notes = [...(bp.notes ?? []), "auto_narration_from_beat_context"];
           narrativeContextAdded += 1;
           continue;
@@ -413,6 +427,7 @@ export function ensureDialogueAndSfxForPremiumBlueprints(input: EnsureDialogueAn
         if (inferred) {
           bp.dialogueLines = [inferred];
           bp.dialogueLinesAnchored = Math.max(1, bp.dialogueLinesAnchored ?? 0);
+          syncBlueprintTextContractFromTextFragments(bp);
           bp.notes = [...(bp.notes ?? []), "auto_dialogue_from_beat_summary"];
           dialogueEnriched += 1;
           continue;
@@ -423,6 +438,7 @@ export function ensureDialogueAndSfxForPremiumBlueprints(input: EnsureDialogueAn
       bp.narrationText = narration;
       const bundle = ensureTextBundle(bp);
       bundle.narration = narration;
+      syncBlueprintTextContractFromTextFragments(bp);
       bp.notes = [...(bp.notes ?? []), "auto_narrative_context_from_beat_summary"];
       narrativeContextAdded += 1;
     }

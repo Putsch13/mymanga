@@ -8,9 +8,19 @@ describe("dialogue-memory", () => {
   });
 
   it("collecte les snippets uniques", () => {
-    const bps: Pick<PanelBlueprintPremium, "dialogueLines">[] = [
-      { dialogueLines: [{ speaker: "A", text: "Bonjour." }] },
-      { dialogueLines: [{ speaker: "B", text: "Bonjour." }, { speaker: "B", text: "Suite." }] },
+    const bps: Pick<
+      PanelBlueprintPremium,
+      "panelId" | "dialogueLines" | "textContract" | "panelTextBundle" | "narrationText" | "sfxCues"
+    >[] = [
+      { panelId: "p1", dialogueLines: [{ speaker: "A", text: "Bonjour." }], textContract: null, panelTextBundle: null, narrationText: null, sfxCues: undefined },
+      {
+        panelId: "p2",
+        dialogueLines: [{ speaker: "B", text: "Bonjour." }, { speaker: "B", text: "Suite." }],
+        textContract: null,
+        panelTextBundle: null,
+        narrationText: null,
+        sfxCues: undefined,
+      },
     ];
     expect(collectDialogueSnippetsFromBlueprints(bps)).toEqual(["bonjour.", "suite."]);
   });

@@ -314,14 +314,18 @@ export async function buildProjectContext(
     select: {
       id: true,
       name: true,
+      slug: true,
       type: true,
       description: true,
+      aliases: true,
       metadata: true,
       visualBrief: true,
       establishedVisualBrief: true,
       canonImageUrl: true,
       visualRefs: true,
       canonLocked: true,
+      parentId: true,
+      firstSeenChapterId: true,
     },
   }).catch(() => []);
 
@@ -389,14 +393,20 @@ export async function buildProjectContext(
         ? (location.metadata as Record<string, unknown>)
         : {};
       const metaVisualBrief = typeof raw.visualBrief === "string" ? raw.visualBrief : null;
+      const prismaAliases = Array.isArray(location.aliases)
+        ? (location.aliases as unknown[]).filter((item): item is string => typeof item === "string")
+        : [];
+      const metaAliases = Array.isArray(raw.aliases)
+        ? raw.aliases.filter((item): item is string => typeof item === "string")
+        : [];
+      const aliases = [...new Set([...prismaAliases, ...metaAliases])];
       return {
         id: location.id,
         name: location.name,
+        slug: location.slug ?? null,
         type: location.type,
         description: location.description,
-        aliases: Array.isArray(raw.aliases)
-          ? raw.aliases.filter((item): item is string => typeof item === "string")
-          : [],
+        aliases,
         visualBrief: typeof location.visualBrief === "string" && location.visualBrief.trim().length > 0
           ? location.visualBrief
           : metaVisualBrief
@@ -406,6 +416,8 @@ export async function buildProjectContext(
         visualRefs: location.visualRefs,
         metadata: raw as Record<string, unknown>,
         canonLocked: location.canonLocked,
+        parentLocationId: location.parentId ?? null,
+        firstSeenChapterId: location.firstSeenChapterId ?? null,
       };
     }),
     characters: orderedCharacters.map((c) => {
@@ -462,6 +474,12 @@ export async function buildProjectContext(
         recurrencePolicy:
           raw.continuityProfile && typeof raw.continuityProfile === "object" && typeof (raw.continuityProfile as Record<string, unknown>).recurrencePolicy === "string"
             ? ((raw.continuityProfile as Record<string, unknown>).recurrencePolicy as string)
+            : null,
+        stableVisualDNA:
+          raw.stableVisualDNA !== null
+          && typeof raw.stableVisualDNA === "object"
+          && !Array.isArray(raw.stableVisualDNA)
+            ? (raw.stableVisualDNA as Record<string, unknown>)
             : null,
       };
     }),

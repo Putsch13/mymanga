@@ -1,5 +1,5 @@
 import type { GenerateImageInput, GenerateImageResult } from "../types";
-import { optimizePromptForFal } from "../services/prompt-translator";
+import { optimizePromptForFal } from "../services/structured-prompt-lang";
 import { createFalJobClient, type FalJobClientInput } from "../services/fal-job-client";
 
 export const FAL_MODEL_TEXT = "fal-ai/flux/dev";

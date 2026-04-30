@@ -8,7 +8,7 @@ import {
   resolvePremiumImageSize,
   detectVisualDrift,
 } from "@manga-ai-studio/ai";
-import { readShotPlanEnumsFromJson } from "@manga-ai-studio/core";
+import { readShotPlanEnumsFromJson, stripLegacyPanelTextFieldsWhenContractPresent } from "@manga-ai-studio/core";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { canAccessMatureContent, canBypassMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
 import { notFound, unauthorized, validationError } from "@/lib/api-response";
@@ -536,11 +536,11 @@ export async function POST(req: Request, ctx: Ctx) {
     where: { id: img.id },
     data: {
       status: "pending",
-      metadata: ({
+      metadata: stripLegacyPanelTextFieldsWhenContractPresent({
         ...metadata,
         retryRequestedAt: new Date().toISOString(),
         ...(nextUserOverride ? { userOverride: nextUserOverride } : {}),
-      } as unknown) as Prisma.InputJsonValue,
+      } as Record<string, unknown>) as unknown as Prisma.InputJsonValue,
     },
   });
 

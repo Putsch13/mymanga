@@ -16,6 +16,7 @@
 import type {
   PanelRenderSpec,
   PanelRenderVisibleCharacter,
+  PanelRenderCharacterVisualDna,
 } from "../contracts/panel-render-spec";
 
 export interface BuiltPromptResult {
@@ -39,6 +40,9 @@ const MAX_LENGTH = 1200;
 const ENV_DNA_CAPS = {
   descriptionChars: 200,
   visualAnchors: 3,
+  /** Voir `LocationVisualDna.architecture` / hints persistés sur décor. */
+  architecture: 3,
+  atmosphere: 2,
   lighting: 2,
   recurringProps: 3,
   negativeConstraints: 2,
@@ -78,6 +82,8 @@ function firstDnaStringList(
 
 /**
  * Suffixe décor contrôlé depuis `spec.environmentDNA` (clés camelCase ou snake_case).
+ * Inclut architecture / atmosphère issus du monde visuel ou du canon lieu, avec plafonds
+ * (aligné roadmap : pas d’explosion de longueur prompt).
  */
 export function formatEnvironmentDnaForPrompt(
   dna: Record<string, unknown> | null | undefined,
@@ -97,19 +103,44 @@ export function formatEnvironmentDnaForPrompt(
   );
   if (anchors.length) parts.push(`Anchors: ${anchors.join("; ")}.`);
 
-  const lighting = firstDnaStringList(dna, ["lighting", "lightingNotes", "light"], ENV_DNA_CAPS.lighting);
+  const architecture = firstDnaStringList(
+    dna,
+    ["architectureHints", "architecture", "permanentArchitecture", "architecture_hints"],
+    ENV_DNA_CAPS.architecture,
+  );
+  if (architecture.length) parts.push(`Arch: ${architecture.join("; ")}.`);
+
+  const atmosphere = firstDnaStringList(
+    dna,
+    ["atmosphere", "atmosphericNotes", "atmospheric_notes"],
+    ENV_DNA_CAPS.atmosphere,
+  );
+  if (atmosphere.length) parts.push(`Atmos: ${atmosphere.join("; ")}.`);
+
+  const lighting = firstDnaStringList(
+    dna,
+    ["lighting", "lightingNotes", "light", "lightingHints", "lighting_hints"],
+    ENV_DNA_CAPS.lighting,
+  );
   if (lighting.length) parts.push(`Light: ${lighting.join("; ")}.`);
 
   const props = firstDnaStringList(
     dna,
-    ["recurringProps", "recurring_props", "props"],
+    ["recurringProps", "recurring_props", "props", "propAnchors", "prop_anchors"],
     ENV_DNA_CAPS.recurringProps,
   );
   if (props.length) parts.push(`Props: ${props.join("; ")}.`);
 
   const negs = firstDnaStringList(
     dna,
-    ["negativeConstraints", "negative_constraints", "negatives", "avoid"],
+    [
+      "negativeConstraints",
+      "negative_constraints",
+      "negatives",
+      "avoid",
+      "forbiddenDrift",
+      "forbidden_drift",
+    ],
     ENV_DNA_CAPS.negativeConstraints,
   );
   if (negs.length) parts.push(`Avoid: ${negs.join("; ")}.`);
@@ -117,6 +148,110 @@ export function formatEnvironmentDnaForPrompt(
   const joined = parts.join(" ").trim();
   if (!joined) return "";
   return joined.length > ENV_DNA_CAPS.totalChars ? joined.slice(0, ENV_DNA_CAPS.totalChars) : joined;
+}
+
+/** Entités monde (créature / véhicule / faction) en tête pour ne pas les perdre derrière des PNJ crowd. */
+const NPC_PROMPT_MAX = 4;
+const NPC_MARKER_MAX_PER_NPC = 2;
+const NPC_VISUAL_PROMPT_CHARS = 300;
+
+const WORLD_PROP_PROMPT_MAX = 2;
+const WORLD_PROP_DESC_CHARS = 100;
+const WORLD_PROP_TOTAL_CHARS = 200;
+
+/**
+ * Props monde / beat (`VisualWorldPropDna` / `RequiredProp` mappés).
+ */
+export function formatWorldPropsVisualDnaForPrompt(spec: PanelRenderSpec): string {
+  const list = spec.worldPropsVisualDna;
+  if (!Array.isArray(list) || list.length === 0) return "";
+  const chunks: string[] = [];
+  for (const p of list.slice(0, WORLD_PROP_PROMPT_MAX)) {
+    const name = normalizePromptClause(p.canonicalName) || "object";
+    const desc = normalizePromptClause(p.visualDescription).slice(0, WORLD_PROP_DESC_CHARS);
+    const bit = desc && desc.toLowerCase() !== name.toLowerCase() ? `${name} (${desc})` : name;
+    chunks.push(bit);
+  }
+  if (!chunks.length) return "";
+  let s = `Key props: ${chunks.join(" | ")}.`;
+  if (s.length > WORLD_PROP_TOTAL_CHARS) {
+    s = `${s.slice(0, WORLD_PROP_TOTAL_CHARS - 1)}…`;
+  }
+  return s;
+}
+
+function npcWorldPresenceSortKey(category: string | null | undefined): number {
+  const c = (category ?? "").trim().toLowerCase();
+  if (c === "creature") return 0;
+  if (c === "vehicle") return 1;
+  if (c === "faction") return 2;
+  return 3;
+}
+
+function worldEntityKindLabel(category: string | null | undefined): "Creature" | "Vehicle" | "Faction" | null {
+  const c = (category ?? "").trim().toLowerCase();
+  if (c === "creature") return "Creature";
+  if (c === "vehicle") return "Vehicle";
+  if (c === "faction") return "Faction";
+  return null;
+}
+
+/**
+ * Figures monde hors cast principal (`npcVisualDna`) : PNJ de groupe, créatures,
+ * véhicules, factions (issus du VisualWorldContract, hydratation blueprint).
+ * Texte court pour le bloc ENVIRONMENT ; plafonné. Les créatures / véhicules /
+ * factions passent avant les PNJ crowd pour le budget caractères.
+ */
+export function formatNpcVisualDnaForPrompt(spec: PanelRenderSpec): string {
+  const list = spec.npcVisualDna;
+  if (!Array.isArray(list) || list.length === 0) return "";
+  const sorted = [...list].sort(
+    (a, b) => npcWorldPresenceSortKey(a.category) - npcWorldPresenceSortKey(b.category),
+  );
+  const chunks: string[] = [];
+  for (const n of sorted.slice(0, NPC_PROMPT_MAX)) {
+    const name =
+      normalizePromptClause(n.displayName ?? "")
+      || normalizePromptClause(String(n.continuityId ?? "").replace(/^npc[-_]?/i, ""))
+      || "figure";
+    const cat = normalizePromptClause(n.category ?? "");
+    const markers = Array.isArray(n.visualMarkers)
+      ? n.visualMarkers
+          .map((m) => normalizePromptClause(String(m)))
+          .filter(Boolean)
+          .slice(0, NPC_MARKER_MAX_PER_NPC)
+          .join(", ")
+      : "";
+    const kind = worldEntityKindLabel(n.category);
+    let line: string;
+    if (kind) {
+      const tail = markers ? `${name} (${markers})` : name;
+      line = `${kind}: ${tail}`;
+    } else {
+      const bits = [name, cat || null, markers || null].filter(Boolean) as string[];
+      line = bits.join("; ");
+    }
+    if (line.trim()) chunks.push(line);
+  }
+  if (!chunks.length) return "";
+  let s = `World presence: ${chunks.join(" | ")}.`;
+  if (s.length > NPC_VISUAL_PROMPT_CHARS) {
+    s = `${s.slice(0, NPC_VISUAL_PROMPT_CHARS - 1)}…`;
+  }
+  return s;
+}
+
+/** Suffixe décor : `environmentDNA` + props beat + présence monde (PNJ / créatures / véhicules / factions, PR6–PR7). */
+function buildDecorDnaAndNpcSuffix(spec: PanelRenderSpec): string {
+  const dnaRaw = formatEnvironmentDnaForPrompt(spec.environmentDNA);
+  const propRaw = formatWorldPropsVisualDnaForPrompt(spec);
+  const npcRaw = formatNpcVisualDnaForPrompt(spec);
+  const parts: string[] = [];
+  if (dnaRaw) parts.push(`DNA: ${dnaRaw}`);
+  if (propRaw) parts.push(propRaw);
+  if (npcRaw) parts.push(npcRaw);
+  if (!parts.length) return "";
+  return ` ${parts.join(" ")}`;
 }
 
 export function buildMinimalPanelPrompt(spec: PanelRenderSpec): BuiltPromptResult {
@@ -198,8 +333,7 @@ export function buildPromptSubjectBlock(spec: PanelRenderSpec): string {
 }
 
 export function buildPromptEnvironmentBlock(spec: PanelRenderSpec): string {
-  const dnaRaw = formatEnvironmentDnaForPrompt(spec.environmentDNA);
-  const dnaSuffix = dnaRaw.length > 0 ? ` DNA: ${dnaRaw}` : "";
+  const decorSuffix = buildDecorDnaAndNpcSuffix(spec);
   const rawLoc = typeof spec.locationName === "string" ? spec.locationName.trim() : "";
   const envLock = spec.continuityLocks.environmentLocks
     .map(normalizePromptClause)
@@ -225,7 +359,7 @@ export function buildPromptEnvironmentBlock(spec: PanelRenderSpec): string {
     const lockLine = environmentLocks.length > 0
       ? ` Continuity cues: ${environmentLocks.join("; ")}.`
       : "";
-    return `ENVIRONMENT: blurred / simplified ${environmentAnchor}, focus entirely on object.${lockLine}${dnaSuffix}`;
+    return `ENVIRONMENT: blurred / simplified ${environmentAnchor}, focus entirely on object.${lockLine}${decorSuffix}`;
   }
   if (
     spec.renderMode === "reaction_closeup" ||
@@ -237,24 +371,24 @@ export function buildPromptEnvironmentBlock(spec: PanelRenderSpec): string {
     const lockLine = environmentLocks.length > 0
       ? ` Continuity cues remain readable: ${environmentLocks.join("; ")}.`
       : "";
-    return `ENVIRONMENT: ${environmentAnchor}, shallow depth, ${densityHint} kept soft behind subject.${lockLine}${dnaSuffix}`;
+    return `ENVIRONMENT: ${environmentAnchor}, shallow depth, ${densityHint} kept soft behind subject.${lockLine}${decorSuffix}`;
   }
   if (spec.renderMode === "threat_silhouette") {
     const lockLine = environmentLocks.length > 0
       ? ` Continuity cues: ${environmentLocks.join("; ")}.`
       : "";
-    return `ENVIRONMENT: ${environmentAnchor}, backlit atmosphere, strong contre-jour, subject reduced to shape.${lockLine}${dnaSuffix}`;
+    return `ENVIRONMENT: ${environmentAnchor}, backlit atmosphere, strong contre-jour, subject reduced to shape.${lockLine}${decorSuffix}`;
   }
   if (spec.renderMode === "aftermath_dialogue") {
     const lockLine = environmentLocks.length > 0
       ? ` Continuity cues: ${environmentLocks.join("; ")}.`
       : "";
-    return `ENVIRONMENT: ${environmentAnchor}, subdued lighting post-event, debris or altered state visible in background.${lockLine}${dnaSuffix}`;
+    return `ENVIRONMENT: ${environmentAnchor}, subdued lighting post-event, debris or altered state visible in background.${lockLine}${decorSuffix}`;
   }
   const lockLine = environmentLocks.length > 0
     ? ` Continuity cues: ${environmentLocks.join("; ")}.`
     : "";
-  return `ENVIRONMENT: ${environmentAnchor}, ${densityHint}, consistent with chapter continuity.${lockLine}${dnaSuffix}`;
+  return `ENVIRONMENT: ${environmentAnchor}, ${densityHint}, consistent with chapter continuity.${lockLine}${decorSuffix}`;
 }
 
 export function buildPromptShotBlock(spec: PanelRenderSpec): string {
@@ -298,10 +432,36 @@ export function buildPromptActionBlock(spec: PanelRenderSpec): string {
   return parts.join(" ");
 }
 
+const LORA_PROMPT_MAX_BINDINGS = 3;
+const LORA_PROMPT_MAX_CHARS = 140;
+
+/**
+ * Trigger words LoRA pour le prompt positif (URLs réservées au routeur FAL).
+ * Plafonné pour ne pas saturer le budget STYLE.
+ */
+export function formatLoraBindingsForPrompt(spec: PanelRenderSpec): string {
+  const list = spec.loraBindings;
+  if (!Array.isArray(list) || list.length === 0) return "";
+  const bits: string[] = [];
+  for (const b of list.slice(0, LORA_PROMPT_MAX_BINDINGS)) {
+    const tw = normalizePromptClause(b.triggerWord);
+    const nm = normalizePromptClause(b.characterName);
+    if (tw && nm) bits.push(`${nm}: ${tw}`);
+    else if (tw) bits.push(tw);
+    else if (nm) bits.push(nm);
+  }
+  if (!bits.length) return "";
+  let out = `LoRA cues: ${bits.join(" | ")}.`;
+  if (out.length > LORA_PROMPT_MAX_CHARS) {
+    out = `${out.slice(0, LORA_PROMPT_MAX_CHARS - 1)}…`;
+  }
+  return out;
+}
+
 export function buildPromptStyleBlock(spec: PanelRenderSpec): string {
   const s = spec.styleBible;
   const tones = s.toneKeywords.slice(0, 3).join(", ");
-  return [
+  const core = [
     `STYLE: ${s.artStyle}`,
     `palette ${s.palette}`,
     `inking ${s.inking}`,
@@ -312,6 +472,8 @@ export function buildPromptStyleBlock(spec: PanelRenderSpec): string {
   ]
     .filter(Boolean)
     .join(", ") + ".";
+  const lora = formatLoraBindingsForPrompt(spec);
+  return lora ? `${core} ${lora}` : core;
 }
 
 /**
@@ -645,6 +807,40 @@ export function buildMinimalPanelPromptStrict(
   return built;
 }
 
+/** Plafond pour les traits configurateur (visage, mâchoire, yeux…) dans le bloc SUBJECT. */
+export const CHARACTER_CONFIGURATOR_PROMPT_MAX = 140;
+
+/**
+ * Compacte les champs `PanelRenderCharacterVisualDna` issus du configurateur
+ * (hors excerpt déjà injecté) pour enrichir le prompt sans explosion de tokens.
+ */
+export function compactConfiguratorTraitsForPrompt(
+  dna: PanelRenderCharacterVisualDna | null | undefined,
+  maxChars: number = CHARACTER_CONFIGURATOR_PROMPT_MAX,
+): string {
+  if (!dna) return "";
+  const parts: string[] = [];
+  const push = (v: string | null | undefined) => {
+    const s = normalizePromptClause(v ?? "");
+    if (s) parts.push(s);
+  };
+  push(dna.faceShape);
+  push(dna.jawline);
+  const eyePair = [dna.eyeShape, dna.eyeSize]
+    .map((x) => normalizePromptClause(x ?? ""))
+    .filter(Boolean)
+    .join(" ");
+  if (eyePair) parts.push(eyePair);
+  push(dna.eyebrowStyle);
+  push(dna.hairLength);
+  push(dna.hairTexture);
+  push(dna.noseStyle);
+  push(dna.mouthStyle);
+  const joined = parts.join("; ");
+  if (!joined) return "";
+  return joined.length > maxChars ? `${joined.slice(0, maxChars - 1)}…` : joined;
+}
+
 /** Description canon riche pour le bloc SUBJECT (ADN visuel + intention pose/expression). */
 export function describeCharacterWithCanon(character: PanelRenderVisibleCharacter): string {
   const dna = character.visualDNA;
@@ -654,11 +850,28 @@ export function describeCharacterWithCanon(character: PanelRenderVisibleCharacte
   const hairColor = hairRaw ? `, ${hairRaw} hair` : "";
   const hairStyle = dna?.hairStyle ? `, ${dna.hairStyle}` : "";
   const outfit = dna?.outfitSignature ? `, wearing ${dna.outfitSignature}` : "";
+  const skin = dna?.skinTone ? `, ${dna.skinTone} skin tone` : "";
+  const structureLine = compactConfiguratorTraitsForPrompt(dna ?? null);
+  const structureSuffix = structureLine ? `, structure: ${structureLine}` : "";
+  const studioCanon =
+    dna?.visualCanonExcerpt
+      ? `, visual canon: ${normalizePromptClause(dna.visualCanonExcerpt).slice(0, 200)}`
+      : "";
+  const extraBits = [
+    dna?.perceivedAge ? `reads ${normalizePromptClause(dna.perceivedAge)}` : "",
+    dna?.silhouetteType ? `${normalizePromptClause(dna.silhouetteType)} build` : "",
+    dna?.distinctiveMarksLine ? normalizePromptClause(dna.distinctiveMarksLine) : "",
+    dna?.accessoriesLine ? `accessories ${normalizePromptClause(dna.accessoriesLine)}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const extra =
+    extraBits.length > 0 ? `, ${extraBits.length > 140 ? `${extraBits.slice(0, 137)}…` : extraBits}` : "";
   const roleLabel = character.role === "hero" ? "protagonist" : character.role;
   const canon = character.canonSignatureText ? `, canonical detail: ${character.canonSignatureText}` : "";
   const pose = character.poseIntent ? `, pose: ${character.poseIntent}` : "";
   const expr = character.expressionIntent ? `, expression: ${character.expressionIntent}` : "";
-  return `${character.name} (${roleLabel})${eyeColor}${hairColor}${hairStyle}${outfit}${canon}${pose}${expr}`;
+  return `${character.name} (${roleLabel})${eyeColor}${hairColor}${hairStyle}${skin}${outfit}${structureSuffix}${studioCanon}${extra}${canon}${pose}${expr}`;
 }
 
 function buildDialogueTwoShotSubject(chars: PanelRenderVisibleCharacter[]): string {

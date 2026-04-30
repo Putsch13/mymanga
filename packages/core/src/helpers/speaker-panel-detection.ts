@@ -27,6 +27,23 @@ export interface SpeakerPanelInput {
   dialogueLines?: Array<{ speaker?: string; text: string }> | null;
   dialogueLinesAnchored?: number | null;
   mustShowCharacterIds?: string[] | null;
+  /** PR9 — `PanelTextContract` quand le dialogue vit dans le contrat plutôt que dans `dialogueLines`. */
+  textContract?: unknown;
+}
+
+function panelHasNonEmptyDialogue(panel: SpeakerPanelInput): boolean {
+  if (Array.isArray(panel.dialogueLines) && panel.dialogueLines.some((l) => String(l.text ?? "").trim().length > 0)) {
+    return true;
+  }
+  const tc = panel.textContract;
+  if (!tc || typeof tc !== "object" || Array.isArray(tc)) return false;
+  const dialogues = (tc as { dialogues?: unknown }).dialogues;
+  if (!Array.isArray(dialogues)) return false;
+  return dialogues.some((d) => {
+    if (!d || typeof d !== "object") return false;
+    const text = String((d as { text?: unknown }).text ?? "").trim();
+    return text.length > 0;
+  });
 }
 
 /**
@@ -48,11 +65,10 @@ export function isSpeakerPanelForDialogueBeat(panel: SpeakerPanelInput): boolean
     return true;
   }
 
-  // Critère 2 : subjectFocus speaker/duo avec dialogueLines
+  // Critère 2 : subjectFocus speaker/duo avec dialogue
   const hasSpeakerFocus =
     panel.subjectFocus === "speaker" || panel.subjectFocus === "duo";
-  const hasDialogueLines =
-    Array.isArray(panel.dialogueLines) && panel.dialogueLines.length > 0;
+  const hasDialogueLines = panelHasNonEmptyDialogue(panel);
 
   if (hasSpeakerFocus && hasDialogueLines) {
     return true;
@@ -101,9 +117,7 @@ export function beatHasSpeakerPanelForDialogue(
   const beatPanels = blueprints.filter((bp) => bp.beatId === beatId);
 
   // Si aucun panel du beat n'a de dialogue, pas besoin de speaker panel
-  const hasDialogueInBeat = beatPanels.some(
-    (bp) => Array.isArray(bp.dialogueLines) && bp.dialogueLines.length > 0,
-  );
+  const hasDialogueInBeat = beatPanels.some((bp) => panelHasNonEmptyDialogue(bp));
   if (!hasDialogueInBeat) {
     return true;
   }

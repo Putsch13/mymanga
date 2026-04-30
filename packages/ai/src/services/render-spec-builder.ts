@@ -14,8 +14,8 @@ import {
   isAntagonistRole,
   isSupportingRole,
   type CharacterVisualDna,
-  buildPanelTextContractFromFragments,
-  textContractToLegacyDialogue,
+  type EnvironmentVisualDna,
+  legacyDialogueLinesFromStoryboardPanelLike,
   type PanelTextBundle,
 } from "@manga-ai-studio/core";
 import type { ChapterStyleBible } from "../contracts/chapter-style-bible";
@@ -62,28 +62,55 @@ const DIALOGUE_FORWARD_RENDER_MODES = new Set<StoryboardPanel["renderMode"]>([
   "aftermath_dialogue",
 ]);
 
+/**
+ * Mappe `StoryboardPanel.environmentVisualDna` vers le record attendu par
+ * `formatEnvironmentDnaForPrompt` (clés alignées minimal-panel-prompt-builder).
+ */
+export function environmentVisualDnaToRenderEnvironmentRecord(
+  env: EnvironmentVisualDna | null | undefined,
+): Record<string, unknown> | null {
+  if (!env) return null;
+  const loc = typeof env.locationName === "string" ? env.locationName.trim() : "";
+  const atm = Array.isArray(env.atmosphere)
+    ? env.atmosphere.filter((x): x is string => typeof x === "string" && x.trim()).slice(0, 2)
+    : [];
+  const description = [loc || null, ...atm].filter(Boolean).join(" — ") || (loc || null);
+  const out: Record<string, unknown> = {};
+  if (description) out.description = description;
+  if (env.visualAnchors?.length) out.visualAnchors = env.visualAnchors;
+  if (env.architectureHints?.length) out.architectureHints = env.architectureHints;
+  if (env.atmosphere?.length) out.atmosphere = env.atmosphere;
+  if (env.propAnchors?.length) out.recurringProps = env.propAnchors;
+  if (env.lightingHints?.length) out.lightingHints = env.lightingHints;
+  if (env.forbiddenDrift?.length) out.negativeConstraints = env.forbiddenDrift;
+  if (env.anchorId) out.anchorId = env.anchorId;
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 function buildVisibleCharacterVisualDna(match: CharacterInfo): PanelRenderCharacterVisualDna {
   const c = match.characterVisualDna;
   return {
     displayName: c?.displayName ?? null,
     hairColor: c?.hairColor ?? match.hairColor ?? null,
     eyeColor: c?.eyeColor ?? match.eyeColor ?? null,
-    hairStyle: match.hairStyle ?? null,
-    skinTone: match.skinTone ?? null,
+    hairStyle: c?.hairStyle ?? match.hairStyle ?? null,
+    skinTone: c?.skinTone ?? match.skinTone ?? null,
     outfitSignature: c?.outfitSignature ?? match.outfitSignature ?? null,
+    visualCanonExcerpt: c?.visualCanonExcerpt?.trim() || null,
+    perceivedAge: c?.perceivedAge?.trim() || null,
+    silhouetteType: c?.silhouetteType?.trim() || null,
+    distinctiveMarksLine: c?.distinctiveMarksLine?.trim() || null,
+    accessoriesLine: c?.accessoriesLine?.trim() || null,
+    faceShape: c?.faceShape?.trim() || null,
+    eyeShape: c?.eyeShape?.trim() || null,
+    eyeSize: c?.eyeSize?.trim() || null,
+    eyebrowStyle: c?.eyebrowStyle?.trim() || null,
+    hairLength: c?.hairLength?.trim() || null,
+    hairTexture: c?.hairTexture?.trim() || null,
+    noseStyle: c?.noseStyle?.trim() || null,
+    mouthStyle: c?.mouthStyle?.trim() || null,
+    jawline: c?.jawline?.trim() || null,
   };
-}
-
-function resolvedStoryboardDialogueLines(panel: StoryboardPanel): Array<{ speaker: string; text: string }> {
-  const bundle = (panel as StoryboardPanel & { panelTextBundle?: PanelTextBundle | null }).panelTextBundle ?? null;
-  const contract = buildPanelTextContractFromFragments({
-    panelId: panel.panelId,
-    dialogueLines: panel.dialogue?.length ? panel.dialogue : null,
-    narration: panel.narration ?? null,
-    sfx: panel.sfx ?? null,
-    panelTextBundle: bundle,
-  });
-  return textContractToLegacyDialogue(contract);
 }
 
 export function buildPanelRenderSpec(
@@ -133,7 +160,13 @@ export function buildPanelRenderSpec(
     slotType: panel.slotType ?? inferredLayout.slotType,
   };
 
-  const dialogueLines = resolvedStoryboardDialogueLines(panel);
+  const dialogueLines = legacyDialogueLinesFromStoryboardPanelLike({
+    panelId: panel.panelId,
+    dialogue: panel.dialogue,
+    narration: panel.narration ?? null,
+    sfx: panel.sfx ?? null,
+    panelTextBundle: (panel as StoryboardPanel & { panelTextBundle?: PanelTextBundle | null }).panelTextBundle ?? null,
+  });
 
   return {
     panelId: panel.panelId,
@@ -181,6 +214,12 @@ export function buildPanelRenderSpec(
       noTextInsideImage: styleBible.noTextInsideImage,
     },
     layoutMeta,
+    npcVisualDna: Array.isArray(panel.npcVisualDna) && panel.npcVisualDna.length > 0 ? panel.npcVisualDna : undefined,
+    worldPropsVisualDna:
+      Array.isArray(panel.worldPropsVisualDna) && panel.worldPropsVisualDna.length > 0
+        ? panel.worldPropsVisualDna
+        : undefined,
+    environmentDNA: environmentVisualDnaToRenderEnvironmentRecord(panel.environmentVisualDna ?? null) ?? undefined,
   };
 }
 

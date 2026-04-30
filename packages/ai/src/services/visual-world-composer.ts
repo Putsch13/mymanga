@@ -54,17 +54,53 @@ export type ComposeKnownLocationDbRow = {
   establishedVisualBrief?: string | null;
   canonImageUrl?: string | null;
   canonLocked?: boolean | null;
+  /** Taxonomie lieu (Prisma `Location.type`) — enrichit le prompt compositeur. */
+  type?: string | null;
+  /** Métadonnées JSON Prisma — résumées en hint court pour le LLM. */
+  metadata?: unknown;
+  /** JSON Prisma (souvent tableau de refs) — résumé compact seulement. */
+  visualRefs?: unknown;
 };
+
+function compactMetadataForComposeHint(meta: unknown): string | null {
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return null;
+  const obj = meta as Record<string, unknown>;
+  const keys = Object.keys(obj);
+  if (keys.length === 0) return null;
+  try {
+    const s = JSON.stringify(obj);
+    return s.length > 140 ? `${s.slice(0, 137)}…` : s;
+  } catch {
+    return null;
+  }
+}
+
+function visualRefsCountHint(refs: unknown): string | null {
+  if (!Array.isArray(refs)) return null;
+  return refs.length > 0 ? `visualRefs:${refs.length}` : null;
+}
 
 /** Normalise une ligne `Location` Prisma → entrée `knownLocations` du compositeur IA. */
 export function toComposeVisualWorldKnownLocation(
   loc: ComposeKnownLocationDbRow,
 ): ComposeVisualWorldContractInput["knownLocations"][number] {
-  const description =
+  const baseDescription =
     loc.establishedVisualBrief?.trim()
     || loc.visualBrief?.trim()
     || loc.description?.trim()
     || null;
+  const hints = [
+    loc.type?.trim() ? `type=${loc.type.trim()}` : null,
+    compactMetadataForComposeHint(loc.metadata),
+    visualRefsCountHint(loc.visualRefs),
+  ].filter((x): x is string => Boolean(x));
+  const hintBlock = hints.length > 0 ? hints.join(" | ") : null;
+  const description =
+    hintBlock && baseDescription
+      ? `${baseDescription} [${hintBlock}]`
+      : hintBlock && !baseDescription
+        ? `[${hintBlock}]`
+        : baseDescription;
   return {
     id: loc.id,
     name: loc.name,
@@ -85,7 +121,7 @@ function buildSystemPrompt(): string {
     '- source en haut du contrat : "ai_generated" sauf consigne contraire.',
     "- Chaque beatId fourni doit apparaître exactement une fois dans beatBindings.",
     "- Pour chaque beatBinding : locationId OBLIGATOIRE et doit référencer un id présent dans locations[].",
-    "- primaryPropIds et npcGroupIds : uniquement des ids présents dans props[] / npcGroups[] (tableaux vides autorisés).",
+    "- primaryPropIds, npcGroupIds, creatureIds, vehicleIds, factionIds : uniquement des ids présents dans les tableaux correspondants du contrat (tableaux vides autorisés).",
     "- Réutilise les ids de knownLocations quand le texte correspond ; si un lieu vient de la DB, mets source db_canon ou user_canon et canonPolicy locked ou promote_candidate si canonLocked est true.",
     "- Chaque entrée knownLocations peut inclure visualBrief, establishedVisualBrief, canonImageUrl : exploite-les pour décrire les locations[] sans inventer un décor contradictoire.",
     "- Chaque location doit avoir description non vide, kind cohérent, visualAnchors/architecture/lighting/atmosphere utiles (tableaux, peuvent être courts).",
@@ -190,6 +226,9 @@ function buildUserPayload(input: ComposeVisualWorldContractInput): string {
           locationId: "string",
           primaryPropIds: ["string"],
           npcGroupIds: ["string"],
+          creatureIds: ["string"],
+          vehicleIds: ["string"],
+          factionIds: ["string"],
         },
       ],
     },
@@ -209,6 +248,9 @@ export function assertVisualWorldContractPremiumInvariants(
   const locIds = new Set(contract.locations.map((l) => l.id));
   const propIds = new Set(contract.props.map((p) => p.id));
   const npcIds = new Set(contract.npcGroups.map((n) => n.id));
+  const creatureIds = new Set(contract.creatures.map((c) => c.id));
+  const vehicleIds = new Set(contract.vehicles.map((v) => v.id));
+  const factionIds = new Set(contract.factions.map((f) => f.id));
 
   for (const beatId of expected.expectedBeatIds) {
     const b = contract.beatBindings.find((x) => x.beatId === beatId);
@@ -223,6 +265,21 @@ export function assertVisualWorldContractPremiumInvariants(
     for (const nid of b.npcGroupIds) {
       if (!npcIds.has(nid)) {
         throw new Error(`premium_visual_world_unknown_npc_group:${nid}@${b.beatId}`);
+      }
+    }
+    for (const cid of b.creatureIds) {
+      if (!creatureIds.has(cid)) {
+        throw new Error(`premium_visual_world_unknown_creature:${cid}@${b.beatId}`);
+      }
+    }
+    for (const vid of b.vehicleIds) {
+      if (!vehicleIds.has(vid)) {
+        throw new Error(`premium_visual_world_unknown_vehicle:${vid}@${b.beatId}`);
+      }
+    }
+    for (const fid of b.factionIds) {
+      if (!factionIds.has(fid)) {
+        throw new Error(`premium_visual_world_unknown_faction:${fid}@${b.beatId}`);
       }
     }
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeFalSceneAssessment, computeSceneComplexityScore } from "./fal-scene-strategy";
+import { computeFalSceneAssessment, computeSceneComplexityScore } from "./fal-scene-heuristics";
 
 describe("fal scene strategy", () => {
   it("classe une humiliation en cour de lycée comme environnement critique", () => {

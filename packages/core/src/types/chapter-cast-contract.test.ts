@@ -6,6 +6,7 @@ import {
   assertValidChapterCastContract,
   ChapterCastContractError,
   CAST_CONTRACT_ERROR_CODES,
+  orderedEditorHeroCharacterIds,
   type ChapterCastContract,
 } from "./chapter-cast-contract";
 
@@ -46,6 +47,7 @@ describe("ChapterCastContract", () => {
         forbiddenInBeatIds: [],
       },
     ],
+    secondaryHeroCharacterId: null,
   };
 
   describe("validateChapterCastContract", () => {
@@ -88,6 +90,30 @@ describe("ChapterCastContract", () => {
       const result = validateChapterCastContract(contract);
       expect(result.ok).toBe(false);
       expect(result.issues.some((i) => i.code === CAST_CONTRACT_ERROR_CODES.SUPPORT_NOT_IN_ACTIVE)).toBe(true);
+    });
+
+    it("refuse un second héros identique au héros principal", () => {
+      const contract: ChapterCastContract = {
+        ...validContract,
+        secondaryHeroCharacterId: "marius",
+      };
+      const result = validateChapterCastContract(contract);
+      expect(result.ok).toBe(false);
+      expect(
+        result.issues.some((i) => i.code === CAST_CONTRACT_ERROR_CODES.SECONDARY_SAME_AS_HERO),
+      ).toBe(true);
+    });
+
+    it("refuse un héros secondaire hors activeCharacterIds", () => {
+      const contract: ChapterCastContract = {
+        ...validContract,
+        secondaryHeroCharacterId: "carlos",
+      };
+      const result = validateChapterCastContract(contract);
+      expect(result.ok).toBe(false);
+      expect(
+        result.issues.some((i) => i.code === CAST_CONTRACT_ERROR_CODES.SECONDARY_NOT_IN_ACTIVE),
+      ).toBe(true);
     });
 
     it("refuse plusieurs héros dans members", () => {
@@ -163,6 +189,54 @@ describe("ChapterCastContract", () => {
       ).toThrow(ChapterCastContractError);
     });
 
+    it("insère le héros secondaire juste après le héros dans activeCharacterIds", () => {
+      const contract = buildChapterCastContract({
+        chapterId: "ch-1",
+        heroCharacterId: "marius",
+        secondaryHeroCharacterId: "maya",
+        focusCharacterIds: ["marius", "carlos", "maya"],
+        characters: [
+          { id: "marius", name: "Marius", roleType: "main_hero" },
+          { id: "maya", name: "Maya", roleType: "deuteragonist" },
+          { id: "carlos", name: "Carlos", roleType: "support" },
+        ],
+      });
+
+      expect(contract.secondaryHeroCharacterId).toBe("maya");
+      expect(contract.activeCharacterIds.slice(0, 2)).toEqual(["marius", "maya"]);
+      expect(contract.members.find((m) => m.characterId === "maya")?.role).toBe("support");
+    });
+
+    it("lance une erreur si secondaryHeroCharacterId === heroCharacterId", () => {
+      expect(() =>
+        buildChapterCastContract({
+          chapterId: "ch-1",
+          heroCharacterId: "marius",
+          secondaryHeroCharacterId: "marius",
+          focusCharacterIds: ["marius", "maya"],
+          characters: [
+            { id: "marius", name: "Marius" },
+            { id: "maya", name: "Maya" },
+          ],
+        }),
+      ).toThrow(ChapterCastContractError);
+    });
+
+    it("lance une erreur si secondaryHeroCharacterId absent de la liste characters", () => {
+      expect(() =>
+        buildChapterCastContract({
+          chapterId: "ch-1",
+          heroCharacterId: "marius",
+          secondaryHeroCharacterId: "ghost",
+          focusCharacterIds: ["marius", "maya"],
+          characters: [
+            { id: "marius", name: "Marius" },
+            { id: "maya", name: "Maya" },
+          ],
+        }),
+      ).toThrow(ChapterCastContractError);
+    });
+
     it("ajoute automatiquement le héros dans activeCharacterIds", () => {
       const contract = buildChapterCastContract({
         chapterId: "ch-1",
@@ -187,6 +261,28 @@ describe("ChapterCastContract", () => {
       expect(log).toContain("active=marius,maya");
       expect(log).toContain("support=maya");
       expect(log).toContain("npcGroups=pêcheurs du port");
+    });
+    it("affiche secondary= dans le log quand défini", () => {
+      const log = formatCastContractLog({
+        ...validContract,
+        secondaryHeroCharacterId: "maya",
+      });
+      expect(log).toContain("secondary=maya");
+    });
+  });
+
+  describe("orderedEditorHeroCharacterIds", () => {
+    it("place le héros secondaire en deuxième position", () => {
+      const ids = orderedEditorHeroCharacterIds({
+        ...validContract,
+        secondaryHeroCharacterId: "maya",
+      });
+      expect(ids).toEqual(["marius", "maya"]);
+    });
+
+    it("sans héros secondaire, conserve l’ordre des actifs", () => {
+      const ids = orderedEditorHeroCharacterIds(validContract);
+      expect(ids).toEqual(["marius", "maya"]);
     });
   });
 

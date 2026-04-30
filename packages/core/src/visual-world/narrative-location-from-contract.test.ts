@@ -42,7 +42,7 @@ describe("narrative-location-from-contract", () => {
       creatures: [],
       vehicles: [],
       factions: [],
-      beatBindings: [{ beatId: "beat_alpha", locationId: "loc-a", primaryPropIds: [], npcGroupIds: [] }],
+      beatBindings: [{ beatId: "beat_alpha", locationId: "loc-a", primaryPropIds: [], npcGroupIds: [], creatureIds: [], vehicleIds: [], factionIds: [] }],
     };
     expect(beatLocationSceneStringFromVisualWorld(vw, "beat_alpha")).toBe("Hangar — Fuites de vapeur");
     expect(beatLocationSceneStringFromVisualWorld(vw, "missing")).toBeNull();
@@ -73,7 +73,7 @@ describe("narrative-location-from-contract", () => {
       creatures: [],
       vehicles: [],
       factions: [],
-      beatBindings: [{ beatId: "beat_alpha", locationId: "loc-a", primaryPropIds: [], npcGroupIds: [] }],
+      beatBindings: [{ beatId: "beat_alpha", locationId: "loc-a", primaryPropIds: [], npcGroupIds: [], creatureIds: [], vehicleIds: [], factionIds: [] }],
     };
     expect(selectBeatLocationFromVisualWorld({ visualWorld: vw, beatId: "beat_alpha" }).id).toBe("loc-a");
   });
@@ -88,7 +88,7 @@ describe("narrative-location-from-contract", () => {
       creatures: [],
       vehicles: [],
       factions: [],
-      beatBindings: [{ beatId: "beat_alpha", locationId: "loc-a", primaryPropIds: [], npcGroupIds: [] }],
+      beatBindings: [{ beatId: "beat_alpha", locationId: "loc-a", primaryPropIds: [], npcGroupIds: [], creatureIds: [], vehicleIds: [], factionIds: [] }],
     };
     expect(requireVisualWorldLocationForBeat(vw, "beat_alpha").label).toBe("Hangar");
   });
@@ -115,7 +115,7 @@ describe("narrative-location-from-contract", () => {
       creatures: [],
       vehicles: [],
       factions: [],
-      beatBindings: [{ beatId: "b1", locationId: "missing-id", primaryPropIds: [], npcGroupIds: [] }],
+      beatBindings: [{ beatId: "b1", locationId: "missing-id", primaryPropIds: [], npcGroupIds: [], creatureIds: [], vehicleIds: [], factionIds: [] }],
     };
     expect(() => requireVisualWorldLocationForBeat(vw2, "b1")).toThrow(/premium_missing_beat_location:/);
   });

@@ -11,10 +11,10 @@ import * as path from "path";
  *
  * Aucun module du chemin premium NE DOIT importer :
  *   - `manga-prompt-composer` (prompt legacy narratif)
- *   - `fal-scene-strategy`    (routage FAL heuristique legacy)
- *   - `prompt-translator`     (bricolage FR/EN legacy)
+ *   - `fal-scene-heuristics`   (routage FAL heuristique hors v3)
+ *   - `structured-prompt-lang` (FR/EN hors chemin minimal prompt)
  *   - `panel-blueprint-builder` (blueprint legacy pre-storyboard)
- *   - `blueprint-enrichment`  (expand-to-minimum legacy)
+ *   - `minimum-blueprint-expansion` (expand-to-minimum hors contrat studio)
  *
  * Si un de ces tests casse, c'est qu'une régression a réintroduit du legacy
  * dans le chemin premium. À corriger AVANT merge.
@@ -46,10 +46,10 @@ const PREMIUM_PATH_FILES = [
 
 const FORBIDDEN_LEGACY_IMPORTS = [
   "manga-prompt-composer",
-  "fal-scene-strategy",
-  "prompt-translator",
+  "fal-scene-heuristics",
+  "structured-prompt-lang",
   "panel-blueprint-builder",
-  "blueprint-enrichment",
+  "minimum-blueprint-expansion",
 ];
 
 function readPremiumFile(relativePath: string): string {
@@ -129,7 +129,7 @@ const PREMIUM_CANONICAL_FILES_NO_DENSIFY = [
   "packages/workflow/src/run-premium-v3-pipeline.ts",
   "packages/ai/src/services/premium-chapter-contract-builder.ts",
   "packages/workflow/src/passes/render-pass.ts",
-  "packages/workflow/src/legacy/build-storyboard-plan-from-canonical-plan.ts",
+  "packages/workflow/src/build-storyboard-plan-from-canonical-plan.ts",
   "packages/core/src/production/ensure-canonical-production-plan.ts",
   "packages/core/src/production/build-canonical-production-plan.ts",
   "apps/web/app/api/projects/[id]/chapters/estimate/route.ts",
@@ -157,7 +157,7 @@ const PREMIUM_NO_LEGACY_PIPELINE_FILES = [
   "packages/workflow/src/run-premium-v3-pipeline.ts",
   "packages/ai/src/services/premium-chapter-contract-builder.ts",
   "packages/workflow/src/passes/render-pass.ts",
-  "packages/workflow/src/legacy/build-storyboard-plan-from-canonical-plan.ts",
+  "packages/workflow/src/build-storyboard-plan-from-canonical-plan.ts",
   "packages/core/src/production/ensure-canonical-production-plan.ts",
   "packages/core/src/production/build-canonical-production-plan.ts",
   "apps/web/app/api/projects/[id]/chapters/estimate/route.ts",
@@ -216,7 +216,7 @@ describe("premium path — composeMangaPanelPrompt interdit (P1.A)", () => {
     }
     expect(
       violations,
-      `[premium/fal-routing] fichiers premium qui utilisent encore fal-scene-strategy :\n  ${violations.join("\n  ")}\n` +
+        `[premium/fal-routing] fichiers premium qui utilisent encore fal-scene-heuristics :\n  ${violations.join("\n  ")}\n` +
         `  Le routage FAL premium doit venir EXCLUSIVEMENT de resolveFalRenderRoute (fal-render-route-v3).`,
     ).toEqual([]);
   });

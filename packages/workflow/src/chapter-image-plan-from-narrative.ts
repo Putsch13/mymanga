@@ -14,7 +14,12 @@ import type {
   ContentRating,
   ImageIntentType,
 } from "@manga-ai-studio/core";
-import { canonicalizeCharacterRoleType, buildPanelTextContractFromFragments } from "@manga-ai-studio/core";
+import {
+  canonicalizeCharacterRoleType,
+  synthesizePanelTextContractFromLooseMetadata,
+  textContractToLegacyDialogue,
+  type PanelTextContract,
+} from "@manga-ai-studio/core";
 import {
   buildChapterImagePlan,
   validateChapterImagePlan,
@@ -142,42 +147,13 @@ function mapPlannedImageToPanelInput(
     : [];
 
   const dialogueLines = (() => {
-    const tc = meta.textContract;
-    if (tc && typeof tc === "object" && !Array.isArray(tc)) {
-      const o = tc as Record<string, unknown>;
-      if (Array.isArray(o.dialogues)) {
-        return (o.dialogues as Array<{ text?: string }>)
-          .map((d) => String(d.text ?? "").trim())
-          .filter(Boolean);
-      }
-    }
-    const dialogues = meta.dialogues as Array<Record<string, unknown>> | undefined;
-    const single = meta.dialogue as Record<string, unknown> | string | undefined;
-    const primaryLines =
-      Array.isArray(dialogues) && dialogues.length > 0
-        ? dialogues.map((d) => ({
-            speaker: String(d.speaker ?? d.speakerName ?? ""),
-            text: String(d.text ?? ""),
-          }))
-        : typeof single === "object" && single !== null && !Array.isArray(single)
-          ? [
-              {
-                speaker: String((single as Record<string, unknown>).speaker ?? ""),
-                text: String((single as Record<string, unknown>).text ?? ""),
-              },
-            ]
-          : typeof single === "string" && single.trim()
-            ? [{ speaker: "Unknown", text: single.trim() }]
-            : null;
-    const contract = buildPanelTextContractFromFragments({
-      panelId: String(meta.panelId ?? "n"),
-      dialogueLines: primaryLines?.some((l) => l.text.trim()) ? primaryLines : null,
-      narration: typeof meta.narration === "string" ? meta.narration : null,
-      sfx: Array.isArray(meta.sfx) ? (meta.sfx as string[]) : null,
-      panelTextBundle:
-        typeof meta.panelTextBundle === "object" && meta.panelTextBundle !== null ? (meta.panelTextBundle as never) : null,
-    });
-    return contract.dialogues.map((d) => d.text.trim()).filter(Boolean);
+    const contract: PanelTextContract = synthesizePanelTextContractFromLooseMetadata(
+      meta,
+      String(meta.panelId ?? "n"),
+    );
+    return textContractToLegacyDialogue(contract)
+      .map((d) => d.text.trim())
+      .filter(Boolean);
   })();
 
   const narrativeContext = (() => {

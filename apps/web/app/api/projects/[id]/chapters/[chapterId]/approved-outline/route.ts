@@ -60,6 +60,12 @@ export async function PATCH(req: Request, ctx: Ctx) {
       ? characterSelection.heroCharacterId
       : null;
 
+  const snapshotSecondaryHeroCharacterId =
+    typeof characterSelection.secondaryHeroCharacterId === "string"
+    && characterSelection.secondaryHeroCharacterId.trim().length > 0
+      ? characterSelection.secondaryHeroCharacterId.trim()
+      : null;
+
   if (!snapshotHeroCharacterId) {
     console.warn(`[approved-outline] missing chapter heroCharacterId chapterId=${chapterId}`);
   }
@@ -130,6 +136,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
     projectTone: project?.tone ?? null,
     minimumPanels: chapterMinimumImages,
     studioSnapshot: studioSnapshotForContract,
+    secondaryHeroCharacterId: snapshotSecondaryHeroCharacterId,
   });
 
   // Si productionOutline + productionPlan sont fournis (depuis generate/page.tsx), les persister après réconciliation.
@@ -228,6 +235,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
           eyeColor: true,
           appearance: true,
           outfitDefault: true,
+          stableVisualDNA: true,
         },
       });
       const canons = studioSnapshotForContract.data.characterCanons ?? [];
@@ -236,10 +244,27 @@ export async function PATCH(req: Request, ctx: Ctx) {
         characterCanonsById[c.characterId] = c;
       }
       const hydratedBps = (() => {
+        const characterRows = rows.map((c) => ({
+          id: c.id,
+          name: c.name,
+          hairColor: c.hairColor,
+          eyeColor: c.eyeColor,
+          appearance: c.appearance,
+          outfitDefault: c.outfitDefault,
+          stableVisualDNA:
+            c.stableVisualDNA !== null
+            && typeof c.stableVisualDNA === "object"
+            && !Array.isArray(c.stableVisualDNA)
+              ? (c.stableVisualDNA as Record<string, unknown>)
+              : null,
+        }));
         let bps = hydrateBlueprintsWithCharacterDna({
           blueprints: rawBps,
-          characters: rows,
+          characters: characterRows,
           characterCanonsById: Object.keys(characterCanonsById).length > 0 ? characterCanonsById : undefined,
+          ...(snapshotSecondaryHeroCharacterId
+            ? { coProtagonistCharacterIds: [snapshotSecondaryHeroCharacterId] as const }
+            : {}),
         });
         if (rebuiltContract.visualWorldContract) {
           bps = hydrateBlueprintsWithEnvironmentDna({

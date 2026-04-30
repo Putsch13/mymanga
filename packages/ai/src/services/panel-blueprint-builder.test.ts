@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
 import { expandBlueprintsToMinimum } from "./panel-blueprint-builder";
-import { BlueprintEnrichmentDisabledError } from "./blueprints/blueprint-enrichment";
+import { BlueprintEnrichmentDisabledError } from "./blueprints/minimum-blueprint-expansion";
 
 function makeBlueprint(i: number, overrides: Partial<PanelBlueprintPremium> = {}): PanelBlueprintPremium {
   return {

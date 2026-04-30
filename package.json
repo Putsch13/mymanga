@@ -31,6 +31,7 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "@types/node": "^20.19.37"
+    "@types/node": "^20.19.37",
+    "tsx": "^4.21.0"
   }
 }

@@ -12,7 +12,7 @@
  * couvrant explicitement les cas "crowd" que le TODO P3/P4 demande.
  */
 import { describe, expect, it } from "vitest";
-import { computeFalSceneAssessment } from "./fal-scene-strategy";
+import { computeFalSceneAssessment } from "./fal-scene-heuristics";
 
 function baseCtx(): Parameters<typeof computeFalSceneAssessment>[0] {
   return {

@@ -16,6 +16,9 @@
 import {
   isSpeakerPanelForDialogueBeat,
   findBeatsWithMissingSpeakerPanels,
+  legacyDialogueLinesFromBlueprintPremium,
+  blueprintPrimaryDialogueLineCount,
+  syncBlueprintTextContractFromTextFragments,
 } from "@manga-ai-studio/core";
 import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
 
@@ -50,9 +53,7 @@ export function runDialogueAutoRepairPass(
 
   for (const beatId of beatsWithMissingSpeaker) {
     const beatPanels = repairedBlueprints.filter((bp) => bp.beatId === beatId);
-    const panelsWithDialogue = beatPanels.filter(
-      (bp) => Array.isArray(bp.dialogueLines) && bp.dialogueLines.length > 0,
-    );
+    const panelsWithDialogue = beatPanels.filter((bp) => blueprintPrimaryDialogueLineCount(bp) > 0);
 
     if (panelsWithDialogue.length === 0) {
       continue;
@@ -64,15 +65,18 @@ export function runDialogueAutoRepairPass(
       const idx = repairedBlueprints.findIndex((bp) => bp.panelId === panel.panelId);
       if (idx === -1) continue;
 
-      // Tentative 1: ajouter speakerAnchorCharacterId depuis dialogueLines
-      if (!panel.speakerAnchorCharacterId && panel.dialogueLines?.length) {
-        const firstSpeaker = panel.dialogueLines[0]?.speaker;
+      // Tentative 1: ajouter speakerAnchorCharacterId depuis les lignes dialogue résolues
+      if (!panel.speakerAnchorCharacterId) {
+        const lines = legacyDialogueLinesFromBlueprintPremium(panel);
+        const firstSpeaker = lines[0]?.speaker;
         if (firstSpeaker) {
-          repairedBlueprints[idx] = {
+          const next = {
             ...panel,
             speakerAnchorCharacterId: firstSpeaker,
-            dialogueCarrier: "speaker_visible",
+            dialogueCarrier: "speaker_visible" as const,
           };
+          syncBlueprintTextContractFromTextFragments(next);
+          repairedBlueprints[idx] = next;
           repairs.push({
             panelId: panel.panelId,
             beatId,
@@ -85,11 +89,13 @@ export function runDialogueAutoRepairPass(
 
       // Tentative 2: utiliser heroCharacterId comme speaker
       if (!panel.speakerAnchorCharacterId && heroCharacterId) {
-        repairedBlueprints[idx] = {
+        const next = {
           ...panel,
           speakerAnchorCharacterId: heroCharacterId,
-          dialogueCarrier: "speaker_visible",
+          dialogueCarrier: "speaker_visible" as const,
         };
+        syncBlueprintTextContractFromTextFragments(next);
+        repairedBlueprints[idx] = next;
         repairs.push({
           panelId: panel.panelId,
           beatId,
@@ -101,11 +107,13 @@ export function runDialogueAutoRepairPass(
 
       // Tentative 3: forcer mangaPanelFunction dialogue_speaker
       if (!isSpeakerPanelForDialogueBeat(panel)) {
-        repairedBlueprints[idx] = {
+        const next = {
           ...panel,
-          mangaPanelFunction: "dialogue_speaker",
-          subjectFocus: "speaker",
+          mangaPanelFunction: "dialogue_speaker" as const,
+          subjectFocus: "speaker" as const,
         };
+        syncBlueprintTextContractFromTextFragments(next);
+        repairedBlueprints[idx] = next;
         repairs.push({
           panelId: panel.panelId,
           beatId,

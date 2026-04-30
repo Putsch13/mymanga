@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeFalSceneAssessment } from "./fal-scene-strategy";
+import { computeFalSceneAssessment } from "./fal-scene-heuristics";
 
 /**
  * P0.4 — Le routing ne doit plus reclassifier implicitement un panel en

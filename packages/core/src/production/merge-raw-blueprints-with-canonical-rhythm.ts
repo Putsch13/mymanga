@@ -10,6 +10,7 @@
 import type { CanonicalChapterProductionPlan, CanonicalPanelPlan } from "./canonical-production-plan";
 import type { PanelBlueprintOrigin, PanelBlueprintPremium, PanelBlueprintProvenance } from "../types/narrative-facts";
 import { canonicalPlanToPanelBlueprints } from "./canonical-to-premium-blueprints";
+import { buildPanelTextContractFromBlueprintTextFields, createSilentTextContract } from "../generation/panel-text-contract";
 
 function cloneBlueprint(bp: PanelBlueprintPremium): PanelBlueprintPremium {
   return structuredClone(bp) as PanelBlueprintPremium;
@@ -61,7 +62,9 @@ function overlayCanonicalStructure(
 ): PanelBlueprintPremium {
   const isCanonicalCutaway = canonical.cutawayType !== "none";
 
-  return {
+  const panelTextBundle = isCanonicalCutaway ? null : rawBase.panelTextBundle ?? canonical.panelTextBundle ?? null;
+
+  const merged: PanelBlueprintPremium = {
     ...rawBase,
 
     panelId: canonical.panelId,
@@ -112,7 +115,7 @@ function overlayCanonicalStructure(
 
     sfxCues: isCanonicalCutaway ? undefined : rawBase.sfxCues ?? canonical.sfxCues,
 
-    panelTextBundle: isCanonicalCutaway ? null : rawBase.panelTextBundle ?? canonical.panelTextBundle ?? null,
+    panelTextBundle,
 
     purpose: rawBase.purpose?.trim() ? rawBase.purpose : canonical.purpose,
     sceneContextLabel: rawBase.sceneContextLabel ?? canonical.sceneContextLabel ?? null,
@@ -128,6 +131,13 @@ function overlayCanonicalStructure(
 
     notes: mergeNotes(canonical.notes, rawBase.notes),
     provenance,
+  };
+
+  return {
+    ...merged,
+    textContract: isCanonicalCutaway
+      ? createSilentTextContract(canonical.panelId, "visual_only")
+      : buildPanelTextContractFromBlueprintTextFields(merged),
   };
 }
 

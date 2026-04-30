@@ -3,7 +3,7 @@ import {
   buildCanonicalPromptRecipe,
   type CanonicalPromptRecipeInput,
 } from "./canonical-prompt-recipe-builder";
-import { detectResidualFrenchTokens } from "./prompt-translator";
+import { detectResidualFrenchTokens } from "./structured-prompt-lang";
 import type {
   ImageIntentType,
   ContentRating,

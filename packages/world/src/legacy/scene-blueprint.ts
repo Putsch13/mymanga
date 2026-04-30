@@ -1,14 +1,14 @@
-import { buildConstraintGraph, evaluateOntologyCandidate, mergeConstraintDecisions } from "./constraint-graph";
-import { generateCreatureSelection, CREATURE_ONTOLOGY } from "./legacy/creature-ontology";
-import { generateLocationSelection, LOCATION_ONTOLOGY } from "./legacy/location-ontology";
-import { generateNpcSelection, NPC_ONTOLOGY } from "./legacy/npc-ontology";
-import { createSeededRng, hashSeed } from "./seeded-rng";
+import { buildConstraintGraph, evaluateOntologyCandidate, mergeConstraintDecisions } from "../constraint-graph";
+import { generateCreatureSelection, CREATURE_ONTOLOGY } from "./creature-ontology";
+import { generateLocationSelection, LOCATION_ONTOLOGY } from "./location-ontology";
+import { generateNpcSelection, NPC_ONTOLOGY } from "./npc-ontology";
+import { createSeededRng, hashSeed } from "../seeded-rng";
 import type {
   ProceduralEntity,
   ProceduralSelection,
   SceneBlueprint,
   SceneBlueprintInput,
-} from "./types";
+} from "../types";
 
 function uniq(values: Array<string | null | undefined>) {
   return [...new Set(values.filter(Boolean) as string[])];
@@ -522,7 +522,7 @@ export function buildSceneBlueprint(
   };
 }
 
-function buildPremiumPromptBridgeLines(input: import("./types").SceneBlueprintInput): {
+function buildPremiumPromptBridgeLines(input: import("../types").SceneBlueprintInput): {
   requiredPropLine?: string;
   requiredEnemyLine?: string;
   speakerAnchorLine?: string;

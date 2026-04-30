@@ -13,6 +13,7 @@ import {
   enrichNarrativeFactsWithLLM,
   mergeNarrativeFacts,
   buildChapterShotPlan,
+  type PremiumReadinessCastContext,
 } from "@manga-ai-studio/ai";
 import {
   PREMIUM_PANEL_RANGE,
@@ -130,6 +131,8 @@ export async function POST(req: Request, ctx: Ctx) {
     selectedPlotLabel: body.selectedPlotLabel,
     creativityControls: body.creativityControls,
     context,
+    // Premium, avant `composeVisualWorldContract` : pas encore de VW → autoriser le pool legacy
+    // explicitement pour ce seul appel (sinon `premium_requires_visual_world_locations`).
     allowLegacyLocationInference: isPipelineV3PremiumOnlyEnabled() ? true : undefined,
   });
 
@@ -145,11 +148,14 @@ export async function POST(req: Request, ctx: Ctx) {
           select: {
             id: true,
             name: true,
+            type: true,
             description: true,
             visualBrief: true,
             establishedVisualBrief: true,
             canonImageUrl: true,
             canonLocked: true,
+            metadata: true,
+            visualRefs: true,
           },
         }),
       ]);
@@ -205,6 +211,8 @@ export async function POST(req: Request, ctx: Ctx) {
         context,
         approvedOutline: approvedReplay,
         visualWorldContract: vw,
+        // VW présent : en premium, liaisons beat→lieu strictes (voir `chapter-pipeline`).
+        allowLegacyLocationInference: isPipelineV3PremiumOnlyEnabled() ? false : undefined,
       });
     } catch (vwAlignErr) {
       console.warn("[estimate] visual_world_bundle_realign_failed", vwAlignErr);
@@ -251,12 +259,14 @@ export async function POST(req: Request, ctx: Ctx) {
   });
   const heroCharacterId = context.characters?.find((c) => isHeroRole(c.roleType))?.id ?? null;
   const visualWorldPropsForBeat = indexVisualWorldPropsByBeat(bundle.visualWorldContract ?? undefined);
+  const visualWorldContractActive = bundle.visualWorldContract != null;
   const universeContext = {
     projectGenre: context.project.primaryGenre ?? null,
     projectTone: context.project.tone ?? null,
     heroCharacterId,
     premiumStrictChapterSourcing: isPipelineV3PremiumOnlyEnabled(),
     suppressUniverseTemplateProps: isPipelineV3PremiumOnlyEnabled(),
+    visualWorldContractActive,
     ...(visualWorldPropsForBeat ? { visualWorldPropsForBeat } : {}),
   };
   const narrativeContext = {
@@ -380,7 +390,9 @@ export async function POST(req: Request, ctx: Ctx) {
     narrativeMemoryDigest: narrativeDigest,
   });
 
+  let premiumReadinessCast: PremiumReadinessCastContext | undefined;
   let characterCanonsById: Record<string, import("@manga-ai-studio/core").CharacterCanon> | undefined;
+  let coProtagonistCharacterIdsForHydration: readonly string[] | undefined;
   if (targetChapter?.id) {
     const chRec = await prisma.chapter.findFirst({
       where: { id: targetChapter.id, projectId },
@@ -399,6 +411,24 @@ export async function POST(req: Request, ctx: Ctx) {
           characterCanonsById[c.characterId] = c;
         }
       }
+      const sel = snap.data.characterSelection;
+      const secHydrate = sel?.secondaryHeroCharacterId;
+      const deutHydrate = sel?.deuteragonistCharacterId;
+      const coList = [
+        typeof secHydrate === "string" && secHydrate.trim() ? secHydrate.trim() : null,
+        typeof deutHydrate === "string" && deutHydrate.trim() ? deutHydrate.trim() : null,
+      ].filter((x): x is string => x != null);
+      const uniqueCo = [...new Set(coList)];
+      if (uniqueCo.length > 0) {
+        coProtagonistCharacterIdsForHydration = uniqueCo;
+      }
+      premiumReadinessCast = {
+        heroCharacterId: sel?.heroCharacterId?.trim() || heroCharacterId,
+        secondaryHeroCharacterId:
+          typeof secHydrate === "string" && secHydrate.trim().length > 0 ? secHydrate.trim() : null,
+        deuteragonistCharacterId:
+          typeof deutHydrate === "string" && deutHydrate.trim().length > 0 ? deutHydrate.trim() : null,
+      };
     }
   }
 
@@ -411,8 +441,12 @@ export async function POST(req: Request, ctx: Ctx) {
       eyeColor: c.eyeColor ?? null,
       appearance: c.appearance ?? null,
       outfitDefault: c.outfitDefault ?? null,
+      stableVisualDNA: c.stableVisualDNA ?? null,
     })),
     characterCanonsById: characterCanonsById ?? null,
+    ...(coProtagonistCharacterIdsForHydration
+      ? { coProtagonistCharacterIds: coProtagonistCharacterIdsForHydration }
+      : {}),
   });
 
   allBlueprints = hydrateBlueprintsWithEnvironmentDna({
@@ -486,7 +520,7 @@ export async function POST(req: Request, ctx: Ctx) {
     `status=${panelCountStatus}`,
   );
   const focusBudget = computeChapterFocusBudget(allBlueprints);
-  const premiumReadinessScore = computePremiumReadinessScore(allBlueprints);
+  const premiumReadinessScore = computePremiumReadinessScore(allBlueprints, premiumReadinessCast);
 
   const productionPlan = {
     // P2.1bis — on propage le `minimumImages` du chapitre dans le productionPlan

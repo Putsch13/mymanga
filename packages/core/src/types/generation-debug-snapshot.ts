@@ -13,6 +13,29 @@ export interface CharacterVisualDna {
   outfitSignature?: string | null;
   canonSignatureText?: string | null;
   forbiddenDrift?: string[];
+  /**
+   * Résumé compact issu du `stableVisualDNA` studio (configurateur) — injecté
+   * dans les prompts render sans relire tout le JSON.
+   */
+  visualCanonExcerpt?: string | null;
+  /** Champs optionnels alignés configurateur / Prisma — tous optionnels pour rétrocompat. */
+  hairStyle?: string | null;
+  skinTone?: string | null;
+  hairLength?: string | null;
+  hairTexture?: string | null;
+  faceShape?: string | null;
+  eyeShape?: string | null;
+  eyeSize?: string | null;
+  eyebrowStyle?: string | null;
+  noseStyle?: string | null;
+  mouthStyle?: string | null;
+  jawline?: string | null;
+  silhouetteType?: string | null;
+  perceivedAge?: string | null;
+  /** Cicatrices / marques distinctives (texte déjà joint côté producteur). */
+  distinctiveMarksLine?: string | null;
+  /** Accessoires portés (texte joint). */
+  accessoriesLine?: string | null;
 }
 
 export interface NpcVisualDna {
@@ -26,7 +49,11 @@ export interface NpcVisualDna {
 export interface EnvironmentVisualDna {
   locationName: string;
   anchorId?: string | null;
+  /** Ancres visuelles décor (ex. contrat monde visuel `visualAnchors`). */
+  visualAnchors?: string[];
   architectureHints?: string[];
+  /** Ambiance / densité / mood (issu du VisualWorldContract ou studio). */
+  atmosphere?: string[];
   propAnchors?: string[];
   lightingHints?: string[];
   forbiddenDrift?: string[];

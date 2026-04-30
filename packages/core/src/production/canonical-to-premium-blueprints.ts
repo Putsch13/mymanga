@@ -7,6 +7,7 @@
  */
 
 import type { PanelBlueprintPremium, CutawayType, RequiredProp, SubjectFocus } from "../types/narrative-facts";
+import { buildPanelTextContractFromBlueprintTextFields } from "../generation/panel-text-contract";
 import type { CanonicalChapterProductionPlan, CanonicalPanelPlan, PanelRole } from "./canonical-production-plan";
 
 const SUBJECT_FOCUS_VALUES: ReadonlySet<string> = new Set([
@@ -137,6 +138,23 @@ export function canonicalPlanToPanelBlueprints(plan: CanonicalChapterProductionP
         ? [{ speaker: speakerLabel, text: dialogueText }]
         : undefined;
 
+    const panelTextBundle =
+      tp.mode === "dialogue" || tp.mode === "narration" || tp.mode === "sfx"
+        ? {
+            dialogues: dialogueLines ?? undefined,
+            narration: tp.mode === "narration" ? (tp.text ?? null) : null,
+            sfx: tp.mode === "sfx" ? tp.sfx : undefined,
+          }
+        : null;
+
+    const textContract = buildPanelTextContractFromBlueprintTextFields({
+      panelId: panel.panelId,
+      dialogueLines: dialogueLines ?? null,
+      narrationText: tp.mode === "narration" ? (tp.text ?? null) : null,
+      sfxCues: tp.mode === "sfx" && tp.sfx ? [...tp.sfx] : null,
+      panelTextBundle,
+    });
+
     return {
       panelId: panel.panelId,
       provenance: {
@@ -174,14 +192,8 @@ export function canonicalPlanToPanelBlueprints(plan: CanonicalChapterProductionP
       dialogueLines,
       requiredEntityIds: [...panel.requiredEntityIds],
       contractualCritical: panel.criticality === "critical" || panel.criticality === "high",
-      panelTextBundle:
-        tp.mode === "dialogue" || tp.mode === "narration" || tp.mode === "sfx"
-          ? {
-              dialogues: dialogueLines ?? undefined,
-              narration: tp.mode === "narration" ? (tp.text ?? null) : null,
-              sfx: tp.mode === "sfx" ? tp.sfx : undefined,
-            }
-          : null,
+      panelTextBundle,
+      textContract,
     };
   });
 }

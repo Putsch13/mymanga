@@ -83,12 +83,12 @@ export function expandBlueprintsToMinimum(
   const legacyAllowed = process.env.MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY === "true";
   if (!legacyAllowed) {
     console.error(
-      `[blueprint-enrichment] padding_refused raw=${blueprints.length} minimum=${minimumPanels} — set MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY=true ONLY for debug/tests.`,
+      `[minimum-blueprint-expansion] padding_refused raw=${blueprints.length} minimum=${minimumPanels} — set MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY=true ONLY for debug/tests.`,
     );
     throw new BlueprintEnrichmentDisabledError(blueprints.length, minimumPanels);
   }
   console.warn(
-    `[blueprint-enrichment] LEGACY padding enabled — raw=${blueprints.length} → target=${minimumPanels}. DO NOT USE IN PREMIUM PROD.`,
+    `[minimum-blueprint-expansion] LEGACY padding enabled — raw=${blueprints.length} → target=${minimumPanels}. DO NOT USE IN PREMIUM PROD.`,
   );
 
   const result: PanelBlueprintPremium[] = [...blueprints];

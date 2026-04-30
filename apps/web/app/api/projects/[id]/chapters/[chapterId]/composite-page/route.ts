@@ -14,6 +14,10 @@ import {
   type InPanelTextBox,
 } from "@manga-ai-studio/ai";
 import {
+  synthesizePanelTextContractFromLooseMetadata,
+  textContractToLegacyDialogue,
+} from "@manga-ai-studio/core";
+import {
   composePanelTextLayout,
   panelTextLayoutBoxesToPagePixels,
 } from "@/components/manga/panel/bubble-compositor";
@@ -100,17 +104,11 @@ export async function GET(_req: Request, ctx: Ctx) {
     const panel = panels[idx];
     if (!meta || !panel) continue;
 
-    const rawDialogue = meta.dialogue;
-    const rawDialogues = Array.isArray(meta.dialogues) ? meta.dialogues as Array<{ speaker: string; text: string }> : null;
-    const dialogues: Array<{ speaker: string; text: string }> = rawDialogues
-      ?? (rawDialogue && typeof rawDialogue === "object" && !Array.isArray(rawDialogue)
-        ? [rawDialogue as { speaker: string; text: string }]
-        : []);
+    const textContract = synthesizePanelTextContractFromLooseMetadata(meta, String(meta.panelId ?? img.id));
+    const dialogues = textContractToLegacyDialogue(textContract);
 
     const narration =
-      typeof meta.narration === "string" && meta.narration.trim().length > 0
-        ? meta.narration
-        : null;
+      textContract.narration?.trim().length ? textContract.narration.trim() : null;
 
     const layout = composePanelTextLayout({
       panelId: img.id,
@@ -132,7 +130,8 @@ export async function GET(_req: Request, ctx: Ctx) {
       ...panelTextLayoutBoxesToPagePixels(layout.narrationBoxes, panel.x, panel.y, panel.width, panel.height),
     );
 
-    const sfxTexts = parseSfxFromMetadata(meta.sfx);
+    const sfxSource = textContract.sfx.length > 0 ? textContract.sfx.map((e) => e.text) : null;
+    const sfxTexts = parseSfxFromMetadata(sfxSource);
     if (sfxTexts.length > 0) {
       const sfxElements = extractSfxElements(sfxTexts, panel.x, panel.y, panel.width, panel.height);
       allSfx.push(...sfxElements);

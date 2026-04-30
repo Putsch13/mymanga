@@ -147,6 +147,10 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
   const heroCharacterId = typeof jobInput.heroCharacterId === "string" && jobInput.heroCharacterId.length > 0
     ? jobInput.heroCharacterId
     : null;
+  const secondaryHeroCharacterId =
+    typeof jobInput.secondaryHeroCharacterId === "string" && jobInput.secondaryHeroCharacterId.length > 0
+      ? jobInput.secondaryHeroCharacterId
+      : null;
   const focusCharacterIds = Array.isArray(jobInput.focusCharacterIds) ? jobInput.focusCharacterIds.filter(Boolean) : [];
   const activeNpcIds = Array.isArray(jobInput.activeNpcIds) ? jobInput.activeNpcIds.filter(Boolean) : [];
   const activeCreatureIds = Array.isArray(jobInput.activeCreatureIds) ? jobInput.activeCreatureIds.filter(Boolean) : [];
@@ -246,11 +250,13 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
           loraUrl: lora.loraUrl,
           loraTriggerWord: lora.loraTriggerWord,
           loraScale: lora.loraScale,
+          stableVisualDNA: c.stableVisualDNA ?? null,
         };
       }),
       approvedOutline: approvedOutlineForV3,
       productionPlan: productionPlanForV3,
       heroCharacterId,
+      secondaryHeroCharacterId,
       focusCharacterIds,
       activeNpcIds,
       activeCreatureIds,

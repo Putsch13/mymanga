@@ -19,10 +19,12 @@ import type {
   CharacterVisualDna,
   EnvironmentVisualDna,
   NpcVisualDna,
+  PanelTextContract,
   ReaderPageTemplateId,
   ReaderTextPlacementHint,
   SceneContinuitySnapshot,
   SceneRosterEntry,
+  VisualWorldPropDna,
 } from "@manga-ai-studio/core";
 
 export type StoryboardLayoutTemplate =
@@ -266,6 +268,12 @@ export interface StoryboardPanel {
   actionLine: string;
   emotionLine: string;
   dialogue: StoryboardPanelDialogue[];
+  /**
+   * PR9 — contrat texte unique quand déjà hydraté (studio / persistance).
+   * Les chemins `resolvePanelTextContractFromStoryboardPanelLike` le
+   * priorisent sur `dialogue` / bundles legacy.
+   */
+  textContract?: PanelTextContract | null;
   narration?: string | null;
   sfx?: string[];
   mustShow: string[];
@@ -279,6 +287,11 @@ export interface StoryboardPanel {
   continuityState?: SceneContinuitySnapshot | null;
   characterVisualDna?: CharacterVisualDna[];
   npcVisualDna?: NpcVisualDna[];
+  /**
+   * Props requis du beat / VW, forme alignée {@link VisualWorldPropDna}
+   * pour le render spec (PR7).
+   */
+  worldPropsVisualDna?: VisualWorldPropDna[];
   environmentVisualDna?: EnvironmentVisualDna | null;
   /**
    * COMMIT P5 — PNJ / ennemis attachés au panel, catégorisés.

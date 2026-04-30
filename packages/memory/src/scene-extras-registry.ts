@@ -601,15 +601,15 @@ export async function ensureSceneExtras(
 }
 
 /**
- * Signature visuelle pour un extra requis : les entrées `ai_generated` (ex. VisualWorldContract)
- * réutilisent le libellé IA comme base de tenue ; le legacy garde les templates par slug.
+ * Signature visuelle pour un extra requis : `ai_generated` et `db_canon` (ex. VisualWorldContract
+ * ou studio) réutilisent le libellé comme base de tenue ; `legacy` garde les templates par slug.
  */
 export function buildSceneExtraVisualSignature(input: {
   archetypeId: string;
   archetypeLabel: string;
   source: SceneExtraSource;
 }): SceneExtra["visualSignature"] {
-  if (input.source === "ai_generated") {
+  if (input.source === "ai_generated" || input.source === "db_canon") {
     const outfit = input.archetypeLabel.trim().slice(0, 160) || "secondary character";
     return { genderPresentation: "varied", outfit, silhouette: "average" };
   }

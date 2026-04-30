@@ -300,6 +300,8 @@ export const chapterCharacterSelectionSchema = z.object({
   heroCharacterId: z.string().optional().nullable(),
   /** Héros / co-protagoniste officiel (contrat studio — QA, prompts, équilibre). */
   secondaryHeroCharacterId: z.string().optional().nullable(),
+  /** Rôle narratif secondaire distinct du co-héros (readiness / couverture panels). */
+  deuteragonistCharacterId: z.string().optional().nullable(),
   /** Cast narratif principal (héros, héros 2, antagonistes récurrents). */
   coreCastCharacterIds: z.array(z.string()).default([]),
   activeCharacterIds: z.array(z.string()).default([]),

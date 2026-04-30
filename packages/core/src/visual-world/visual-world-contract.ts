@@ -84,6 +84,10 @@ export const beatVisualBindingSchema = z.object({
   locationId: z.string().optional().nullable(),
   primaryPropIds: z.array(z.string()).default([]),
   npcGroupIds: z.array(z.string()).default([]),
+  /** Références explicites (ids dans `creatures[]`) — fusionnées avec `requiredBeatIds` sur chaque créature. */
+  creatureIds: z.array(z.string()).default([]),
+  vehicleIds: z.array(z.string()).default([]),
+  factionIds: z.array(z.string()).default([]),
 });
 
 export type BeatVisualBinding = z.infer<typeof beatVisualBindingSchema>;
