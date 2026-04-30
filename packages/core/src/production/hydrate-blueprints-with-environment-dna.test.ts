@@ -85,7 +85,9 @@ describe("hydrateBlueprintsWithEnvironmentDna", () => {
       visualWorld: vw,
     });
     expect(out.environmentVisualDna?.locationName).toBe("Port");
+    expect(out.environmentVisualDna?.locationId).toBe("loc-1");
     expect(out.environmentVisualDna?.anchorId).toBe("loc-1");
+    expect(out.environmentAnchorId).toBe("loc-1");
     expect(out.environmentVisualDna?.architectureHints).toContain("entrepôts");
     expect(out.environmentVisualDna?.atmosphere).toContain("brume");
     expect(out.environmentVisualDna?.visualAnchors).toContain("grues");

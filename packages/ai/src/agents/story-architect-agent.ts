@@ -38,6 +38,11 @@ export interface StoryArchitectInput {
   continuityBefore?: ContinuityState | null;
   mainCharacters?: Array<{ id: string; name: string; roleType?: string | null }>;
   locations?: StoryArchitectLocationInput[];
+  /**
+   * Premium : interdit tout fallback stub / dégradation silencieuse dans
+   * `runStoryArchitectAgentLlm` (clé API, JSON, nombre de beats, erreurs réseau).
+   */
+  premiumOnly?: boolean;
 }
 
 export interface StoryArchitectOutput {

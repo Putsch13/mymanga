@@ -172,5 +172,6 @@ describe("enrichPanelRenderSpecForRenderPass — environmentDNA", () => {
       propAnchors: ["conteneurs empilés"],
       forbiddenDrift: ["ciel dégagé"],
     });
+    expect(out.constraints.forbiddenDrift).toContain("ciel dégagé");
   });
 });

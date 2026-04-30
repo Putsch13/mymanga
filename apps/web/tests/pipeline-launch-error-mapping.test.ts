@@ -137,7 +137,7 @@ describe("mapLaunchError", () => {
     const msg = mapLaunchError({
       error: "premium_continuity_preflight_failed",
       code: "PREMIUM_CONTINUITY_PREFLIGHT_FAILED",
-      continuityBlockers: ["panel-1:missing_character_visual_dna:ids=hero-1"],
+      continuityBlockers: ["panel-1:critical_panel_missing_character_visual_dna:hero-1"],
     });
     expect(msg).toContain("DNA");
     expect(msg).toContain("panel-1");

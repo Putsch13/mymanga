@@ -3,7 +3,11 @@
  * `build-reader-pages` et `manga-page-grid` (évite la divergence).
  */
 
-import { buildPanelTextContractFromFragments, type PanelTextContract } from "./panel-text-contract";
+import {
+  buildPanelTextContractFromFragments,
+  type DialogueLineFragment,
+  type PanelTextContract,
+} from "./panel-text-contract";
 
 export function isPersistedPanelTextContract(value: unknown): value is PanelTextContract {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -50,6 +54,17 @@ export function primaryDialogueLineRowsFromLooseMetadata(
   return null;
 }
 
+function dialogueFragmentsHaveLineText(rows: readonly DialogueLineFragment[] | null | undefined): boolean {
+  if (!rows?.length) return false;
+  for (const d of rows) {
+    if ("line" in d && typeof (d as { line?: string }).line === "string" && (d as { line: string }).line.trim()) {
+      return true;
+    }
+    if ("text" in d && String((d as { text?: string }).text ?? "").trim()) return true;
+  }
+  return false;
+}
+
 export function metadataSfxToStringArray(sfx: unknown): string[] | null {
   if (Array.isArray(sfx)) {
     const a = (sfx as unknown[]).map((x) => String(x).trim()).filter(Boolean);
@@ -72,10 +87,14 @@ export function synthesizePanelTextContractFromLooseMetadata(
   if (isPersistedPanelTextContract(embedded)) {
     return embedded as PanelTextContract;
   }
-  const primaryLines = primaryDialogueLineRowsFromLooseMetadata(meta);
+  const fromDialogueLines =
+    Array.isArray(meta.dialogueLines) && meta.dialogueLines.length > 0
+      ? (meta.dialogueLines as readonly DialogueLineFragment[])
+      : null;
+  const primaryLines = fromDialogueLines ?? primaryDialogueLineRowsFromLooseMetadata(meta);
   return buildPanelTextContractFromFragments({
     panelId: String(meta.panelId ?? panelIdFallback),
-    dialogueLines: primaryLines?.some((l) => String(l.text ?? "").trim()) ? primaryLines : null,
+    dialogueLines: dialogueFragmentsHaveLineText(primaryLines) ? primaryLines : null,
     narration: typeof meta.narration === "string" ? meta.narration : null,
     sfx: metadataSfxToStringArray(meta.sfx),
     panelTextBundle:
@@ -85,7 +104,7 @@ export function synthesizePanelTextContractFromLooseMetadata(
   });
 }
 
-const LEGACY_PANEL_TEXT_KEYS = ["dialogue", "dialogues", "narration", "sfx"] as const;
+const LEGACY_PANEL_TEXT_KEYS = ["dialogue", "dialogues", "dialogueLines", "narration", "sfx"] as const;
 
 /**
  * Quand `textContract` est un contrat persisté valide, supprime les champs texte

@@ -21,7 +21,7 @@ describe("blueprint-panel-text-contract (PR9)", () => {
           reserveTextArea: true,
           preferredAnchorZones: [],
           avoidFaces: true,
-          overflowStrategy: "bubble_stack",
+          overflowStrategy: "bubble_stack" as const,
         },
       },
       panelTextBundle: null,

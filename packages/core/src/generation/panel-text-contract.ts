@@ -258,7 +258,9 @@ export type DialogueLineFragment =
   | { line: string; speakerLabel?: string | null; characterId?: string | null }
   | { speaker: string; text: string }
   /** Données legacy / DB où `speaker` peut être absent. */
-  | { speaker?: string; text?: string };
+  | { speaker?: string; text?: string }
+  /** Blueprint / studio : `speakerName` sans champ `speaker`. */
+  | { text: string; speakerName?: string | null; characterId?: string | null; speaker?: string | null };
 
 function normalizeDialogueFragmentRows(
   rows: readonly DialogueLineFragment[] | null | undefined,
@@ -279,8 +281,10 @@ function normalizeDialogueFragmentRows(
     if ("text" in d) {
       const text = String((d as { text?: string }).text ?? "").trim();
       if (!text) continue;
-      const speaker = String((d as { speaker?: string }).speaker ?? "").trim();
-      out.push({ line: text, speakerLabel: speaker || null, characterId: null });
+      const rec = d as { speaker?: string; speakerName?: string; characterId?: string | null };
+      const speaker = String(rec.speaker ?? rec.speakerName ?? "").trim();
+      const characterId = typeof rec.characterId === "string" && rec.characterId.trim() ? rec.characterId.trim() : null;
+      out.push({ line: text, speakerLabel: speaker || null, characterId });
     }
   }
   return out;

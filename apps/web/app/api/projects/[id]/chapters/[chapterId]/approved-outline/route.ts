@@ -10,7 +10,8 @@ import {
   continuityPreflightBlockingReasons,
   hydrateBlueprintsWithCharacterDna,
   hydrateBlueprintsWithEnvironmentDna,
-  hydrateBlueprintsWithVisualWorldNpcAndProps,
+  hydrateBlueprintsWithNpcDna,
+  hydrateBlueprintsWithPropDna,
   type PanelBlueprintPremium,
   type ProductionOutline,
   type ProductionPlan,
@@ -24,6 +25,7 @@ import {
   buildPremiumChapterContractFromApprovedOutline,
   reconcileIncomingPremiumContract,
 } from "@/lib/premium-chapter-contract";
+import { premiumCharacterStudioSelect, toCharacterRowsForDnaHydration } from "@/lib/premium-character-studio-select";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -47,7 +49,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
   });
   const projectCharacters = await prisma.character.findMany({
     where: { projectId },
-    select: { id: true, roleType: true },
+    select: premiumCharacterStudioSelect,
   });
   const body = await req.json();
   const approvedOutline = approvedOutlineSchema.parse(body.approvedOutline);
@@ -226,54 +228,38 @@ export async function PATCH(req: Request, ctx: Ctx) {
       ? (planRecord.panelBlueprints as PanelBlueprintPremium[])
       : [];
     if (rawBps.length > 0) {
-      const rows = await prisma.character.findMany({
-        where: { projectId },
-        select: {
-          id: true,
-          name: true,
-          hairColor: true,
-          eyeColor: true,
-          appearance: true,
-          outfitDefault: true,
-          stableVisualDNA: true,
-        },
-      });
       const canons = studioSnapshotForContract.data.characterCanons ?? [];
       const characterCanonsById: Record<string, import("@manga-ai-studio/core").CharacterCanon> = {};
       for (const c of canons) {
         characterCanonsById[c.characterId] = c;
       }
       const hydratedBps = (() => {
-        const characterRows = rows.map((c) => ({
-          id: c.id,
-          name: c.name,
-          hairColor: c.hairColor,
-          eyeColor: c.eyeColor,
-          appearance: c.appearance,
-          outfitDefault: c.outfitDefault,
-          stableVisualDNA:
-            c.stableVisualDNA !== null
-            && typeof c.stableVisualDNA === "object"
-            && !Array.isArray(c.stableVisualDNA)
-              ? (c.stableVisualDNA as Record<string, unknown>)
-              : null,
-        }));
         let bps = hydrateBlueprintsWithCharacterDna({
           blueprints: rawBps,
-          characters: characterRows,
+          characters: toCharacterRowsForDnaHydration(projectCharacters),
           characterCanonsById: Object.keys(characterCanonsById).length > 0 ? characterCanonsById : undefined,
+          characterCanons: canons.length > 0 ? canons : null,
+          strict: isPipelineV3PremiumOnlyEnabled(),
           ...(snapshotSecondaryHeroCharacterId
             ? { coProtagonistCharacterIds: [snapshotSecondaryHeroCharacterId] as const }
             : {}),
         });
         if (rebuiltContract.visualWorldContract) {
+          const strictVw = isPipelineV3PremiumOnlyEnabled();
           bps = hydrateBlueprintsWithEnvironmentDna({
             blueprints: bps,
             visualWorld: rebuiltContract.visualWorldContract,
+            strict: strictVw,
           });
-          bps = hydrateBlueprintsWithVisualWorldNpcAndProps({
+          bps = hydrateBlueprintsWithPropDna({
             blueprints: bps,
             visualWorld: rebuiltContract.visualWorldContract,
+            strict: strictVw,
+          });
+          bps = hydrateBlueprintsWithNpcDna({
+            blueprints: bps,
+            visualWorld: rebuiltContract.visualWorldContract,
+            strict: strictVw,
           });
         }
         return bps;
@@ -310,6 +296,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
     ? computePanelContinuityPreflights(resolvedPanelBlueprints, {
         strictEnvironmentLocationBinding: true,
         strictCharacterDnaBinding: true,
+        strictPropVisualBinding: true,
       })
     : [];
   const continuityBlockers = premiumOnly

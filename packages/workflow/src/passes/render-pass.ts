@@ -223,6 +223,7 @@ export interface RunRenderPassInput {
     loraTriggerWord?: string | null;
     loraScale?: number | null;
     forbiddenVisualDrift?: string[] | null;
+    stableVisualDNA?: Record<string, unknown> | null;
     /** DNA complet studio / pipeline — prioritaire sur les champs plats pour le prompt. */
     characterVisualDna?: CharacterVisualDna | null;
   }>;
@@ -352,6 +353,7 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
         visualMemory: input.visualMemory,
         characters: input.characters,
         mainCharacterIds: input.mainCharacterIds,
+        premiumOnly: input.premiumOutOfContractPromptCheck === true,
       });
     } catch (err) {
       if (err instanceof MissingMainCharacterRefError) {

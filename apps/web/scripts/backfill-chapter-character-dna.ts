@@ -3,10 +3,11 @@
  * Backfill des blueprints studio sur un chapitre (aligné estimate / launch premium) :
  * 1. `characterVisualDna` depuis personnages + `characterCanons`
  * 2. Si `visualWorldContract` est présent dans le snapshot : `environmentVisualDna` + NPC/props VW
- * 3. Log du preflight continuité (strict DNA + décor si premium-only)
+ * 3. Preflight continuité strict en premium-only — **exit 1** si blockers restants
  *
  * Usage :
  *   pnpm exec tsx apps/web/scripts/backfill-chapter-character-dna.ts [chapterId]
+ *   pnpm exec tsx apps/web/scripts/backfill-chapter-character-dna.ts --chapterId=xxx
  *
  * Défaut chapterId : cmoi8r3l30001pi2944d8ib11
  */
@@ -14,7 +15,8 @@
 import {
   hydrateBlueprintsWithCharacterDna,
   hydrateBlueprintsWithEnvironmentDna,
-  hydrateBlueprintsWithVisualWorldNpcAndProps,
+  hydrateBlueprintsWithNpcDna,
+  hydrateBlueprintsWithPropDna,
   parseVisualWorldContract,
   type CharacterCanon,
   type PanelBlueprintPremium,
@@ -24,35 +26,39 @@ import {
 } from "@manga-ai-studio/core";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { readChapterStudioSnapshotFromOutline, patchChapterStudioSnapshot } from "../lib/chapter-studio/snapshot";
+import { premiumCharacterStudioSelect, toCharacterRowsForDnaHydration } from "../lib/premium-character-studio-select";
 
 const DEFAULT_CHAPTER_ID = "cmoi8r3l30001pi2944d8ib11";
 
+function parseChapterIdFromArgv(): string {
+  const raw = process.argv.slice(2);
+  for (const a of raw) {
+    if (a.startsWith("--chapterId=")) {
+      const v = a.slice("--chapterId=".length).trim();
+      if (v) return v;
+    }
+  }
+  const pos = raw.find((x) => x && !x.startsWith("--"));
+  return (pos?.trim() || DEFAULT_CHAPTER_ID).trim();
+}
+
 async function main() {
-  const chapterId = process.argv[2]?.trim() || DEFAULT_CHAPTER_ID;
+  const chapterId = parseChapterIdFromArgv();
   const chapter = await prisma.chapter.findUnique({
     where: { id: chapterId },
     include: {
-      project: {
-        include: {
-          characters: {
-            select: {
-              id: true,
-              name: true,
-              hairColor: true,
-              eyeColor: true,
-              appearance: true,
-              outfitDefault: true,
-              stableVisualDNA: true,
-            },
-          },
-        },
-      },
+      project: true,
     },
   });
   if (!chapter) {
     console.error(`[backfill] chapter not found: ${chapterId}`);
     process.exit(1);
   }
+
+  const characterRows = await prisma.character.findMany({
+    where: { projectId: chapter.projectId },
+    select: premiumCharacterStudioSelect,
+  });
 
   const snapshot = readChapterStudioSnapshotFromOutline({
     outline: chapter.outline,
@@ -73,24 +79,10 @@ async function main() {
 
   let pipeline = hydrateBlueprintsWithCharacterDna({
     blueprints: bps as PanelBlueprintPremium[],
-    characters: chapter.project.characters.map((c) => {
-      const raw = c as Record<string, unknown>;
-      return {
-        id: c.id,
-        name: c.name,
-        hairColor: c.hairColor ?? null,
-        eyeColor: c.eyeColor ?? null,
-        appearance: typeof raw.appearance === "string" ? raw.appearance : null,
-        outfitDefault: typeof raw.outfitDefault === "string" ? raw.outfitDefault : null,
-        stableVisualDNA:
-          raw.stableVisualDNA !== null
-          && typeof raw.stableVisualDNA === "object"
-          && !Array.isArray(raw.stableVisualDNA)
-            ? (raw.stableVisualDNA as Record<string, unknown>)
-            : null,
-      };
-    }),
+    characters: toCharacterRowsForDnaHydration(characterRows),
     characterCanonsById,
+    characterCanons: canons.length > 0 ? canons : null,
+    strict: isPipelineV3PremiumOnlyEnabled(),
     ...(typeof snapshot.data.characterSelection?.secondaryHeroCharacterId === "string"
       && snapshot.data.characterSelection.secondaryHeroCharacterId.trim().length > 0
       ? {
@@ -103,13 +95,21 @@ async function main() {
   if (rawVw !== undefined && rawVw !== null) {
     try {
       const vw = parseVisualWorldContract(rawVw);
+      const strictVw = isPipelineV3PremiumOnlyEnabled();
       pipeline = hydrateBlueprintsWithEnvironmentDna({
         blueprints: pipeline,
         visualWorld: vw,
+        strict: strictVw,
       });
-      pipeline = hydrateBlueprintsWithVisualWorldNpcAndProps({
+      pipeline = hydrateBlueprintsWithPropDna({
         blueprints: pipeline,
         visualWorld: vw,
+        strict: strictVw,
+      });
+      pipeline = hydrateBlueprintsWithNpcDna({
+        blueprints: pipeline,
+        visualWorld: vw,
+        strict: strictVw,
       });
       console.log(
         `[backfill] visual_world_hydration ok locations=${vw.locations.length} props=${vw.props?.length ?? 0} npcGroups=${vw.npcGroups?.length ?? 0}`,
@@ -124,13 +124,15 @@ async function main() {
     const preflights = computePanelContinuityPreflights(pipeline, {
       strictEnvironmentLocationBinding: true,
       strictCharacterDnaBinding: true,
+      strictPropVisualBinding: true,
     });
     const blockers = continuityPreflightBlockingReasons(preflights);
     console.log(
       `[backfill] continuity_preflight panels=${preflights.length} blockers=${blockers.length}`,
     );
     if (blockers.length > 0) {
-      console.warn(`[backfill] continuity_blockers sample=${JSON.stringify(blockers.slice(0, 5))}`);
+      console.error(`[backfill] continuity_blockers (exit 1) sample=${JSON.stringify(blockers.slice(0, 12))}`);
+      process.exit(1);
     }
   }
 

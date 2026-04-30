@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as studioCore from "@manga-ai-studio/core";
 
 const prismaMock = {
   chapter: { findFirst: vi.fn() },
@@ -546,6 +547,44 @@ describe("chapter estimate route", () => {
     expect(payload.productionPlan.cutawayCoverage).toBeDefined();
     expect(typeof payload.productionPlan.cutawayCoverage.count).toBe("number");
     expect(typeof payload.productionPlan.cutawayCoverage.ratio).toBe("number");
+  });
+
+  it("PIPELINE_V3_PREMIUM_ONLY : launchAlignedReady false si preflight continuité bloque (DNA manquant)", async () => {
+    vi.stubEnv("PIPELINE_V3_PREMIUM_ONLY", "true");
+    const origMerge = studioCore.mergeRawBlueprintsWithCanonicalRhythm;
+    const mergeSpy = vi.spyOn(studioCore, "mergeRawBlueprintsWithCanonicalRhythm").mockImplementation((raw, plan) => {
+      const merged = origMerge(raw, plan);
+      const first = merged[0];
+      if (first) {
+        merged[0] = {
+          ...first,
+          criticality: "critical",
+          requiredCharacterIds: ["hero-1", "not-in-project-db"],
+          characterVisualDna: [],
+        };
+      }
+      return merged;
+    });
+    prismaMock.chapter.findFirst.mockResolvedValue({ chapterNumber: 2 });
+    try {
+      const mod = await import("../app/api/projects/[id]/chapters/estimate/route");
+      const response = await mod.POST(
+        new Request("http://localhost", {
+          method: "POST",
+          body: JSON.stringify({ userIntent: "Scène duo héros + allié absent de la base." }),
+        }),
+        ctx,
+      );
+      const payload = await response.json();
+      expect(response.status).toBe(200);
+      expect(payload.estimateContext?.continuityPreflight?.blockers?.length).toBeGreaterThan(0);
+      expect(payload.estimateContext?.continuityPreflight?.valid).toBe(false);
+      expect(payload.estimateContext?.launchAlignedReady).toBe(false);
+      expect(payload.estimateContext?.planStatus).toBe("incomplete");
+    } finally {
+      mergeSpy.mockRestore();
+      vi.unstubAllEnvs();
+    }
   });
 
   it("PIPELINE_V3_PREMIUM_ONLY : propage flags + index VW vers inferRequiredPropsFromBeat", async () => {

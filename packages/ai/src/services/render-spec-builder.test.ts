@@ -106,4 +106,114 @@ describe("buildPanelRenderSpec — PR7 environment + DNA personnage", () => {
     expect(vdna?.jawline).toBe("soft");
     expect(vdna?.hairColor).toBe("silver");
   });
+
+  it("fusionne characterVisualDna du blueprint panel (prioritaire sur la fiche perso)", () => {
+    const panel = makePanel({
+      characterVisualDna: [
+        {
+          characterId: "h1",
+          hairColor: "crimson streak",
+          faceShape: "angular",
+        },
+      ],
+    });
+    const mem = createEmptyChapterVisualMemory("ch1");
+    addCharacterEntry(mem, {
+      characterId: "h1",
+      name: "Hero",
+      role: "hero",
+      faceRefUrl: "https://example.com/face.png",
+      silhouetteRefUrl: null,
+      outfitRefUrl: null,
+      defaultWeight: 1,
+    });
+    const spec = buildPanelRenderSpec({
+      panel,
+      styleBible: createDefaultChapterStyleBible(),
+      visualMemory: mem,
+      characters: [
+        {
+          id: "h1",
+          name: "Hero",
+          roleType: "hero",
+          hairColor: "navy",
+          eyeColor: "green",
+          characterVisualDna: { characterId: "h1", hairColor: "navy", jawline: "sharp" },
+        },
+      ],
+      mainCharacterIds: ["h1"],
+    });
+    const vdna = spec.visibleCharacters[0]?.visualDNA;
+    expect(vdna?.hairColor).toBe("crimson streak");
+    expect(vdna?.jawline).toBe("sharp");
+    expect(vdna?.faceShape).toBe("angular");
+  });
+
+  it("premiumOnly : refuse un héros sans ADN visuel substantiel", () => {
+    const panel = makePanel({ characters: ["h1"], characterVisualDna: [] });
+    const mem = createEmptyChapterVisualMemory("ch1");
+    addCharacterEntry(mem, {
+      characterId: "h1",
+      name: "Hero",
+      role: "hero",
+      faceRefUrl: "https://example.com/face.png",
+      silhouetteRefUrl: null,
+      outfitRefUrl: null,
+      defaultWeight: 1,
+    });
+    expect(() =>
+      buildPanelRenderSpec({
+        panel,
+        styleBible: createDefaultChapterStyleBible(),
+        visualMemory: mem,
+        characters: [
+          {
+            id: "h1",
+            name: "Hero",
+            roleType: "hero",
+            hairColor: null,
+            eyeColor: null,
+            characterVisualDna: null,
+          },
+        ],
+        mainCharacterIds: [],
+        premiumOnly: true,
+      }),
+    ).toThrow("premium_missing_character_visual_dna_for_render");
+  });
+
+  it("premiumOnly : accepte l’ADN issu uniquement du blueprint panel", () => {
+    const panel = makePanel({
+      characters: ["h1"],
+      characterVisualDna: [{ characterId: "h1", hairColor: "white" }],
+    });
+    const mem = createEmptyChapterVisualMemory("ch1");
+    addCharacterEntry(mem, {
+      characterId: "h1",
+      name: "Hero",
+      role: "hero",
+      faceRefUrl: "https://example.com/face.png",
+      silhouetteRefUrl: null,
+      outfitRefUrl: null,
+      defaultWeight: 1,
+    });
+    const spec = buildPanelRenderSpec({
+      panel,
+      styleBible: createDefaultChapterStyleBible(),
+      visualMemory: mem,
+      characters: [
+        {
+          id: "h1",
+          name: "Hero",
+          roleType: "hero",
+          hairColor: null,
+          eyeColor: null,
+          characterVisualDna: null,
+        },
+      ],
+      mainCharacterIds: [],
+      premiumOnly: true,
+    });
+    expect(spec.visibleCharacters[0]?.visualDNA?.hairColor).toBe("white");
+  });
 });

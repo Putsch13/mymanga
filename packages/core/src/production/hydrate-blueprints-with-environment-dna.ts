@@ -11,6 +11,7 @@ import { selectBeatLocationFromVisualWorld } from "../visual-world/select-beat-l
 export function visualWorldLocationToEnvironmentDna(loc: VisualWorldLocation): EnvironmentVisualDna {
   return {
     locationName: loc.label,
+    locationId: loc.id,
     anchorId: loc.id,
     visualAnchors: [...loc.visualAnchors].slice(0, 6),
     architectureHints: [...loc.architecture].slice(0, 6),
@@ -24,11 +25,14 @@ export function visualWorldLocationToEnvironmentDna(loc: VisualWorldLocation): E
 export type HydrateBlueprintsWithEnvironmentDnaInput = {
   blueprints: PanelBlueprintPremium[];
   visualWorld: VisualWorldContract | null | undefined;
+  /** Premium : absence de binding lieu / lieu introuvable → erreur explicite. */
+  strict?: boolean;
 };
 
 function mergeEnv(prev: EnvironmentVisualDna, next: EnvironmentVisualDna): EnvironmentVisualDna {
   return {
     locationName: prev.locationName?.trim() || next.locationName,
+    locationId: prev.locationId?.trim() || next.locationId || next.anchorId || prev.anchorId || undefined,
     anchorId: prev.anchorId?.trim() || next.anchorId || null,
     visualAnchors:
       prev.visualAnchors && prev.visualAnchors.length > 0 ? prev.visualAnchors : next.visualAnchors,
@@ -62,9 +66,11 @@ export function hydrateBlueprintsWithEnvironmentDna(
     const loc = selectBeatLocationFromVisualWorld({ beatId: bp.beatId, visualWorld: vw });
     const next = visualWorldLocationToEnvironmentDna(loc);
     const prev = bp.environmentVisualDna;
-    if (!prev) {
-      return { ...bp, environmentVisualDna: next };
-    }
-    return { ...bp, environmentVisualDna: mergeEnv(prev, next) };
+    const base = !prev ? next : mergeEnv(prev, next);
+    return {
+      ...bp,
+      environmentVisualDna: base,
+      environmentAnchorId: base.anchorId ?? base.locationId ?? bp.environmentAnchorId ?? null,
+    };
   });
 }

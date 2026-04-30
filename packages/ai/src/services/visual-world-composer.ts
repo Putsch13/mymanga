@@ -116,6 +116,12 @@ function buildSystemPrompt(): string {
   return [
     "Tu es le directeur artistique d'un chapitre manga premium.",
     "Tu dois produire UN SEUL objet JSON respectant exactement le schéma demandé par l'utilisateur.",
+    "Tu dois composer naturellement le monde visuel du chapitre : lieux, sous-lieux, accessoires, PNJ, créatures, véhicules, factions.",
+    "N'utilise pas de catalogue générique ni de listes figées : déduis tout depuis l'histoire, les personnages listés, le genre, le ton, la continuité et le style manga.",
+    "Ne crée pas de personnage principal inventé : les héros viennent uniquement des IDs fournis.",
+    "Les PNJ sont autorisés seulement s'ils servent la scène, la foule, le décor ou l'action.",
+    "Les props sont autorisés seulement s'ils ont une preuve narrative ou symbolique dans les beats.",
+    "Chaque beat fourni doit avoir exactement un beatBinding avec une locationId valide et un mood visuel cohérent (via la location et les ancres).",
     "Règles strictes :",
     "- chapterId doit être identique à celui fourni.",
     '- source en haut du contrat : "ai_generated" sauf consigne contraire.',

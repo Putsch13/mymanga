@@ -9,7 +9,7 @@ import type {
   StructuredLocationDelta,
   StructuredSceneEvent,
 } from "@manga-ai-studio/core";
-import { isPipelineV3PremiumOnlyEnabled } from "@manga-ai-studio/core";
+import { buildPanelTextContractFromFragments, isPipelineV3PremiumOnlyEnabled } from "@manga-ai-studio/core";
 import type { GenerationOperationalStatus } from "../generation-status";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -72,6 +72,22 @@ Bubble types:
 
 function uniq(values: Array<string | null | undefined>) {
   return [...new Set(values.filter((value): value is string => typeof value === "string" && value.length > 0))];
+}
+
+/** PR5 — matérialise `PanelTextContract` sur chaque case (lecteurs / pipeline premium). */
+function attachPanelTextContracts(panels: MangaPanelText[]): MangaPanelText[] {
+  return panels.map((p) => ({
+    ...p,
+    textContract: buildPanelTextContractFromFragments({
+      panelId: p.panelId,
+      dialogueLines: (p.bubbles ?? []).map((b) => ({
+        line: b.text,
+        speakerLabel: b.speaker ?? null,
+      })),
+      narration: Array.isArray(p.narration) && p.narration.length > 0 ? p.narration.join("\n") : null,
+      sfx: p.sfx ?? [],
+    }),
+  }));
 }
 
 function normalizeStringArray(value: unknown) {
@@ -478,7 +494,7 @@ IMPORTANT:
     console.warn(
       `[dialogue-writer] sceneId=${input.sceneId} degraded_status=DEGRADED_DIALOGUE_FALLBACK reason=${fallbackReason}`,
     );
-    const panels = generateFallbackPanels(input);
+    const panels = attachPanelTextContracts(generateFallbackPanels(input));
     const continuityPayload = inferSceneContinuityPayload(input);
     return {
       panels,
@@ -523,7 +539,7 @@ IMPORTANT:
       }
       return buildFallbackResult("Dialogue JSON returned without panels");
     }
-    const panels = parsed.panels;
+    const panels = attachPanelTextContracts(parsed.panels);
     const continuityPayload = normalizeSceneContinuityPayload(
       parsed.continuityPayload,
       {

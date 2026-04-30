@@ -141,6 +141,15 @@ Le reader et les surfaces de review consomment :
 - le `canonicalPacket` quand il existe ;
 - les scores QA et les raisons de rejet.
 
+### Coherence premium recente (avril 2026)
+
+- **Estimate / launch** : hydratation `characterVisualDna` (`hydrateBlueprintsWithCharacterDna` dans `packages/core`), preflight continuite par personnage requis (`panel-continuity-preflight`), merge raw/canon qui ignore les tableaux vides pour le DNA ; la reponse **estimate** inclut `continuityPreflight` ; `ready` reste false si des blockers continuite subsistent (alignement avec le blocage launch).
+- **Approved outline** : persistance avec champs personnages enrichis et blueprints hydrates (personnage + monde visuel selon pipeline).
+- **Reader** : priorite `dialogueLines` puis `dialogue` / `dialogues`, et `panelTextBundle` sur le storyboard persisté (`build-reader-pages`) ; meme regle sur les metadata `SceneImage` via `synthesizePanelTextContractFromLooseMetadata` / `legacyDialogueToPanelTextContract`.
+- **Pipeline v3** : detection NPC par regex isolee dans `packages/workflow/src/passes/legacy-npc-regex-from-text.ts` (chemin non premium) ; les groupes PNJ du contrat discovery sont fusionnes dans la map cast **avant** `buildChapterCastContract`.
+- **Story Architect** : `premiumOnly` fail-hard sur le flux premium v3 (`runStoryPass` + `runStoryArchitectAgentLlm`).
+- **Backfill** : `pnpm tsx scripts/backfill-chapter-character-dna.ts` (variable `CHAPTER_ID` ou `--chapterId=...`) pour rehydrater un snapshot existant.
+
 ## Comment le cerveau fonctionne
 
 ## Vue d'ensemble
@@ -284,6 +293,8 @@ Ce chemin :
 - construit des `CanonicalImagePromptPacket` quand possible ;
 - sait encore retomber sur certains prompts legacy sur des chapitres historiques ;
 - alimente les rerolls, la review et certains readers existants.
+
+La detection PNJ par **regex sur le texte** (mots-cles foule, marins, etc.) vit dans `packages/workflow/src/passes/legacy-npc-regex-from-text.ts` et ne sert **pas** de source principale sur le chemin premium v3 (VisualWorldContract + blueprints).
 
 En clair :
 

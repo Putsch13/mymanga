@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as studioCore from "@manga-ai-studio/core";
 import {
   buildPremiumLaunchChapter as buildPremiumChapter,
   premiumTestUser as user,
@@ -249,6 +250,57 @@ describe("/launch — contrat premium", () => {
     const po = jobInput?.productionOutline as Record<string, unknown> | undefined;
     if (po) {
       expect(po.source).not.toBe("legacy_adapted");
+    }
+  });
+
+  it("PIPELINE_V3_PREMIUM_ONLY : appelle hydrateBlueprintsWithCharacterDna avant le preflight continuité", async () => {
+    vi.stubEnv("PIPELINE_V3_PREMIUM_ONLY", "true");
+    const origHydrate = studioCore.hydrateBlueprintsWithCharacterDna;
+    const hydrateSpy = vi
+      .spyOn(studioCore, "hydrateBlueprintsWithCharacterDna")
+      .mockImplementation((input) => origHydrate(input as Parameters<typeof origHydrate>[0]));
+    prismaMock.character.findMany.mockResolvedValue([
+      {
+        id: "hero-1",
+        name: "Hero",
+        roleType: "hero",
+        hairColor: "noir",
+        eyeColor: null,
+        appearance: null,
+        outfitDefault: null,
+        stableVisualDNA: {},
+        characterFingerprint: {},
+        visualProfile: {},
+        wardrobeProfile: {},
+        bodyState: {},
+        continuityProfile: {},
+        speechProfile: {},
+        voiceRegister: null,
+        voiceSentenceLength: null,
+        voiceVocabularyStyle: null,
+        voiceFavoriteExpressions: [],
+        voiceForbiddenExpressions: [],
+        visualRefs: [],
+        visualLocks: [],
+        canonPack: null,
+        loraAttachments: [],
+      },
+    ] as never);
+    try {
+      prismaMock.chapter.findFirst.mockResolvedValue(buildPremiumChapter());
+      prismaMock.job.create.mockResolvedValue({ id: "job-1" });
+      const mod = await import("../app/api/projects/[id]/chapters/[chapterId]/launch/route");
+      const response = await mod.POST(new Request("http://localhost", { method: "POST" }), ctx);
+      expect(hydrateSpy).toHaveBeenCalled();
+      const call = hydrateSpy.mock.calls.find((c) => Array.isArray(c[0]?.blueprints) && (c[0]?.blueprints as unknown[]).length > 0);
+      expect(call?.[0]).toMatchObject({ strict: true });
+      // Fixture sans environmentVisualDna complet : le preflight strict premium bloque après hydratation défensive.
+      expect(response.status).toBe(422);
+      const json = (await response.json()) as { code?: string };
+      expect(json.code).toBe("PREMIUM_CONTINUITY_PREFLIGHT_FAILED");
+    } finally {
+      hydrateSpy.mockRestore();
+      vi.unstubAllEnvs();
     }
   });
 });

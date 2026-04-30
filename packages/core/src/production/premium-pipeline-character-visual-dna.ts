@@ -53,8 +53,15 @@ export function characterVisualDnaForRenderFromPremiumRow(row: PremiumPipelineCh
     forbiddenDrift: Array.isArray(row.forbiddenVisualDrift) ? [...row.forbiddenVisualDrift] : undefined,
     visualCanonExcerpt: excerpt ?? null,
     perceivedAge: row.ageApparent?.trim() || fromStable.perceivedAge || null,
-    silhouetteType: row.bodyType?.trim() || fromStable.silhouetteType || null,
+    silhouetteType: fromStable.silhouetteType || null,
+    bodyType: row.bodyType?.trim() || fromStable.bodyType || null,
     distinctiveMarksLine: distinctiveMarksLine || fromStable.distinctiveMarksLine || null,
     accessoriesLine: accessoriesLine || fromStable.accessoriesLine || null,
+    scars: fromStable.scars?.length ? [...fromStable.scars] : undefined,
+    tattoos: fromStable.tattoos?.length ? [...fromStable.tattoos] : undefined,
+    accessories:
+      fromStable.accessories?.length
+        ? [...fromStable.accessories]
+        : row.accessories?.filter((x): x is string => typeof x === "string" && x.trim().length > 0).map((x) => x.trim()),
   };
 }

@@ -24,7 +24,8 @@ import {
   continuityPreflightBlockingReasons,
   hydrateBlueprintsWithCharacterDna,
   hydrateBlueprintsWithEnvironmentDna,
-  hydrateBlueprintsWithVisualWorldNpcAndProps,
+  hydrateBlueprintsWithNpcDna,
+  hydrateBlueprintsWithPropDna,
   hydratePanelProvenanceOnBlueprints,
   isHeroRole,
   isPipelineV3PremiumOnlyEnabled,
@@ -386,9 +387,7 @@ export async function POST(req: Request, ctx: Ctx) {
   });
   const mergedBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawBlueprints, canonicalPlan);
   const narrativeDigest = computeNarrativeMemoryDigestFromOutline(productionOutline);
-  let allBlueprints = hydratePanelProvenanceOnBlueprints(mergedBlueprints, {
-    narrativeMemoryDigest: narrativeDigest,
-  });
+  let allBlueprints = mergedBlueprints;
 
   let premiumReadinessCast: PremiumReadinessCastContext | undefined;
   let characterCanonsById: Record<string, import("@manga-ai-studio/core").CharacterCanon> | undefined;
@@ -444,6 +443,7 @@ export async function POST(req: Request, ctx: Ctx) {
       stableVisualDNA: c.stableVisualDNA ?? null,
     })),
     characterCanonsById: characterCanonsById ?? null,
+    strict: isPipelineV3PremiumOnlyEnabled(),
     ...(coProtagonistCharacterIdsForHydration
       ? { coProtagonistCharacterIds: coProtagonistCharacterIdsForHydration }
       : {}),
@@ -452,13 +452,25 @@ export async function POST(req: Request, ctx: Ctx) {
   allBlueprints = hydrateBlueprintsWithEnvironmentDna({
     blueprints: allBlueprints,
     visualWorld: bundle.visualWorldContract ?? null,
+    strict: isPipelineV3PremiumOnlyEnabled(),
   });
   if (bundle.visualWorldContract) {
-    allBlueprints = hydrateBlueprintsWithVisualWorldNpcAndProps({
+    const strictVw = isPipelineV3PremiumOnlyEnabled();
+    allBlueprints = hydrateBlueprintsWithPropDna({
       blueprints: allBlueprints,
       visualWorld: bundle.visualWorldContract,
+      strict: strictVw,
+    });
+    allBlueprints = hydrateBlueprintsWithNpcDna({
+      blueprints: allBlueprints,
+      visualWorld: bundle.visualWorldContract,
+      strict: strictVw,
     });
   }
+
+  allBlueprints = hydratePanelProvenanceOnBlueprints(allBlueprints, {
+    narrativeMemoryDigest: narrativeDigest,
+  });
 
   const structuralFromPersistedBlueprints = runStructuralQaOnPremiumBlueprints({
     chapterId: estimateChapterId,
@@ -588,6 +600,7 @@ export async function POST(req: Request, ctx: Ctx) {
     ? computePanelContinuityPreflights(allBlueprints, {
         strictEnvironmentLocationBinding: true,
         strictCharacterDnaBinding: true,
+        strictPropVisualBinding: true,
       })
     : [];
   const continuityBlockers = isPipelineV3PremiumOnlyEnabled()
@@ -652,6 +665,7 @@ export async function POST(req: Request, ctx: Ctx) {
       planStatus: planReady ? "ready" : "incomplete",
       continuityPreflight: {
         ok: continuityPreflightOk,
+        valid: continuityBlockers.length === 0,
         blockers: continuityBlockers,
         panelCount: continuityPreflights.length,
       },
@@ -720,6 +734,7 @@ export async function POST(req: Request, ctx: Ctx) {
     },
     continuityPreflight: {
       ok: continuityPreflightOk,
+      valid: continuityBlockers.length === 0,
       blockers: continuityBlockers,
       panelCount: continuityPreflights.length,
     },

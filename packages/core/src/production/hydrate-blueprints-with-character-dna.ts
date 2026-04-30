@@ -3,6 +3,12 @@
  * Source : personnages projet + CharacterCanon studio (optionnel).
  */
 
+import {
+  mergeCharacterVisualDna,
+  type ContractCharacterVisualDna,
+  type DbCharacterVisualFields,
+  type StoryboardCharacterVisualDna,
+} from "../characters/merge-character-visual-dna";
 import type { CharacterCanon } from "../types/chapter-studio";
 import type { CharacterVisualDna } from "../types/generation-debug-snapshot";
 import type { PanelBlueprintPremium } from "../types/narrative-facts";
@@ -112,6 +118,24 @@ export function visualDnaTraitFieldsFromStableVisualDNA(stable: unknown): Partia
   put("perceivedAge", "perceivedAge");
   const silhouette = stableScalarString(r, "silhouetteType") ?? stableScalarString(r, "silhouette");
   if (silhouette) out.silhouetteType = silhouette;
+  const bodyType = stableScalarString(r, "bodyType");
+  if (bodyType) out.bodyType = bodyType;
+  const stableStringArray = (key: string): string[] => {
+    const v = r[key];
+    if (Array.isArray(v)) {
+      return v
+        .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+        .map((x) => x.trim());
+    }
+    if (typeof v === "string" && v.trim()) return [v.trim()];
+    return [];
+  };
+  const scarsArr = stableStringArray("scars");
+  const tattoosArr = stableStringArray("tattoos");
+  const accArr = [...stableStringArray("accessories"), ...stableStringArray("fixedAccessories")];
+  if (scarsArr.length) out.scars = scarsArr;
+  if (tattoosArr.length) out.tattoos = tattoosArr;
+  if (accArr.length) out.accessories = [...new Set(accArr)];
   const scars = stableScalarString(r, "scars");
   const tattoos = stableScalarString(r, "tattoos");
   const marks = [scars, tattoos].filter(Boolean).join(" ; ");
@@ -128,6 +152,13 @@ export type HydrateBlueprintsWithCharacterDnaInput = {
   characters: CharacterRowForDnaHydration[];
   /** Index par `characterId` (ex. snapshot `data.characterCanons`). */
   characterCanonsById?: ReadonlyMap<string, CharacterCanon> | Record<string, CharacterCanon | undefined> | null;
+  /** Alias liste — converti en map par `characterId`. */
+  characterCanons?: readonly CharacterCanon[] | null;
+  /**
+   * Premium strict : n’injecte pas de ligne `characterVisualDna` sans source DB ou canon ;
+   * ajoute une note `character_dna_strict_unresolved:{id}` par ID manquant.
+   */
+  strict?: boolean;
   /**
    * Héros 2 / co‑protagonistes : sur tout panel où au moins un personnage est requis
    * (requis, must-show, ou locuteur `speaker_visible`), on injecte aussi leur DNA pour
@@ -151,6 +182,81 @@ function canonMap(
     if (v) m.set(k, v);
   }
   return m;
+}
+
+function mergedCanonMap(input: HydrateBlueprintsWithCharacterDnaInput): Map<string, CharacterCanon> {
+  const fromRecord = canonMap(input.characterCanonsById);
+  if (!input.characterCanons?.length) return fromRecord;
+  for (const c of input.characterCanons) {
+    if (c?.characterId) fromRecord.set(c.characterId, c);
+  }
+  return fromRecord;
+}
+
+/** Au moins un signal visuel exploitable (hors seul displayName / characterId). */
+export function isSubstantialCharacterVisualDna(d: CharacterVisualDna): boolean {
+  const strings = [
+    d.hairColor,
+    d.eyeColor,
+    d.hairStyle,
+    d.skinTone,
+    d.outfitSignature,
+    d.canonSignatureText,
+    d.visualCanonExcerpt,
+    d.faceShape,
+    d.eyeShape,
+    d.eyeSize,
+    d.eyebrowStyle,
+    d.hairLength,
+    d.hairTexture,
+    d.noseStyle,
+    d.mouthStyle,
+    d.jawline,
+    d.silhouetteType,
+    d.perceivedAge,
+    d.distinctiveMarksLine,
+    d.accessoriesLine,
+  ];
+  if (strings.some((s) => typeof s === "string" && s.trim().length > 0)) return true;
+  if (d.forbiddenDrift && d.forbiddenDrift.length > 0) return true;
+  if (d.bodyType?.trim()) return true;
+  if (d.scars && d.scars.length > 0) return true;
+  if (d.tattoos && d.tattoos.length > 0) return true;
+  if (d.accessories && d.accessories.length > 0) return true;
+  return false;
+}
+
+function collectRequiredCharacterIds(
+  bp: PanelBlueprintPremium,
+  coProtagonistCharacterIds: readonly string[],
+): string[] {
+  const speakerAnchor =
+    bp.dialogueCarrier === "speaker_visible" && bp.speakerAnchorCharacterId?.trim()
+      ? bp.speakerAnchorCharacterId.trim()
+      : null;
+  const ids = new Set<string>([
+    ...(bp.requiredCharacterIds ?? []),
+    ...(bp.mustShowCharacterIds ?? []),
+    ...(bp.requiredCharacters ?? []),
+    ...(bp.visibleCharacterIds ?? []),
+    ...(speakerAnchor ? [speakerAnchor] : []),
+  ]);
+  const speakerChar = typeof bp.speakerCharacterId === "string" ? bp.speakerCharacterId.trim() : "";
+  if (speakerChar) ids.add(speakerChar);
+  for (const line of bp.dialogueLines ?? []) {
+    const cid = typeof line.characterId === "string" ? line.characterId.trim() : "";
+    if (cid) ids.add(cid);
+  }
+  const entityIds = bp.requiredEntityIds ?? [];
+  for (const eid of entityIds) {
+    if (typeof eid === "string" && eid.trim()) ids.add(eid.trim());
+  }
+  let requiredIds = [...ids];
+  const hasCharacterSlot = requiredIds.length > 0;
+  if (hasCharacterSlot && coProtagonistCharacterIds.length > 0) {
+    requiredIds = [...new Set([...requiredIds, ...coProtagonistCharacterIds])];
+  }
+  return requiredIds;
 }
 
 function firstHairColorFromTraits(traits: string[]): string | null {
@@ -216,7 +322,65 @@ function buildDnaForCharacterId(
     perceivedAge: fromStable.perceivedAge,
     distinctiveMarksLine: fromStable.distinctiveMarksLine,
     accessoriesLine: fromStable.accessoriesLine,
+    bodyType: fromStable.bodyType,
+    scars: fromStable.scars,
+    tattoos: fromStable.tattoos,
+    accessories: fromStable.accessories,
   };
+}
+
+function characterVisualDnaToDbFields(d: CharacterVisualDna): DbCharacterVisualFields {
+  return {
+    hairColor: d.hairColor,
+    eyeColor: d.eyeColor,
+    canonSignatureText: d.canonSignatureText,
+    forbiddenVisualDrift: d.forbiddenDrift,
+  };
+}
+
+function characterVisualDnaToContractFields(d: CharacterVisualDna): ContractCharacterVisualDna {
+  const marks = [
+    ...(d.distinctiveMarksLine ? d.distinctiveMarksLine.split(" ; ").map((x) => x.trim()).filter(Boolean) : []),
+    ...(d.scars ?? []),
+    ...(d.tattoos ?? []),
+  ];
+  return {
+    eyeColor: d.eyeColor,
+    hairColor: d.hairColor,
+    hairStyle: d.hairStyle,
+    skinTone: d.skinTone,
+    outfitSignature: d.outfitSignature,
+    distinctiveTraits: marks.length > 0 ? [...new Set(marks)] : undefined,
+    silhouette: d.silhouetteType,
+    ageAppearance: d.perceivedAge,
+    bodyType: d.bodyType,
+  };
+}
+
+function characterVisualDnaToStoryboardFields(d: CharacterVisualDna): StoryboardCharacterVisualDna {
+  const features = [
+    ...(d.distinctiveMarksLine ? d.distinctiveMarksLine.split(" ; ").map((x) => x.trim()).filter(Boolean) : []),
+    ...(d.scars ?? []),
+    ...(d.tattoos ?? []),
+  ];
+  return {
+    eyeColor: d.eyeColor,
+    hairColor: d.hairColor,
+    hairStyle: d.hairStyle,
+    outfitSignature: d.outfitSignature,
+    distinctiveFeatures: features.length > 0 ? [...new Set(features)] : undefined,
+  };
+}
+
+function mergeStringArraysPreferNonEmpty(
+  a: string[] | undefined,
+  b: string[] | undefined,
+): string[] | undefined {
+  const aa = a?.filter((x) => x.trim());
+  const bb = b?.filter((x) => x.trim());
+  if (aa && aa.length > 0) return aa;
+  if (bb && bb.length > 0) return bb;
+  return undefined;
 }
 
 function mergeDna(prev: CharacterVisualDna, built: CharacterVisualDna): CharacterVisualDna {
@@ -226,21 +390,31 @@ function mergeDna(prev: CharacterVisualDna, built: CharacterVisualDna): Characte
     const bs = typeof b === "string" ? b.trim() : "";
     return bs ? b : undefined;
   };
+
+  const mergedCore = mergeCharacterVisualDna({
+    dbCharacter: characterVisualDnaToDbFields(built),
+    contractCharacter: characterVisualDnaToContractFields(built),
+    storyboardCharacterDna: characterVisualDnaToStoryboardFields(prev),
+  });
+
+  const distinctiveMarksLine = pick(prev.distinctiveMarksLine, built.distinctiveMarksLine);
+  const mergedTraits = mergedCore.distinctiveTraits?.length ? mergedCore.distinctiveTraits.join(" ; ") : "";
+
   return {
     characterId: prev.characterId,
     displayName: prev.displayName?.trim() || built.displayName,
-    hairColor: prev.hairColor?.trim() || built.hairColor,
-    eyeColor: prev.eyeColor?.trim() || built.eyeColor,
-    outfitSignature: prev.outfitSignature?.trim() || built.outfitSignature,
-    canonSignatureText: prev.canonSignatureText?.trim() || built.canonSignatureText,
+    hairColor: mergedCore.hairColor ?? pick(prev.hairColor, built.hairColor) ?? null,
+    eyeColor: mergedCore.eyeColor ?? pick(prev.eyeColor, built.eyeColor) ?? null,
+    outfitSignature: mergedCore.outfitSignature ?? pick(prev.outfitSignature, built.outfitSignature) ?? null,
+    canonSignatureText: pick(prev.canonSignatureText, built.canonSignatureText),
     forbiddenDrift:
       prev.forbiddenDrift && prev.forbiddenDrift.length > 0 ? prev.forbiddenDrift : built.forbiddenDrift,
     visualCanonExcerpt:
       prev.visualCanonExcerpt?.trim()
       || built.visualCanonExcerpt
       || undefined,
-    hairStyle: pick(prev.hairStyle, built.hairStyle),
-    skinTone: pick(prev.skinTone, built.skinTone),
+    hairStyle: mergedCore.hairStyle ?? pick(prev.hairStyle, built.hairStyle),
+    skinTone: mergedCore.skinTone ?? pick(prev.skinTone, built.skinTone),
     hairLength: pick(prev.hairLength, built.hairLength),
     hairTexture: pick(prev.hairTexture, built.hairTexture),
     faceShape: pick(prev.faceShape, built.faceShape),
@@ -250,10 +424,14 @@ function mergeDna(prev: CharacterVisualDna, built: CharacterVisualDna): Characte
     noseStyle: pick(prev.noseStyle, built.noseStyle),
     mouthStyle: pick(prev.mouthStyle, built.mouthStyle),
     jawline: pick(prev.jawline, built.jawline),
-    silhouetteType: pick(prev.silhouetteType, built.silhouetteType),
-    perceivedAge: pick(prev.perceivedAge, built.perceivedAge),
-    distinctiveMarksLine: pick(prev.distinctiveMarksLine, built.distinctiveMarksLine),
+    silhouetteType: pick(prev.silhouetteType, built.silhouetteType) ?? mergedCore.silhouette ?? undefined,
+    perceivedAge: pick(prev.perceivedAge, built.perceivedAge) ?? mergedCore.ageAppearance ?? undefined,
+    distinctiveMarksLine: distinctiveMarksLine ?? (mergedTraits || undefined),
     accessoriesLine: pick(prev.accessoriesLine, built.accessoriesLine),
+    bodyType: pick(prev.bodyType, built.bodyType) ?? mergedCore.bodyType ?? undefined,
+    scars: mergeStringArraysPreferNonEmpty(prev.scars, built.scars),
+    tattoos: mergeStringArraysPreferNonEmpty(prev.tattoos, built.tattoos),
+    accessories: mergeStringArraysPreferNonEmpty(prev.accessories, built.accessories),
   };
 }
 
@@ -268,40 +446,43 @@ export function hydrateBlueprintsWithCharacterDna(
   input: HydrateBlueprintsWithCharacterDnaInput,
 ): PanelBlueprintPremium[] {
   const byId = new Map(input.characters.map((c) => [c.id, c]));
-  const canons = canonMap(input.characterCanonsById);
+  const canons = mergedCanonMap(input);
   const coIds = (input.coProtagonistCharacterIds ?? []).filter(
     (id): id is string => typeof id === "string" && id.trim().length > 0,
   );
+  const strict = input.strict === true;
 
   return input.blueprints.map((bp) => {
-    const speakerAnchor =
-      bp.dialogueCarrier === "speaker_visible" && bp.speakerAnchorCharacterId?.trim()
-        ? bp.speakerAnchorCharacterId.trim()
-        : null;
-    let requiredIds = [
-      ...new Set([
-        ...(bp.requiredCharacterIds ?? []),
-        ...(bp.mustShowCharacterIds ?? []),
-        ...(bp.requiredCharacters ?? []),
-        ...(speakerAnchor ? [speakerAnchor] : []),
-      ]),
-    ];
-    const hasCharacterSlot = requiredIds.length > 0;
-    if (hasCharacterSlot && coIds.length > 0) {
-      requiredIds = [...new Set([...requiredIds, ...coIds])];
-    }
+    const requiredIds = collectRequiredCharacterIds(bp, coIds);
     if (requiredIds.length === 0) return bp;
 
     const byChar = new Map((bp.characterVisualDna ?? []).map((d) => [d.characterId, { ...d }]));
+    const noteAcc: string[] = [];
 
     for (const id of requiredIds) {
-      const built = buildDnaForCharacterId(id, byId.get(id), canons.get(id));
       const prev = byChar.get(id);
+      const db = byId.get(id);
+      const canon = canons.get(id);
+      const built = buildDnaForCharacterId(id, db, canon);
+      const canMerge = Boolean(db || canon);
+      const substantialBuilt = isSubstantialCharacterVisualDna(built);
+      const substantialPrev = prev ? isSubstantialCharacterVisualDna(prev) : false;
+
+      if (!canMerge && !substantialBuilt && !substantialPrev) {
+        if (strict) {
+          noteAcc.push(`character_dna_strict_unresolved:${id}`);
+        }
+        continue;
+      }
+
       byChar.set(id, prev ? mergeDna(prev, built) : built);
     }
 
+    const nextNotes = noteAcc.length > 0 ? [...(bp.notes ?? []), ...noteAcc] : bp.notes;
+
     return {
       ...bp,
+      ...(nextNotes !== bp.notes ? { notes: nextNotes } : {}),
       characterVisualDna: [...byChar.values()],
     };
   });

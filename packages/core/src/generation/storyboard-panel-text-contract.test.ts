@@ -139,4 +139,42 @@ describe("storyboard-panel-text-contract", () => {
     expect(contract.dialogues).toHaveLength(1);
     expect(contract.dialogues[0]?.text).toBe("Go.");
   });
+
+  it("priorise dialogueLines (blueprint) sur dialogue[] et bundle", () => {
+    const contract = buildPanelTextContractFromStoryboardPanelLike({
+      panelId: "p4",
+      dialogueLines: [{ text: "Ligne canon", speakerName: "Hero", characterId: "c1" }],
+      dialogue: [{ speaker: "Stale", text: "Ignoré" }],
+      narration: null,
+      sfx: null,
+      panelTextBundle: {
+        dialogues: [{ speaker: "Bundle", text: "Aussi ignoré" }],
+      },
+    });
+    expect(contract.dialogues).toHaveLength(1);
+    expect(contract.dialogues[0]?.text).toBe("Ligne canon");
+    expect(contract.dialogues[0]?.speakerName).toBe("Hero");
+    expect(contract.dialogues[0]?.speakerId).toBe("c1");
+  });
+
+  it("utilise panelTextBundle quand dialogue / dialogueLines absents", () => {
+    const contract = buildPanelTextContractFromStoryboardPanelLike({
+      panelId: "p5",
+      dialogue: null,
+      dialogues: null,
+      dialogueLines: null,
+      narration: "Narration top-level.",
+      sfx: null,
+      panelTextBundle: {
+        dialogues: [{ speaker: "BundleOnly", text: "Hello bundle." }],
+        narration: null,
+        sfx: ["pop"],
+      },
+    });
+    expect(contract.dialogues).toHaveLength(1);
+    expect(contract.dialogues[0]?.speakerName).toBe("BundleOnly");
+    expect(contract.dialogues[0]?.text).toBe("Hello bundle.");
+    expect(contract.narration).toContain("Narration top-level");
+    expect(contract.sfx.map((s) => s.text)).toContain("pop");
+  });
 });

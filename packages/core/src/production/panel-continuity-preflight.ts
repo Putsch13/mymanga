@@ -13,6 +13,11 @@ export type PanelContinuityPreflightOptions = {
    */
   strictEnvironmentLocationBinding?: boolean;
   /**
+   * Props `visual_world_contract` visibles (`mustBeVisible`) : exiger `propVisualDna`
+   * aligné sur le blueprint (PR3).
+   */
+  strictPropVisualBinding?: boolean;
+  /**
    * Mode premium strict : tout `requiredCharacterIds` ∪ `mustShowCharacterIds` ∪
    * `requiredCharacters` (alias legacy / merge canonique) ∪
    * locuteur `speaker_visible` doit avoir une entrée `characterVisualDna` (pas seulement
@@ -45,6 +50,7 @@ function characterDnaIds(bp: PanelBlueprintPremium): Set<string> {
 
 /**
  * Préflight continuité : DNA personnage pour les IDs requis + must-show + `requiredCharacters`,
+ * `visibleCharacterIds`, `speakerCharacterId`, lignes `dialogueLines[].characterId`,
  * locuteur ancré (`speaker_visible` + `speakerAnchorCharacterId`), décor
  * (`environmentVisualDna`) lorsque le beat impose des signaux lieu, et
  * en mode strict le **nombre** d’entrées `npcVisualDna` vs `requiredNpcCount`.
@@ -57,22 +63,39 @@ export function computePanelContinuityPreflights(
 ): PanelContinuityPreflight[] {
   const strictEnv = options?.strictEnvironmentLocationBinding === true;
   const strictChar = options?.strictCharacterDnaBinding === true;
+  const strictProp = options?.strictPropVisualBinding === true;
   return blueprints.map((bp) => {
-    const requiredHeroIds = [
-      ...new Set([
-        ...(bp.requiredCharacterIds ?? []),
-        ...(bp.mustShowCharacterIds ?? []),
-        ...(bp.requiredCharacters ?? []),
-      ]),
-    ];
+    const heroIdSet = new Set<string>();
+    for (const id of bp.requiredCharacterIds ?? []) {
+      if (typeof id === "string" && id.trim()) heroIdSet.add(id.trim());
+    }
+    for (const id of bp.mustShowCharacterIds ?? []) {
+      if (typeof id === "string" && id.trim()) heroIdSet.add(id.trim());
+    }
+    for (const id of bp.requiredCharacters ?? []) {
+      if (typeof id === "string" && id.trim()) heroIdSet.add(id.trim());
+    }
+    for (const id of bp.visibleCharacterIds ?? []) {
+      if (typeof id === "string" && id.trim()) heroIdSet.add(id.trim());
+    }
+    const speakerChar = typeof bp.speakerCharacterId === "string" ? bp.speakerCharacterId.trim() : "";
+    if (speakerChar) heroIdSet.add(speakerChar);
+    for (const line of bp.dialogueLines ?? []) {
+      const cid = typeof line.characterId === "string" ? line.characterId.trim() : "";
+      if (cid) heroIdSet.add(cid);
+    }
+    const requiredHeroIds = [...heroIdSet];
     const speakerAnchorId =
       bp.dialogueCarrier === "speaker_visible" && bp.speakerAnchorCharacterId?.trim()
         ? bp.speakerAnchorCharacterId.trim()
         : null;
-    const idsRequiringCharacterDna = [...new Set([...requiredHeroIds, ...(speakerAnchorId ? [speakerAnchorId] : [])])];
+    const idsRequiringCharacterDna = [
+      ...new Set([...requiredHeroIds, ...(speakerAnchorId ? [speakerAnchorId] : [])]),
+    ];
     const dna = characterDnaIds(bp);
     const missing: string[] = [];
     const warnings: string[] = [];
+    const critical = bp.criticality === "critical" || bp.contractualCritical === true;
 
     for (const id of idsRequiringCharacterDna) {
       if (!dna.has(id)) missing.push(`character_visual_dna_missing:${id}`);
@@ -81,18 +104,36 @@ export function computePanelContinuityPreflights(
     const npcNeed = bp.requiredNpcCount ?? 0;
     const npcHave = bp.npcVisualDna?.length ?? 0;
     const npcDnaInsufficient = npcNeed > 0 && npcHave < npcNeed;
-    if (npcDnaInsufficient) {
-      if (strictChar) {
-        missing.push(`npc_visual_dna_insufficient:need_${npcNeed}_have_${npcHave}`);
-      } else {
-        warnings.push(`npc_visual_dna: need_at_least_${npcNeed}_entries_have_${npcHave}`);
-      }
+    if (npcDnaInsufficient && (strictChar || critical)) {
+      missing.push(`npc_visual_dna_insufficient:need_${npcNeed}_have_${npcHave}`);
+    } else if (npcDnaInsufficient) {
+      warnings.push(`npc_visual_dna: need_at_least_${npcNeed}_entries_have_${npcHave}`);
     }
 
     const loc = bp.requiredLocationSignals ?? [];
-    const missingEnvironmentDna = loc.length > 0 && !bp.environmentVisualDna;
-    if (missingEnvironmentDna) {
+    const establishingLike =
+      bp.mangaPanelFunction === "establishing"
+      || bp.cutawayType === "environment_establishing"
+      || bp.cutawayType === "environment"
+      || bp.subjectFocus === "environment";
+    const missingEnvironmentDna =
+      !bp.environmentVisualDna
+      && (loc.length > 0 || establishingLike);
+
+    const propIdsNeedingVisual = (bp.requiredProps ?? []).filter(
+      (p) => p.source === "visual_world_contract" && p.mustBeVisible === true,
+    );
+    const propVisualById = new Set((bp.propVisualDna ?? []).map((p) => p.id));
+    for (const p of propIdsNeedingVisual) {
+      if (!propVisualById.has(p.id)) {
+        missing.push(`prop_visual_dna_missing:${p.id}`);
+      }
+    }
+
+    if (missingEnvironmentDna && loc.length > 0) {
       warnings.push("environment_visual_dna_missing_for_location_signals");
+    } else if (missingEnvironmentDna && establishingLike) {
+      warnings.push("environment_visual_dna_missing_for_establishing_panel");
     }
 
     const ent = bp.requiredEntityIds ?? [];
@@ -102,27 +143,26 @@ export function computePanelContinuityPreflights(
       );
     }
 
-    const critical = bp.criticality === "critical" || bp.contractualCritical === true;
-    const missingDnaForRequired =
-      idsRequiringCharacterDna.length > 0
-      && idsRequiringCharacterDna.some((id) => !dna.has(id));
-    const missingCharacterForCritical =
-      idsRequiringCharacterDna.length > 0
-      && (missingDnaForRequired || !bp.characterVisualDna || bp.characterVisualDna.length === 0);
+    const missingCharacterDna = missing.filter((reason) =>
+      reason.startsWith("character_visual_dna_missing:"),
+    );
+    const missingPropVisualDna = missing.filter((reason) => reason.startsWith("prop_visual_dna_missing:"));
     const missingSpeakerAnchorDna =
       bp.dialogueCarrier === "speaker_visible"
       && Boolean(speakerAnchorId)
       && !dna.has(speakerAnchorId!);
-    const missingAnyRequiredCharacterDna =
-      idsRequiringCharacterDna.length > 0
-      && idsRequiringCharacterDna.some((id) => !dna.has(id));
-    const strictNpcDnaGap = strictChar && npcDnaInsufficient;
+    const npcDnaMissingLine = missing.some((m) => m.startsWith("npc_visual_dna_insufficient:"));
+    const envBlocking =
+      missingEnvironmentDna && (critical || establishingLike || strictEnv);
+    const propBlocking =
+      (critical || strictProp) && missingPropVisualDna.length > 0;
     const blocking =
-      (critical && (missingCharacterForCritical || missingEnvironmentDna))
+      (critical && missingCharacterDna.length > 0)
+      || envBlocking
+      || propBlocking
       || missingSpeakerAnchorDna
-      || (strictEnv && missingEnvironmentDna)
-      || (strictChar && missingAnyRequiredCharacterDna)
-      || strictNpcDnaGap;
+      || (strictChar && missingCharacterDna.length > 0)
+      || npcDnaMissingLine;
 
     return {
       panelId: bp.panelId,
@@ -144,14 +184,16 @@ export function continuityPreflightBlockingReasons(
   preflights: PanelContinuityPreflight[],
 ): string[] {
   return preflights.filter((p) => p.blocking).map((p) => {
-    if (p.missingEnvironmentDna) {
-      return `${p.panelId}:missing_environment_visual_dna`;
-    }
     if (
       p.anchorSpeakerCharacterId
       && p.missing.includes(`character_visual_dna_missing:${p.anchorSpeakerCharacterId}`)
     ) {
       return `${p.panelId}:speaker_visible_missing_character_visual_dna:${p.anchorSpeakerCharacterId}`;
+    }
+    const propMissing = p.missing.filter((m) => m.startsWith("prop_visual_dna_missing:"));
+    if (propMissing.length > 0) {
+      const ids = propMissing.map((m) => m.slice("prop_visual_dna_missing:".length));
+      return `${p.panelId}:critical_panel_missing_prop_visual_dna:${ids.join(",")}`;
     }
     const npcInsufficient = p.missing.find((m) => m.startsWith("npc_visual_dna_insufficient:"));
     if (npcInsufficient) {
@@ -161,8 +203,11 @@ export function continuityPreflightBlockingReasons(
       .filter((m) => m.startsWith("character_visual_dna_missing:"))
       .map((m) => m.slice("character_visual_dna_missing:".length));
     if (missingIds.length > 0) {
-      return `${p.panelId}:missing_character_visual_dna:ids=${missingIds.join(",")}`;
+      return `${p.panelId}:critical_panel_missing_character_visual_dna:${missingIds.join(",")}`;
     }
-    return `${p.panelId}:missing_character_visual_dna`;
+    if (p.missingEnvironmentDna) {
+      return `${p.panelId}:missing_environment_visual_dna`;
+    }
+    return `${p.panelId}:critical_panel_missing_character_visual_dna`;
   });
 }

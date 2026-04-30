@@ -110,6 +110,14 @@ export interface RequiredProp {
   ownerId?: string | null;
 }
 
+/** Props visuels issus du `VisualWorldContract` (hydratation PR3 — prompt / QA). */
+export interface BlueprintPropVisualDna {
+  id: string;
+  canonicalName: string;
+  category: string;
+  visualDescription: string;
+}
+
 // ─── Presence Obligations ─────────────────────────────────────────────────────
 
 export interface PresenceObligation {
@@ -252,6 +260,10 @@ export interface PanelBlueprintPremium {
   requiredCharacterIds?: string[];
   /** IDs des personnages obligatoires (usage interne) */
   mustShowCharacterIds?: string[];
+  /** Personnages visibles sur le panel (shot plan / QA interaction) — aligné hydrate + préflight DNA. */
+  visibleCharacterIds?: string[];
+  /** Locuteur explicite si distinct de `speakerAnchorCharacterId` (optionnel). */
+  speakerCharacterId?: string | null;
   mayShowCharacterIds?: string[];
   mustShowEnemy: boolean;
   requiredNpcCount: number;
@@ -277,7 +289,8 @@ export interface PanelBlueprintPremium {
   contractualCritical?: boolean;
   notes?: string[];
   sceneContextLabel?: string | null;
-  dialogueLines?: Array<{ speaker: string; text: string }>;
+  /** `characterId` optionnel — ancrage studio pour hydratation DNA / locuteur. */
+  dialogueLines?: Array<{ speaker: string; text: string; characterId?: string }>;
   narrationText?: string | null;
   sfxCues?: string[];
   readerTemplateId?: ReaderPageTemplateId | null;
@@ -287,6 +300,12 @@ export interface PanelBlueprintPremium {
   characterVisualDna?: CharacterVisualDna[];
   npcVisualDna?: NpcVisualDna[];
   environmentVisualDna?: EnvironmentVisualDna | null;
+  /** Ancre décor (souvent = `environmentVisualDna.anchorId` / id lieu VW). */
+  environmentAnchorId?: string | null;
+  /** Props visuels dérivés du monde IA (complément `requiredProps`). */
+  propVisualDna?: BlueprintPropVisualDna[];
+  /** Objets de continuité explicites (si le binding beat en fournit). */
+  continuityObjectIds?: string[];
 
   /** IDs d’entités visuelles (registre premium) requises sur ce panel. */
   requiredEntityIds?: string[];

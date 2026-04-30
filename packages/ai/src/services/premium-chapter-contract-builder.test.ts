@@ -54,4 +54,16 @@ describe("buildPremiumChapterContract — P1 pas de padding", () => {
     expect(result.panelBlueprints.length).toBeGreaterThanOrEqual(PREMIUM_PANEL_RANGE.min);
     expect(result.panelBlueprints.length).toBeLessThanOrEqual(PREMIUM_PANEL_RANGE.max);
   });
+
+  it("PR5 : chaque blueprint a un textContract recalé après merge", () => {
+    const result = buildPremiumChapterContract({
+      approvedOutline: buildApprovedOutline(10),
+      heroCharacterId: "hero_1",
+      projectGenre: "action",
+      projectTone: "dramatic",
+    });
+    const first = result.panelBlueprints[0];
+    expect(first?.textContract).toBeDefined();
+    expect(first?.textContract?.panelId).toBe(first?.panelId);
+  });
 });

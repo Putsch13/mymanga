@@ -20,7 +20,8 @@ import {
   resolveProductionOutlineForPremiumPipeline,
   hydrateBlueprintsWithCharacterDna,
   hydrateBlueprintsWithEnvironmentDna,
-  hydrateBlueprintsWithVisualWorldNpcAndProps,
+  hydrateBlueprintsWithNpcDna,
+  hydrateBlueprintsWithPropDna,
   characterVisualDnaForRenderFromPremiumRow,
   buildChapterCastContract,
   assertValidChapterCastContract,
@@ -36,9 +37,10 @@ import {
   type PanelBlueprintPremium,
   type ChapterCastContract,
   type ChapterStoryContract,
+  type VisualWorldContract,
   legacyDialogueLinesFromStoryboardPanelLike,
+  type StoryboardPanelLikeForTextContract,
 } from "@manga-ai-studio/core";
-import type { StoryboardPanel } from "@manga-ai-studio/ai";
 import { createDefaultPanelImageGenerator } from "./passes/default-panel-image-generator";
 import { loadChapterVisualMemory } from "./passes/load-chapter-visual-memory";
 import { runPageQaPass } from "./passes/page-qa-pass";
@@ -93,6 +95,11 @@ import {
   formatVisualWorldDiscoveryLog,
   type VisualWorldDiscoveryPassResult,
 } from "./passes/visual-world-discovery-pass";
+import {
+  detectNpcGroupsFromText,
+  mergeBlueprintAndTextNpcGroups,
+  type LegacyNpcGroupForCast,
+} from "./passes/legacy-npc-regex-from-text";
 import { runCanonResolverPass, formatCanonResolverLog } from "./passes/canon-resolver-pass";
 import { runStoryContractCompletenessQa, formatStoryContractCompletenessLog } from "./passes/story-contract-completeness-qa";
 import {
@@ -190,58 +197,6 @@ function assertPremiumOnlyV3Config(input: Pick<RunPremiumV3PipelineInput, "pipel
 }
 
 /**
- * P1.9 + P7 — Patterns pour détecter les groupes humains dans le texte narratif.
- * Ces mots déclenchent la création d'un npcGroup s'ils sont trouvés dans le résumé/beats.
- */
-const NPC_GROUP_DETECTION_PATTERNS: Array<{ pattern: RegExp; label: string; visualHint?: string }> = [
-  { pattern: /\bp[eê]cheurs?\b/gi, label: "pêcheurs", visualHint: "fishermen at work, fishing nets, boats" },
-  { pattern: /\bmarins?\b/gi, label: "marins", visualHint: "sailors in uniform, naval attire" },
-  { pattern: /\bfoule\b/gi, label: "foule", visualHint: "crowd of people, busy scene" },
-  { pattern: /\bpassants?\b/gi, label: "passants", visualHint: "passersby, people walking" },
-  { pattern: /\bclients?\b/gi, label: "clients", visualHint: "customers, patrons" },
-  { pattern: /\bsoldats?\b/gi, label: "soldats", visualHint: "soldiers in uniform" },
-  { pattern: /\bgardes?\b/gi, label: "gardes", visualHint: "guards, sentries" },
-  { pattern: /\bvillageois\b/gi, label: "villageois", visualHint: "villagers, rural people" },
-  { pattern: /\bmarchands?\b/gi, label: "marchands", visualHint: "merchants, traders with goods" },
-  { pattern: /\bouvriers?\b/gi, label: "ouvriers", visualHint: "workers, laborers" },
-  { pattern: /\benfants?\b/gi, label: "enfants", visualHint: "children playing" },
-  { pattern: /\bserveurs?\b/gi, label: "serveurs", visualHint: "waiters, servers" },
-  { pattern: /\bpoliciers?\b/gi, label: "policiers", visualHint: "police officers" },
-  // English equivalents
-  { pattern: /\bfishermen?\b/gi, label: "pêcheurs", visualHint: "fishermen at work" },
-  { pattern: /\bsailors?\b/gi, label: "marins", visualHint: "sailors" },
-  { pattern: /\bcrowd\b/gi, label: "foule", visualHint: "crowd of people" },
-  { pattern: /\bworkers?\b/gi, label: "ouvriers", visualHint: "workers" },
-  { pattern: /\bguards?\b/gi, label: "gardes", visualHint: "guards" },
-  { pattern: /\bsoldiers?\b/gi, label: "soldats", visualHint: "soldiers" },
-];
-
-/**
- * P7 — Détecte les groupes NPC depuis le texte narratif (résumé, intent, beats).
- */
-function detectNpcGroupsFromText(
-  texts: Array<string | null | undefined>,
-): Array<{ id: string; label: string; visualDescription?: string }> {
-  const combined = texts.filter(Boolean).join(" ").toLowerCase();
-  const detected = new Map<string, { id: string; label: string; visualDescription: string }>();
-
-  for (const { pattern, label, visualHint } of NPC_GROUP_DETECTION_PATTERNS) {
-    if (pattern.test(combined)) {
-      const groupId = `text_${label.toLowerCase().replace(/\s+/g, "_")}`;
-      if (!detected.has(groupId)) {
-        detected.set(groupId, {
-          id: groupId,
-          label,
-          visualDescription: visualHint ?? "",
-        });
-      }
-    }
-  }
-
-  return Array.from(detected.values());
-}
-
-/**
  * P1.9 — Extrait les groupes NPC depuis les blueprints premium.
  * Identifie les panels de foule et les PNJ nommés.
  */
@@ -295,6 +250,39 @@ function extractNpcGroupsFromBlueprints(
     visualDescription: g.visualDescription || undefined,
     requiredInBeatIds: g.requiredInBeatIds.size > 0 ? Array.from(g.requiredInBeatIds) : undefined,
   }));
+}
+
+function npcGroupsFromVisualWorldForCast(vw: VisualWorldContract): LegacyNpcGroupForCast[] {
+  return vw.npcGroups.map((g) => ({
+    id: g.id,
+    label: g.label,
+    visualDescription: [g.visualProfile, g.outfit ? `tenue: ${g.outfit}` : "", g.silhouette ? `silhouette: ${g.silhouette}` : ""]
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .join(" — ") || undefined,
+    requiredInBeatIds: g.requiredBeatIds.length > 0 ? [...g.requiredBeatIds] : undefined,
+  }));
+}
+
+/** Fusionne les PNJ du contrat discovery (legacy ou dérivé du monde IA) avant cast + story. */
+function mergeDiscoveryContractNpcGroupsIntoMap(
+  map: Map<string, LegacyNpcGroupForCast>,
+  contract: VisualWorldDiscoveryPassResult["contract"],
+): void {
+  for (const npcGroup of contract.npcGroups) {
+    const key = npcGroup.label.toLowerCase();
+    if (map.has(key)) continue;
+    const id =
+      typeof npcGroup.id === "string" && npcGroup.id.trim().length > 0
+        ? npcGroup.id
+        : `auto_${key.replace(/\s+/g, "_")}`;
+    map.set(key, {
+      id,
+      label: npcGroup.label,
+      visualDescription: npcGroup.visualDescription || undefined,
+      requiredInBeatIds: npcGroup.requiredBeats.length > 0 ? [...npcGroup.requiredBeats] : undefined,
+    });
+  }
 }
 
 function resolveProjectFormat(project: Record<string, unknown> | null, projectId: string): "manga" | "webtoon" {
@@ -396,63 +384,6 @@ export async function runPremiumV3Pipeline(
   const timings: Record<string, number> = {};
 
   try {
-    // P1.9 — Extraire les groupes NPC depuis les blueprints s'ils sont disponibles.
-    const npcGroupsFromBlueprints = extractNpcGroupsFromBlueprints(input.panelBlueprints);
-    if (npcGroupsFromBlueprints.length > 0) {
-      console.info(
-        `[pipeline:v3:npc-groups] extracted ${npcGroupsFromBlueprints.length} groups from blueprints: ` +
-          npcGroupsFromBlueprints.map((g) => g.label).join(", "),
-      );
-    }
-
-    // P7 — Détecter les groupes NPC depuis le texte narratif (résumé, intent).
-    const beatTexts = input.panelBlueprints?.map((bp) => bp.purpose ?? bp.sceneContextLabel) ?? [];
-    const npcGroupsFromText = detectNpcGroupsFromText([
-      input.chapterSummary,
-      input.chapterUserIntent,
-      ...beatTexts,
-    ]);
-    if (npcGroupsFromText.length > 0) {
-      console.info(
-        `[pipeline:v3:npc-groups] detected ${npcGroupsFromText.length} groups from text: ` +
-          npcGroupsFromText.map((g) => g.label).join(", "),
-      );
-    }
-
-    // Fusionner les groupes NPC (blueprints + texte), sans doublons
-    const mergedNpcGroupsMap = new Map<string, { id: string; label: string; visualDescription?: string; requiredInBeatIds?: string[] }>();
-    for (const g of npcGroupsFromBlueprints) {
-      mergedNpcGroupsMap.set(g.label.toLowerCase(), g);
-    }
-    for (const g of npcGroupsFromText) {
-      if (!mergedNpcGroupsMap.has(g.label.toLowerCase())) {
-        mergedNpcGroupsMap.set(g.label.toLowerCase(), g);
-      }
-    }
-    const mergedNpcGroups = Array.from(mergedNpcGroupsMap.values());
-    if (mergedNpcGroups.length > 0) {
-      console.info(
-        `[pipeline:v3:npc-contract] groups=${mergedNpcGroups.length} labels=${mergedNpcGroups.map((g) => g.label).join(",")}`,
-      );
-    }
-
-    // P0.1 — Construire et valider le ChapterCastContract AVANT tout traitement.
-    // C'est la source de vérité pour l'identité des personnages.
-    const castContract: ChapterCastContract = buildChapterCastContract({
-      chapterId: input.chapterId,
-      heroCharacterId: input.heroCharacterId ?? null,
-      secondaryHeroCharacterId: input.secondaryHeroCharacterId ?? null,
-      focusCharacterIds: input.focusCharacterIds,
-      characters: input.rawCharacters.map((c) => ({
-        id: c.id,
-        name: c.name,
-        roleType: c.roleType ?? null,
-      })),
-      npcGroups: mergedNpcGroups,
-    });
-    assertValidChapterCastContract(castContract);
-    console.info(formatCastContractLog(castContract));
-
     const approvedPlanDriven = hasApprovedPlanDrivenInput(input);
     const projectFormat = resolveProjectFormat(input.project, input.projectId);
     const resolvedProductionOutline = resolveProductionOutlineForPremiumPipeline({
@@ -462,10 +393,8 @@ export async function runPremiumV3Pipeline(
       cliffhangerOverride: null,
     });
 
-    // P1.6 + P9 — Construire le ChapterStoryContract APRÈS résolution du plan.
-    // Ce contrat définit les éléments narratifs et visuels REQUIS pour le chapitre.
-    // On extrait les beatIds depuis le resolvedProductionOutline pour un contrat complet.
-    const resolvedBeatIds = resolvedProductionOutline?.beats?.map((b: { beatId?: string }) => b.beatId).filter(Boolean) as string[] ?? [];
+    const resolvedBeatIds =
+      resolvedProductionOutline?.beats?.map((b: { beatId?: string }) => b.beatId).filter(Boolean) as string[] ?? [];
     const resolvedLocations = await (async () => {
       const locs = input.locations ?? [];
       if (locs.length > 0) return locs;
@@ -478,8 +407,6 @@ export async function runPremiumV3Pipeline(
       return [];
     })();
 
-    // P1.4 — Visual Discovery Pass : détection automatique des entités visuelles.
-    // Ce pass détecte les lieux, PNJ, robots, hybrides, créatures depuis le texte narratif.
     const styleBibleJson = JSON.stringify(
       buildStyleBibleFromUserProject({ project: input.project, stylePacks: input.stylePacks }),
     ).slice(0, 4000);
@@ -533,6 +460,98 @@ export async function runPremiumV3Pipeline(
       );
     }
 
+    const npcGroupsFromBlueprints = extractNpcGroupsFromBlueprints(input.panelBlueprints);
+    if (npcGroupsFromBlueprints.length > 0) {
+      console.info(
+        `[pipeline:v3:npc-groups] extracted ${npcGroupsFromBlueprints.length} groups from blueprints: ` +
+          npcGroupsFromBlueprints.map((g) => g.label).join(", "),
+      );
+    }
+
+    const premium = Boolean(input.premiumV3OnlyEnabled);
+    const vw = visualDiscoveryResult.visualWorldContract;
+    const useVisualWorldNpcPrimary =
+      premium
+      && visualDiscoveryResult.discoverySource === "ai_composed"
+      && vw !== null;
+
+    let mergedNpcGroups: LegacyNpcGroupForCast[];
+    let mergedNpcGroupsMap: Map<string, LegacyNpcGroupForCast>;
+
+    if (useVisualWorldNpcPrimary) {
+      mergedNpcGroupsMap = new Map(
+        npcGroupsFromVisualWorldForCast(vw).map((g) => [g.label.toLowerCase(), g] as const),
+      );
+      for (const g of npcGroupsFromBlueprints) {
+        if (!mergedNpcGroupsMap.has(g.label.toLowerCase())) {
+          mergedNpcGroupsMap.set(g.label.toLowerCase(), g);
+        }
+      }
+      mergedNpcGroups = Array.from(mergedNpcGroupsMap.values());
+      console.info(
+        `[pipeline:v3:npc-contract] source=visual_world+blueprints groups=${mergedNpcGroups.length} ` +
+          `labels=${mergedNpcGroups.map((g) => g.label).join(",")}`,
+      );
+    } else if (premium) {
+      mergedNpcGroups = [...npcGroupsFromBlueprints];
+      mergedNpcGroupsMap = new Map(mergedNpcGroups.map((g) => [g.label.toLowerCase(), g] as const));
+      if (mergedNpcGroups.length > 0) {
+        console.info(
+          `[pipeline:v3:npc-contract] source=blueprints_only_premium_no_regex groups=${mergedNpcGroups.length} ` +
+            `labels=${mergedNpcGroups.map((g) => g.label).join(",")}`,
+        );
+      }
+    } else {
+      const beatTexts = input.panelBlueprints?.map((bp) => bp.purpose ?? bp.sceneContextLabel) ?? [];
+      const npcGroupsFromText = detectNpcGroupsFromText([
+        input.chapterSummary,
+        input.chapterUserIntent,
+        ...beatTexts,
+      ]);
+      if (npcGroupsFromText.length > 0) {
+        console.info(
+          `[pipeline:v3:npc-groups] detected ${npcGroupsFromText.length} groups from text: ` +
+            npcGroupsFromText.map((g) => g.label).join(", "),
+        );
+      }
+      const { merged, map } = mergeBlueprintAndTextNpcGroups(npcGroupsFromBlueprints, npcGroupsFromText);
+      mergedNpcGroups = merged;
+      mergedNpcGroupsMap = map;
+      if (mergedNpcGroups.length > 0) {
+        console.info(
+          `[pipeline:v3:npc-contract] source=blueprints+text_regex groups=${mergedNpcGroups.length} ` +
+            `labels=${mergedNpcGroups.map((g) => g.label).join(",")}`,
+        );
+      }
+    }
+
+    const npcMapSizeBeforeDiscovery = mergedNpcGroupsMap.size;
+    mergeDiscoveryContractNpcGroupsIntoMap(mergedNpcGroupsMap, visualDiscoveryResult.contract);
+    mergedNpcGroups = Array.from(mergedNpcGroupsMap.values());
+    if (mergedNpcGroupsMap.size > npcMapSizeBeforeDiscovery) {
+      console.info(
+        `[pipeline:v3:npc-discovery] discovery_contract_added=${mergedNpcGroupsMap.size - npcMapSizeBeforeDiscovery} ` +
+          `total=${mergedNpcGroups.length}`,
+      );
+    }
+
+    const castContract: ChapterCastContract = buildChapterCastContract({
+      chapterId: input.chapterId,
+      heroCharacterId: input.heroCharacterId ?? null,
+      secondaryHeroCharacterId: input.secondaryHeroCharacterId ?? null,
+      focusCharacterIds: input.focusCharacterIds,
+      characters: input.rawCharacters.map((c) => ({
+        id: c.id,
+        name: c.name,
+        roleType: c.roleType ?? null,
+      })),
+      npcGroups: mergedNpcGroups,
+    });
+    assertValidChapterCastContract(castContract);
+    console.info(formatCastContractLog(castContract));
+
+    const enrichedNpcGroups = mergedNpcGroups;
+
     // P1.5 — Canon Resolver : résolution canonique des entités détectées.
     const canonResolverResult = runCanonResolverPass({
       discoveryContract: visualDiscoveryResult.contract,
@@ -546,26 +565,6 @@ export async function runPremiumV3Pipeline(
       strictMode: input.premiumV3OnlyEnabled,
     });
     console.info(formatCanonResolverLog(canonResolverResult));
-
-    // Enrichir les NPC groups avec ceux détectés automatiquement
-    for (const npcGroup of visualDiscoveryResult.contract.npcGroups) {
-      const existing = mergedNpcGroupsMap.get(npcGroup.label.toLowerCase());
-      if (!existing) {
-        mergedNpcGroupsMap.set(npcGroup.label.toLowerCase(), {
-          id: `auto_${npcGroup.label.toLowerCase().replace(/\s+/g, "_")}`,
-          label: npcGroup.label,
-          visualDescription: npcGroup.visualDescription,
-          requiredInBeatIds: npcGroup.requiredBeats,
-        });
-      }
-    }
-    const enrichedNpcGroups = Array.from(mergedNpcGroupsMap.values());
-    if (enrichedNpcGroups.length > mergedNpcGroups.length) {
-      console.info(
-        `[pipeline:v3:npc-discovery] auto_detected=${enrichedNpcGroups.length - mergedNpcGroups.length} ` +
-          `total=${enrichedNpcGroups.length}`,
-      );
-    }
 
     // Enrichir les lieux avec ceux détectés automatiquement
     const enrichedLocations = [...resolvedLocations];
@@ -684,18 +683,25 @@ export async function runPremiumV3Pipeline(
               ? { coProtagonistCharacterIds: [input.secondaryHeroCharacterId] as const }
               : {}),
           });
+          const vwStrict = Boolean(input.premiumV3OnlyEnabled);
           const envHydrated =
             visualDiscoveryResult.visualWorldContract
               ? hydrateBlueprintsWithEnvironmentDna({
                   blueprints: dnaHydrated,
                   visualWorld: visualDiscoveryResult.visualWorldContract,
+                  strict: vwStrict,
                 })
               : dnaHydrated;
           const npcPropHydrated =
             visualDiscoveryResult.visualWorldContract
-              ? hydrateBlueprintsWithVisualWorldNpcAndProps({
-                  blueprints: envHydrated,
+              ? hydrateBlueprintsWithNpcDna({
+                  blueprints: hydrateBlueprintsWithPropDna({
+                    blueprints: envHydrated,
+                    visualWorld: visualDiscoveryResult.visualWorldContract,
+                    strict: vwStrict,
+                  }),
                   visualWorld: visualDiscoveryResult.visualWorldContract,
+                  strict: vwStrict,
                 })
               : envHydrated;
           panelBlueprintsForPremiumPath = npcPropHydrated;
@@ -1017,6 +1023,7 @@ export async function runPremiumV3Pipeline(
           roleType: c.roleType ?? null,
         })),
         locations: premiumV3PipelineLocationsToStoryArchitectLocations(locationsForStory),
+        ...(input.premiumV3OnlyEnabled ? { premiumOnlyOverride: true as const } : {}),
       });
       timings.story_pass_ms = Date.now() - storyStart;
       storyArc = storyPassResult.storyArc;
@@ -1160,23 +1167,33 @@ export async function runPremiumV3Pipeline(
     // P3.16 — Interaction QA
     const interactionQa = runInteractionQaPass({
       panels: storyboardPanels.map((raw) => {
-        const p = raw as StoryboardPanel;
+        const pText = raw as unknown as StoryboardPanelLikeForTextContract;
         const dialogueLines = legacyDialogueLinesFromStoryboardPanelLike({
-          panelId: p.panelId,
-          textContract: p.textContract,
-          dialogue: Array.isArray(p.dialogue) && p.dialogue.length > 0 ? p.dialogue : null,
+          panelId: pText.panelId,
+          textContract: pText.textContract,
+          dialogue: Array.isArray(pText.dialogue) && pText.dialogue.length > 0 ? pText.dialogue : null,
           dialogues: null,
-          narration: p.narration ?? null,
-          sfx: p.sfx ?? null,
-          panelTextBundle: (p as { panelTextBundle?: unknown }).panelTextBundle as never ?? null,
+          narration: pText.narration ?? null,
+          sfx: pText.sfx ?? null,
+          panelTextBundle: pText.panelTextBundle as never ?? null,
         });
+        const p = raw as unknown as Record<string, unknown>;
+        const renderMode = typeof p.renderMode === "string" ? p.renderMode : null;
+        const actionLine = typeof p.actionLine === "string" ? p.actionLine : null;
+        const shotType = typeof p.shotType === "string" ? p.shotType : null;
+        const vis =
+          Array.isArray(p.visibleCharacterIds)
+            ? (p.visibleCharacterIds as string[])
+            : Array.isArray(p.characters)
+              ? (p.characters as string[])
+              : undefined;
         return {
-          panelId: p.panelId,
-          renderMode: p.renderMode,
-          visibleCharacterIds: (p as { visibleCharacterIds?: string[] }).visibleCharacterIds ?? p.characters,
+          panelId: pText.panelId,
+          renderMode,
+          visibleCharacterIds: vis,
           dialogueLines,
-          actionLine: p.actionLine,
-          shotType: p.shotType,
+          actionLine,
+          shotType,
         };
       }),
       strictMode: Boolean(input.premiumV3OnlyEnabled),
@@ -1639,6 +1656,7 @@ export async function runPremiumV3Pipeline(
           loraUrl: c.loraUrl ?? null,
           loraTriggerWord: c.loraTriggerWord ?? null,
           loraScale: c.loraScale ?? null,
+          stableVisualDNA: c.stableVisualDNA ?? null,
           characterVisualDna: characterVisualDnaForRenderFromPremiumRow(c),
         })),
         mainCharacterIds: castContract.activeCharacterIds,

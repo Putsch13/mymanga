@@ -73,6 +73,7 @@ describe("reader-panel-metadata-text", () => {
       narration: "Legacy narr",
       sfx: ["boom"],
       dialogues: [{ speaker: "X", text: "Stale" }],
+      dialogueLines: [{ line: "stale", speakerLabel: "A" }],
       textContract: {
         panelId: "p1",
         hasText: true,
@@ -90,6 +91,7 @@ describe("reader-panel-metadata-text", () => {
     expect(stripped.narration).toBeUndefined();
     expect(stripped.sfx).toBeUndefined();
     expect(stripped.dialogues).toBeUndefined();
+    expect(stripped.dialogueLines).toBeUndefined();
     expect((stripped.textContract as { dialogues: unknown[] }).dialogues).toHaveLength(1);
   });
 
@@ -110,5 +112,30 @@ describe("reader-panel-metadata-text", () => {
     expect(c.panelId).toBe("fallback-id");
     expect(c.narration).toBe("N.");
     expect(c.sfx.map((s) => s.text)).toContain("whoosh");
+  });
+
+  it("synthesizePanelTextContractFromLooseMetadata priorise metadata.dialogueLines sur dialogues[]", () => {
+    const c = synthesizePanelTextContractFromLooseMetadata(
+      {
+        dialogues: [{ speaker: "Wrong", text: "Stale" }],
+        dialogueLines: [{ line: "Depuis blueprint", speakerLabel: "Narrateur", characterId: null }],
+      },
+      "meta-1",
+    );
+    expect(textContractToLegacyDialogue(c)[0]?.text).toBe("Depuis blueprint");
+    expect(textContractToLegacyDialogue(c)[0]?.speaker).toBe("Narrateur");
+  });
+
+  it("synthesizePanelTextContractFromLooseMetadata accepte dialogueLines { text, speakerName } (metadata DB)", () => {
+    const c = synthesizePanelTextContractFromLooseMetadata(
+      {
+        dialogues: [{ speaker: "Legacy", text: "À ignorer" }],
+        dialogueLines: [{ text: "Ligne persistée", speakerName: "Lyra", characterId: "c-lyra" }],
+      },
+      "scene-img-meta",
+    );
+    expect(textContractToLegacyDialogue(c)[0]?.text).toBe("Ligne persistée");
+    expect(textContractToLegacyDialogue(c)[0]?.speaker).toBe("Lyra");
+    expect(c.dialogues[0]?.speakerId).toBe("c-lyra");
   });
 });

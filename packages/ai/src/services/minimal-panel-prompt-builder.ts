@@ -151,11 +151,11 @@ export function formatEnvironmentDnaForPrompt(
 }
 
 /** Entités monde (créature / véhicule / faction) en tête pour ne pas les perdre derrière des PNJ crowd. */
-const NPC_PROMPT_MAX = 4;
+const NPC_PROMPT_MAX = 3;
 const NPC_MARKER_MAX_PER_NPC = 2;
 const NPC_VISUAL_PROMPT_CHARS = 300;
 
-const WORLD_PROP_PROMPT_MAX = 2;
+const WORLD_PROP_PROMPT_MAX = 4;
 const WORLD_PROP_DESC_CHARS = 100;
 const WORLD_PROP_TOTAL_CHARS = 200;
 
@@ -163,7 +163,7 @@ const WORLD_PROP_TOTAL_CHARS = 200;
  * Props monde / beat (`VisualWorldPropDna` / `RequiredProp` mappés).
  */
 export function formatWorldPropsVisualDnaForPrompt(spec: PanelRenderSpec): string {
-  const list = spec.worldPropsVisualDna;
+  const list = spec.propVisualDna ?? spec.worldPropsVisualDna;
   if (!Array.isArray(list) || list.length === 0) return "";
   const chunks: string[] = [];
   for (const p of list.slice(0, WORLD_PROP_PROMPT_MAX)) {
@@ -851,7 +851,7 @@ export function describeCharacterWithCanon(character: PanelRenderVisibleCharacte
   const hairStyle = dna?.hairStyle ? `, ${dna.hairStyle}` : "";
   const outfit = dna?.outfitSignature ? `, wearing ${dna.outfitSignature}` : "";
   const skin = dna?.skinTone ? `, ${dna.skinTone} skin tone` : "";
-  const structureLine = compactConfiguratorTraitsForPrompt(dna ?? null);
+  const structureLine = compactCharacterVisualDnaForPrompt(dna ?? null);
   const structureSuffix = structureLine ? `, structure: ${structureLine}` : "";
   const studioCanon =
     dna?.visualCanonExcerpt
@@ -860,8 +860,12 @@ export function describeCharacterWithCanon(character: PanelRenderVisibleCharacte
   const extraBits = [
     dna?.perceivedAge ? `reads ${normalizePromptClause(dna.perceivedAge)}` : "",
     dna?.silhouetteType ? `${normalizePromptClause(dna.silhouetteType)} build` : "",
+    dna?.bodyType ? `body: ${normalizePromptClause(dna.bodyType)}` : "",
     dna?.distinctiveMarksLine ? normalizePromptClause(dna.distinctiveMarksLine) : "",
+    dna?.scars?.length ? `scars: ${dna.scars.slice(0, 3).join(", ")}` : "",
+    dna?.tattoos?.length ? `tattoos: ${dna.tattoos.slice(0, 2).join(", ")}` : "",
     dna?.accessoriesLine ? `accessories ${normalizePromptClause(dna.accessoriesLine)}` : "",
+    dna?.accessories?.length ? `gear: ${dna.accessories.slice(0, 3).join(", ")}` : "",
   ]
     .filter(Boolean)
     .join(", ");
@@ -978,4 +982,29 @@ function padWithStyleHints(s: string, spec: PanelRenderSpec): string {
     out += `\nHINT: ${h}.`;
   }
   return out;
+}
+
+/** PR4 — alias CTO : props visibles plafonnées (voir `WORLD_PROP_PROMPT_MAX`). */
+export function compactPropDnaForPrompt(spec: PanelRenderSpec): string {
+  return formatWorldPropsVisualDnaForPrompt(spec);
+}
+
+/** PR4 — alias CTO : groupes PNJ / entités monde plafonnés (`NPC_PROMPT_MAX`). */
+export function compactNpcDnaForPrompt(spec: PanelRenderSpec): string {
+  return formatNpcVisualDnaForPrompt(spec);
+}
+
+/** PR4 — alias CTO : décor compact (`ENV_DNA_CAPS`). */
+export function compactEnvironmentDnaForPrompt(
+  dna: Record<string, unknown> | null | undefined,
+): string {
+  return formatEnvironmentDnaForPrompt(dna);
+}
+
+/** PR4 — alias CTO : traits configurateur dans le budget `CHARACTER_CONFIGURATOR_PROMPT_MAX`. */
+export function compactCharacterVisualDnaForPrompt(
+  dna: PanelRenderCharacterVisualDna | null | undefined,
+  maxChars?: number,
+): string {
+  return compactConfiguratorTraitsForPrompt(dna, maxChars);
 }

@@ -1,3 +1,5 @@
+import type { PanelTextContract } from "../generation/panel-text-contract";
+
 export type BubbleType =
   | "speech"
   | "thought"
@@ -26,6 +28,8 @@ export interface MangaPanelText {
   narration?: string[];
   sfx?: string[];
   pauseWeight?: number;
+  /** PR5 — contrat texte unique (generation) aligné bulles / narration / SFX. */
+  textContract?: PanelTextContract | null;
 }
 
 export interface MangaSceneDialogue {

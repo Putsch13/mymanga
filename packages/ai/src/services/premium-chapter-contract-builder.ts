@@ -13,8 +13,10 @@ import {
   runStructuralQaOnPremiumBlueprints,
   hydrateBlueprintsWithCharacterDna,
   hydrateBlueprintsWithEnvironmentDna,
-  hydrateBlueprintsWithVisualWorldNpcAndProps,
+  hydrateBlueprintsWithNpcDna,
+  hydrateBlueprintsWithPropDna,
   isPipelineV3PremiumOnlyEnabled,
+  syncBlueprintTextContractFromTextFragments,
 } from "@manga-ai-studio/core";
 import type { ApprovedChapterOutline, CharacterCanon, ProductionBeat } from "@manga-ai-studio/core";
 import type { PanelBlueprintPremium, RequiredProp, VisualWorldContract } from "@manga-ai-studio/core";
@@ -89,6 +91,9 @@ export interface BuildPremiumChapterContractInput {
       outfitDefault?: string | null;
     }>;
     characterCanonsById?: Record<string, CharacterCanon> | null;
+    characterCanons?: readonly CharacterCanon[] | null;
+    /** Si true, n’injecte pas de DNA sans source DB/canon (aligné launch/estimate premium). */
+    strict?: boolean;
     /** Héros 2 / co‑protagoniste — DNA sur panels avec personnages. */
     coProtagonistCharacterIds?: readonly string[] | null;
   };
@@ -104,10 +109,13 @@ function applyOptionalCharacterDnaHydration(
 ): PanelBlueprintPremium[] {
   const h = input.characterDnaHydration;
   if (!h?.characters?.length) return blueprints;
+  const strict = h.strict === true || isPipelineV3PremiumOnlyEnabled();
   return hydrateBlueprintsWithCharacterDna({
     blueprints,
     characters: h.characters,
     characterCanonsById: h.characterCanonsById ?? undefined,
+    characterCanons: h.characterCanons ?? undefined,
+    strict,
     coProtagonistCharacterIds: h.coProtagonistCharacterIds ?? undefined,
   });
 }
@@ -117,9 +125,11 @@ function applyOptionalEnvironmentDnaHydration(
   input: BuildPremiumChapterContractInput,
 ): PanelBlueprintPremium[] {
   if (!input.visualWorldContract) return blueprints;
+  const strict = isPipelineV3PremiumOnlyEnabled();
   return hydrateBlueprintsWithEnvironmentDna({
     blueprints,
     visualWorld: input.visualWorldContract,
+    strict,
   });
 }
 
@@ -128,10 +138,25 @@ function applyOptionalVisualWorldNpcPropHydration(
   input: BuildPremiumChapterContractInput,
 ): PanelBlueprintPremium[] {
   if (!input.visualWorldContract) return blueprints;
-  return hydrateBlueprintsWithVisualWorldNpcAndProps({
+  const strict = isPipelineV3PremiumOnlyEnabled();
+  let out = hydrateBlueprintsWithPropDna({
     blueprints,
     visualWorld: input.visualWorldContract,
+    strict,
   });
+  out = hydrateBlueprintsWithNpcDna({
+    blueprints: out,
+    visualWorld: input.visualWorldContract,
+    strict,
+  });
+  return out;
+}
+
+/** PR5 — après merge / hydratations, recaler `textContract` sur les fragments persistés. */
+function resyncBlueprintPanelTextContracts(blueprints: PanelBlueprintPremium[]): void {
+  for (const bp of blueprints) {
+    syncBlueprintTextContractFromTextFragments(bp);
+  }
 }
 
 export interface ObjectStateFrame {
@@ -369,10 +394,11 @@ export function buildPremiumChapterContract(
     rawOutline: outlineForCanonical,
   });
   const rawFlattened = enrichedBeats.flatMap((b) => b._blueprints);
-  let allBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawFlattened, canonicalPlan);
-  allBlueprints = applyOptionalCharacterDnaHydration(allBlueprints, input);
+  const mergedBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawFlattened, canonicalPlan);
+  let allBlueprints = applyOptionalCharacterDnaHydration(mergedBlueprints, input);
   allBlueprints = applyOptionalEnvironmentDnaHydration(allBlueprints, input);
   allBlueprints = applyOptionalVisualWorldNpcPropHydration(allBlueprints, input);
+  resyncBlueprintPanelTextContracts(allBlueprints);
   assertFinalStructuralQaAfterMerge({
     chapterId,
     projectId,
@@ -650,10 +676,11 @@ export async function buildPremiumChapterContractAsync(
     rawOutline: outlineForCanonical,
   });
   const rawFlattened = enrichedBeatsWithLLMBlueprints.flatMap((b) => b._blueprints);
-  let allBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawFlattened, canonicalPlan);
-  allBlueprints = applyOptionalCharacterDnaHydration(allBlueprints, input);
+  const mergedBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawFlattened, canonicalPlan);
+  let allBlueprints = applyOptionalCharacterDnaHydration(mergedBlueprints, input);
   allBlueprints = applyOptionalEnvironmentDnaHydration(allBlueprints, input);
   allBlueprints = applyOptionalVisualWorldNpcPropHydration(allBlueprints, input);
+  resyncBlueprintPanelTextContracts(allBlueprints);
   assertFinalStructuralQaAfterMerge({
     chapterId,
     projectId,

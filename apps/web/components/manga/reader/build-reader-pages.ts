@@ -19,9 +19,10 @@
 import { flattenPagesToPanels, type PipelinePanel, type UniversalMangaPage, type UniversalPanel } from "../manga-page-grid";
 import {
   buildReaderPanelSlots,
+  legacyDialogueToPanelTextContract,
   resolvePanelTextContractFromStoryboardPanelLike,
   textContractToLegacyDialogue,
-  synthesizePanelTextContractFromLooseMetadata,
+  type DialogueLineFragment,
   type PanelTextContract,
   type ReaderTextPlacementHint,
 } from "@manga-ai-studio/core";
@@ -62,6 +63,8 @@ interface PersistedStoryboardPanel {
   actionLine?: string | null;
   emotionLine?: string | null;
   dialogue?: Array<{ speaker: string; text: string }> | null;
+  /** Lignes blueprint / writer — prioritaires sur `dialogue` pour le contrat texte. */
+  dialogueLines?: readonly DialogueLineFragment[] | null;
   narration?: string | null;
   sfx?: string[] | null;
   textPlacementHint?: ReaderTextPlacementHint | null;
@@ -72,6 +75,11 @@ interface PersistedStoryboardPanel {
   safeTextZones?: Array<{ x: number; y: number; width: number; height: number }> | null;
   /** PR9 — prioritaire pour le texte affiché si valide. */
   textContract?: unknown;
+  panelTextBundle?: Readonly<{
+    dialogues?: ReadonlyArray<{ speaker: string; text: string }> | null;
+    narration?: string | null;
+    sfx?: readonly string[] | null;
+  }> | null;
 }
 
 interface PersistedStoryboardPage {
@@ -138,11 +146,11 @@ function sceneImageToUniversalPanel(img: SceneImage, sceneId: string): Universal
   });
   const rawMetadata = img.metadata as Record<string, unknown> | undefined;
   const panelIdForText = String(rawMetadata?.panelId ?? img.id);
-  /** PR9 — une seule source : contrat persisté (via synthèse) ou synthèse depuis les métadonnées lâches. */
-  const textContract: PanelTextContract = synthesizePanelTextContractFromLooseMetadata(
-    rawMetadata ?? {},
-    panelIdForText,
-  );
+  /** PR9 + PR5 — contrat persisté ou synthèse legacy via point d’entrée unique `legacyDialogueToPanelTextContract`. */
+  const textContract: PanelTextContract = legacyDialogueToPanelTextContract({
+    ...(rawMetadata ?? {}),
+    panelId: panelIdForText,
+  });
 
   const legacyDialogues = textContractToLegacyDialogue(textContract);
   const dialogues = legacyDialogues.length > 0 ? legacyDialogues : undefined;
@@ -271,10 +279,13 @@ function buildPagesFromPersistedStoryboard(
         const textContract = resolvePanelTextContractFromStoryboardPanelLike({
           panelId: planPanel.panelId,
           textContract: planPanel.textContract,
+          dialogueLines: Array.isArray(planPanel.dialogueLines) && planPanel.dialogueLines.length > 0
+            ? planPanel.dialogueLines
+            : null,
           dialogue: Array.isArray(planPanel.dialogue) && planPanel.dialogue.length > 0 ? planPanel.dialogue : null,
           narration: planPanel.narration ?? null,
           sfx: Array.isArray(planPanel.sfx) ? planPanel.sfx : null,
-          panelTextBundle: null,
+          panelTextBundle: planPanel.panelTextBundle ?? null,
         });
         const legacyLines = textContractToLegacyDialogue(textContract);
         const dialogues = legacyLines.length > 0 ? legacyLines : undefined;

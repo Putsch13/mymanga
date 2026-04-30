@@ -8,6 +8,7 @@
  */
 
 import type { CanonicalChapterProductionPlan, CanonicalPanelPlan } from "./canonical-production-plan";
+import type { EnvironmentVisualDna } from "../types/generation-debug-snapshot";
 import type { PanelBlueprintOrigin, PanelBlueprintPremium, PanelBlueprintProvenance } from "../types/narrative-facts";
 import { canonicalPlanToPanelBlueprints } from "./canonical-to-premium-blueprints";
 import { buildPanelTextContractFromBlueprintTextFields, createSilentTextContract } from "../generation/panel-text-contract";
@@ -53,6 +54,33 @@ function mergeRequiredProps(
 
 function mergeNotes(canonicalNotes: string[] | undefined, rawNotes: string[] | undefined): string[] {
   return [...new Set([...(canonicalNotes ?? []), ...(rawNotes ?? [])])];
+}
+
+function nonEmptyArray<T>(value: T[] | null | undefined): T[] | undefined {
+  return Array.isArray(value) && value.length > 0 ? value : undefined;
+}
+
+function nonEmptyEnvironmentDna(
+  value: EnvironmentVisualDna | null | undefined,
+): EnvironmentVisualDna | undefined {
+  if (!value) return undefined;
+  const loc = typeof value.locationName === "string" ? value.locationName.trim() : "";
+  const anchor = typeof value.anchorId === "string" ? value.anchorId.trim() : "";
+  const arrays = [
+    value.visualAnchors,
+    value.architectureHints,
+    value.atmosphere,
+    value.propAnchors,
+    value.lightingHints,
+    value.forbiddenDrift,
+  ];
+  const hasArrayContent = arrays.some(
+    (a) =>
+      Array.isArray(a)
+      && a.some((x) => typeof x === "string" && x.trim().length > 0),
+  );
+  if (loc.length > 0 || anchor.length > 0 || hasArrayContent) return value;
+  return undefined;
 }
 
 function overlayCanonicalStructure(
@@ -122,9 +150,26 @@ function overlayCanonicalStructure(
     readerTemplateId: rawBase.readerTemplateId ?? canonical.readerTemplateId ?? null,
     textPlacementHint: rawBase.textPlacementHint ?? canonical.textPlacementHint ?? null,
     presenceObligations: rawBase.presenceObligations ?? canonical.presenceObligations,
-    characterVisualDna: rawBase.characterVisualDna ?? canonical.characterVisualDna,
-    npcVisualDna: rawBase.npcVisualDna ?? canonical.npcVisualDna,
-    environmentVisualDna: rawBase.environmentVisualDna ?? canonical.environmentVisualDna ?? null,
+    characterVisualDna:
+      nonEmptyArray(rawBase.characterVisualDna)
+      ?? nonEmptyArray(canonical.characterVisualDna)
+      ?? [],
+    npcVisualDna:
+      nonEmptyArray(rawBase.npcVisualDna)
+      ?? nonEmptyArray(canonical.npcVisualDna)
+      ?? [],
+    propVisualDna:
+      nonEmptyArray(rawBase.propVisualDna)
+      ?? nonEmptyArray(canonical.propVisualDna)
+      ?? [],
+    continuityObjectIds:
+      nonEmptyArray(rawBase.continuityObjectIds)
+      ?? nonEmptyArray(canonical.continuityObjectIds)
+      ?? [],
+    environmentVisualDna:
+      nonEmptyEnvironmentDna(rawBase.environmentVisualDna)
+      ?? nonEmptyEnvironmentDna(canonical.environmentVisualDna)
+      ?? null,
     continuityState: rawBase.continuityState ?? canonical.continuityState ?? null,
     sceneRoster: rawBase.sceneRoster ?? canonical.sceneRoster,
     requiredSubjects: rawBase.requiredSubjects ?? canonical.requiredSubjects,

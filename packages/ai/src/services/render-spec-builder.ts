@@ -13,6 +13,7 @@ import {
   isHeroRole,
   isAntagonistRole,
   isSupportingRole,
+  isSubstantialCharacterVisualDna,
   type CharacterVisualDna,
   type EnvironmentVisualDna,
   legacyDialogueLinesFromStoryboardPanelLike,
@@ -45,6 +46,26 @@ export interface CharacterInfo {
   forbiddenVisualDrift?: string[] | null;
   /** ADN studio complet quand disponible (prioritaire sur les champs plats). */
   characterVisualDna?: CharacterVisualDna | null;
+  /** JSON configurateur brut — champs tableau (scars, tattoos…) non aplatis sur `CharacterVisualDna`. */
+  stableVisualDNA?: Record<string, unknown> | null;
+  visualProfile?: unknown;
+  wardrobeProfile?: unknown;
+  bodyState?: unknown;
+  continuityProfile?: unknown;
+}
+
+function mergeCharacterInfoWithPanelBlueprintDna(
+  match: CharacterInfo,
+  panelRow: CharacterVisualDna | undefined,
+): CharacterInfo {
+  if (!panelRow) return match;
+  const base: CharacterVisualDna = {
+    ...(match.characterVisualDna ?? {}),
+    ...panelRow,
+    characterId: match.id,
+    displayName: match.characterVisualDna?.displayName ?? match.name ?? panelRow.displayName,
+  };
+  return { ...match, characterVisualDna: base };
 }
 
 export interface BuildPanelRenderSpecInput {
@@ -53,6 +74,11 @@ export interface BuildPanelRenderSpecInput {
   visualMemory: ChapterVisualMemory;
   characters: CharacterInfo[];
   mainCharacterIds: string[];
+  /**
+   * Premium v3 : refuse un rendu si les personnages principaux visibles n’ont pas
+   * d’ADN visuel exploitable (aligné preflight / estimate).
+   */
+  premiumOnly?: boolean;
 }
 
 const DIALOGUE_FORWARD_RENDER_MODES = new Set<StoryboardPanel["renderMode"]>([
@@ -72,7 +98,9 @@ export function environmentVisualDnaToRenderEnvironmentRecord(
   if (!env) return null;
   const loc = typeof env.locationName === "string" ? env.locationName.trim() : "";
   const atm = Array.isArray(env.atmosphere)
-    ? env.atmosphere.filter((x): x is string => typeof x === "string" && x.trim()).slice(0, 2)
+    ? env.atmosphere
+        .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+        .slice(0, 2)
     : [];
   const description = [loc || null, ...atm].filter(Boolean).join(" — ") || (loc || null);
   const out: Record<string, unknown> = {};
@@ -87,8 +115,20 @@ export function environmentVisualDnaToRenderEnvironmentRecord(
   return Object.keys(out).length > 0 ? out : null;
 }
 
+function splitMarksLine(line: string | null | undefined): string[] | null {
+  if (!line?.trim()) return null;
+  const parts = line
+    .split(/[;|]/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  return parts.length > 0 ? parts : null;
+}
+
 function buildVisibleCharacterVisualDna(match: CharacterInfo): PanelRenderCharacterVisualDna {
   const c = match.characterVisualDna;
+  const scars = c?.scars?.length ? [...c.scars] : null;
+  const tattoos = c?.tattoos?.length ? [...c.tattoos] : null;
+  const accessories = c?.accessories?.length ? [...c.accessories] : null;
   return {
     displayName: c?.displayName ?? null,
     hairColor: c?.hairColor ?? match.hairColor ?? null,
@@ -99,7 +139,12 @@ function buildVisibleCharacterVisualDna(match: CharacterInfo): PanelRenderCharac
     visualCanonExcerpt: c?.visualCanonExcerpt?.trim() || null,
     perceivedAge: c?.perceivedAge?.trim() || null,
     silhouetteType: c?.silhouetteType?.trim() || null,
+    bodyType: c?.bodyType?.trim() || null,
     distinctiveMarksLine: c?.distinctiveMarksLine?.trim() || null,
+    distinctiveMarks: splitMarksLine(c?.distinctiveMarksLine),
+    scars,
+    tattoos,
+    accessories,
     accessoriesLine: c?.accessoriesLine?.trim() || null,
     faceShape: c?.faceShape?.trim() || null,
     eyeShape: c?.eyeShape?.trim() || null,
@@ -110,39 +155,57 @@ function buildVisibleCharacterVisualDna(match: CharacterInfo): PanelRenderCharac
     noseStyle: c?.noseStyle?.trim() || null,
     mouthStyle: c?.mouthStyle?.trim() || null,
     jawline: c?.jawline?.trim() || null,
+    stableVisualDNA: match.stableVisualDNA ?? undefined,
+    visualProfile: match.visualProfile,
+    wardrobeProfile: match.wardrobeProfile,
+    bodyState: match.bodyState,
+    continuityProfile: match.continuityProfile,
   };
 }
 
 export function buildPanelRenderSpec(
   input: BuildPanelRenderSpecInput,
 ): PanelRenderSpec {
-  const { panel, styleBible, visualMemory, characters, mainCharacterIds } = input;
+  const { panel, styleBible, visualMemory, characters, mainCharacterIds, premiumOnly } = input;
   const mainSet = new Set(mainCharacterIds);
+
+  const panelDnaById = new Map(
+    (panel.characterVisualDna ?? []).map((d) => [d.characterId, d] as const),
+  );
 
   const visibleCharacters: PanelRenderVisibleCharacter[] = [];
   for (const idOrName of panel.characters) {
     const match = characters.find((c) => c.id === idOrName || c.name === idOrName);
     if (!match) continue;
-    const role = deriveRole(match.roleType, mainSet.has(match.id));
+    const panelRow = panelDnaById.get(match.id);
+    const mergedMatch = mergeCharacterInfoWithPanelBlueprintDna(match, panelRow);
+    const role = deriveRole(mergedMatch.roleType, mainSet.has(mergedMatch.id));
+    if (premiumOnly && (role === "hero" || role === "support" || role === "enemy")) {
+      const dna = mergedMatch.characterVisualDna;
+      if (!dna || !isSubstantialCharacterVisualDna(dna)) {
+        throw new Error("premium_missing_character_visual_dna_for_render");
+      }
+    }
     visibleCharacters.push({
-      characterId: match.id,
-      name: match.name,
+      characterId: mergedMatch.id,
+      name: mergedMatch.name,
       role,
       poseIntent: null,
       expressionIntent: null,
-      hairColor: match.hairColor ?? null,
-      eyeColor: match.eyeColor ?? null,
-      canonSignatureText: match.characterVisualDna?.canonSignatureText ?? match.canonSignatureText ?? null,
+      hairColor: mergedMatch.hairColor ?? null,
+      eyeColor: mergedMatch.eyeColor ?? null,
+      canonSignatureText:
+        mergedMatch.characterVisualDna?.canonSignatureText ?? mergedMatch.canonSignatureText ?? null,
       forbiddenDrift: (() => {
-        const fromCanon = match.characterVisualDna?.forbiddenDrift;
+        const fromCanon = mergedMatch.characterVisualDna?.forbiddenDrift;
         if (Array.isArray(fromCanon) && fromCanon.length > 0) {
           return fromCanon.filter((x): x is string => typeof x === "string");
         }
-        return Array.isArray(match.forbiddenVisualDrift)
-          ? match.forbiddenVisualDrift.filter((x): x is string => typeof x === "string")
+        return Array.isArray(mergedMatch.forbiddenVisualDrift)
+          ? mergedMatch.forbiddenVisualDrift.filter((x): x is string => typeof x === "string")
           : [];
       })(),
-      visualDNA: buildVisibleCharacterVisualDna(match),
+      visualDNA: buildVisibleCharacterVisualDna(mergedMatch),
     });
   }
 
@@ -215,10 +278,11 @@ export function buildPanelRenderSpec(
     },
     layoutMeta,
     npcVisualDna: Array.isArray(panel.npcVisualDna) && panel.npcVisualDna.length > 0 ? panel.npcVisualDna : undefined,
-    worldPropsVisualDna:
-      Array.isArray(panel.worldPropsVisualDna) && panel.worldPropsVisualDna.length > 0
-        ? panel.worldPropsVisualDna
-        : undefined,
+    ...(() => {
+      const w = panel.worldPropsVisualDna;
+      const props = Array.isArray(w) && w.length > 0 ? w : undefined;
+      return { worldPropsVisualDna: props, propVisualDna: props };
+    })(),
     environmentDNA: environmentVisualDnaToRenderEnvironmentRecord(panel.environmentVisualDna ?? null) ?? undefined,
   };
 }

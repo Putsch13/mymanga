@@ -129,10 +129,16 @@ function legacyScenePanelUnifiedDialogue(
 ): Array<{ speaker: string; text: string }> {
   const bp = blueprint ?? {};
   const pid = String(panel.panelId ?? panel.panelNumber ?? "panel");
+  const normalizedDialogueLines = Array.isArray(bp.dialogueLines)
+    ? (bp.dialogueLines as Array<{ speaker?: string; text: string }>).map((l) => ({
+        speaker: typeof l.speaker === "string" && l.speaker.trim().length > 0 ? l.speaker.trim() : "unknown",
+        text: typeof l.text === "string" ? l.text : "",
+      }))
+    : undefined;
   const fromBpLines = legacyDialogueLinesFromBlueprintPremium({
     panelId: typeof bp.panelId === "string" ? bp.panelId : pid,
-    dialogueLines: Array.isArray(bp.dialogueLines) ? (bp.dialogueLines as Array<{ speaker?: string; text: string }>) : undefined,
-    textContract: bp.textContract,
+    dialogueLines: normalizedDialogueLines,
+    textContract: bp.textContract as PanelBlueprintPremium["textContract"],
     panelTextBundle:
       typeof bp.panelTextBundle === "object" && bp.panelTextBundle !== null && !Array.isArray(bp.panelTextBundle)
         ? (bp.panelTextBundle as PanelBlueprintPremium["panelTextBundle"])

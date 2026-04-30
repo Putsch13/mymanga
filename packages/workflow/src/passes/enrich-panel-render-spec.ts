@@ -215,6 +215,25 @@ export interface EnrichPanelRenderSpecInput {
   loraByCharacterId?: Map<string, LoraInfo>;
 }
 
+function mergeEnvironmentForbiddenIntoConstraints(
+  constraints: PanelRenderSpec["constraints"],
+  env: StoryboardPanel["environmentVisualDna"],
+): PanelRenderSpec["constraints"] {
+  const fromEnv = env?.forbiddenDrift;
+  if (!Array.isArray(fromEnv) || fromEnv.length === 0) return constraints;
+  const seen = new Set(constraints.forbiddenDrift.map((s) => s.toLowerCase()));
+  const merged = [...constraints.forbiddenDrift];
+  for (const raw of fromEnv) {
+    const x = typeof raw === "string" ? raw.trim() : "";
+    if (!x) continue;
+    const k = x.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    merged.push(x);
+  }
+  return { ...constraints, forbiddenDrift: merged };
+}
+
 export function enrichPanelRenderSpecForRenderPass(input: EnrichPanelRenderSpecInput): PanelRenderSpec {
   const { spec, panel, visualMemory, mainCharacterIds, route, previousPanel } = input;
   const base = spec.layoutMeta ?? {};
@@ -246,6 +265,7 @@ export function enrichPanelRenderSpecForRenderPass(input: EnrichPanelRenderSpecI
 
   const merged: PanelRenderSpec = {
     ...spec,
+    constraints: mergeEnvironmentForbiddenIntoConstraints(spec.constraints, panel.environmentVisualDna),
     visibleCharacters: enrichVisibleVisualDna(spec.visibleCharacters),
     layoutMeta: {
       layoutHint: base.layoutHint ?? panel.layoutHint ?? null,

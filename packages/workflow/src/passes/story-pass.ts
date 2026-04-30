@@ -44,6 +44,11 @@ export interface RunStoryPassInput {
    * COMMIT H — override du flag PIPELINE_V3_STORY_ARCHITECT_LLM.
    */
   useLlmArchitect?: boolean;
+  /**
+   * PR6 — si défini, pilote `premiumOnly` côté LLM (fail-hard) au lieu du seul flag env.
+   * Ex. pipeline : `premiumOnlyOverride: input.premiumV3OnlyEnabled`.
+   */
+  premiumOnlyOverride?: boolean;
 }
 
 export interface RunStoryPassResult {
@@ -53,7 +58,12 @@ export interface RunStoryPassResult {
 
 export async function runStoryPass(input: RunStoryPassInput): Promise<RunStoryPassResult> {
   const useLlm = input.useLlmArchitect ?? isPipelineV3StoryArchitectLlmEnabled();
-  const premiumOnly = isPipelineV3PremiumOnlyEnabled();
+  const premiumOnly =
+    input.premiumOnlyOverride === true
+      ? true
+      : input.premiumOnlyOverride === false
+        ? false
+        : isPipelineV3PremiumOnlyEnabled();
 
   // Premium-only : l'IA1 doit être un vrai LLM. Si la clé OpenAI manque,
   // `runStoryArchitectAgentLlm` ferait un fallback vers le stub — interdit.
@@ -78,6 +88,7 @@ export async function runStoryPass(input: RunStoryPassInput): Promise<RunStoryPa
     mainCharacters: input.mainCharacters,
     locations: input.locations,
     targetBeatCount: input.targetBeatCount,
+    premiumOnly: premiumOnly && useLlm,
   });
   await saveStoryArc(input.chapterId, storyArc);
   return { storyArc, warnings };

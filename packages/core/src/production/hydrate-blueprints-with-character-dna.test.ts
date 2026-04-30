@@ -25,6 +25,22 @@ function minimalBp(overrides: Partial<PanelBlueprintPremium>): PanelBlueprintPre
 }
 
 describe("hydrateBlueprintsWithCharacterDna", () => {
+  it("panel critique + requiredCharacterIds sans DNA : hydrate remplit depuis la DB", () => {
+    const [out] = hydrateBlueprintsWithCharacterDna({
+      blueprints: [
+        minimalBp({
+          criticality: "critical",
+          requiredCharacterIds: ["c1"],
+          characterVisualDna: [],
+        }),
+      ],
+      characters: [{ id: "c1", name: "A", hairColor: "noir", eyeColor: "vert" }],
+    });
+    const row = out.characterVisualDna?.find((d) => d.characterId === "c1");
+    expect(row).toBeDefined();
+    expect(row?.hairColor).toBe("noir");
+  });
+
   it("ajoute une entrée DNA pour chaque personnage requis", () => {
     const [out] = hydrateBlueprintsWithCharacterDna({
       blueprints: [
@@ -138,5 +154,55 @@ describe("hydrateBlueprintsWithCharacterDna", () => {
     const d = out.characterVisualDna?.find((x) => x.characterId === "side-9");
     expect(d?.displayName).toBe("Sidekick");
     expect(d?.hairColor).toBe("roux");
+  });
+
+  it("n’injecte pas de DNA fantôme sans DB/canon (preflight peut bloquer)", () => {
+    const [out] = hydrateBlueprintsWithCharacterDna({
+      blueprints: [minimalBp({ requiredCharacterIds: ["ghost-id"] })],
+      characters: [{ id: "c1", name: "A", hairColor: "noir", eyeColor: null }],
+    });
+    expect(out.characterVisualDna?.some((d) => d.characterId === "ghost-id")).toBe(false);
+  });
+
+  it("strict : note character_dna_strict_unresolved si ID requis sans source", () => {
+    const [out] = hydrateBlueprintsWithCharacterDna({
+      blueprints: [minimalBp({ requiredCharacterIds: ["missing-x"] })],
+      characters: [],
+      strict: true,
+    });
+    expect(out.notes?.some((n) => n.startsWith("character_dna_strict_unresolved:missing-x"))).toBe(true);
+    expect(out.characterVisualDna?.some((d) => d.characterId === "missing-x")).toBe(false);
+  });
+
+  it("collecte dialogueLines[].characterId quand présent", () => {
+    const [out] = hydrateBlueprintsWithCharacterDna({
+      blueprints: [
+        minimalBp({
+          requiredCharacterIds: [],
+          dialogueLines: [{ speaker: "n/a", text: "hi", characterId: "c99" }],
+        }),
+      ],
+      characters: [{ id: "c99", name: "X", hairColor: "bleu", eyeColor: null }],
+    });
+    expect(out.characterVisualDna?.some((d) => d.characterId === "c99")).toBe(true);
+  });
+
+  it("hydrate visibleCharacterIds et speakerCharacterId", () => {
+    const [out] = hydrateBlueprintsWithCharacterDna({
+      blueprints: [
+        minimalBp({
+          requiredCharacterIds: [],
+          visibleCharacterIds: ["vis-1", "vis-2"],
+          speakerCharacterId: "vis-1",
+        }),
+      ],
+      characters: [
+        { id: "vis-1", name: "V1", hairColor: "noir", eyeColor: null },
+        { id: "vis-2", name: "V2", hairColor: "blond", eyeColor: null },
+      ],
+    });
+    const ids = new Set((out.characterVisualDna ?? []).map((d) => d.characterId));
+    expect(ids.has("vis-1")).toBe(true);
+    expect(ids.has("vis-2")).toBe(true);
   });
 });

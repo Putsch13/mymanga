@@ -12,6 +12,51 @@ import { describe, expect, it } from "vitest";
 import { buildPagesFromChapter } from "../components/manga/reader/build-reader-pages";
 import type { ChapterPayload } from "../components/manga/reader/reader-types";
 
+/** Même squelette que le plan standard, mais P2 porte `dialogueLines` (canon) + `dialogue` obsolète. */
+function makeChapterWithDialogueLinesOnPlaceholder(): ChapterPayload {
+  const base = makeChapterWithPersistedPlan();
+  const outline = base.outline as Record<string, unknown>;
+  const plan = outline.storyboardPlanV2 as Record<string, unknown>;
+  const pages = [...(plan.pages as Record<string, unknown>[])];
+  const page0 = { ...(pages[0] as Record<string, unknown>) };
+  const panels = [...((page0.panels as Record<string, unknown>[]) ?? [])];
+  panels[1] = {
+    ...panels[1],
+    dialogue: [{ speaker: "StaleSpeaker", text: "Texte legacy à ignorer." }],
+    dialogueLines: [{ text: "Réplique canon blueprint.", speakerName: "Hero", characterId: "c-hero" }],
+  };
+  page0.panels = panels;
+  pages[0] = page0;
+  plan.pages = pages;
+  outline.storyboardPlanV2 = plan;
+  return { ...base, outline } as unknown as ChapterPayload;
+}
+
+/** P2 : pas de `dialogue` / `dialogueLines`, seulement `panelTextBundle` (source writer / spec). */
+function makeChapterWithPanelTextBundleOnPlaceholder(): ChapterPayload {
+  const base = makeChapterWithPersistedPlan();
+  const outline = base.outline as Record<string, unknown>;
+  const plan = outline.storyboardPlanV2 as Record<string, unknown>;
+  const pages = [...(plan.pages as Record<string, unknown>[])];
+  const page0 = { ...(pages[0] as Record<string, unknown>) };
+  const panels = [...((page0.panels as Record<string, unknown>[]) ?? [])];
+  panels[1] = {
+    ...panels[1],
+    dialogue: [],
+    dialogueLines: undefined,
+    panelTextBundle: {
+      dialogues: [{ speaker: "NarrateurBundle", text: "Réplique issue du bundle." }],
+      narration: "Voix off depuis bundle.",
+      sfx: ["clic"],
+    },
+  };
+  page0.panels = panels;
+  pages[0] = page0;
+  plan.pages = pages;
+  outline.storyboardPlanV2 = plan;
+  return { ...base, outline } as unknown as ChapterPayload;
+}
+
 function makeChapterWithPersistedPlan(): ChapterPayload {
   return {
     id: "ch-v3",
@@ -125,6 +170,26 @@ describe("reader — pipeline v3 storyboard branch", () => {
     expect(p2.speaker).toBe("Hero");
     expect(p2.dialogue).toBe("On y va.");
     expect(p2.textMeta?.preferredAnchorZones).toEqual(["top-right"]);
+  });
+
+  it("dialogueLines persistés priment sur dialogue[] (PR5 reader)", () => {
+    const pages = buildPagesFromChapter(makeChapterWithDialogueLinesOnPlaceholder());
+    const p2 = pages[0]!.panels[1]!;
+    expect(p2.speaker).toBe("Hero");
+    expect(p2.dialogue).toBe("Réplique canon blueprint.");
+    const tc = p2.textContract as { dialogues: Array<{ speakerName: string; text: string; speakerId?: string }> };
+    expect(tc.dialogues[0]?.text).toBe("Réplique canon blueprint.");
+    expect(tc.dialogues[0]?.speakerName).toBe("Hero");
+    expect(tc.dialogues[0]?.speakerId).toBe("c-hero");
+  });
+
+  it("panelTextBundle seul alimente le placeholder (sans dialogue[])", () => {
+    const pages = buildPagesFromChapter(makeChapterWithPanelTextBundleOnPlaceholder());
+    const p2 = pages[0]!.panels[1]!;
+    expect(p2.speaker).toBe("NarrateurBundle");
+    expect(p2.dialogue).toBe("Réplique issue du bundle.");
+    expect(p2.narration).toContain("Voix off depuis bundle");
+    expect(p2.sfx).toContain("clic");
   });
 
   it("fallback legacy si pas de storyboardPlanV2 (outline vide)", () => {

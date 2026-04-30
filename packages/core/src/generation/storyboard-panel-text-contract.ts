@@ -7,6 +7,7 @@ import {
   buildPanelTextContractFromFragments,
   textContractToLegacyDialogue,
   validatePanelTextContract,
+  type DialogueLineFragment,
   type PanelTextContract,
 } from "./panel-text-contract";
 import { isPersistedPanelTextContract } from "./reader-panel-metadata-text";
@@ -20,6 +21,8 @@ export type StoryboardPanelLikeForTextContract = {
    * prime sur `dialogue` / `panelTextBundle` (PR9).
    */
   textContract?: unknown;
+  /** Lignes structurées blueprint / writer (prioritaires sur `dialogue` / `dialogues`). */
+  dialogueLines?: readonly DialogueLineFragment[] | null;
   /** Lignes de dialogue (storyboard v2 / blueprint). */
   dialogue?: Array<{ speaker?: string; text: string }> | null;
   /** Alias legacy (`dialogues`) — même sémantique que `dialogue`. */
@@ -37,11 +40,13 @@ export function buildPanelTextContractFromStoryboardPanelLike(
   panel: StoryboardPanelLikeForTextContract,
 ): PanelTextContract {
   const primaryLines =
-    panel.dialogue?.length
-      ? panel.dialogue
-      : panel.dialogues?.length
-        ? panel.dialogues
-        : null;
+    panel.dialogueLines?.length
+      ? panel.dialogueLines
+      : panel.dialogue?.length
+        ? panel.dialogue
+        : panel.dialogues?.length
+          ? panel.dialogues
+          : null;
   return buildPanelTextContractFromFragments({
     panelId: panel.panelId,
     dialogueLines: primaryLines,

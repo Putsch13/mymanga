@@ -10,6 +10,7 @@ import {
   classifyPremiumPanelCount,
   computeNarrativeMemoryDigestFromOutline,
   hydratePanelProvenanceOnBlueprints,
+  isPipelineV3PremiumOnlyEnabled,
   PREMIUM_PANEL_RANGE,
   productionOutlineSchema,
   productionPlanSchema,
@@ -18,10 +19,12 @@ import {
   type PanelBlueprintPremium,
   type ProductionOutline,
   type ProductionPlan,
+  type CharacterRowForDnaHydration,
   type VisualWorldContract,
 } from "@manga-ai-studio/core";
 import { buildPremiumChapterContractAsync, composeVisualWorldContract, toComposeVisualWorldKnownLocation, type PremiumReadinessCastContext } from "@manga-ai-studio/ai";
 import { prisma } from "@manga-ai-studio/db";
+import { premiumCharacterStudioSelect, toCharacterRowsForDnaHydration } from "./premium-character-studio-select";
 
 // ─── Constante canonique des champs premium ───────────────────────────────────
 
@@ -112,15 +115,10 @@ export async function buildPremiumChapterContractFromApprovedOutline(
 ): Promise<PremiumChapterContractResult> {
   let characterDnaHydration:
     | {
-        characters: Array<{
-          id: string;
-          name: string;
-          hairColor: string | null;
-          eyeColor: string | null;
-          appearance: string | null;
-          outfitDefault: string | null;
-        }>;
+        characters: CharacterRowForDnaHydration[];
         characterCanonsById: Record<string, import("@manga-ai-studio/core").CharacterCanon> | null;
+        characterCanons?: readonly import("@manga-ai-studio/core").CharacterCanon[] | null;
+        strict?: boolean;
         coProtagonistCharacterIds?: readonly string[] | null;
       }
     | undefined;
@@ -128,14 +126,7 @@ export async function buildPremiumChapterContractFromApprovedOutline(
   if (input.projectId) {
     const rows = await prisma.character.findMany({
       where: { projectId: input.projectId },
-      select: {
-        id: true,
-        name: true,
-        hairColor: true,
-        eyeColor: true,
-        appearance: true,
-        outfitDefault: true,
-      },
+      select: premiumCharacterStudioSelect,
     });
     const canons = input.studioSnapshot?.data?.characterCanons ?? [];
     const characterCanonsById: Record<string, import("@manga-ai-studio/core").CharacterCanon> = {};
@@ -151,8 +142,10 @@ export async function buildPremiumChapterContractFromApprovedOutline(
         [secFromInput, secFromSnap, deutFromSnap].filter((x): x is string => Boolean(x)),
       )];
       characterDnaHydration = {
-        characters: rows,
+        characters: toCharacterRowsForDnaHydration(rows),
         characterCanonsById: Object.keys(characterCanonsById).length > 0 ? characterCanonsById : null,
+        characterCanons: canons.length > 0 ? canons : null,
+        strict: isPipelineV3PremiumOnlyEnabled(),
         ...(coProtagonistCharacterIds.length > 0
           ? { coProtagonistCharacterIds: coProtagonistCharacterIds as readonly string[] }
           : {}),

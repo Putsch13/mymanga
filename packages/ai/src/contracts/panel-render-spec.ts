@@ -55,6 +55,25 @@ export interface PanelRenderCharacterVisualDna {
   noseStyle?: string | null;
   mouthStyle?: string | null;
   jawline?: string | null;
+  /** Morphotype (distinct de `silhouetteType` / ligne silhouette). */
+  bodyType?: string | null;
+  /** Cicatrices / tatouages / marques en listes courtes (configurateur). */
+  scars?: string[] | null;
+  tattoos?: string[] | null;
+  accessories?: string[] | null;
+  /** Marques distinctives structurées (alternative à `distinctiveMarksLine`). */
+  distinctiveMarks?: string[] | null;
+  stableVisualDNA?: unknown;
+  characterFingerprint?: unknown;
+  visualProfile?: unknown;
+  wardrobeProfile?: unknown;
+  bodyState?: unknown;
+  continuityProfile?: unknown;
+  visualLocks?: unknown[] | null;
+  visualRefs?: unknown[] | null;
+  canonPack?: unknown;
+  /** Bindings LoRA spécifiques au personnage (complément du tableau spec.loraBindings). */
+  loraBindings?: unknown[] | null;
 }
 
 export interface PanelRenderVisibleCharacter {
@@ -200,6 +219,11 @@ export interface PanelRenderSpec {
   npcVisualDna?: NpcVisualDna[] | null;
   /** Props monde / beat (VW + `RequiredProp` mappés) pour le prompt image. */
   worldPropsVisualDna?: VisualWorldPropDna[] | null;
+  /**
+   * Alias sémantique PR4 (même contenu que `worldPropsVisualDna`).
+   * Renseigné en même temps pour contrats / logs externes.
+   */
+  propVisualDna?: VisualWorldPropDna[] | null;
   /** Lien explicite vers le rendu du panel précédent. */
   previousPanelRef?: PanelRenderPreviousPanelRef | null;
   /** Dialogue, narration, SFX du storyboard pour le rendu / logs. */

@@ -126,6 +126,23 @@ describe("buildPagesFromChapter (Sprint 1 — nouveau paginator)", () => {
     expect(pages[0]!.readingDirection).toBe("rtl");
     expect(pages[0]!.panelSlots?.map((slot) => slot.area)).toEqual(["b", "a", "d", "c"]);
   });
+
+  it("legacy pagination : metadata dialogueLines prime sur dialogues[] (sceneImage)", () => {
+    const img = makeImage(1, "s1");
+    img.metadata = {
+      panelId: "db-panel-1",
+      dialogues: [{ speaker: "LegacySpeaker", text: "Texte obsolète." }],
+      dialogueLines: [{ text: "Réplique canon metadata.", speakerName: "Hero", characterId: "c-hero" }],
+    };
+    const chapter = makeChapter([makeScene("s1", 1, { images: [img] })]);
+    const pages = buildPagesFromChapter(chapter);
+    const first = pages.flatMap((p) => p.panels)[0]!;
+    expect(first.dialogue).toBe("Réplique canon metadata.");
+    expect(first.speaker).toBe("Hero");
+    const tc = first.textContract as { dialogues: Array<{ text: string; speakerName: string; speakerId?: string }> };
+    expect(tc.dialogues[0]?.text).toBe("Réplique canon metadata.");
+    expect(tc.dialogues[0]?.speakerId).toBe("c-hero");
+  });
 });
 
 describe("buildWebtoonFlowFromChapter", () => {

@@ -36,6 +36,14 @@ export interface CharacterVisualDna {
   distinctiveMarksLine?: string | null;
   /** Accessoires portés (texte joint). */
   accessoriesLine?: string | null;
+  /** Morphotype / corpulence (configurateur ou fiche projet). */
+  bodyType?: string | null;
+  /** Cicatrices explicites (liste — prompts / render spec structuré). */
+  scars?: string[];
+  /** Tatouages explicites (liste). */
+  tattoos?: string[];
+  /** Accessoires comme liste structurée (complément de `accessoriesLine`). */
+  accessories?: string[];
 }
 
 export interface NpcVisualDna {
@@ -48,6 +56,8 @@ export interface NpcVisualDna {
 
 export interface EnvironmentVisualDna {
   locationName: string;
+  /** Id lieu canon (`VisualWorldContract.locations[].id`). */
+  locationId?: string;
   anchorId?: string | null;
   /** Ancres visuelles décor (ex. contrat monde visuel `visualAnchors`). */
   visualAnchors?: string[];

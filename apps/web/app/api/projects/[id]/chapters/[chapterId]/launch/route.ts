@@ -11,9 +11,11 @@ import {
   isPipelineV3PremiumOnlyEnabled,
   hydrateBlueprintsWithCharacterDna,
   hydrateBlueprintsWithEnvironmentDna,
-  hydrateBlueprintsWithVisualWorldNpcAndProps,
+  hydrateBlueprintsWithNpcDna,
+  hydrateBlueprintsWithPropDna,
   visualWorldContractSchema,
   PREMIUM_PANEL_RANGE,
+  type ChapterStudioSnapshot,
   type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
 import { computeShotVarietyBudget, computeContractualFocusAdequacy, computePremiumReadinessScore, type PremiumReadinessCastContext } from "@manga-ai-studio/ai";
@@ -43,6 +45,7 @@ import { assertChapterCanonReadiness } from "@/lib/canon/assert-chapter-canon-re
 import { toPrismaInputJson } from "@/lib/to-prisma-input-json";
 import { premiumVisualQaPreflightResponse } from "@/lib/generation/premium-visual-qa-preflight";
 import { isVisualContractPrelaunchBlocked } from "@/lib/visual-contract-prelaunch-gate";
+import { premiumCharacterStudioSelect, toCharacterRowsForDnaHydration } from "@/lib/premium-character-studio-select";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -334,35 +337,15 @@ export async function POST(_req: Request, ctx: Ctx) {
   if (Array.isArray(bpForContinuity) && bpForContinuity.length > 0 && isPipelineV3PremiumOnlyEnabled()) {
     const chars = await prisma.character.findMany({
       where: { projectId },
-      select: {
-        id: true,
-        name: true,
-        hairColor: true,
-        eyeColor: true,
-        appearance: true,
-        outfitDefault: true,
-        stableVisualDNA: true,
-      },
+      select: premiumCharacterStudioSelect,
     });
     const canonList = snapshot.data.characterCanons ?? [];
     const canonMap = new Map(canonList.map((c) => [c.characterId, c] as const));
     bpForContinuity = hydrateBlueprintsWithCharacterDna({
       blueprints: bpForContinuity as PanelBlueprintPremium[],
-      characters: chars.map((c) => ({
-        id: c.id,
-        name: c.name,
-        hairColor: c.hairColor,
-        eyeColor: c.eyeColor,
-        appearance: c.appearance,
-        outfitDefault: c.outfitDefault,
-        stableVisualDNA:
-          c.stableVisualDNA !== null
-          && typeof c.stableVisualDNA === "object"
-          && !Array.isArray(c.stableVisualDNA)
-            ? (c.stableVisualDNA as Record<string, unknown>)
-            : null,
-      })),
+      characters: toCharacterRowsForDnaHydration(chars),
       characterCanonsById: canonMap,
+      strict: true,
       ...(coProtagonistCharacterIdsForHydration.length > 0
         ? { coProtagonistCharacterIds: coProtagonistCharacterIdsForHydration as readonly string[] }
         : {}),
@@ -372,10 +355,17 @@ export async function POST(_req: Request, ctx: Ctx) {
       bpForContinuity = hydrateBlueprintsWithEnvironmentDna({
         blueprints: bpForContinuity as PanelBlueprintPremium[],
         visualWorld: vwLaunch.data,
+        strict: true,
       }) as typeof bpForContinuity;
-      bpForContinuity = hydrateBlueprintsWithVisualWorldNpcAndProps({
+      bpForContinuity = hydrateBlueprintsWithPropDna({
         blueprints: bpForContinuity as PanelBlueprintPremium[],
         visualWorld: vwLaunch.data,
+        strict: true,
+      }) as typeof bpForContinuity;
+      bpForContinuity = hydrateBlueprintsWithNpcDna({
+        blueprints: bpForContinuity as PanelBlueprintPremium[],
+        visualWorld: vwLaunch.data,
+        strict: true,
       }) as typeof bpForContinuity;
     }
   }
@@ -383,6 +373,7 @@ export async function POST(_req: Request, ctx: Ctx) {
     const continuityPreflights = computePanelContinuityPreflights(bpForContinuity as PanelBlueprintPremium[], {
       strictEnvironmentLocationBinding: isPipelineV3PremiumOnlyEnabled(),
       strictCharacterDnaBinding: isPipelineV3PremiumOnlyEnabled(),
+      strictPropVisualBinding: isPipelineV3PremiumOnlyEnabled(),
     });
     const continuityBlockers = continuityPreflightBlockingReasons(continuityPreflights);
     if (continuityBlockers.length > 0) {
@@ -408,8 +399,28 @@ export async function POST(_req: Request, ctx: Ctx) {
     }
   }
 
+  let studioSnapshotForLaunch: ChapterStudioSnapshot = snapshot;
+  if (
+    isPipelineV3PremiumOnlyEnabled()
+    && Array.isArray(bpForContinuity)
+    && bpForContinuity.length > 0
+    && snapshot.data.productionPlan
+    && typeof snapshot.data.productionPlan === "object"
+  ) {
+    studioSnapshotForLaunch = {
+      ...snapshot,
+      data: {
+        ...snapshot.data,
+        productionPlan: {
+          ...(snapshot.data.productionPlan as Record<string, unknown>),
+          panelBlueprints: bpForContinuity,
+        },
+      },
+    } as ChapterStudioSnapshot;
+  }
+
   if (isPipelineV3PremiumOnlyEnabled()) {
-    const pp = snapshot.data.productionPlan;
+    const pp = studioSnapshotForLaunch.data.productionPlan;
     const ppRec = pp && typeof pp === "object" ? (pp as Record<string, unknown>) : null;
     const bps = ppRec?.panelBlueprints;
     let score: number | null = null;
@@ -478,7 +489,7 @@ export async function POST(_req: Request, ctx: Ctx) {
   }
 
   // B3-3 : Shot Variety Enforcer — vérifier la variété des plans avant lancement
-  const blueprintsForVariety = snapshot.data.productionPlan?.panelBlueprints;
+  const blueprintsForVariety = studioSnapshotForLaunch.data.productionPlan?.panelBlueprints;
   if (Array.isArray(blueprintsForVariety) && blueprintsForVariety.length > 0) {
     try {
       const shotVariety = computeShotVarietyBudget(blueprintsForVariety as Parameters<typeof computeShotVarietyBudget>[0]);
@@ -508,7 +519,7 @@ export async function POST(_req: Request, ctx: Ctx) {
       const contractualFocus = computeContractualFocusAdequacy(
         blueprintsForVariety as Parameters<typeof computeContractualFocusAdequacy>[0],
       );
-      const persistedFocusBudget = snapshot.data.productionPlan?.focusBudget ?? null;
+      const persistedFocusBudget = studioSnapshotForLaunch.data.productionPlan?.focusBudget ?? null;
       const persistedBlockingViolations = persistedFocusBudget?.violations?.filter(
         (v) => v.severity === "blocking",
       ) ?? [];
@@ -561,7 +572,7 @@ export async function POST(_req: Request, ctx: Ctx) {
     // MISSING_ENVIRONMENT, SHOT_MONOTONY, EMPTY_PLAN). C'est un filet en plus
     // du contractual focus, avec un rapport human-readable pour l'auteur.
     try {
-      const productionPlanRec = asRecord(snapshot.data.productionPlan ?? undefined);
+      const productionPlanRec = asRecord(studioSnapshotForLaunch.data.productionPlan ?? undefined);
       const shotPlanRaw = productionPlanRec.shotPlan;
       const persistedShotPlan =
         shotPlanRaw && typeof shotPlanRaw === "object" && !Array.isArray(shotPlanRaw)
@@ -671,7 +682,7 @@ export async function POST(_req: Request, ctx: Ctx) {
   }
 
   // Logs premium structurés
-  const _pp = snapshot.data.productionPlan;
+  const _pp = studioSnapshotForLaunch.data.productionPlan;
   console.log(
     `[launch] premium_launch projectId=${projectId} chapterId=${chapterId} ` +
     `approvedOutlineVersion=${approvedOutline.approvalVersion} ` +
@@ -689,16 +700,18 @@ export async function POST(_req: Request, ctx: Ctx) {
   );
 
   const nextSnapshot = {
-    ...snapshot,
+    ...studioSnapshotForLaunch,
     status: "GENERATING" as const,
     data: {
-      ...snapshot.data,
+      ...studioSnapshotForLaunch.data,
       readinessReport: {
         ...readiness,
         imageCounts: {
           ...readiness.imageCounts,
-          estimatedImages: snapshot.data.productionPlan?.estimatedImages ?? readiness.imageCounts.estimatedImages,
-          targetImages: snapshot.data.productionPlan?.targetImages ?? readiness.imageCounts.targetImages,
+          estimatedImages:
+            studioSnapshotForLaunch.data.productionPlan?.estimatedImages ?? readiness.imageCounts.estimatedImages,
+          targetImages:
+            studioSnapshotForLaunch.data.productionPlan?.targetImages ?? readiness.imageCounts.targetImages,
         },
       },
     },
@@ -736,11 +749,11 @@ export async function POST(_req: Request, ctx: Ctx) {
     jobInput = buildGenerationJobInputFromSnapshot({
       chapterId,
       source: "chapter_studio_launch",
-      snapshot,
+      snapshot: nextSnapshot,
       approvedOutline,
-      selectedPlotLabel: snapshot.data.selectedPlotLabel ?? "bold",
+      selectedPlotLabel: nextSnapshot.data.selectedPlotLabel ?? "bold",
       creativityControls:
-        snapshot.data.creativityControls == null ? null : asRecord(snapshot.data.creativityControls),
+        nextSnapshot.data.creativityControls == null ? null : asRecord(nextSnapshot.data.creativityControls),
       heroCharacterId,
       secondaryHeroCharacterId,
       focusCharacterIds,
@@ -779,7 +792,7 @@ export async function POST(_req: Request, ctx: Ctx) {
       // P1.2 — observabilité structurée. On cherche combien de chapitres
       // sortent incomplets en prod, avec quel gap et sous quelle source de
       // contrat (premium vs legacy_adapted).
-      const productionPlanRec = asRecord(snapshot.data.productionPlan ?? undefined);
+      const productionPlanRec = asRecord(studioSnapshotForLaunch.data.productionPlan ?? undefined);
       const productionPlanSource =
         typeof productionPlanRec.source === "string" ? productionPlanRec.source : "unknown";
       const productionOutlineRec = asRecord(snapshot.data.productionOutline ?? undefined);

@@ -243,19 +243,71 @@ function sanitizeStoryArc(
   };
 }
 
+/** PR6 — Garde-fous premium post-LLM (personnages projet, intent combat). */
+export function validatePremiumStoryArcConstraints(
+  storyArc: StoryArc,
+  input: StoryArchitectInput,
+): void {
+  const allowed = new Set<string>();
+  for (const c of input.mainCharacters ?? []) {
+    const id = typeof c.id === "string" ? c.id.trim() : "";
+    const nm = typeof c.name === "string" ? c.name.trim() : "";
+    if (id) {
+      allowed.add(id);
+      allowed.add(id.toLowerCase());
+    }
+    if (nm) {
+      allowed.add(nm);
+      allowed.add(nm.toLowerCase());
+    }
+  }
+
+  const intentHay = `${input.userIntent ?? ""} ${input.summary ?? ""}`.toLowerCase();
+  const globalCombatHint =
+    /\b(combat|fight|battle|duel|affront|bataille|attaque|défend|defend|épée|sword|boxe|gunfight|melee)\b/i.test(
+      intentHay,
+    );
+
+  for (const beat of storyArc.beats) {
+    for (const token of beat.charactersPresent) {
+      const t = token.trim();
+      if (!t) continue;
+      if (allowed.size === 0) continue;
+      if (!allowed.has(t) && !allowed.has(t.toLowerCase())) {
+        throw new Error(`premium_story_architect_invented_character:${t}`);
+      }
+    }
+    if (beat.type === "combat") {
+      const localHay = `${beat.storyEvent} ${beat.purpose}`.toLowerCase();
+      const localCombatHint =
+        /\b(fight|combat|attack|strike|hit|slash|punch|battle|duel|weapon|épée|sword|gun)\b/i.test(localHay);
+      if (!globalCombatHint && !localCombatHint) {
+        throw new Error("premium_story_architect_combat_without_intent");
+      }
+    }
+  }
+}
+
 /**
  * COMMIT H — entry point LLM du Story Architect (IA1).
  *
- * Tente un appel OpenAI. Si indisponible ou invalide, délègue au stub
- * déterministe `runStoryArchitectAgent` et marque un warning
- * `story_architect.llm.degraded=…`.
+ * Sans `premiumOnly` : tente OpenAI puis délègue au stub avec warnings si dégradé.
+ *
+ * Avec `input.premiumOnly === true` : aucun fallback stub — erreurs explicites
+ * (clé API, parse JSON, beats &lt; 4, erreur réseau / LLM).
  */
 export async function runStoryArchitectAgentLlm(
   input: StoryArchitectInput,
 ): Promise<StoryArchitectOutput> {
   const warnings: string[] = [];
+  const premiumOnly = input.premiumOnly === true;
 
   if (!process.env.OPENAI_API_KEY) {
+    if (premiumOnly) {
+      throw new Error(
+        "premium_story_architect_llm_unavailable: premiumOnly=true mais OPENAI_API_KEY est absente",
+      );
+    }
     warnings.push("story_architect.llm.degraded=OPENAI_API_KEY_missing");
     const fallback = await runStoryArchitectAgent(input);
     return {
@@ -279,10 +331,28 @@ export async function runStoryArchitectAgentLlm(
     });
 
     const content = completion.choices[0]?.message?.content ?? "";
-    const parsed = JSON.parse(content) as Record<string, unknown>;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(content) as Record<string, unknown>;
+    } catch {
+      if (premiumOnly) {
+        throw new Error("premium_story_architect_invalid_json: réponse LLM non JSON");
+      }
+      warnings.push("story_architect.llm.degraded=invalid_json");
+      const fallback = await runStoryArchitectAgent(input);
+      return {
+        storyArc: fallback.storyArc,
+        warnings: [...warnings, ...fallback.warnings],
+      };
+    }
     const storyArc = sanitizeStoryArc(parsed, input, continuityBefore);
 
     if (storyArc.beats.length < 4) {
+      if (premiumOnly) {
+        throw new Error(
+          `premium_story_architect_low_beat_count: ${storyArc.beats.length} beats (< 4)`,
+        );
+      }
       warnings.push(
         `story_architect.llm.low_beat_count=${storyArc.beats.length} (fallback_to_stub)`,
       );
@@ -293,8 +363,18 @@ export async function runStoryArchitectAgentLlm(
       };
     }
 
+    if (premiumOnly) {
+      validatePremiumStoryArcConstraints(storyArc, input);
+    }
+
     return { storyArc, warnings };
   } catch (err) {
+    if (premiumOnly) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw err instanceof Error
+        ? err
+        : new Error(`premium_story_architect_llm_failed: ${msg}`);
+    }
     const msg = err instanceof Error ? err.message : String(err);
     warnings.push(`story_architect.llm.error=${msg}`);
     const fallback = await runStoryArchitectAgent(input);

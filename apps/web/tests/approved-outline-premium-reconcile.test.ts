@@ -185,6 +185,70 @@ beforeEach(() => {
 });
 
 describe("approved-outline PATCH — réconciliation premium serveur", () => {
+  it("persiste des panelBlueprints avec characterVisualDna hydraté (hero-1)", async () => {
+    prismaMock.character.findMany.mockResolvedValue([
+      {
+        id: "hero-1",
+        name: "Hero",
+        roleType: "hero",
+        hairColor: "argent",
+        eyeColor: "bleu",
+        appearance: null,
+        outfitDefault: "combinaison",
+        stableVisualDNA: { faceShape: "oval", hairTexture: "wavy" },
+        characterFingerprint: {},
+        visualProfile: {},
+        wardrobeProfile: {},
+        bodyState: {},
+        continuityProfile: {},
+        speechProfile: {},
+        voiceRegister: null,
+        voiceSentenceLength: null,
+        voiceVocabularyStyle: null,
+        voiceFavoriteExpressions: [],
+        voiceForbiddenExpressions: [],
+        visualRefs: [],
+        visualLocks: [],
+        canonPack: null,
+        loraAttachments: [],
+      },
+    ] as never);
+
+    const mod = await import("../app/api/projects/[id]/chapters/[chapterId]/approved-outline/route");
+    const response = await mod.PATCH(
+      new Request("http://localhost", {
+        method: "PATCH",
+        body: JSON.stringify({
+          approvedOutline: buildApprovedOutline(5),
+          productionOutline: { ...mockServerContract.productionOutline },
+          productionPlan: {
+            ...mockServerContract.productionPlan,
+            panelBlueprints: [
+              {
+                ...mockServerContract.productionPlan.panelBlueprints[0],
+                characterVisualDna: undefined,
+              },
+            ],
+          },
+        }),
+      }),
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    const updateCall = prismaMock.chapter.update.mock.calls[0]?.[0];
+    const outline = updateCall?.data?.outline as Record<string, unknown> | undefined;
+    const studio = outline?.studio as Record<string, unknown> | undefined;
+    const data = studio?.data as Record<string, unknown> | undefined;
+    const plan = data?.productionPlan as Record<string, unknown> | undefined;
+    const bps = plan?.panelBlueprints as Array<{ characterVisualDna?: Array<{ characterId: string; hairColor?: string }> }> | undefined;
+    expect(Array.isArray(bps) && bps?.length).toBeGreaterThan(0);
+    const dna = bps![0]?.characterVisualDna;
+    expect(Array.isArray(dna)).toBe(true);
+    expect(dna?.some((d) => d.characterId === "hero-1")).toBe(true);
+    expect(dna?.find((d) => d.characterId === "hero-1")?.hairColor).toBe("argent");
+  });
+
   it("payload client sans panelBlueprints est enrichi par le serveur", async () => {
     const mod = await import("../app/api/projects/[id]/chapters/[chapterId]/approved-outline/route");
     const response = await mod.PATCH(

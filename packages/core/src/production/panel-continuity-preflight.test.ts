@@ -50,7 +50,49 @@ describe("computePanelContinuityPreflights", () => {
     expect(p.blocking).toBe(true);
     expect(p.missingEnvironmentDna).toBe(false);
     expect(continuityPreflightBlockingReasons([p])).toEqual([
-      "p1:missing_character_visual_dna:ids=hero-1",
+      "p1:critical_panel_missing_character_visual_dna:hero-1",
+    ]);
+  });
+
+  it("panel critique : 2 personnages requis, DNA d’un seul → bloque", () => {
+    const [p] = computePanelContinuityPreflights([
+      minimalBp({
+        requiredCharacterIds: ["hero-1", "hero-2"],
+        criticality: "critical",
+        characterVisualDna: [{ characterId: "hero-1", hairColor: "noir" }],
+      }),
+    ]);
+    expect(p.blocking).toBe(true);
+    expect(continuityPreflightBlockingReasons([p])).toEqual([
+      "p1:critical_panel_missing_character_visual_dna:hero-2",
+    ]);
+  });
+
+  it("panel critique : 2 personnages requis sans aucun DNA → bloque avec les deux IDs", () => {
+    const [p] = computePanelContinuityPreflights([
+      minimalBp({
+        requiredCharacterIds: ["hero-1", "hero-2"],
+        criticality: "critical",
+      }),
+    ]);
+    expect(p.blocking).toBe(true);
+    expect(continuityPreflightBlockingReasons([p])).toEqual([
+      "p1:critical_panel_missing_character_visual_dna:hero-1,hero-2",
+    ]);
+  });
+
+  it("panel critique : visibleCharacterIds exige le DNA de chaque ID visible", () => {
+    const [p] = computePanelContinuityPreflights([
+      minimalBp({
+        requiredCharacterIds: [],
+        visibleCharacterIds: ["a", "b"],
+        criticality: "critical",
+        characterVisualDna: [{ characterId: "a", hairColor: "noir" }],
+      }),
+    ]);
+    expect(p.blocking).toBe(true);
+    expect(continuityPreflightBlockingReasons([p])).toEqual([
+      "p1:critical_panel_missing_character_visual_dna:b",
     ]);
   });
 
@@ -78,7 +120,9 @@ describe("computePanelContinuityPreflights", () => {
       { strictCharacterDnaBinding: true },
     );
     expect(p.blocking).toBe(true);
-    expect(continuityPreflightBlockingReasons([p])).toEqual(["p1:missing_character_visual_dna:ids=hero-1"]);
+    expect(continuityPreflightBlockingReasons([p])).toEqual([
+      "p1:critical_panel_missing_character_visual_dna:hero-1",
+    ]);
   });
 
   it("bloque un panel critique avec signaux lieu mais sans environmentVisualDna", () => {
@@ -172,7 +216,7 @@ describe("computePanelContinuityPreflights", () => {
     );
     expect(p.blocking).toBe(true);
     expect(continuityPreflightBlockingReasons([p])).toEqual([
-      "p1:missing_character_visual_dna:ids=co-hero-2",
+      "p1:critical_panel_missing_character_visual_dna:co-hero-2",
     ]);
   });
 
@@ -187,5 +231,62 @@ describe("computePanelContinuityPreflights", () => {
     expect(p.blocking).toBe(false);
     expect(p.warnings.some((w) => w.startsWith("npc_visual_dna:"))).toBe(true);
     expect(p.missing.some((m) => m.includes("npc_visual"))).toBe(false);
+  });
+
+  it("panel critique : PNJ requis insuffisants → bloque même hors strictCharacterDnaBinding", () => {
+    const [p] = computePanelContinuityPreflights([
+      minimalBp({
+        criticality: "critical",
+        requiredNpcCount: 2,
+        npcVisualDna: [{ continuityId: "n1", displayName: "PNJ A", category: "guard" }],
+      }),
+    ]);
+    expect(p.blocking).toBe(true);
+    expect(continuityPreflightBlockingReasons([p])).toEqual([
+      "p1:npc_visual_dna_insufficient:need_2_have_1",
+    ]);
+  });
+
+  it("strictPropVisualBinding : bloque si prop visual_world mustBeVisible sans propVisualDna", () => {
+    const [p] = computePanelContinuityPreflights(
+      [
+        minimalBp({
+          criticality: "medium",
+          requiredProps: [
+            {
+              id: "p1",
+              canonicalName: "X",
+              aliases: [],
+              category: "item",
+              narrativeRole: "worldbuilding",
+              requiredForBeatIds: ["b1"],
+              visibilityMode: "foreground_insert",
+              mustBeVisible: true,
+              confidence: 1,
+              source: "visual_world_contract",
+              ownerCategory: "ambient",
+              ownerId: null,
+            },
+          ],
+        }),
+      ],
+      { strictPropVisualBinding: true },
+    );
+    expect(p.blocking).toBe(true);
+    expect(continuityPreflightBlockingReasons([p])).toEqual([
+      "p1:critical_panel_missing_prop_visual_dna:p1",
+    ]);
+  });
+
+  it("establishing sans environmentVisualDna → bloque (PR3)", () => {
+    const [p] = computePanelContinuityPreflights([
+      minimalBp({
+        criticality: "medium",
+        mangaPanelFunction: "establishing",
+      }),
+    ]);
+    expect(p.missingEnvironmentDna).toBe(true);
+    expect(p.blocking).toBe(true);
+    expect(continuityPreflightBlockingReasons([p])).toEqual(["p1:missing_environment_visual_dna"]);
   });
 });
