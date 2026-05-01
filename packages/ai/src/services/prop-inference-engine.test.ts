@@ -4,7 +4,7 @@ import {
   inferNarrativeFactsFromBeat,
   indexVisualWorldPropsByBeat,
 } from "@manga-ai-studio/ai";
-import type { ProductionBeat } from "@manga-ai-studio/core";
+import type { ProductionBeat, VisualWorldContract } from "@manga-ai-studio/core";
 
 function makeBeat(overrides: Partial<ProductionBeat> = {}): ProductionBeat {
   return {
@@ -371,5 +371,60 @@ describe("prop-inference-engine — props VisualWorld par beat", () => {
     const bag = props.find((p) => p.canonicalName === "Sac du mentor");
     expect(bag?.ownerCategory).toBe("npc");
     expect(bag?.source).toBe("visual_world_contract");
+  });
+
+  it("premiumOnly + visualWorldContract : pas de props catalogue ni faits, uniquement le VW", () => {
+    const beat = makeBeat({
+      beatId: "b-strict-vw",
+      summary: "Le héros tranche avec une katana.",
+      narrativeFunction: "combat",
+    });
+    const facts = inferNarrativeFactsFromBeat(beat, {});
+    const vw = indexVisualWorldPropsByBeat({
+      props: [
+        {
+          id: "w-katana",
+          canonicalName: "Katana du clan",
+          category: "weapon",
+          visualDescription: "katana",
+          ownerCharacterId: "hero-1",
+          locationId: null,
+          requiredBeatIds: ["b-strict-vw"],
+          continuityPolicy: "recurring",
+        },
+      ],
+    });
+    const minimalVw = {
+      chapterId: "ch1",
+      source: "mixed" as const,
+      locations: [],
+      props: vw?.["b-strict-vw"] ?? [],
+      npcGroups: [],
+      creatures: [],
+      vehicles: [],
+      factions: [],
+      beatBindings: [],
+    } as unknown as VisualWorldContract;
+
+    const strictProps = inferRequiredPropsFromBeat(beat, facts, {
+      premiumOnly: true,
+      visualWorldContract: minimalVw,
+      visualWorldPropsForBeat: vw,
+      heroCharacterId: "hero-1",
+    });
+    expect(strictProps.length).toBe(1);
+    expect(strictProps[0]?.source).toBe("visual_world_contract");
+    expect(strictProps[0]?.canonicalName).toBe("Katana du clan");
+
+    const templateProps = inferRequiredPropsFromBeat(
+      makeBeat({
+        beatId: "b-strict-vw",
+        summary: "Le héros tranche avec une katana.",
+        narrativeFunction: "combat",
+      }),
+      [],
+      { universeType: "ninja" },
+    );
+    expect(templateProps.some((p) => p.source === "story_inference")).toBe(true);
   });
 });

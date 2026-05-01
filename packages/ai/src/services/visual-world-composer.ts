@@ -121,7 +121,7 @@ function buildSystemPrompt(): string {
     "Ne crée pas de personnage principal inventé : les héros viennent uniquement des IDs fournis.",
     "Les PNJ sont autorisés seulement s'ils servent la scène, la foule, le décor ou l'action.",
     "Les props sont autorisés seulement s'ils ont une preuve narrative ou symbolique dans les beats.",
-    "Chaque beat fourni doit avoir exactement un beatBinding avec une locationId valide et un mood visuel cohérent (via la location et les ancres).",
+    "Chaque beat fourni doit avoir exactement un beatBinding avec une locationId valide, environmentMood si le beat a une tonalité décor distincte, et continuityObjectIds seulement pour objets de continuité hors props.",
     "Règles strictes :",
     "- chapterId doit être identique à celui fourni.",
     '- source en haut du contrat : "ai_generated" sauf consigne contraire.',
@@ -131,9 +131,10 @@ function buildSystemPrompt(): string {
     "- Réutilise les ids de knownLocations quand le texte correspond ; si un lieu vient de la DB, mets source db_canon ou user_canon et canonPolicy locked ou promote_candidate si canonLocked est true.",
     "- Chaque entrée knownLocations peut inclure visualBrief, establishedVisualBrief, canonImageUrl : exploite-les pour décrire les locations[] sans inventer un décor contradictoire.",
     "- Chaque location doit avoir description non vide, kind cohérent, visualAnchors/architecture/lighting/atmosphere utiles (tableaux, peuvent être courts).",
-    "- props : objets visibles ou symboliques importants pour l'histoire ; requiredBeatIds cohérents.",
-    "- npcGroups : foules, gardes, marchands, etc. avec visualProfile/outfit/silhouette concrets.",
-    "- creatures, vehicles, factions : uniquement si le texte le justifie (sinon tableaux vides).",
+    "- props : visibilité (visibilityPolicy visible|mentioned|background) et symbolicMeaning si le prop est métaphorique ; requiredBeatIds cohérents.",
+    "- npcGroups : foules, gardes, marchands, etc. avec visualProfile/outfit/silhouette concrets ; relationToCharacterIds si liés à des héros connus.",
+    "- creatures : threatLevel none|low|medium|high ; vehicles : scale small|medium|large|massive ; factions : visualMarkers, visualMotifs, colors, emblem.",
+    "- Optionnel : diagnostics { warnings, repaired, missing } si tu corriges ou détectes des trous.",
     "- Pas de markdown, pas de commentaires : JSON brut uniquement.",
   ].join("\n");
 }
@@ -159,8 +160,14 @@ function buildUserPayload(input: ComposeVisualWorldContractInput): string {
     knownCharacters: input.knownCharacters,
     knownLocations: input.knownLocations,
     outputSchema: {
+      version: 1,
       chapterId: "string",
       source: ["ai_generated", "studio_curated", "mixed"],
+      diagnostics: {
+        warnings: ["string"],
+        repaired: ["string"],
+        missing: ["string"],
+      },
       locations: [
         {
           id: "string",
@@ -187,6 +194,8 @@ function buildUserPayload(input: ComposeVisualWorldContractInput): string {
           locationId: "string|null",
           requiredBeatIds: ["string"],
           continuityPolicy: ["single_use", "recurring", "symbolic"],
+          visibilityPolicy: ["visible", "mentioned", "background"],
+          symbolicMeaning: "string|null",
         },
       ],
       npcGroups: [
@@ -198,6 +207,7 @@ function buildUserPayload(input: ComposeVisualWorldContractInput): string {
           outfit: "string",
           silhouette: "string",
           relationToLocation: "string|null",
+          relationToCharacterIds: ["string"],
           requiredBeatIds: ["string"],
           recurrencePolicy: ["background", "recurring", "named"],
         },
@@ -208,6 +218,7 @@ function buildUserPayload(input: ComposeVisualWorldContractInput): string {
           label: "string",
           visualDescription: "string",
           requiredBeatIds: ["string"],
+          threatLevel: ["none", "low", "medium", "high"],
         },
       ],
       vehicles: [
@@ -216,6 +227,7 @@ function buildUserPayload(input: ComposeVisualWorldContractInput): string {
           label: "string",
           visualDescription: "string",
           requiredBeatIds: ["string"],
+          scale: ["small", "medium", "large", "massive"],
         },
       ],
       factions: [
@@ -223,6 +235,9 @@ function buildUserPayload(input: ComposeVisualWorldContractInput): string {
           id: "string",
           label: "string",
           visualMarkers: ["string"],
+          visualMotifs: ["string"],
+          colors: ["string"],
+          emblem: "string|null",
           requiredBeatIds: ["string"],
         },
       ],
@@ -235,6 +250,8 @@ function buildUserPayload(input: ComposeVisualWorldContractInput): string {
           creatureIds: ["string"],
           vehicleIds: ["string"],
           factionIds: ["string"],
+          environmentMood: "string|null",
+          continuityObjectIds: ["string"],
         },
       ],
     },

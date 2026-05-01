@@ -51,6 +51,11 @@ export type LoadedCharacterForPipeline = {
   dialogueMode?: string | null;
   recurrencePolicy?: string | null;
   stableVisualDNA?: Record<string, unknown> | null;
+  /** Refs studio brutes (sérialisation hydratation DNA / render). */
+  visualRefsPayload?: unknown;
+  visualLocksPayload?: unknown;
+  loraAttachmentsPayload?: unknown;
+  canonPackPayload?: unknown;
 };
 
 export async function queueAutoLoraTrainingIfEligible(input: {

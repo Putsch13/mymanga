@@ -44,6 +44,20 @@ export interface CharacterVisualDna {
   tattoos?: string[];
   /** Accessoires comme liste structurée (complément de `accessoriesLine`). */
   accessories?: string[];
+
+  /**
+   * Champs studio / configurateur (pass-through JSON) pour render & QA premium.
+   * Remplis depuis `CharacterRowForDnaHydration` lors de l’hydratation DNA.
+   */
+  characterFingerprint?: unknown;
+  visualProfile?: unknown;
+  wardrobeProfile?: unknown;
+  bodyState?: unknown;
+  continuityProfile?: unknown;
+  visualRefs?: unknown;
+  visualLocks?: unknown;
+  canonPack?: unknown;
+  loraAttachments?: unknown;
 }
 
 export interface NpcVisualDna {
@@ -52,6 +66,12 @@ export interface NpcVisualDna {
   category?: string | null;
   visualMarkers?: string[];
   forbiddenDrift?: string[];
+  /** Liens PNJ → personnages principaux (contrat monde visuel). */
+  relationToCharacterIds?: string[];
+  relationToLocation?: string | null;
+  threatLevel?: "none" | "low" | "medium" | "high";
+  /** Véhicule : échelle visuelle (contrat monde visuel). */
+  vehicleScale?: "small" | "medium" | "large" | "massive";
 }
 
 export interface EnvironmentVisualDna {
@@ -67,6 +87,10 @@ export interface EnvironmentVisualDna {
   propAnchors?: string[];
   lightingHints?: string[];
   forbiddenDrift?: string[];
+  /** Mood du beat (liaison `beatBindings[].environmentMood`). */
+  environmentMood?: string | null;
+  /** Objets de continuité liés au beat (hors seule liste props). */
+  continuityObjectIds?: string[];
 }
 
 export interface SceneRosterEntry {

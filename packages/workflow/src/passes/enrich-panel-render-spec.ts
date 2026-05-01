@@ -2,8 +2,10 @@
  * Enrichissement des PanelRenderSpec juste avant generatePanelImage :
  * ADN, continuité, layout, texte, LoRA — sans modifier renderMode / shotType.
  *
- * Texte panel : `panelTextPayload` + `PanelTextContract` via
- * `resolvePanelTextContractFromStoryboardPanelLike` (PR9, contrat embarqué prioritaire).
+ * Texte panel : lire d’abord `PanelTextContract` via
+ * `resolvePanelTextContractFromStoryboardPanelLike` ; n’utiliser
+ * `textContractToLegacyDialogue` / `panelTextPayload` que comme adaptateurs
+ * compat (pas source de vérité).
  */
 
 import type {

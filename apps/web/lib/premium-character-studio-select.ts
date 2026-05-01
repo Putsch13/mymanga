@@ -88,5 +88,14 @@ export function toCharacterRowsForDnaHydration(
     appearance: c.appearance,
     outfitDefault: c.outfitDefault,
     stableVisualDNA: asStableVisualRecord(c.stableVisualDNA),
+    characterFingerprint: c.characterFingerprint ?? undefined,
+    visualProfile: c.visualProfile ?? undefined,
+    wardrobeProfile: c.wardrobeProfile ?? undefined,
+    bodyState: c.bodyState ?? undefined,
+    continuityProfile: c.continuityProfile ?? undefined,
+    visualRefs: c.visualRefs ?? undefined,
+    visualLocks: c.visualLocks ?? undefined,
+    canonPack: c.canonPack ?? undefined,
+    loraAttachments: c.loraAttachments ?? undefined,
   }));
 }

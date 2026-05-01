@@ -7,6 +7,7 @@ import type { EnvironmentVisualDna } from "../types/generation-debug-snapshot";
 import type { PanelBlueprintPremium } from "../types/narrative-facts";
 import type { VisualWorldContract, VisualWorldLocation } from "../visual-world/visual-world-contract";
 import { selectBeatLocationFromVisualWorld } from "../visual-world/select-beat-location";
+import { bindingForBeat } from "./visual-world-beat-bindings";
 
 export function visualWorldLocationToEnvironmentDna(loc: VisualWorldLocation): EnvironmentVisualDna {
   return {
@@ -64,13 +65,32 @@ export function hydrateBlueprintsWithEnvironmentDna(
 
   return input.blueprints.map((bp) => {
     const loc = selectBeatLocationFromVisualWorld({ beatId: bp.beatId, visualWorld: vw });
+    const bb = bindingForBeat(vw, bp.beatId);
     const next = visualWorldLocationToEnvironmentDna(loc);
     const prev = bp.environmentVisualDna;
-    const base = !prev ? next : mergeEnv(prev, next);
+    let base = !prev ? next : mergeEnv(prev, next);
+    if (bb?.environmentMood?.trim()) {
+      base = { ...base, environmentMood: bb.environmentMood.trim() };
+    }
+    if (bb?.continuityObjectIds && bb.continuityObjectIds.length > 0) {
+      base = {
+        ...base,
+        continuityObjectIds: [
+          ...new Set([...(base.continuityObjectIds ?? []), ...bb.continuityObjectIds]),
+        ],
+      };
+    }
+    const mergedPanelContinuity =
+      bb?.continuityObjectIds?.length
+        ? [...new Set([...(bp.continuityObjectIds ?? []), ...bb.continuityObjectIds])]
+        : bp.continuityObjectIds;
     return {
       ...bp,
       environmentVisualDna: base,
       environmentAnchorId: base.anchorId ?? base.locationId ?? bp.environmentAnchorId ?? null,
+      ...(mergedPanelContinuity && mergedPanelContinuity.length > 0
+        ? { continuityObjectIds: mergedPanelContinuity }
+        : {}),
     };
   });
 }

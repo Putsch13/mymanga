@@ -19,6 +19,14 @@ function visualWorldPropToRequiredProp(p: VisualWorldPropDna, beatId: string): R
     p.ownerCharacterId ? "npc" as const
     : p.locationId ? "ambient" as const
     : "unassigned" as const;
+  const visibilityModeFromPolicy =
+    p.visibilityPolicy === "visible"
+      ? "foreground_insert" as const
+      : p.visibilityPolicy === "mentioned"
+        ? "background_support" as const
+        : p.visibilityPolicy === "background"
+          ? "background_support" as const
+          : undefined;
   return {
     id: p.id,
     canonicalName: p.canonicalName,
@@ -26,7 +34,8 @@ function visualWorldPropToRequiredProp(p: VisualWorldPropDna, beatId: string): R
     category: p.category,
     narrativeRole: "worldbuilding",
     requiredForBeatIds: p.requiredBeatIds.length > 0 ? p.requiredBeatIds : [beatId],
-    visibilityMode: p.continuityPolicy === "symbolic" ? "foreground_insert" : "background_support",
+    visibilityMode: visibilityModeFromPolicy
+      ?? (p.continuityPolicy === "symbolic" ? "foreground_insert" : "background_support"),
     mustBeVisible: p.continuityPolicy !== "single_use",
     confidence: 0.88,
     source: "visual_world_contract",
@@ -41,6 +50,8 @@ function propToBlueprintVisualDna(p: VisualWorldPropDna): BlueprintPropVisualDna
     canonicalName: p.canonicalName,
     category: p.category,
     visualDescription: p.visualDescription,
+    visibilityPolicy: p.visibilityPolicy ?? undefined,
+    symbolicMeaning: p.symbolicMeaning?.trim() || undefined,
   };
 }
 

@@ -15,6 +15,8 @@
  */
 
 import { z } from "zod";
+import type { CharacterVisualDna, EnvironmentVisualDna, NpcVisualDna } from "../types/generation-debug-snapshot";
+import type { BlueprintPropVisualDna } from "../types/narrative-facts";
 import { PRODUCTION_RULES, type ChapterFormat } from "./production-rules";
 
 export type PanelRole =
@@ -99,6 +101,13 @@ export interface CanonicalPanelPlan {
 
   criticality: "low" | "medium" | "high" | "critical";
   notes: string[];
+
+  /** Porté depuis les blueprints premium (reconstruction plan) — merge raw/canon. */
+  characterVisualDna?: CharacterVisualDna[];
+  npcVisualDna?: NpcVisualDna[];
+  environmentVisualDna?: EnvironmentVisualDna | null;
+  propVisualDna?: BlueprintPropVisualDna[];
+  continuityObjectIds?: string[];
 }
 
 export interface CanonicalBeatPlan {
@@ -254,6 +263,11 @@ export const canonicalPanelPlanSchema = z.object({
   }),
   criticality: z.enum(["low", "medium", "high", "critical"]),
   notes: z.array(z.string()),
+  characterVisualDna: z.array(z.any()).optional(),
+  npcVisualDna: z.array(z.any()).optional(),
+  environmentVisualDna: z.any().nullable().optional(),
+  propVisualDna: z.array(z.any()).optional(),
+  continuityObjectIds: z.array(z.string()).optional(),
 });
 
 export const canonicalChapterProductionPlanSchema = z.object({

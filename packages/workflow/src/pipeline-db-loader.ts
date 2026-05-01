@@ -10,6 +10,27 @@ export async function loadCharactersForPipeline(
     where: { projectId },
     include: {
       canonPack: true,
+      loraAttachments: {
+        select: {
+          id: true,
+          weight: true,
+          enabled: true,
+          loraId: true,
+          renderingModeFilter: true,
+        },
+      },
+      visualLocks: {
+        where: { isActive: true },
+        select: {
+          id: true,
+          version: true,
+          displayName: true,
+          shortVisualCore: true,
+          triggerWord: true,
+          defaultOutfit: true,
+          metadata: true,
+        },
+      },
       visualRefs: {
         orderBy: [{ isPrimary: "desc" }, { createdAt: "desc" }],
         take: 20,
@@ -151,6 +172,10 @@ export async function loadCharactersForPipeline(
         && !Array.isArray(raw.stableVisualDNA)
           ? (raw.stableVisualDNA as Record<string, unknown>)
           : null,
+      visualRefsPayload: c.visualRefs,
+      visualLocksPayload: c.visualLocks,
+      loraAttachmentsPayload: c.loraAttachments,
+      canonPackPayload: c.canonPack,
     };
   });
 }

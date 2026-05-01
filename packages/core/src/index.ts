@@ -23,6 +23,7 @@ export * from "./canon/resolve-character-visual-canon";
 export * from "./characters";
 export * from "./helpers/speaker-panel-detection";
 export * from "./dialogue";
+export * from "./runtime/premium-mode";
 export type { CoverageMetrics, ShotValidationResult } from "./shot-diversity-enforcer";
 export {
   computePlannedCoverage,

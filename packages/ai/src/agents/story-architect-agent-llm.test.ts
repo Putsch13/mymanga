@@ -1,7 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createEmptyContinuityState } from "../contracts/continuity-state";
 import type { StoryArc } from "../contracts/story-arc";
-import { runStoryArchitectAgentLlm, validatePremiumStoryArcConstraints } from "./story-architect-agent-llm";
+import {
+  runStoryArchitectAgentLlm,
+  validatePremiumStoryArcConstraints,
+  PremiumStoryArchitectOpenAiRequiredError,
+} from "./story-architect-agent-llm";
 
 const baseInput = {
   chapterId: "ch1",
@@ -17,7 +21,13 @@ const baseInput = {
 describe("runStoryArchitectAgentLlm — premiumOnly fail-hard", () => {
   const origKey = process.env.OPENAI_API_KEY;
 
+  beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_PIPELINE_V3_PREMIUM_ONLY", "");
+    vi.stubEnv("PIPELINE_V3_PREMIUM_ONLY", "");
+  });
+
   afterEach(() => {
+    vi.unstubAllEnvs();
     if (origKey === undefined) {
       delete process.env.OPENAI_API_KEY;
     } else {
@@ -29,7 +39,7 @@ describe("runStoryArchitectAgentLlm — premiumOnly fail-hard", () => {
     delete process.env.OPENAI_API_KEY;
     await expect(
       runStoryArchitectAgentLlm({ ...baseInput, premiumOnly: true }),
-    ).rejects.toThrow(/premium_story_architect_llm_unavailable/);
+    ).rejects.toThrow(PremiumStoryArchitectOpenAiRequiredError);
   });
 
   it("sans premiumOnly + clé absente => stub avec warning", async () => {
@@ -37,6 +47,14 @@ describe("runStoryArchitectAgentLlm — premiumOnly fail-hard", () => {
     const out = await runStoryArchitectAgentLlm({ ...baseInput, premiumOnly: false });
     expect(out.warnings.some((w) => w.includes("OPENAI_API_KEY"))).toBe(true);
     expect(out.storyArc.beats.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("premium strict sans premiumOnly => refuse le chemin stub", async () => {
+    vi.stubEnv("NEXT_PUBLIC_PIPELINE_V3_PREMIUM_ONLY", "true");
+    delete process.env.OPENAI_API_KEY;
+    await expect(runStoryArchitectAgentLlm({ ...baseInput, premiumOnly: false })).rejects.toThrow(
+      /premium_story_architect_stub_forbidden_under_strict_env/,
+    );
   });
 });
 

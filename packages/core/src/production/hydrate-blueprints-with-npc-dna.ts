@@ -30,6 +30,8 @@ function npcGroupToVisualDna(g: VisualWorldNpcGroup): NpcVisualDna {
     category: g.role,
     visualMarkers: markers,
     forbiddenDrift: undefined,
+    relationToCharacterIds: g.relationToCharacterIds.length > 0 ? [...g.relationToCharacterIds] : undefined,
+    relationToLocation: g.relationToLocation?.trim() || null,
   };
 }
 
@@ -39,6 +41,7 @@ function creatureToNpcDna(c: CreatureVisualDna): NpcVisualDna {
     displayName: c.label,
     category: "creature",
     visualMarkers: [c.visualDescription.trim()],
+    threatLevel: c.threatLevel,
   };
 }
 
@@ -48,13 +51,19 @@ function vehicleToNpcDna(v: VehicleVisualDna): NpcVisualDna {
     displayName: v.label,
     category: "vehicle",
     visualMarkers: [v.visualDescription.trim()],
+    vehicleScale: v.scale,
   };
 }
 
 function factionToNpcDna(f: FactionVisualDna): NpcVisualDna {
-  const markers = [...f.visualMarkers.map((s) => s.trim()).filter(Boolean), f.label.trim()].filter(
-    (s, i, a) => a.indexOf(s) === i,
-  );
+  const motifBits = [
+    ...f.visualMarkers.map((s) => s.trim()).filter(Boolean),
+    ...f.visualMotifs.map((s) => s.trim()).filter(Boolean),
+    ...f.colors.map((s) => s.trim()).filter(Boolean),
+    f.emblem?.trim() ? `emblem:${f.emblem.trim()}` : "",
+    f.label.trim(),
+  ].filter(Boolean);
+  const markers = [...new Set(motifBits)];
   return {
     continuityId: f.id,
     displayName: f.label,

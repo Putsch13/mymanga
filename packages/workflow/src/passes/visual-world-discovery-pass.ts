@@ -2,6 +2,10 @@
  * P0 bis — Découverte monde visuel : compositeur IA (`composeVisualWorldContract`)
  * dès que le mode premium strict est actif, ou dès qu’OpenAI est configuré et que
  * des `composerBeats` sont fournis (pipeline v3). Sinon passe regex legacy (`runVisualDiscoveryPass`).
+ *
+ * Échec compose : pas de retour regex silencieux si `premiumV3OnlyEnabled` **ou**
+ * `isPremiumStrictMode()` (NEXT_PUBLIC / env explicite), sauf
+ * `VISUAL_WORLD_ALLOW_REGEX_FALLBACK=1`.
  */
 
 import { composeVisualWorldContract } from "@manga-ai-studio/ai";
@@ -15,14 +19,15 @@ import {
   type VisualDiscoveryPassInput,
   type VisualDiscoveryPassResult,
 } from "./legacy-visual-discovery-pass";
-import type {
-  VisualWorldContract,
-  VisualWorldNpcGroup,
-  VisualWorldPropDna,
-  VisualWorldLocation,
-  CreatureVisualDna,
-  VehicleVisualDna,
-  FactionVisualDna,
+import {
+  isPremiumStrictMode,
+  type VisualWorldContract,
+  type VisualWorldNpcGroup,
+  type VisualWorldPropDna,
+  type VisualWorldLocation,
+  type CreatureVisualDna,
+  type VehicleVisualDna,
+  type FactionVisualDna,
 } from "@manga-ai-studio/core";
 
 export type VisualWorldDiscoveryPassInput = VisualDiscoveryPassInput & {
@@ -339,8 +344,10 @@ export async function runVisualWorldDiscoveryPass(
       knownLocations: input.knownLocations ?? [],
     });
   } catch (err) {
+    const blockRegexFallbackOnComposeError =
+      input.premiumV3OnlyEnabled === true || isPremiumStrictMode();
     const allowLegacy =
-      !input.premiumV3OnlyEnabled
+      !blockRegexFallbackOnComposeError
       || process.env.VISUAL_WORLD_ALLOW_REGEX_FALLBACK === "1"
       || process.env.VISUAL_WORLD_ALLOW_REGEX_FALLBACK === "true";
     if (!allowLegacy) {
@@ -353,7 +360,7 @@ export async function runVisualWorldDiscoveryPass(
     const legacy = runVisualDiscoveryPass(input);
     const message = err instanceof Error ? err.message : String(err);
     const reason =
-      input.premiumV3OnlyEnabled
+      input.premiumV3OnlyEnabled || isPremiumStrictMode()
         ? "compose failed; regex_legacy (VISUAL_WORLD_ALLOW_REGEX_FALLBACK)."
         : "compose failed; regex_legacy automatic fallback (non-premium-strict).";
     return {

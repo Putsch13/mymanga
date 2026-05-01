@@ -320,6 +320,8 @@ export function buildPremiumChapterContract(
     premiumStrictChapterSourcing: isPipelineV3PremiumOnlyEnabled(),
     suppressUniverseTemplateProps: isPipelineV3PremiumOnlyEnabled(),
     visualWorldContractActive,
+    premiumOnly: isPipelineV3PremiumOnlyEnabled(),
+    visualWorldContract: input.visualWorldContract ?? null,
     ...(visualWorldPropsForBeat ? { visualWorldPropsForBeat } : {}),
   };
 
@@ -560,6 +562,8 @@ export async function buildPremiumChapterContractAsync(
     premiumStrictChapterSourcing: isPipelineV3PremiumOnlyEnabled(),
     suppressUniverseTemplateProps: isPipelineV3PremiumOnlyEnabled(),
     visualWorldContractActive,
+    premiumOnly: isPipelineV3PremiumOnlyEnabled(),
+    visualWorldContract: input.visualWorldContract ?? null,
     ...(visualWorldPropsForBeat ? { visualWorldPropsForBeat } : {}),
   };
 

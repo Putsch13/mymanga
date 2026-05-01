@@ -1,4 +1,17 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/**
+ * LEGACY PIPELINE — planification narrative + images (Prisma, scene blueprint, world legacy).
+ * La génération premium v3 doit utiliser `run-premium-v3-pipeline`, pas ce module.
+ *
+ * LEGACY FALLBACK ONLY.
+ * Premium generation must use:
+ * - VisualWorldContract for world entities
+ * - PanelTextContract for dialogue
+ * - CharacterCanon / characterVisualDna for characters
+ *
+ * Si ce fichier est importé dans le chemin premium v3, c’est un bug
+ * (garde : `isPremiumStrictMode()` ou `isPipelineV3PremiumOnlyEnabled()` au démarrage).
+ */
 import {
   generateChapterBundle,
   composeMangaPanelPrompt,
@@ -33,6 +46,7 @@ import {
   legacyDialogueLinesFromBlueprintPremium,
   resolvePanelTextContractFromStoryboardPanelLike,
   type PanelBlueprintPremium,
+  isPremiumStrictMode,
 } from "@manga-ai-studio/core";
 import {
   buildPanelIntentCard,
@@ -247,9 +261,9 @@ export async function runNarrativePass(
   const focusCharacterIds = input.focusCharacterIds;
   const jobInput = input.jobInput;
 
-  if (isPipelineV3PremiumOnlyEnabled()) {
+  if (isPremiumStrictMode() || isPipelineV3PremiumOnlyEnabled()) {
     throw new Error(
-      "premium_v3_only_violation: narrative-pass is forbidden when PIPELINE_V3_PREMIUM_ONLY=true. " +
+      "premium_v3_only_violation: narrative-pass is forbidden when premium-only / strict premium env is active. " +
         "Use the v3 premium pipeline for image generation.",
     );
   }
@@ -959,6 +973,8 @@ export async function runNarrativePass(
             suppressUniverseTemplateProps: isPipelineV3PremiumOnlyEnabled(),
             visualWorldContractActive: Boolean(composedVisualWorldContract),
             premiumStrictChapterSourcing: isPipelineV3PremiumOnlyEnabled(),
+            premiumOnly: isPipelineV3PremiumOnlyEnabled(),
+            visualWorldContract: composedVisualWorldContract,
             ...(visualWorldPropsForBeat ? { visualWorldPropsForBeat, heroCharacterId } : {}),
           });
           beatInferredPropNamesByBeatId.set(

@@ -116,6 +116,8 @@ export interface BlueprintPropVisualDna {
   canonicalName: string;
   category: string;
   visualDescription: string;
+  visibilityPolicy?: "visible" | "mentioned" | "background" | null;
+  symbolicMeaning?: string | null;
 }
 
 // ─── Presence Obligations ─────────────────────────────────────────────────────

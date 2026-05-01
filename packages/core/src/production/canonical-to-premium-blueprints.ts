@@ -9,6 +9,7 @@
 import type { PanelBlueprintPremium, CutawayType, RequiredProp, SubjectFocus } from "../types/narrative-facts";
 import { buildPanelTextContractFromBlueprintTextFields } from "../generation/panel-text-contract";
 import type { CanonicalChapterProductionPlan, CanonicalPanelPlan, PanelRole } from "./canonical-production-plan";
+import { nonEmptyArray, nonEmptyEnvironmentDna } from "./dna-nonempty";
 
 const SUBJECT_FOCUS_VALUES: ReadonlySet<string> = new Set([
   "hero",
@@ -155,6 +156,12 @@ export function canonicalPlanToPanelBlueprints(plan: CanonicalChapterProductionP
       panelTextBundle,
     });
 
+    const characterVisualDna = nonEmptyArray(panel.characterVisualDna);
+    const npcVisualDna = nonEmptyArray(panel.npcVisualDna);
+    const environmentVisualDna = nonEmptyEnvironmentDna(panel.environmentVisualDna ?? undefined);
+    const propVisualDna = nonEmptyArray(panel.propVisualDna);
+    const continuityObjectIds = nonEmptyArray(panel.continuityObjectIds);
+
     return {
       panelId: panel.panelId,
       provenance: {
@@ -194,6 +201,11 @@ export function canonicalPlanToPanelBlueprints(plan: CanonicalChapterProductionP
       contractualCritical: panel.criticality === "critical" || panel.criticality === "high",
       panelTextBundle,
       textContract,
+      ...(characterVisualDna ? { characterVisualDna: [...characterVisualDna] } : {}),
+      ...(npcVisualDna ? { npcVisualDna: [...npcVisualDna] } : {}),
+      ...(environmentVisualDna ? { environmentVisualDna } : {}),
+      ...(propVisualDna ? { propVisualDna: [...propVisualDna] } : {}),
+      ...(continuityObjectIds ? { continuityObjectIds: [...continuityObjectIds] } : {}),
     };
   });
 }

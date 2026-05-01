@@ -19,6 +19,7 @@ import {
 } from "./build-canonical-production-plan";
 import { normalizeOutline } from "./normalize-outline";
 import { PRODUCTION_RULES, type ChapterFormat } from "./production-rules";
+import { nonEmptyArray, nonEmptyEnvironmentDna } from "./dna-nonempty";
 
 function subjectFocusToRole(bp: PanelBlueprintPremium, isCutaway: boolean): PanelRole {
   if (isCutaway) {
@@ -110,6 +111,13 @@ function blueprintToCanonicalPanel(bp: PanelBlueprintPremium, globalIndex: numbe
     textPlan: { ...textPlan, panelId: bp.panelId },
     criticality: bp.criticality,
     notes: bp.notes ?? [],
+    ...(nonEmptyArray(bp.characterVisualDna) ? { characterVisualDna: bp.characterVisualDna } : {}),
+    ...(nonEmptyArray(bp.npcVisualDna) ? { npcVisualDna: bp.npcVisualDna } : {}),
+    ...(nonEmptyEnvironmentDna(bp.environmentVisualDna)
+      ? { environmentVisualDna: bp.environmentVisualDna }
+      : {}),
+    ...(nonEmptyArray(bp.propVisualDna) ? { propVisualDna: bp.propVisualDna } : {}),
+    ...(nonEmptyArray(bp.continuityObjectIds) ? { continuityObjectIds: bp.continuityObjectIds } : {}),
   };
 }
 

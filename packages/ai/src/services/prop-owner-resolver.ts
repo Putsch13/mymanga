@@ -97,3 +97,45 @@ export function inferPropOwnerCategory(
 
   return "unassigned";
 }
+
+/**
+ * Rattache un prop (ex. `VisualWorldPropDna`) à un personnage ou un lieu du roster.
+ * Complète les IDs déjà présents sur le prop avec un score de confiance.
+ */
+export function resolvePropOwner(input: {
+  prop: unknown;
+  characters: Array<Record<string, unknown>>;
+  locations?: Array<Record<string, unknown>>;
+}): {
+  ownerCharacterId?: string;
+  locationId?: string;
+  confidence: number;
+} {
+  const p = input.prop as Record<string, unknown> | null;
+  if (!p || typeof p !== "object") {
+    return { confidence: 0 };
+  }
+  const oc = typeof p.ownerCharacterId === "string" && p.ownerCharacterId.trim() ? p.ownerCharacterId.trim() : undefined;
+  const lid = typeof p.locationId === "string" && p.locationId.trim() ? p.locationId.trim() : undefined;
+
+  const charIds = new Set<string>();
+  for (const c of input.characters) {
+    const id = typeof c.id === "string" ? c.id : typeof c.characterId === "string" ? c.characterId : "";
+    if (id) charIds.add(id);
+  }
+  const locIds = new Set<string>();
+  for (const l of input.locations ?? []) {
+    const id = typeof l.id === "string" ? l.id : "";
+    if (id) locIds.add(id);
+  }
+
+  if (oc) {
+    const known = charIds.has(oc);
+    return { ownerCharacterId: oc, confidence: known ? 0.95 : 0.55 };
+  }
+  if (lid) {
+    const known = locIds.has(lid);
+    return { locationId: lid, confidence: known ? 0.9 : 0.5 };
+  }
+  return { confidence: 0.25 };
+}

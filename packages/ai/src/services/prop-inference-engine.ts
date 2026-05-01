@@ -3,10 +3,9 @@
  * Déduit les accessoires/armes/objets automatiquement en fonction de l'histoire,
  * sans configuration manuelle utilisateur.
  *
- * PR4 — validation / owner : logique partagée dans
- * `prop-evidence-validator.ts` et `prop-owner-resolver.ts` (importés ici).
- * En premium IA-first (`visualWorldContractActive` / `suppressUniverseTemplateProps`),
- * les catalogues univers ne servent plus de source créative principale.
+ * PR7 — `premiumOnly` + `visualWorldContract` : uniquement les props du contrat VW
+ * (`validatePropEvidence`), enrichissement `ownerId` via `resolvePropOwner` ; pas de templates
+ * univers ni d’injection depuis les faits narratifs (source créative = VisualWorldComposer).
  */
 
 import type {
@@ -14,6 +13,7 @@ import type {
   RequiredProp,
   PropNarrativeRole,
   PropVisibilityMode,
+  VisualWorldContract,
   VisualWorldPropDna,
 } from "@manga-ai-studio/core";
 import type { ProductionBeat } from "@manga-ai-studio/core";
@@ -22,8 +22,9 @@ import {
   matchesStrictPremiumPropEvidence,
   requiresVisibility,
   STRICT_PREMIUM_PROP_NAMES,
+  validatePropEvidence,
 } from "./prop-evidence-validator";
-import { inferPropOwnerCategory } from "./prop-owner-resolver";
+import { inferPropOwnerCategory, resolvePropOwner } from "./prop-owner-resolver";
 
 export type UniverseType =
   | "ninja"
@@ -62,6 +63,12 @@ export interface PropInferenceContext {
    * `getUniverseProps` comme source créative, même si `props` du contrat est vide ou non indexé par beat.
    */
   visualWorldContractActive?: boolean;
+  /**
+   * Premium strict + `visualWorldContract` : uniquement props VW validés (`validatePropEvidence`),
+   * pas de templates univers ni d’injection depuis les faits narratifs (source créative = composer).
+   */
+  premiumOnly?: boolean;
+  visualWorldContract?: VisualWorldContract | null;
 }
 
 // ─── Domaines de props ────────────────────────────────────────────────────────
@@ -570,6 +577,8 @@ export function inferRequiredPropsFromBeat(
     .filter(Boolean)
     .join(" ");
 
+  const strictVwPremium = context.premiumOnly === true && context.visualWorldContract != null;
+
   const hasVisualWorldPropIndex =
     context.visualWorldPropsForBeat != null
     && Object.values(context.visualWorldPropsForBeat).some((arr) => Array.isArray(arr) && arr.length > 0);
@@ -586,17 +595,35 @@ export function inferRequiredPropsFromBeat(
   const props: RequiredProp[] = [];
   const seenNames = new Set<string>();
 
+  const characterRosterForOwner = (beat.involvedCharacters ?? []).map((id) => ({ id }));
+  const locationRosterForOwner =
+    context.visualWorldContract?.locations?.map((l) => ({ id: l.id })) ?? [];
+
   const vwList = context.visualWorldPropsForBeat?.[beat.beatId];
   if (vwList && vwList.length > 0) {
     for (const p of vwList) {
+      if (strictVwPremium) {
+        const { valid } = validatePropEvidence({
+          prop: p,
+          beat,
+          visualWorldContract: context.visualWorldContract ?? undefined,
+        });
+        if (!valid) continue;
+      }
       const name = p.canonicalName.trim();
       if (!name || seenNames.has(name)) continue;
       seenNames.add(name);
-      const ownerCategory = p.ownerCharacterId
-        ? p.ownerCharacterId === context.heroCharacterId
+      const ownerResolution = resolvePropOwner({
+        prop: p,
+        characters: characterRosterForOwner,
+        locations: locationRosterForOwner,
+      });
+      const resolvedOwnerId = p.ownerCharacterId ?? ownerResolution.ownerCharacterId ?? null;
+      const ownerCategory = resolvedOwnerId
+        ? resolvedOwnerId === context.heroCharacterId
           ? "hero"
           : "npc"
-        : p.locationId
+        : p.locationId ?? ownerResolution.locationId
           ? "ambient"
           : "unassigned";
       props.push({
@@ -608,12 +635,26 @@ export function inferRequiredPropsFromBeat(
         requiredForBeatIds: p.requiredBeatIds.length > 0 ? [...p.requiredBeatIds] : [beat.beatId],
         visibilityMode: p.continuityPolicy === "symbolic" ? "foreground_insert" : "background_support",
         mustBeVisible: p.continuityPolicy === "recurring" || p.continuityPolicy === "symbolic",
-        confidence: 0.92,
+        confidence: Math.max(0.92, ownerResolution.confidence),
         source: "visual_world_contract",
         ownerCategory,
-        ownerId: p.ownerCharacterId ?? null,
+        ownerId: resolvedOwnerId,
       });
     }
+  }
+
+  for (const prop of props) {
+    if (prop.narrativeRole === "evidence" || prop.narrativeRole === "payoff") {
+      prop.mustBeVisible = true;
+      prop.visibilityMode = "foreground_insert";
+      if (!prop.preferredPanelIds) {
+        prop.preferredPanelIds = [];
+      }
+    }
+  }
+
+  if (strictVwPremium) {
+    return props;
   }
 
   // IA-first : pas de catalogue univers quand le caller impose `suppressUniverseTemplateProps`

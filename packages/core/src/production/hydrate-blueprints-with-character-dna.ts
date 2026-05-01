@@ -22,6 +22,15 @@ export type CharacterRowForDnaHydration = {
   outfitDefault?: string | null;
   /** JSON studio `Character.stableVisualDNA` — traits configurateur verrouillés. */
   stableVisualDNA?: Record<string, unknown> | null;
+  characterFingerprint?: unknown;
+  visualProfile?: unknown;
+  wardrobeProfile?: unknown;
+  bodyState?: unknown;
+  continuityProfile?: unknown;
+  visualRefs?: unknown;
+  visualLocks?: unknown;
+  canonPack?: unknown;
+  loraAttachments?: unknown;
 };
 
 const STABLE_VISUAL_EXCERPT_KEYS = [
@@ -267,6 +276,25 @@ function firstHairColorFromTraits(traits: string[]): string | null {
   return null;
 }
 
+/** Pass-through champs studio (configurateur / Prisma) vers le DNA panel. */
+function studioCanonFieldsFromDbRow(db: CharacterRowForDnaHydration | undefined): Partial<CharacterVisualDna> {
+  if (!db) return {};
+  const out: Partial<CharacterVisualDna> = {};
+  const put = (key: keyof CharacterVisualDna, val: unknown) => {
+    if (val !== undefined && val !== null) (out as Record<string, unknown>)[key as string] = val;
+  };
+  put("characterFingerprint", db.characterFingerprint);
+  put("visualProfile", db.visualProfile);
+  put("wardrobeProfile", db.wardrobeProfile);
+  put("bodyState", db.bodyState);
+  put("continuityProfile", db.continuityProfile);
+  put("visualRefs", db.visualRefs);
+  put("visualLocks", db.visualLocks);
+  put("canonPack", db.canonPack);
+  put("loraAttachments", db.loraAttachments);
+  return out;
+}
+
 function buildDnaForCharacterId(
   characterId: string,
   db: CharacterRowForDnaHydration | undefined,
@@ -326,6 +354,7 @@ function buildDnaForCharacterId(
     scars: fromStable.scars,
     tattoos: fromStable.tattoos,
     accessories: fromStable.accessories,
+    ...studioCanonFieldsFromDbRow(db),
   };
 }
 
@@ -383,6 +412,13 @@ function mergeStringArraysPreferNonEmpty(
   return undefined;
 }
 
+/** Préfère la valeur issue du dernier build DB (`built`), sinon garde `prev` (blueprint). */
+function studioPassThrough<T>(built: T | undefined | null, prev: T | undefined | null): T | undefined {
+  if (built !== undefined && built !== null) return built as T;
+  if (prev !== undefined && prev !== null) return prev as T;
+  return undefined;
+}
+
 function mergeDna(prev: CharacterVisualDna, built: CharacterVisualDna): CharacterVisualDna {
   const pick = <T extends string | null | undefined>(a: T, b: T): T | undefined => {
     const as = typeof a === "string" ? a.trim() : "";
@@ -432,6 +468,15 @@ function mergeDna(prev: CharacterVisualDna, built: CharacterVisualDna): Characte
     scars: mergeStringArraysPreferNonEmpty(prev.scars, built.scars),
     tattoos: mergeStringArraysPreferNonEmpty(prev.tattoos, built.tattoos),
     accessories: mergeStringArraysPreferNonEmpty(prev.accessories, built.accessories),
+    characterFingerprint: studioPassThrough(built.characterFingerprint, prev.characterFingerprint),
+    visualProfile: studioPassThrough(built.visualProfile, prev.visualProfile),
+    wardrobeProfile: studioPassThrough(built.wardrobeProfile, prev.wardrobeProfile),
+    bodyState: studioPassThrough(built.bodyState, prev.bodyState),
+    continuityProfile: studioPassThrough(built.continuityProfile, prev.continuityProfile),
+    visualRefs: studioPassThrough(built.visualRefs, prev.visualRefs),
+    visualLocks: studioPassThrough(built.visualLocks, prev.visualLocks),
+    canonPack: studioPassThrough(built.canonPack, prev.canonPack),
+    loraAttachments: studioPassThrough(built.loraAttachments, prev.loraAttachments),
   };
 }
 

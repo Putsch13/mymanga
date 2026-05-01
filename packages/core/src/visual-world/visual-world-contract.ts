@@ -1,6 +1,9 @@
 /**
  * Contrat monde visuel chapitre — source cible pour le pipeline premium IA-first.
  * (P0 bis.1 — schéma Zod ; le compositeur IA branchera ici.)
+ *
+ * Champs `version` / `diagnostics` / extensions par entité : QA studio, dashboard,
+ * messages d’erreur explicables (PR10).
  */
 
 import { z } from "zod";
@@ -25,6 +28,9 @@ export const visualWorldLocationSchema = z.object({
 
 export type VisualWorldLocation = z.infer<typeof visualWorldLocationSchema>;
 
+export const propVisibilityPolicySchema = z.enum(["visible", "mentioned", "background"]);
+export type PropVisibilityPolicy = z.infer<typeof propVisibilityPolicySchema>;
+
 export const propVisualDnaContractSchema = z.object({
   id: z.string().min(1),
   canonicalName: z.string().min(1),
@@ -34,6 +40,8 @@ export const propVisualDnaContractSchema = z.object({
   locationId: z.string().optional().nullable(),
   requiredBeatIds: z.array(z.string()).default([]),
   continuityPolicy: z.enum(["single_use", "recurring", "symbolic"]),
+  visibilityPolicy: propVisibilityPolicySchema.optional().nullable(),
+  symbolicMeaning: z.string().optional().nullable(),
 });
 
 export type VisualWorldPropDna = z.infer<typeof propVisualDnaContractSchema>;
@@ -46,6 +54,7 @@ export const visualWorldNpcGroupSchema = z.object({
   outfit: z.string().min(1),
   silhouette: z.string().min(1),
   relationToLocation: z.string().optional().nullable(),
+  relationToCharacterIds: z.array(z.string()).default([]),
   requiredBeatIds: z.array(z.string()).default([]),
   recurrencePolicy: z.enum(["background", "recurring", "named"]),
 });
@@ -57,6 +66,12 @@ export const creatureVisualDnaSchema = z.object({
   label: z.string().min(1),
   visualDescription: z.string().min(1),
   requiredBeatIds: z.array(z.string()).default([]),
+  threatLevel: z
+    .preprocess(
+      (v) => (v == null || v === "" ? "none" : v),
+      z.enum(["none", "low", "medium", "high"]),
+    )
+    .default("none"),
 });
 
 export type CreatureVisualDna = z.infer<typeof creatureVisualDnaSchema>;
@@ -66,6 +81,12 @@ export const vehicleVisualDnaSchema = z.object({
   label: z.string().min(1),
   visualDescription: z.string().min(1),
   requiredBeatIds: z.array(z.string()).default([]),
+  scale: z
+    .preprocess(
+      (v) => (v == null || v === "" ? "medium" : v),
+      z.enum(["small", "medium", "large", "massive"]),
+    )
+    .default("medium"),
 });
 
 export type VehicleVisualDna = z.infer<typeof vehicleVisualDnaSchema>;
@@ -74,6 +95,9 @@ export const factionVisualDnaSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
   visualMarkers: z.array(z.string()).default([]),
+  visualMotifs: z.array(z.string()).default([]),
+  colors: z.array(z.string()).default([]),
+  emblem: z.string().optional().nullable(),
   requiredBeatIds: z.array(z.string()).default([]),
 });
 
@@ -88,11 +112,22 @@ export const beatVisualBindingSchema = z.object({
   creatureIds: z.array(z.string()).default([]),
   vehicleIds: z.array(z.string()).default([]),
   factionIds: z.array(z.string()).default([]),
+  environmentMood: z.string().optional().nullable(),
+  continuityObjectIds: z.array(z.string()).default([]),
 });
 
 export type BeatVisualBinding = z.infer<typeof beatVisualBindingSchema>;
 
+export const visualWorldDiagnosticsSchema = z.object({
+  warnings: z.array(z.string()).default([]),
+  repaired: z.array(z.string()).default([]),
+  missing: z.array(z.string()).optional(),
+});
+
+export type VisualWorldDiagnostics = z.infer<typeof visualWorldDiagnosticsSchema>;
+
 export const visualWorldContractSchema = z.object({
+  version: z.literal(1).optional().default(1),
   chapterId: z.string().min(1),
   source: visualWorldSourceSchema,
   locations: z.array(visualWorldLocationSchema),
@@ -102,6 +137,7 @@ export const visualWorldContractSchema = z.object({
   vehicles: z.array(vehicleVisualDnaSchema),
   factions: z.array(factionVisualDnaSchema),
   beatBindings: z.array(beatVisualBindingSchema),
+  diagnostics: visualWorldDiagnosticsSchema.optional(),
 });
 
 export type VisualWorldContract = z.infer<typeof visualWorldContractSchema>;

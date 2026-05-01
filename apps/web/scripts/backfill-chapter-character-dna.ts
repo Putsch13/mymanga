@@ -3,11 +3,12 @@
  * Backfill des blueprints studio sur un chapitre (aligné estimate / launch premium) :
  * 1. `characterVisualDna` depuis personnages + `characterCanons`
  * 2. Si `visualWorldContract` est présent dans le snapshot : `environmentVisualDna` + NPC/props VW
- * 3. Preflight continuité strict en premium-only — **exit 1** si blockers restants
+ * 3. Preflight continuité strict si premium-only **ou** `isPremiumStrictMode()` — **exit 1** si blockers
  *
  * Usage :
  *   pnpm exec tsx apps/web/scripts/backfill-chapter-character-dna.ts [chapterId]
  *   pnpm exec tsx apps/web/scripts/backfill-chapter-character-dna.ts --chapterId=xxx
+ *   pnpm exec tsx apps/web/scripts/backfill-chapter-character-dna.ts --dryRun
  *
  * Défaut chapterId : cmoi8r3l30001pi2944d8ib11
  */
@@ -23,6 +24,7 @@ import {
   computePanelContinuityPreflights,
   continuityPreflightBlockingReasons,
   isPipelineV3PremiumOnlyEnabled,
+  isPremiumStrictMode,
 } from "@manga-ai-studio/core";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { readChapterStudioSnapshotFromOutline, patchChapterStudioSnapshot } from "../lib/chapter-studio/snapshot";
@@ -42,8 +44,13 @@ function parseChapterIdFromArgv(): string {
   return (pos?.trim() || DEFAULT_CHAPTER_ID).trim();
 }
 
+function argvHasDryRun(): boolean {
+  return process.argv.slice(2).some((a) => a === "--dryRun" || a === "--dry-run");
+}
+
 async function main() {
   const chapterId = parseChapterIdFromArgv();
+  const dryRun = argvHasDryRun();
   const chapter = await prisma.chapter.findUnique({
     where: { id: chapterId },
     include: {
@@ -77,12 +84,13 @@ async function main() {
     canons.map((c) => [c.characterId, c] as const),
   );
 
+  const strictSession = isPipelineV3PremiumOnlyEnabled() || isPremiumStrictMode();
   let pipeline = hydrateBlueprintsWithCharacterDna({
     blueprints: bps as PanelBlueprintPremium[],
     characters: toCharacterRowsForDnaHydration(characterRows),
     characterCanonsById,
     characterCanons: canons.length > 0 ? canons : null,
-    strict: isPipelineV3PremiumOnlyEnabled(),
+    strict: strictSession,
     ...(typeof snapshot.data.characterSelection?.secondaryHeroCharacterId === "string"
       && snapshot.data.characterSelection.secondaryHeroCharacterId.trim().length > 0
       ? {
@@ -95,7 +103,7 @@ async function main() {
   if (rawVw !== undefined && rawVw !== null) {
     try {
       const vw = parseVisualWorldContract(rawVw);
-      const strictVw = isPipelineV3PremiumOnlyEnabled();
+      const strictVw = strictSession;
       pipeline = hydrateBlueprintsWithEnvironmentDna({
         blueprints: pipeline,
         visualWorld: vw,
@@ -120,20 +128,30 @@ async function main() {
     }
   }
 
-  if (isPipelineV3PremiumOnlyEnabled()) {
+  let continuityBlockers: string[] = [];
+  if (strictSession) {
     const preflights = computePanelContinuityPreflights(pipeline, {
       strictEnvironmentLocationBinding: true,
       strictCharacterDnaBinding: true,
       strictPropVisualBinding: true,
     });
-    const blockers = continuityPreflightBlockingReasons(preflights);
+    continuityBlockers = continuityPreflightBlockingReasons(preflights);
     console.log(
-      `[backfill] continuity_preflight panels=${preflights.length} blockers=${blockers.length}`,
+      `[backfill] continuity_preflight panels=${preflights.length} blockers=${continuityBlockers.length}`,
     );
-    if (blockers.length > 0) {
-      console.error(`[backfill] continuity_blockers (exit 1) sample=${JSON.stringify(blockers.slice(0, 12))}`);
+    if (continuityBlockers.length > 0) {
+      console.error(
+        `[backfill] continuity_blockers (exit 1) sample=${JSON.stringify(continuityBlockers.slice(0, 12))}`,
+      );
       process.exit(1);
     }
+  }
+
+  if (dryRun) {
+    console.log(
+      `[backfill] dryRun=true — hydratation calculée, blockers=${continuityBlockers.length}, aucune écriture DB`,
+    );
+    process.exit(0);
   }
 
   const nextStudio = patchChapterStudioSnapshot(

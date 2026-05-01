@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { PanelBlueprintPremium } from "../types/narrative-facts";
-import type { VisualWorldContract } from "../visual-world/visual-world-contract";
+import { parseVisualWorldContract, type VisualWorldContract } from "../visual-world/visual-world-contract";
 import { hydrateBlueprintsWithVisualWorldNpcAndProps } from "./hydrate-blueprints-with-visual-world-npc-prop";
 
 function minimalVw(overrides: Partial<VisualWorldContract> = {}): VisualWorldContract {
   const locId = "loc-1";
-  return {
+  return parseVisualWorldContract({
+    version: 1,
     chapterId: "ch1",
     source: "ai_generated",
     locations: [
@@ -45,6 +46,7 @@ function minimalVw(overrides: Partial<VisualWorldContract> = {}): VisualWorldCon
         outfit: "Uniforme portuaire délavé",
         silhouette: "Large épaules",
         relationToLocation: "Poste de garde quai nord",
+        relationToCharacterIds: [],
         requiredBeatIds: [],
         recurrencePolicy: "named",
       },
@@ -61,10 +63,11 @@ function minimalVw(overrides: Partial<VisualWorldContract> = {}): VisualWorldCon
         creatureIds: [],
         vehicleIds: [],
         factionIds: [],
+        continuityObjectIds: [],
       },
     ],
     ...overrides,
-  };
+  });
 }
 
 function minimalBlueprint(overrides: Partial<PanelBlueprintPremium> = {}): PanelBlueprintPremium {
@@ -142,10 +145,25 @@ describe("hydrateBlueprintsWithVisualWorldNpcAndProps", () => {
   it("injecte créatures, véhicules et factions liés au beat comme npcVisualDna catégorisés", () => {
     const vw = minimalVw({
       creatures: [
-        { id: "cr1", label: "Bête", visualDescription: "Massive shadow beast", requiredBeatIds: ["b1"] },
+        {
+          id: "cr1",
+          label: "Bête",
+          visualDescription: "Massive shadow beast",
+          requiredBeatIds: ["b1"],
+          threatLevel: "high",
+        },
       ],
-      vehicles: [{ id: "v1", label: "Van", visualDescription: "Black van", requiredBeatIds: ["b1"] }],
-      factions: [{ id: "f1", label: "Syndicat", visualMarkers: ["red armbands"], requiredBeatIds: ["b1"] }],
+      vehicles: [{ id: "v1", label: "Van", visualDescription: "Black van", requiredBeatIds: ["b1"], scale: "medium" }],
+      factions: [
+        {
+          id: "f1",
+          label: "Syndicat",
+          visualMarkers: ["red armbands"],
+          visualMotifs: [],
+          colors: [],
+          requiredBeatIds: ["b1"],
+        },
+      ],
     });
     const [out] = hydrateBlueprintsWithVisualWorldNpcAndProps({
       blueprints: [minimalBlueprint()],
@@ -161,7 +179,8 @@ describe("hydrateBlueprintsWithVisualWorldNpcAndProps", () => {
 
   it("lie une créature au beat via beatBinding.creatureIds même sans requiredBeatIds sur la créature", () => {
     const locId = "loc-1";
-    const vw: VisualWorldContract = {
+    const vw = parseVisualWorldContract({
+      version: 1,
       chapterId: "ch1",
       source: "ai_generated",
       locations: [
@@ -196,9 +215,10 @@ describe("hydrateBlueprintsWithVisualWorldNpcAndProps", () => {
           creatureIds: ["cr-bound"],
           vehicleIds: [],
           factionIds: [],
+          continuityObjectIds: [],
         },
       ],
-    };
+    });
     const [out] = hydrateBlueprintsWithVisualWorldNpcAndProps({
       blueprints: [minimalBlueprint()],
       visualWorld: vw,

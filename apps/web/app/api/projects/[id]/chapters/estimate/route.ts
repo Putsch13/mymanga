@@ -29,6 +29,7 @@ import {
   hydratePanelProvenanceOnBlueprints,
   isHeroRole,
   isPipelineV3PremiumOnlyEnabled,
+  isPremiumStrictMode,
   mergeRawBlueprintsWithCanonicalRhythm,
   resolveCharacterRefsToIds,
   runStructuralQaOnPremiumBlueprints,
@@ -45,6 +46,7 @@ import { getOwnedProject } from "@/lib/ownership";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { computePremiumAiReadiness } from "@/lib/compute-premium-ai-readiness";
 import { readChapterStudioSnapshotFromOutline } from "@/lib/chapter-studio";
+import { premiumCharacterStudioSelect, toCharacterRowsForDnaHydration } from "@/lib/premium-character-studio-select";
 import {
   validateNarrativeProgression,
   selectEditorialPreviewBeats,
@@ -268,6 +270,8 @@ export async function POST(req: Request, ctx: Ctx) {
     premiumStrictChapterSourcing: isPipelineV3PremiumOnlyEnabled(),
     suppressUniverseTemplateProps: isPipelineV3PremiumOnlyEnabled(),
     visualWorldContractActive,
+    premiumOnly: isPipelineV3PremiumOnlyEnabled(),
+    visualWorldContract: bundle.visualWorldContract ?? null,
     ...(visualWorldPropsForBeat ? { visualWorldPropsForBeat } : {}),
   };
   const narrativeContext = {
@@ -392,6 +396,10 @@ export async function POST(req: Request, ctx: Ctx) {
   let premiumReadinessCast: PremiumReadinessCastContext | undefined;
   let characterCanonsById: Record<string, import("@manga-ai-studio/core").CharacterCanon> | undefined;
   let coProtagonistCharacterIdsForHydration: readonly string[] | undefined;
+  const characterRowsForHydration = await prisma.character.findMany({
+    where: { projectId },
+    select: premiumCharacterStudioSelect,
+  });
   if (targetChapter?.id) {
     const chRec = await prisma.chapter.findFirst({
       where: { id: targetChapter.id, projectId },
@@ -433,15 +441,7 @@ export async function POST(req: Request, ctx: Ctx) {
 
   allBlueprints = hydrateBlueprintsWithCharacterDna({
     blueprints: allBlueprints,
-    characters: context.characters.map((c) => ({
-      id: c.id,
-      name: c.name,
-      hairColor: c.hairColor ?? null,
-      eyeColor: c.eyeColor ?? null,
-      appearance: c.appearance ?? null,
-      outfitDefault: c.outfitDefault ?? null,
-      stableVisualDNA: c.stableVisualDNA ?? null,
-    })),
+    characters: toCharacterRowsForDnaHydration(characterRowsForHydration),
     characterCanonsById: characterCanonsById ?? null,
     strict: isPipelineV3PremiumOnlyEnabled(),
     ...(coProtagonistCharacterIdsForHydration
@@ -596,17 +596,19 @@ export async function POST(req: Request, ctx: Ctx) {
     context.characters?.length ?? 0,
   ].join("|");
 
-  const continuityPreflights = isPipelineV3PremiumOnlyEnabled()
+  const strictPremiumContinuity =
+    isPipelineV3PremiumOnlyEnabled() || isPremiumStrictMode();
+  const continuityPreflights = strictPremiumContinuity
     ? computePanelContinuityPreflights(allBlueprints, {
         strictEnvironmentLocationBinding: true,
         strictCharacterDnaBinding: true,
         strictPropVisualBinding: true,
       })
     : [];
-  const continuityBlockers = isPipelineV3PremiumOnlyEnabled()
+  const continuityBlockers = strictPremiumContinuity
     ? continuityPreflightBlockingReasons(continuityPreflights)
     : [];
-  const continuityPreflightOk = !isPipelineV3PremiumOnlyEnabled() || continuityBlockers.length === 0;
+  const continuityPreflightOk = !strictPremiumContinuity || continuityBlockers.length === 0;
   if (!continuityPreflightOk) {
     console.error(
       `[estimate] continuity_preflight_failed chapterId=${targetChapter?.id ?? "new"} ` +

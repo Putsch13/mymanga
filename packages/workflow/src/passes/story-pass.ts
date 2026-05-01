@@ -15,6 +15,7 @@ import {
   type StoryArc,
   type StoryArchitectInput,
 } from "@manga-ai-studio/ai";
+import { isPremiumStrictMode } from "@manga-ai-studio/core";
 import { saveStoryArc } from "../persistence/story-persistence";
 import {
   isPipelineV3PremiumOnlyEnabled,
@@ -63,7 +64,7 @@ export async function runStoryPass(input: RunStoryPassInput): Promise<RunStoryPa
       ? true
       : input.premiumOnlyOverride === false
         ? false
-        : isPipelineV3PremiumOnlyEnabled();
+        : isPipelineV3PremiumOnlyEnabled() || isPremiumStrictMode();
 
   // Premium-only : l'IA1 doit être un vrai LLM. Si la clé OpenAI manque,
   // `runStoryArchitectAgentLlm` ferait un fallback vers le stub — interdit.

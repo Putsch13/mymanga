@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ApprovedChapterOutline, VisualWorldContract } from "@manga-ai-studio/core";
+import type { ApprovedChapterOutline } from "@manga-ai-studio/core";
+import { parseVisualWorldContract } from "@manga-ai-studio/core";
 import { generateChapterBundle, type ProjectContextForChapter } from "./chapter-pipeline";
 
 const baseContext: ProjectContextForChapter = {
@@ -122,7 +123,8 @@ describe("generateChapterBundle with approved outline", () => {
       ],
     };
 
-    const visualWorldContract: VisualWorldContract = {
+    const visualWorldContract = parseVisualWorldContract({
+      version: 1,
       chapterId: "ch-test",
       source: "ai_generated",
       locations: [
@@ -147,10 +149,28 @@ describe("generateChapterBundle with approved outline", () => {
       vehicles: [],
       factions: [],
       beatBindings: [
-        { beatId: "beat_1", locationId: "loc-roof", primaryPropIds: [], npcGroupIds: [], creatureIds: [], vehicleIds: [], factionIds: [] },
-        { beatId: "beat_2", locationId: "loc-roof", primaryPropIds: [], npcGroupIds: [], creatureIds: [], vehicleIds: [], factionIds: [] },
+        {
+          beatId: "beat_1",
+          locationId: "loc-roof",
+          primaryPropIds: [],
+          npcGroupIds: [],
+          creatureIds: [],
+          vehicleIds: [],
+          factionIds: [],
+          continuityObjectIds: [],
+        },
+        {
+          beatId: "beat_2",
+          locationId: "loc-roof",
+          primaryPropIds: [],
+          npcGroupIds: [],
+          creatureIds: [],
+          vehicleIds: [],
+          factionIds: [],
+          continuityObjectIds: [],
+        },
       ],
-    };
+    });
 
     const bundle = await generateChapterBundle({
       chapterNumber: 1,
@@ -199,7 +219,8 @@ describe("generateChapterBundle with approved outline", () => {
         },
       ],
     };
-    const visualWorldContract: VisualWorldContract = {
+    const visualWorldContract = parseVisualWorldContract({
+      version: 1,
       chapterId: "ch-test",
       source: "ai_generated",
       locations: [
@@ -223,8 +244,19 @@ describe("generateChapterBundle with approved outline", () => {
       creatures: [],
       vehicles: [],
       factions: [],
-      beatBindings: [{ beatId: "beat_1", locationId: "loc-roof", primaryPropIds: [], npcGroupIds: [], creatureIds: [], vehicleIds: [], factionIds: [] }],
-    };
+      beatBindings: [
+        {
+          beatId: "beat_1",
+          locationId: "loc-roof",
+          primaryPropIds: [],
+          npcGroupIds: [],
+          creatureIds: [],
+          vehicleIds: [],
+          factionIds: [],
+          continuityObjectIds: [],
+        },
+      ],
+    });
 
     await expect(
       generateChapterBundle({

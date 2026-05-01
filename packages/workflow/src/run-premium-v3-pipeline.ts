@@ -96,11 +96,13 @@ import {
   type VisualWorldDiscoveryPassResult,
 } from "./passes/visual-world-discovery-pass";
 import {
-  detectNpcGroupsFromText,
-  mergeBlueprintAndTextNpcGroups,
+  runCanonResolverPass,
+  formatCanonResolverLog,
+} from "./passes/canon-resolver-pass";
+import {
+  mergeNpcGroupsFromBlueprintsAndStoryTextRegex,
   type LegacyNpcGroupForCast,
-} from "./passes/legacy-npc-regex-from-text";
-import { runCanonResolverPass, formatCanonResolverLog } from "./passes/canon-resolver-pass";
+} from "./passes/merge-npc-groups-legacy-regex";
 import { runStoryContractCompletenessQa, formatStoryContractCompletenessLog } from "./passes/story-contract-completeness-qa";
 import {
   assertPremiumAiEnginesReady,
@@ -134,6 +136,15 @@ export interface PremiumV3PipelineCharacter {
   loraScale?: number | null;
   /** JSON configurateur — hydratation `visualCanonExcerpt` sur blueprints. */
   stableVisualDNA?: Record<string, unknown> | null;
+  characterFingerprint?: unknown;
+  visualProfile?: unknown;
+  wardrobeProfile?: unknown;
+  bodyState?: unknown;
+  continuityProfile?: unknown;
+  visualRefs?: unknown;
+  visualLocks?: unknown;
+  canonPack?: unknown;
+  loraAttachments?: unknown;
 }
 
 export interface RunPremiumV3PipelineInput {
@@ -461,6 +472,9 @@ export async function runPremiumV3Pipeline(
     }
 
     const npcGroupsFromBlueprints = extractNpcGroupsFromBlueprints(input.panelBlueprints);
+    // Premium NPC groups must come from VisualWorldContract or canonicalized blueprints.
+    // Do not reintroduce regex NPC discovery in this file — legacy merge lives in
+    // `merge-npc-groups-legacy-regex.ts` (non-premium path only).
     if (npcGroupsFromBlueprints.length > 0) {
       console.info(
         `[pipeline:v3:npc-groups] extracted ${npcGroupsFromBlueprints.length} groups from blueprints: ` +
@@ -503,18 +517,12 @@ export async function runPremiumV3Pipeline(
       }
     } else {
       const beatTexts = input.panelBlueprints?.map((bp) => bp.purpose ?? bp.sceneContextLabel) ?? [];
-      const npcGroupsFromText = detectNpcGroupsFromText([
-        input.chapterSummary,
-        input.chapterUserIntent,
-        ...beatTexts,
-      ]);
-      if (npcGroupsFromText.length > 0) {
-        console.info(
-          `[pipeline:v3:npc-groups] detected ${npcGroupsFromText.length} groups from text: ` +
-            npcGroupsFromText.map((g) => g.label).join(", "),
-        );
-      }
-      const { merged, map } = mergeBlueprintAndTextNpcGroups(npcGroupsFromBlueprints, npcGroupsFromText);
+      const { merged, map } = mergeNpcGroupsFromBlueprintsAndStoryTextRegex({
+        npcGroupsFromBlueprints,
+        chapterSummary: input.chapterSummary,
+        chapterUserIntent: input.chapterUserIntent,
+        beatTexts,
+      });
       mergedNpcGroups = merged;
       mergedNpcGroupsMap = map;
       if (mergedNpcGroups.length > 0) {
@@ -674,6 +682,15 @@ export async function runPremiumV3Pipeline(
             appearance: c.canonSignatureText?.trim() || null,
             outfitDefault: c.outfitSignature?.trim() || null,
             stableVisualDNA: c.stableVisualDNA ?? null,
+            characterFingerprint: c.characterFingerprint,
+            visualProfile: c.visualProfile,
+            wardrobeProfile: c.wardrobeProfile,
+            bodyState: c.bodyState,
+            continuityProfile: c.continuityProfile,
+            visualRefs: c.visualRefs,
+            visualLocks: c.visualLocks,
+            canonPack: c.canonPack,
+            loraAttachments: c.loraAttachments,
           }));
           const dnaHydrated = hydrateBlueprintsWithCharacterDna({
             blueprints: mergedBlueprints,

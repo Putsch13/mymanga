@@ -76,7 +76,14 @@ export {
 export type { PanelPurpose, NpcCategory, StoryboardPanelNpc } from "./contracts";
 // COMMIT H — agent IA1 LLM (le stub est déjà exporté via export *
 // plus bas dans ce fichier, cf. ./agents/story-architect-agent).
-export { runStoryArchitectAgentLlm, validatePremiumStoryArcConstraints } from "./agents/story-architect-agent-llm";
+export {
+  runStoryArchitectAgentLlm,
+  validatePremiumStoryArcConstraints,
+  PremiumStoryArchitectOpenAiRequiredError,
+  PremiumStoryArchitectInvalidJsonError,
+  PremiumStoryArchitectLowBeatCountError,
+  PremiumStoryArchitectLlmFailedError,
+} from "./agents/story-architect-agent-llm";
 export * from "./image-routing-service";
 export * from "./adapters/mock-image-provider";
 export * from "./adapters/fal-flux-adapter";

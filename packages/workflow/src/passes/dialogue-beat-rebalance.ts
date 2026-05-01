@@ -57,12 +57,17 @@ function hasListenerReactionPanel(beatPanels: PanelBlueprintPremium[]): boolean 
   });
 }
 
-function hasReservedTextZone(beatPanels: PanelBlueprintPremium[]): boolean {
-  return beatPanels.some((bp) =>
+function blueprintReservesTextZone(bp: PanelBlueprintPremium): boolean {
+  return (
     (bp.panelTextBundle?.reservedZones?.length ?? 0) > 0
     || Boolean(bp.textPlacementHint)
-    || (bp.dialogueLinesAnchored ?? 0) > 0,
+    || (bp.dialogueLinesAnchored ?? 0) > 0
+    || bp.textContract?.placement?.reserveTextArea === true
   );
+}
+
+function hasReservedTextZone(beatPanels: PanelBlueprintPremium[]): boolean {
+  return beatPanels.some((bp) => blueprintReservesTextZone(bp));
 }
 
 function convertPanelToDialogueSpeakerPanel(
@@ -104,10 +109,9 @@ function convertPanelToListenerReactionPanel(
 function ensureTextAnchorOnBeat(beatPanels: PanelBlueprintPremium[]): void {
   const target = pickConvertiblePanel(beatPanels);
   if (!target) return;
-  const dlg =
-    target.dialogueLines?.length
-      ? target.dialogueLines.map((l) => ({ speaker: l.speaker, text: l.text }))
-      : legacyDialogueLinesFromBlueprintPremium(target).map((l) => ({ speaker: l.speaker, text: l.text }));
+  const dlg = legacyDialogueLinesFromBlueprintPremium(target)
+    .map((l) => ({ speaker: l.speaker, text: l.text }))
+    .filter((l) => l.text.trim().length > 0);
   const bundle: PanelTextBundle = {
     ...(target.panelTextBundle ?? {}),
     dialogues: dlg.length > 0 ? dlg : undefined,
@@ -480,9 +484,7 @@ export function runDialogueQaOnBlueprints(blueprints: PanelBlueprintPremium[]): 
       issues.push(`dialogue_beat_without_reserved_text_zone beat=${bid}`);
       floating += panels.length;
     } else {
-      anchored += panels.filter(
-        (bp) => (bp.panelTextBundle?.reservedZones?.length ?? 0) > 0 || Boolean(bp.textPlacementHint),
-      ).length;
+      anchored += panels.filter((bp) => blueprintReservesTextZone(bp)).length;
     }
   }
 

@@ -11,6 +11,7 @@ import {
   computeNarrativeMemoryDigestFromOutline,
   hydratePanelProvenanceOnBlueprints,
   isPipelineV3PremiumOnlyEnabled,
+  isPremiumStrictMode,
   PREMIUM_PANEL_RANGE,
   productionOutlineSchema,
   productionPlanSchema,
@@ -155,7 +156,7 @@ export async function buildPremiumChapterContractFromApprovedOutline(
 
   let visualWorldContract: import("@manga-ai-studio/core").VisualWorldContract | undefined;
   if (
-    process.env.PIPELINE_V3_PREMIUM_ONLY === "true"
+    isPremiumStrictMode()
     && process.env.OPENAI_API_KEY
     && input.chapterId
     && input.projectId
@@ -211,8 +212,12 @@ export async function buildPremiumChapterContractFromApprovedOutline(
         })),
         knownLocations: locationsForWorld.map((loc) => toComposeVisualWorldKnownLocation(loc)),
       });
-    } catch (e) {
-      console.warn("[premium-contract] visual_world_compose_failed", e);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (isPremiumStrictMode()) {
+        throw new Error(`premium_visual_world_compose_failed:${message}`);
+      }
+      console.warn("[premium-contract] visual_world_compose_failed", error);
     }
   }
 

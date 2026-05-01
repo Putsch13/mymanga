@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { PanelBlueprintPremium } from "../types/narrative-facts";
-import type { VisualWorldContract } from "../visual-world/visual-world-contract";
+import { parseVisualWorldContract, type VisualWorldContract } from "../visual-world/visual-world-contract";
 import { hydrateBlueprintsWithPropDna } from "./hydrate-blueprints-with-prop-dna";
 
 function minimalVw(): VisualWorldContract {
   const locId = "loc-1";
-  return {
+  return parseVisualWorldContract({
+    version: 1,
     chapterId: "ch1",
     source: "ai_generated",
     locations: [
@@ -49,9 +50,10 @@ function minimalVw(): VisualWorldContract {
         creatureIds: [],
         vehicleIds: [],
         factionIds: [],
+        continuityObjectIds: [],
       },
     ],
-  };
+  });
 }
 
 function minimalBp(): PanelBlueprintPremium {

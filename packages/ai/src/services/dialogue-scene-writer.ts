@@ -8,6 +8,7 @@
 import OpenAI from "openai";
 import { z } from "zod";
 import {
+  blueprintPrimaryDialogueLineCount,
   syncBlueprintTextContractFromTextFragments,
   type PanelBlueprintPremium,
   type ProductionOutline,
@@ -94,7 +95,7 @@ export async function enrichPremiumBlueprintsSceneDialogue(
 
   for (const [beatId, panels] of byBeat) {
     const targets = panels.filter(
-      (p) => isSpeakerish(p) && (!p.dialogueLines || p.dialogueLines.length === 0),
+      (p) => isSpeakerish(p) && blueprintPrimaryDialogueLineCount(p) === 0,
     );
     if (targets.length === 0) continue;
 

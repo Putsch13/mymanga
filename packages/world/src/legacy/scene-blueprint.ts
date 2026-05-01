@@ -1,3 +1,15 @@
+/**
+ * LEGACY FALLBACK ONLY.
+ *
+ * This file must not be used by premium generation.
+ * Premium generation must use:
+ * - VisualWorldContract for world entities
+ * - PanelTextContract for dialogue
+ * - CharacterCanon / characterVisualDna for characters
+ *
+ * If imported in premium path, this is a bug.
+ */
+
 import { buildConstraintGraph, evaluateOntologyCandidate, mergeConstraintDecisions } from "../constraint-graph";
 import { generateCreatureSelection, CREATURE_ONTOLOGY } from "./creature-ontology";
 import { generateLocationSelection, LOCATION_ONTOLOGY } from "./location-ontology";

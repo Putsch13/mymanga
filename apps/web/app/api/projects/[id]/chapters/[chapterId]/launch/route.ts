@@ -9,6 +9,7 @@ import {
   getPremiumReadinessLaunchMinScore,
   hydratePanelProvenanceOnBlueprints,
   isPipelineV3PremiumOnlyEnabled,
+  isPremiumStrictMode,
   hydrateBlueprintsWithCharacterDna,
   hydrateBlueprintsWithEnvironmentDna,
   hydrateBlueprintsWithNpcDna,
@@ -91,6 +92,7 @@ export async function POST(_req: Request, ctx: Ctx) {
   logGenerationStackReadiness(stack);
 
   const premiumOnly = isPipelineV3PremiumOnlyEnabled();
+  const strictPremiumContinuity = premiumOnly || isPremiumStrictMode();
   const { aiReadiness, premiumBlockingReasons } = computePremiumAiReadiness({ stack, premiumOnly });
   if (premiumOnly && premiumBlockingReasons.length > 0) {
     logLaunchBlock(projectId, chapterId, "PREMIUM_AI_READINESS_FAILED", "Premium AI readiness gate", {
@@ -334,7 +336,7 @@ export async function POST(_req: Request, ctx: Ctx) {
 
   const bpForContinuityRaw = snapshot.data.productionPlan?.panelBlueprints;
   let bpForContinuity = bpForContinuityRaw;
-  if (Array.isArray(bpForContinuity) && bpForContinuity.length > 0 && isPipelineV3PremiumOnlyEnabled()) {
+  if (Array.isArray(bpForContinuity) && bpForContinuity.length > 0 && strictPremiumContinuity) {
     const chars = await prisma.character.findMany({
       where: { projectId },
       select: premiumCharacterStudioSelect,
@@ -369,11 +371,11 @@ export async function POST(_req: Request, ctx: Ctx) {
       }) as typeof bpForContinuity;
     }
   }
-  if (Array.isArray(bpForContinuity) && bpForContinuity.length > 0 && isPipelineV3PremiumOnlyEnabled()) {
+  if (Array.isArray(bpForContinuity) && bpForContinuity.length > 0 && strictPremiumContinuity) {
     const continuityPreflights = computePanelContinuityPreflights(bpForContinuity as PanelBlueprintPremium[], {
-      strictEnvironmentLocationBinding: isPipelineV3PremiumOnlyEnabled(),
-      strictCharacterDnaBinding: isPipelineV3PremiumOnlyEnabled(),
-      strictPropVisualBinding: isPipelineV3PremiumOnlyEnabled(),
+      strictEnvironmentLocationBinding: strictPremiumContinuity,
+      strictCharacterDnaBinding: strictPremiumContinuity,
+      strictPropVisualBinding: strictPremiumContinuity,
     });
     const continuityBlockers = continuityPreflightBlockingReasons(continuityPreflights);
     if (continuityBlockers.length > 0) {
@@ -401,7 +403,7 @@ export async function POST(_req: Request, ctx: Ctx) {
 
   let studioSnapshotForLaunch: ChapterStudioSnapshot = snapshot;
   if (
-    isPipelineV3PremiumOnlyEnabled()
+    strictPremiumContinuity
     && Array.isArray(bpForContinuity)
     && bpForContinuity.length > 0
     && snapshot.data.productionPlan

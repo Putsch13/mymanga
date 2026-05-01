@@ -1,3 +1,15 @@
+/**
+ * LEGACY FALLBACK ONLY.
+ *
+ * This file must not be used by premium generation.
+ * Premium generation must use:
+ * - VisualWorldContract for world entities
+ * - PanelTextContract for dialogue
+ * - CharacterCanon / characterVisualDna for characters
+ *
+ * If imported in premium path, this is a bug.
+ */
+
 import type { OntologyEntry, ProceduralEntity, SceneBlueprintInput } from "../types";
 import { createSeededRng } from "../seeded-rng";
 import { isEntryUniverseCompatible } from "../universe-compatibility";

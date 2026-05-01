@@ -3,7 +3,7 @@ import {
   inferRequiredSceneExtras,
   inferRequiredSceneExtrasWithVisualWorld,
 } from "./pipeline-scene-builder";
-import type { VisualWorldContract } from "@manga-ai-studio/core";
+import { parseVisualWorldContract, type VisualWorldContract } from "@manga-ai-studio/core";
 
 const minimalScene = {
   summary: "Calme sur la place du village.",
@@ -12,7 +12,8 @@ const minimalScene = {
 };
 
 function minimalVw(overrides: Partial<VisualWorldContract> = {}): VisualWorldContract {
-  return {
+  return parseVisualWorldContract({
+    version: 1,
     chapterId: "ch1",
     source: "ai_generated",
     locations: [],
@@ -23,7 +24,7 @@ function minimalVw(overrides: Partial<VisualWorldContract> = {}): VisualWorldCon
     factions: [],
     beatBindings: [],
     ...overrides,
-  } as VisualWorldContract;
+  });
 }
 
 describe("inferRequiredSceneExtrasWithVisualWorld", () => {
@@ -38,6 +39,7 @@ describe("inferRequiredSceneExtrasWithVisualWorld", () => {
           outfit: "tabliers",
           silhouette: "variée",
           relationToLocation: "bord de allée",
+          relationToCharacterIds: [],
           requiredBeatIds: ["beat-2"],
           recurrencePolicy: "background",
         },
@@ -62,6 +64,7 @@ describe("inferRequiredSceneExtrasWithVisualWorld", () => {
       outfit: "y",
       silhouette: "z",
       relationToLocation: null,
+      relationToCharacterIds: [] as string[],
       requiredBeatIds: ["b1"],
       recurrencePolicy: "background" as const,
     }));
@@ -95,6 +98,7 @@ describe("inferRequiredSceneExtrasWithVisualWorld", () => {
           outfit: "y",
           silhouette: "z",
           relationToLocation: null,
+          relationToCharacterIds: [],
           requiredBeatIds: ["other"],
           recurrencePolicy: "background",
         },

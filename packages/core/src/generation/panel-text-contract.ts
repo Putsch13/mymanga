@@ -1,4 +1,8 @@
 /**
+ * Canonical panel text representation.
+ * Premium generation must write this contract.
+ * Legacy dialogue fields are adapters only and must not be used as source of truth.
+ *
  * PanelTextContract — Source de vérité unique pour le texte d'une case.
  *
  * Ce contrat unifie tous les champs dialogue/narration/SFX qui étaient

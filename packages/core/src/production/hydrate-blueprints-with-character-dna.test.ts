@@ -205,4 +205,24 @@ describe("hydrateBlueprintsWithCharacterDna", () => {
     expect(ids.has("vis-1")).toBe(true);
     expect(ids.has("vis-2")).toBe(true);
   });
+
+  it("propage canonPack et visualLocks depuis la ligne DB vers characterVisualDna", () => {
+    const [out] = hydrateBlueprintsWithCharacterDna({
+      blueprints: [minimalBp({ requiredCharacterIds: ["c1"], characterVisualDna: [] })],
+      characters: [
+        {
+          id: "c1",
+          name: "Hero",
+          hairColor: "noir",
+          eyeColor: null,
+          canonPack: { id: "cp1", visualSignatureText: "sig", forbiddenVisualDrift: "no neon" },
+          visualLocks: [{ id: "vl1", version: 1, displayName: "LockA" }],
+        },
+      ],
+    });
+    const d = out.characterVisualDna?.find((x) => x.characterId === "c1");
+    expect(d?.canonPack).toEqual(expect.objectContaining({ id: "cp1" }));
+    expect(Array.isArray(d?.visualLocks)).toBe(true);
+    expect((d?.visualLocks as { id: string }[])[0]?.id).toBe("vl1");
+  });
 });

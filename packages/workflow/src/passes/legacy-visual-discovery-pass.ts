@@ -1,12 +1,16 @@
 /**
- * P1.4 — VisualDiscoveryPass : détection automatique des entités visuelles.
+ * LEGACY FALLBACK ONLY.
  *
- * Ce pass analyse le texte narratif (beats, résumé, dialogues) pour détecter
- * automatiquement les personnages, lieux, PNJ, robots, hybrides, créatures,
- * factions et props.
+ * This file must not be used by premium generation.
+ * Premium generation must use:
+ * - VisualWorldContract for world entities
+ * - PanelTextContract for dialogue
+ * - CharacterCanon / characterVisualDna for characters
  *
- * L'objectif est de permettre à l'utilisateur d'écrire naturellement sans
- * devoir encoder manuellement chaque entité.
+ * If imported in premium path, this is a bug.
+ *
+ * P1.4 — VisualDiscoveryPass : détection automatique des entités visuelles
+ * (texte / regex). Réservé aux pipelines non premium.
  *
  * @module legacy-visual-discovery-pass
  */

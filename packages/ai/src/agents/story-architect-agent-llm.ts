@@ -14,6 +14,9 @@
  *   - réponse LLM invalide / non parsable
  *   - beats produits < 4 (plancher minimum)
  *
+ * En **premium strict** (`isPremiumStrictMode`), le stub est interdit même si
+ * `premiumOnly` est omis : `assertNotPremiumSilentFallback` au démarrage.
+ *
  * Règles système strictes encodées dans le prompt :
  *   - JAMAIS inventer de personnages / lieux absents de la fiche projet
  *   - CHAQUE beat doit avoir un storyEvent concret (pas "avancer l'arc")
@@ -36,8 +39,37 @@ import {
   type StoryArchitectInput,
   type StoryArchitectOutput,
 } from "./story-architect-agent";
+import { assertNotPremiumSilentFallback } from "@manga-ai-studio/core";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+export class PremiumStoryArchitectOpenAiRequiredError extends Error {
+  constructor() {
+    super("premium_story_architect_openai_required");
+    this.name = "PremiumStoryArchitectOpenAiRequiredError";
+  }
+}
+
+export class PremiumStoryArchitectInvalidJsonError extends Error {
+  constructor(message?: string) {
+    super(`premium_story_architect_invalid_json${message ? `:${message}` : ""}`);
+    this.name = "PremiumStoryArchitectInvalidJsonError";
+  }
+}
+
+export class PremiumStoryArchitectLowBeatCountError extends Error {
+  constructor(count: number) {
+    super(`premium_story_architect_low_beat_count:${count}`);
+    this.name = "PremiumStoryArchitectLowBeatCountError";
+  }
+}
+
+export class PremiumStoryArchitectLlmFailedError extends Error {
+  constructor(message?: string) {
+    super(`premium_story_architect_llm_failed${message ? `:${message}` : ""}`);
+    this.name = "PremiumStoryArchitectLlmFailedError";
+  }
+}
 
 const BEAT_TYPE_SET: ReadonlySet<string> = new Set(STORY_BEAT_TYPES);
 const DANGER_SET: ReadonlySet<StoryBeatDangerLevel> = new Set<StoryBeatDangerLevel>([
@@ -301,12 +333,14 @@ export async function runStoryArchitectAgentLlm(
 ): Promise<StoryArchitectOutput> {
   const warnings: string[] = [];
   const premiumOnly = input.premiumOnly === true;
+  assertNotPremiumSilentFallback(
+    !premiumOnly,
+    "premium_story_architect_stub_forbidden_under_strict_env",
+  );
 
   if (!process.env.OPENAI_API_KEY) {
     if (premiumOnly) {
-      throw new Error(
-        "premium_story_architect_llm_unavailable: premiumOnly=true mais OPENAI_API_KEY est absente",
-      );
+      throw new PremiumStoryArchitectOpenAiRequiredError();
     }
     warnings.push("story_architect.llm.degraded=OPENAI_API_KEY_missing");
     const fallback = await runStoryArchitectAgent(input);
@@ -334,9 +368,10 @@ export async function runStoryArchitectAgentLlm(
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(content) as Record<string, unknown>;
-    } catch {
+    } catch (parseErr) {
       if (premiumOnly) {
-        throw new Error("premium_story_architect_invalid_json: réponse LLM non JSON");
+        const detail = parseErr instanceof Error ? parseErr.message : String(parseErr);
+        throw new PremiumStoryArchitectInvalidJsonError(detail);
       }
       warnings.push("story_architect.llm.degraded=invalid_json");
       const fallback = await runStoryArchitectAgent(input);
@@ -349,9 +384,7 @@ export async function runStoryArchitectAgentLlm(
 
     if (storyArc.beats.length < 4) {
       if (premiumOnly) {
-        throw new Error(
-          `premium_story_architect_low_beat_count: ${storyArc.beats.length} beats (< 4)`,
-        );
+        throw new PremiumStoryArchitectLowBeatCountError(storyArc.beats.length);
       }
       warnings.push(
         `story_architect.llm.low_beat_count=${storyArc.beats.length} (fallback_to_stub)`,
@@ -370,10 +403,19 @@ export async function runStoryArchitectAgentLlm(
     return { storyArc, warnings };
   } catch (err) {
     if (premiumOnly) {
+      if (
+        err instanceof PremiumStoryArchitectOpenAiRequiredError
+        || err instanceof PremiumStoryArchitectInvalidJsonError
+        || err instanceof PremiumStoryArchitectLowBeatCountError
+        || err instanceof PremiumStoryArchitectLlmFailedError
+      ) {
+        throw err;
+      }
+      if (err instanceof Error && err.message.startsWith("premium_story_architect")) {
+        throw err;
+      }
       const msg = err instanceof Error ? err.message : String(err);
-      throw err instanceof Error
-        ? err
-        : new Error(`premium_story_architect_llm_failed: ${msg}`);
+      throw new PremiumStoryArchitectLlmFailedError(msg);
     }
     const msg = err instanceof Error ? err.message : String(err);
     warnings.push(`story_architect.llm.error=${msg}`);

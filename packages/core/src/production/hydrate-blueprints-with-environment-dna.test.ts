@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { hydrateBlueprintsWithEnvironmentDna } from "./hydrate-blueprints-with-environment-dna";
 import type { PanelBlueprintPremium } from "../types/narrative-facts";
-import type { VisualWorldContract } from "../visual-world/visual-world-contract";
+import { parseVisualWorldContract, type VisualWorldContract } from "../visual-world/visual-world-contract";
 
 function minimalVw(overrides: Partial<VisualWorldContract> = {}): VisualWorldContract {
   const locId = "loc-1";
-  return {
+  return parseVisualWorldContract({
+    version: 1,
     chapterId: "ch1",
     source: "ai_generated",
     locations: [
@@ -29,9 +30,20 @@ function minimalVw(overrides: Partial<VisualWorldContract> = {}): VisualWorldCon
     creatures: [],
     vehicles: [],
     factions: [],
-    beatBindings: [{ beatId: "b1", locationId: locId, primaryPropIds: [], npcGroupIds: [], creatureIds: [], vehicleIds: [], factionIds: [] }],
+    beatBindings: [
+      {
+        beatId: "b1",
+        locationId: locId,
+        primaryPropIds: [],
+        npcGroupIds: [],
+        creatureIds: [],
+        vehicleIds: [],
+        factionIds: [],
+        continuityObjectIds: [],
+      },
+    ],
     ...overrides,
-  };
+  });
 }
 
 describe("hydrateBlueprintsWithEnvironmentDna", () => {

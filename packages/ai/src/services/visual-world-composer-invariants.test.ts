@@ -41,6 +41,7 @@ describe("assertVisualWorldContractPremiumInvariants", () => {
       ],
     };
     const contract = parseVisualWorldContract(raw);
+    expect(contract.version).toBe(1);
     expect(() =>
       assertVisualWorldContractPremiumInvariants(contract, { chapterId: "ch1", expectedBeatIds: ["b1"] }),
     ).toThrow(/premium_visual_world_unknown_creature:cr-ghost/);
@@ -84,6 +85,7 @@ describe("assertVisualWorldContractPremiumInvariants", () => {
       ],
     };
     const contract = parseVisualWorldContract(raw);
+    expect(contract.version).toBe(1);
     expect(() =>
       assertVisualWorldContractPremiumInvariants(contract, { chapterId: "ch1", expectedBeatIds: ["b1"] }),
     ).not.toThrow();

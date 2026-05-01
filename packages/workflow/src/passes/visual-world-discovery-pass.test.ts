@@ -1,4 +1,5 @@
 import { describe, expect, it, afterEach, beforeEach, vi } from "vitest";
+import * as aiStudio from "@manga-ai-studio/ai";
 import {
   shouldUseAiVisualWorldDiscovery,
   runVisualWorldDiscoveryPass,
@@ -88,5 +89,17 @@ describe("runVisualWorldDiscoveryPass — traçabilité", () => {
     expect(res.visualWorldComposeMeta?.path).toBe("regex_after_compose_error");
     expect(res.discoverySource).toBe("regex_legacy");
     expect(res.visualWorldContract).toBeNull();
+  });
+
+  it("NEXT_PUBLIC strict + compose IA en échec → pas de fallback regex sans escape", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+    vi.stubEnv("NEXT_PUBLIC_PIPELINE_V3_PREMIUM_ONLY", "true");
+    vi.stubEnv("PIPELINE_V3_PREMIUM_ONLY", "false");
+    vi.stubEnv("VISUAL_WORLD_ALLOW_REGEX_FALLBACK", "");
+    const spy = vi.spyOn(aiStudio, "composeVisualWorldContract").mockRejectedValue(new Error("compose_fail"));
+    await expect(runVisualWorldDiscoveryPass(baseInput({ premiumV3OnlyEnabled: false }))).rejects.toThrow(
+      /composeVisualWorldContract a échoué \(premium\)|compose_fail/,
+    );
+    spy.mockRestore();
   });
 });

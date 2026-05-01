@@ -19,6 +19,36 @@ const rawOutlineManga = {
   })),
 };
 
+/** Plan canonique dont le premier blueprint porte du DNA (pour tester nonEmpty*). */
+function canonicalPlanWithDnaOnFirstPanel(): {
+  canonical: ReturnType<typeof buildCanonicalChapterProductionPlan>;
+  dnaBlueprints: PanelBlueprintPremium[];
+} {
+  const canonical = buildCanonicalChapterProductionPlan({
+    chapterId: "ch1",
+    projectId: "p1",
+    chapterNumber: 1,
+    chapterTitle: "T",
+    format: "manga",
+    rawOutline: rawOutlineManga,
+  });
+  const bps = canonicalPlanToPanelBlueprints(canonical);
+  const dnaBlueprints = bps.map((bp, i) =>
+    i === 0
+      ? {
+          ...bp,
+          characterVisualDna: [{ characterId: "hero-1", displayName: "CanonHero" }],
+          npcVisualDna: [{ continuityId: "npc1", displayName: "CanonNpc" }],
+          environmentVisualDna: {
+            locationName: "CanonCafé",
+            visualAnchors: ["lustre"],
+          },
+        }
+      : bp,
+  );
+  return { canonical, dnaBlueprints };
+}
+
 describe("mergeRawBlueprintsWithCanonicalRhythm", () => {
   it("conserve le purpose des blueprints riches et aligne panelId/page sur le canonique", () => {
     const canonical = buildCanonicalChapterProductionPlan({
@@ -112,5 +142,93 @@ describe("mergeRawBlueprintsWithCanonicalRhythm", () => {
     expect(rebuilt.qa.errors).toEqual([]);
     expect(rebuilt.metrics.cutawayRatio).toBeLessThanOrEqual(0.3 + 1e-9);
     expect(rebuilt.metrics.actorDrivenRatio).toBeGreaterThanOrEqual(0.7 - 1e-9);
+  });
+
+  it("raw characterVisualDna vide ne masque pas le DNA canonique non vide", () => {
+    const { dnaBlueprints } = canonicalPlanWithDnaOnFirstPanel();
+    const rebuilt = buildCanonicalProductionPlanFromPremiumBlueprints({
+      chapterId: "ch1",
+      projectId: "p1",
+      chapterNumber: 1,
+      chapterTitle: "T",
+      format: "manga",
+      productionOutline: rawOutlineManga,
+      blueprints: dnaBlueprints,
+    });
+    expect(rebuilt.qa.valid).toBe(true);
+    const canonicalBps = canonicalPlanToPanelBlueprints(rebuilt);
+    const raw = dnaBlueprints.map((bp) => ({ ...bp, characterVisualDna: [] as typeof bp.characterVisualDna }));
+    const merged = mergeRawBlueprintsWithCanonicalRhythm(raw, rebuilt);
+    expect(merged[0]?.characterVisualDna).toEqual(canonicalBps[0]?.characterVisualDna);
+  });
+
+  it("raw npcVisualDna vide ne masque pas le DNA canonique non vide", () => {
+    const { dnaBlueprints } = canonicalPlanWithDnaOnFirstPanel();
+    const rebuilt = buildCanonicalProductionPlanFromPremiumBlueprints({
+      chapterId: "ch1",
+      projectId: "p1",
+      chapterNumber: 1,
+      chapterTitle: "T",
+      format: "manga",
+      productionOutline: rawOutlineManga,
+      blueprints: dnaBlueprints,
+    });
+    expect(rebuilt.qa.valid).toBe(true);
+    const canonicalBps = canonicalPlanToPanelBlueprints(rebuilt);
+    const raw = dnaBlueprints.map((bp) => ({ ...bp, npcVisualDna: [] }));
+    const merged = mergeRawBlueprintsWithCanonicalRhythm(raw, rebuilt);
+    expect(merged[0]?.npcVisualDna).toEqual(canonicalBps[0]?.npcVisualDna);
+  });
+
+  it("raw environmentVisualDna vide ne masque pas le decor canonique non vide", () => {
+    const { dnaBlueprints } = canonicalPlanWithDnaOnFirstPanel();
+    const rebuilt = buildCanonicalProductionPlanFromPremiumBlueprints({
+      chapterId: "ch1",
+      projectId: "p1",
+      chapterNumber: 1,
+      chapterTitle: "T",
+      format: "manga",
+      productionOutline: rawOutlineManga,
+      blueprints: dnaBlueprints,
+    });
+    expect(rebuilt.qa.valid).toBe(true);
+    const canonicalBps = canonicalPlanToPanelBlueprints(rebuilt);
+    const raw = dnaBlueprints.map((bp) => ({
+      ...bp,
+      environmentVisualDna: { locationName: "", visualAnchors: [] } as PanelBlueprintPremium["environmentVisualDna"],
+    }));
+    const merged = mergeRawBlueprintsWithCanonicalRhythm(raw, rebuilt);
+    expect(merged[0]?.environmentVisualDna).toEqual(canonicalBps[0]?.environmentVisualDna);
+  });
+
+  it("raw characterVisualDna non vide est conserve face au canon", () => {
+    const canonical = buildCanonicalChapterProductionPlan({
+      chapterId: "ch1",
+      projectId: "p1",
+      chapterNumber: 1,
+      chapterTitle: "T",
+      format: "manga",
+      rawOutline: rawOutlineManga,
+    });
+    const canonicalBps = canonicalPlanToPanelBlueprints(canonical);
+    const rawDna = [{ characterId: "x", displayName: "RawWins" }];
+    const raw = canonicalBps.map((bp, i) => (i === 0 ? { ...bp, characterVisualDna: rawDna } : bp));
+    const merged = mergeRawBlueprintsWithCanonicalRhythm(raw, canonical);
+    expect(merged[0]?.characterVisualDna).toEqual(rawDna);
+  });
+
+  it("sans DNA canonique sur le plan, raw vide → characterVisualDna []", () => {
+    const canonical = buildCanonicalChapterProductionPlan({
+      chapterId: "ch1",
+      projectId: "p1",
+      chapterNumber: 1,
+      chapterTitle: "T",
+      format: "manga",
+      rawOutline: rawOutlineManga,
+    });
+    const canonicalBps = canonicalPlanToPanelBlueprints(canonical);
+    const raw = canonicalBps.map((bp) => ({ ...bp, characterVisualDna: [] as typeof bp.characterVisualDna }));
+    const merged = mergeRawBlueprintsWithCanonicalRhythm(raw, canonical);
+    expect(merged[0]?.characterVisualDna).toEqual([]);
   });
 });

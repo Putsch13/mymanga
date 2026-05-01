@@ -625,6 +625,8 @@ describe("chapter estimate route", () => {
           premiumStrictChapterSourcing: true,
           suppressUniverseTemplateProps: true,
           visualWorldContractActive: false,
+          premiumOnly: true,
+          visualWorldContract: null,
           visualWorldPropsForBeat: expect.objectContaining({
             beat_1: expect.arrayContaining([
               expect.objectContaining({ canonicalName: "Clé du sanctuaire" }),

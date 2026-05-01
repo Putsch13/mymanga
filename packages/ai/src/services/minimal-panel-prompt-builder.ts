@@ -170,7 +170,13 @@ export function formatWorldPropsVisualDnaForPrompt(spec: PanelRenderSpec): strin
     const name = normalizePromptClause(p.canonicalName) || "object";
     const desc = normalizePromptClause(p.visualDescription).slice(0, WORLD_PROP_DESC_CHARS);
     const bit = desc && desc.toLowerCase() !== name.toLowerCase() ? `${name} (${desc})` : name;
-    chunks.push(bit);
+    const policy = "visibilityPolicy" in p && p.visibilityPolicy ? String(p.visibilityPolicy) : "";
+    const sym =
+      "symbolicMeaning" in p && typeof p.symbolicMeaning === "string" && p.symbolicMeaning.trim().length > 0
+        ? p.symbolicMeaning.trim().slice(0, 48)
+        : "";
+    const tail = [policy ? `vis:${policy}` : null, sym ? `sym:${sym}` : null].filter(Boolean).join(" ");
+    chunks.push(tail ? `${bit} [${tail}]` : bit);
   }
   if (!chunks.length) return "";
   let s = `Key props: ${chunks.join(" | ")}.`;
@@ -222,11 +228,18 @@ export function formatNpcVisualDnaForPrompt(spec: PanelRenderSpec): string {
           .slice(0, NPC_MARKER_MAX_PER_NPC)
           .join(", ")
       : "";
+    const tierBits = [
+      n.threatLevel && n.category === "creature" ? `threat:${n.threatLevel}` : null,
+      n.vehicleScale && n.category === "vehicle" ? `scale:${n.vehicleScale}` : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
     const kind = worldEntityKindLabel(n.category);
     let line: string;
     if (kind) {
-      const tail = markers ? `${name} (${markers})` : name;
-      line = `${kind}: ${tail}`;
+      const tierSuffix = tierBits ? ` [${tierBits}]` : "";
+      const core = markers ? `${name} (${markers})` : name;
+      line = `${kind}: ${core}${tierSuffix}`;
     } else {
       const bits = [name, cat || null, markers || null].filter(Boolean) as string[];
       line = bits.join("; ");
