@@ -16,6 +16,7 @@ import { isStableImageUrl } from "@/lib/images/assert-stable-image-url";
 import { checkStableCanonicalAsset } from "@/lib/images/assert-stable-canonical-asset";
 import { logCanonAudit } from "@/lib/canon/canon-audit-log";
 import { buildManualRefMetadata, resolveIsPrimary } from "@/lib/character/manual-visual-ref-policy";
+import { computeCanonPackScore } from "@/lib/characters/compute-canon-pack-score";
 
 type Ctx = { params: Promise<{ characterId: string }> };
 
@@ -238,7 +239,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
       await applyVisualRefsDiff(tx, characterId, body.visualRefs, user.id);
     }
 
-    return tx.character.findUniqueOrThrow({
+    const refreshed = await tx.character.findUniqueOrThrow({
       where: { id: updated.id },
       include: {
         canonPack: { include: { assets: true } },
@@ -248,6 +249,50 @@ export async function PATCH(req: Request, ctx: Ctx) {
         },
       },
     });
+
+    // P0 fix : recalculer + persister `completenessScore` après chaque PATCH.
+    // Avant ce fix la colonne restait à 0 par défaut → le readiness affichait
+    // toujours "score 0%" même quand toutes les fiches étaient remplies.
+    const score = computeCanonPackScore({
+      name: refreshed.name,
+      roleType: refreshed.roleType,
+      gender: refreshed.gender,
+      biography: refreshed.biography,
+      objective: refreshed.objective,
+      appearance: refreshed.appearance,
+      hairColor: refreshed.hairColor,
+      eyeColor: refreshed.eyeColor,
+      outfitDefault: refreshed.outfitDefault,
+      voiceRegister: refreshed.voiceRegister,
+      voiceVocabularyStyle: refreshed.voiceVocabularyStyle,
+      stableVisualDNA: refreshed.stableVisualDNA,
+      stableSpeechDNA: refreshed.stableSpeechDNA,
+      stablePsycheDNA: refreshed.stablePsycheDNA,
+      activeVisualRefCount: refreshed.visualRefs.length,
+    });
+
+    if (refreshed.canonPack) {
+      if (refreshed.canonPack.completenessScore !== score.score) {
+        await tx.characterCanonPack.update({
+          where: { id: refreshed.canonPack.id },
+          data: { completenessScore: score.score },
+        });
+        refreshed.canonPack.completenessScore = score.score;
+      }
+    } else {
+      // Crée le pack si absent (cas des persos plus anciens).
+      const created = await tx.characterCanonPack.create({
+        data: {
+          characterId: refreshed.id,
+          completenessScore: score.score,
+          forbiddenVisualDrift: [],
+        },
+        include: { assets: true },
+      });
+      refreshed.canonPack = created;
+    }
+
+    return refreshed;
   });
 
   // P4.4 : audit trail (log structuré) — seulement si un champ canon a bougé.

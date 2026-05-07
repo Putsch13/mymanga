@@ -20,18 +20,26 @@ import {
   mergeCharacterFingerprint,
   resolveActiveCharacterLoraBinding,
 } from "@/lib/canon/character-canon-helpers";
+import { computeCanonPackScore } from "@/lib/characters/compute-canon-pack-score";
 
 export function buildCharacterCanonFromCharacter(character: {
   id: string;
   name: string;
   roleType?: string | null;
+  gender?: string | null;
+  biography?: string | null;
+  objective?: string | null;
   appearance?: string | null;
   hairColor?: string | null;
   eyeColor?: string | null;
   outfitDefault?: string | null;
+  voiceRegister?: string | null;
+  voiceVocabularyStyle?: string | null;
   visualProfile?: unknown;
   wardrobeProfile?: unknown;
   stableVisualDNA?: unknown;
+  stableSpeechDNA?: unknown;
+  stablePsycheDNA?: unknown;
   canonLocked?: boolean;
   visualRefs?: Array<{ mediaAsset?: { publicUrl?: string | null } | null; imageUrl?: string | null }> | null;
   canonPack?: { completenessScore?: number | null } | null;
@@ -130,10 +138,36 @@ export function buildCharacterCanonFromCharacter(character: {
       bodyState,
     }),
     hasCanonPack: Boolean(character.canonPack),
-    canonPackCompleteness:
-      typeof character.canonPack?.completenessScore === "number"
-        ? character.canonPack.completenessScore
-        : null,
+    // P0 fix : dérivation LIVE du score depuis les champs Character courants.
+    // Avant : on lisait `canonPack.completenessScore` qui restait à 0 par
+    // défaut → tous les personnages "score 0%". Maintenant on calcule à la
+    // volée + on prend le max avec la valeur DB (qui est mise à jour aussi
+    // au PATCH). Ainsi un perso bien rempli passe à 70-100%.
+    canonPackCompleteness: (() => {
+      const live = computeCanonPackScore({
+        name: character.name,
+        roleType: character.roleType,
+        gender: character.gender,
+        biography: character.biography,
+        objective: character.objective,
+        appearance: character.appearance,
+        hairColor: character.hairColor,
+        eyeColor: character.eyeColor,
+        outfitDefault: character.outfitDefault,
+        voiceRegister: character.voiceRegister,
+        voiceVocabularyStyle: character.voiceVocabularyStyle,
+        stableVisualDNA: character.stableVisualDNA,
+        stableSpeechDNA: character.stableSpeechDNA,
+        stablePsycheDNA: character.stablePsycheDNA,
+        activeVisualRefCount: (character.visualRefs ?? []).length,
+      }).score;
+      const stored =
+        typeof character.canonPack?.completenessScore === "number"
+          ? character.canonPack.completenessScore
+          : null;
+      if (stored == null) return live;
+      return Math.max(live, stored);
+    })(),
   };
 }
 

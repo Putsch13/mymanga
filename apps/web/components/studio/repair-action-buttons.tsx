@@ -13,7 +13,12 @@ import {
 interface RepairActionButtonsProps {
   blockerCodes: string[];
   context: RepairContext;
-  onRepaired?: (actionId: string) => void;
+  /**
+   * Called after a successful repair. The response JSON is passed so the
+   * caller can inject server-side mutations into the local draft (e.g. the
+   * compiled chapterIntentContract) without waiting for a full re-fetch.
+   */
+  onRepaired?: (actionId: string, responseJson?: unknown) => void;
   variant?: "inline" | "block";
 }
 
@@ -58,21 +63,31 @@ export function RepairActionButtons({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok && res.status !== 204) {
-        const text = await res.text().catch(() => "");
-        let userMessage = `HTTP ${res.status}`;
+      const text = await res.text().catch(() => "");
+      let parsedJson: unknown = undefined;
+      if (text) {
         try {
-          const parsed = JSON.parse(text) as { error?: string; message?: string };
-          userMessage = parsed.message ?? parsed.error ?? userMessage;
+          parsedJson = JSON.parse(text);
         } catch {
-          if (text) userMessage = text.slice(0, 200);
+          // not JSON, that's OK
+        }
+      }
+      if (!res.ok && res.status !== 204) {
+        let userMessage = `HTTP ${res.status}`;
+        if (parsedJson && typeof parsedJson === "object") {
+          const e = parsedJson as { error?: string; message?: string };
+          userMessage = e.message ?? e.error ?? userMessage;
+        } else if (text) {
+          userMessage = text.slice(0, 200);
         }
         throw new Error(userMessage);
       }
       setSuccess(action.label);
-      onRepaired?.(action.id);
-      // Refresh server components so the readiness dashboard re-evaluates the
-      // newly persisted state (e.g. INTENT_CONTRACT_REQUIRED disappears).
+      // Pass response JSON so callers can inject the compiled contract into
+      // their local draft state (avoids waiting for a server refetch to clear
+      // INTENT_CONTRACT_REQUIRED).
+      onRepaired?.(action.id, parsedJson);
+      // Also refresh server components for any RSC-driven UI.
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Réparation impossible");

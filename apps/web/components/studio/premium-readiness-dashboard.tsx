@@ -14,6 +14,7 @@ export function PremiumReadinessDashboardCard({
   characterId,
   userIntent,
   heroCharacterId,
+  onRepairApplied,
 }: {
   dashboard: PremiumReadinessDashboard | null;
   projectId?: string;
@@ -21,6 +22,8 @@ export function PremiumReadinessDashboardCard({
   characterId?: string;
   userIntent?: string | null;
   heroCharacterId?: string | null;
+  /** Called after a repair action succeeds, with the server JSON response. */
+  onRepairApplied?: (actionId: string, responseJson?: unknown) => void;
 }) {
   if (!dashboard) return null;
 
@@ -124,6 +127,7 @@ export function PremiumReadinessDashboardCard({
                     <RepairActionButtons
                       blockerCodes={[issue.code]}
                       context={{ projectId, chapterId, characterId, userIntent, heroCharacterId }}
+                      onRepaired={onRepairApplied}
                     />
                   ) : null}
                 </li>

@@ -53,6 +53,7 @@ export function ChapterGenerationReviewStep({
   onSceneDialogueEnrichPreferredChange,
   userIntent,
   heroCharacterId,
+  onRepairApplied,
 }: {
   projectId: string;
   chapterId: string;
@@ -80,6 +81,9 @@ export function ChapterGenerationReviewStep({
   preLaunchBlocked?: boolean;
   sceneDialogueEnrichPreferred?: boolean;
   onSceneDialogueEnrichPreferredChange?: (value: boolean) => void;
+  /** Bubbled up from RepairActionButtons; lets the parent inject the API
+   *  response (e.g. compiled chapterIntentContract) into the live draft. */
+  onRepairApplied?: (actionId: string, responseJson?: unknown) => void;
 }) {
   const vcHints = readVisualContractLaunchHints(chapterVisualContract ?? null);
   const studioBlockers = blockerItems.length > 0 && generatedImages === 0;
@@ -156,6 +160,7 @@ export function ChapterGenerationReviewStep({
         chapterId={chapterId}
         userIntent={userIntent}
         heroCharacterId={heroCharacterId}
+        onRepairApplied={onRepairApplied}
       />
 
       {/* Blocants détaillés avec CTA "Corriger" */}

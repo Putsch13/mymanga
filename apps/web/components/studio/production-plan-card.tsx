@@ -66,10 +66,17 @@ export function ProductionPlanCard({ plan, productionOutlineSource, canonicalPro
   const canonicalCutawayRatio = metricNum(canonicalProductionPlan?.metrics, "cutawayRatio");
   const canonicalActorDrivenRatio = metricNum(canonicalProductionPlan?.metrics, "actorDrivenRatio");
   const canonicalMaxConsecutiveCutaways = metricNum(canonicalProductionPlan?.metrics, "maxConsecutiveCutaways");
-  const canonicalQaValid =
+  const canonicalQaRaw =
     canonicalProductionPlan?.qa && typeof canonicalProductionPlan.qa === "object"
-      ? (canonicalProductionPlan.qa as { valid?: boolean }).valid
+      ? (canonicalProductionPlan.qa as {
+          valid?: boolean;
+          errors?: string[];
+          warnings?: string[];
+        })
       : undefined;
+  const canonicalQaValid = canonicalQaRaw?.valid;
+  const canonicalQaErrors = Array.isArray(canonicalQaRaw?.errors) ? canonicalQaRaw.errors : [];
+  const canonicalQaWarnings = Array.isArray(canonicalQaRaw?.warnings) ? canonicalQaRaw.warnings : [];
   const hasProductionPlan = Boolean(plan);
   const contractComplete = hasProductionPlan && blueprintCount >= minimumImages;
   const contractBannerTone: "danger" | "success" | null = !hasProductionPlan
@@ -181,6 +188,31 @@ export function ProductionPlanCard({ plan, productionOutlineSource, canonicalPro
                   {canonicalQaValid ? "OK" : "Échec"}
                 </span>
               </div>
+            ) : null}
+            {canonicalQaValid === false && canonicalQaErrors.length > 0 ? (
+              <div className="mt-2 rounded border border-red-500/30 bg-red-500/5 px-2 py-1.5 space-y-1">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-red-500">
+                  Causes du rejet ({canonicalQaErrors.length})
+                </p>
+                <ul className="list-disc pl-4 space-y-0.5 text-xs text-red-600/90">
+                  {canonicalQaErrors.slice(0, 6).map((msg, i) => (
+                    <li key={`err_${i}`}>{msg}</li>
+                  ))}
+                  {canonicalQaErrors.length > 6 ? (
+                    <li className="text-red-500/60">… et {canonicalQaErrors.length - 6} autre(s).</li>
+                  ) : null}
+                </ul>
+              </div>
+            ) : null}
+            {canonicalQaValid === false && canonicalQaWarnings.length > 0 ? (
+              <details className="mt-1 text-[11px] text-amber-600/80">
+                <summary className="cursor-pointer">Avertissements QA ({canonicalQaWarnings.length})</summary>
+                <ul className="list-disc pl-4 mt-1 space-y-0.5">
+                  {canonicalQaWarnings.slice(0, 4).map((msg, i) => (
+                    <li key={`warn_${i}`}>{msg}</li>
+                  ))}
+                </ul>
+              </details>
             ) : null}
             <p className="text-muted-foreground pt-1 border-t border-border/30">
               Source : <span className="font-medium text-foreground">CanonicalChapterProductionPlan</span>

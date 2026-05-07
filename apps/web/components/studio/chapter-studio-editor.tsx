@@ -849,6 +849,21 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
             onIssueAction={handleIssueAction}
             chapterVisualContract={chapterVisualContract ?? undefined}
             onNavigateToPlan={() => goToFlowStep("plan", null, "production_plan")}
+            onRepairApplied={(actionId, json) => {
+              // P0 fix : quand "Analyser l'histoire" rend un contrat compilé,
+              // on l'injecte localement dans le draft pour que le dashboard
+              // live re-évalue immédiatement (sinon il garde l'ancien
+              // chapterIntentContract: null et INTENT_CONTRACT_REQUIRED reste).
+              if (actionId === "analyze_story" && json && typeof json === "object" && draft) {
+                const contract = (json as { contract?: unknown }).contract;
+                if (contract && typeof contract === "object") {
+                  updateDraft(
+                    { ...draft, chapterIntentContract: contract as typeof draft.chapterIntentContract },
+                    activeStudioStep,
+                  );
+                }
+              }
+            }}
             sceneDialogueEnrichPreferred={draft?.pipelinePreferences?.sceneDialogueEnrich === true}
             onSceneDialogueEnrichPreferredChange={(value) => {
               if (!draft) return;
