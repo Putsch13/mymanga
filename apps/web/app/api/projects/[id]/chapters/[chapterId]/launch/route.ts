@@ -31,7 +31,7 @@ import {
   type ChapterStudioSnapshot,
   type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
-import { computeShotVarietyBudget, computeContractualFocusAdequacy, computePremiumReadinessScore, runPremiumPlanContractQa, type PremiumReadinessCastContext } from "@manga-ai-studio/ai";
+import { computeShotVarietyBudget, computePremiumReadinessScore, runPremiumPlanContractQa, type PremiumReadinessCastContext } from "@manga-ai-studio/ai";
 import { repairProductionPlanContractualFocus, type FocusViolation } from "@manga-ai-studio/core";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { isUnlimitedAdminEmail } from "@/lib/auth/get-app-user";

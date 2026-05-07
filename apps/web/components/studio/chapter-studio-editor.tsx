@@ -263,7 +263,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
             if (!res.ok) return;
             const json = await res.json() as { contract?: unknown };
             if (json.contract) {
-              updateDraft({ ...draft, chapterIntentContract: json.contract as typeof draft.chapterIntentContract });
+              updateDraft({ ...draft, chapterIntentContract: json.contract as NonNullable<typeof draft.chapterIntentContract> });
             }
           }).catch(() => { /* non-blocking */ });
         }
