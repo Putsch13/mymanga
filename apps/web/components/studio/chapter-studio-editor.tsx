@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import type { OutlineProgressionIssue } from "@/lib/outline-progression-guard";
 import { ChapterBriefStep } from "./chapter-brief-step";
 import { ChapterCastCanonStep } from "./chapter-cast-canon-step";
+import { ChapterDialoguesStep } from "./chapter-dialogues-step";
 import { ChapterEditorSidebarSummary } from "./chapter-editor-sidebar-summary";
 import { ChapterGenerationReviewStep } from "./chapter-generation-review-step";
 import { ChapterOnboardingBanner } from "./chapter-onboarding-banner";
@@ -46,6 +47,7 @@ function primaryStudioStepForFlowStep(flowStep: ChapterFlowStepId): ChapterStudi
   if (flowStep === "brief") return "intent";
   if (flowStep === "cast_canon") return "characters";
   if (flowStep === "plan") return "production_plan";
+  if (flowStep === "dialogues") return "production_plan";
   return "generation";
 }
 
@@ -810,8 +812,19 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
                 goToFlowStep("plan", null, "production_plan");
                 return;
               }
-              goToFlowStep("generation_review");
+              goToFlowStep("dialogues");
             }}
+          />
+        ) : null}
+
+        {activeFlowStep === "dialogues" ? (
+          <ChapterDialoguesStep
+            projectId={projectId}
+            chapterId={chapterId}
+            draft={draft}
+            characterCatalog={characterCatalog}
+            onUpdateDraft={(next) => updateDraft(next, activeStudioStep)}
+            onContinue={() => goToFlowStep("generation_review")}
           />
         ) : null}
 

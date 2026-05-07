@@ -140,6 +140,55 @@ export function ChapterCastCanonStep({
     strategy: string;
   }>>([]);
 
+  // P0 (mai 2026) — fusionne les PNJ persistés en draft (`chapterEntities.npcs`)
+  // avec ceux qu'on vient juste de résoudre dans cette session, pour que la liste
+  // affichée survive au refresh et que la suppression cible la bonne source.
+  const persistedNpcRows = (draft.chapterEntities?.npcs ?? []).map((n) => ({
+    source: "draft" as const,
+    id: n.id,
+    label: n.label,
+    promptFragment: n.appearance ?? "",
+    narrativeHook: n.narrativeRole ?? "",
+    strategy: "draft_persisted",
+  }));
+  const sessionNpcRows = resolvedNpcs
+    .filter(
+      (r) =>
+        !persistedNpcRows.some(
+          (p) => p.label.trim().toLowerCase() === r.label.trim().toLowerCase(),
+        ),
+    )
+    .map((r, idx) => ({
+      source: "session" as const,
+      id: `session_${idx}`,
+      label: r.label,
+      promptFragment: r.promptFragment,
+      narrativeHook: r.narrativeHook,
+      strategy: r.strategy,
+    }));
+  const allNpcRows = [...persistedNpcRows, ...sessionNpcRows];
+
+  function removeNpcRow(row: { source: "draft" | "session"; id: string; label: string }) {
+    if (row.source === "session") {
+      setResolvedNpcs((prev) => prev.filter((r) => r.label !== row.label));
+      return;
+    }
+    const remaining = (draft.chapterEntities?.npcs ?? []).filter((n) => n.id !== row.id);
+    onUpdateDraft(
+      {
+        ...draft,
+        chapterEntities: {
+          npcs: remaining,
+          creatures: draft.chapterEntities?.creatures ?? [],
+          props: draft.chapterEntities?.props ?? [],
+          vehicles: draft.chapterEntities?.vehicles ?? [],
+          factions: draft.chapterEntities?.factions ?? [],
+        },
+      },
+      "characters",
+    );
+  }
+
   async function handleResolveNpc() {
     if (!npcRawDescription.trim() || resolvingNpc) return;
     setResolvingNpc(true);
@@ -177,18 +226,50 @@ export function ChapterCastCanonStep({
         return;
       }
       if (data.topMatch) {
-        setResolvedNpcs(prev => [
-          ...prev,
-          {
-            label: data.topMatch!.label,
-            promptFragment:
-              data.visualPromptFragment
-              ?? data.promptFragment
-              ?? data.topMatch!.visualCues.slice(0, 2).join(", "),
-            narrativeHook: data.narrativeHook ?? data.topMatch!.interactionHooks[0] ?? "",
-            strategy: data.strategy ?? "catalog_match",
-          },
-        ]);
+        const resolved = {
+          label: data.topMatch!.label,
+          promptFragment:
+            data.visualPromptFragment
+            ?? data.promptFragment
+            ?? data.topMatch!.visualCues.slice(0, 2).join(", "),
+          narrativeHook: data.narrativeHook ?? data.topMatch!.interactionHooks[0] ?? "",
+          strategy: data.strategy ?? "catalog_match",
+        };
+        setResolvedNpcs((prev) => [...prev, resolved]);
+
+        // P0 (mai 2026) — persister le PNJ résolu dans le studio draft
+        // (`chapterEntities.npcs`) afin qu'il survive au refresh et alimente le
+        // VisualWorldContract sans rester en state local.
+        const existingNpcs = draft.chapterEntities?.npcs ?? [];
+        const npcId = `npc_${Math.random().toString(36).slice(2, 10)}`;
+        const nextNpc = {
+          id: npcId,
+          label: resolved.label,
+          narrativeRole: resolved.narrativeHook || null,
+          appearance: resolved.promptFragment || null,
+          behavior: null,
+          panelMoments: [] as string[],
+          recurrence: "one_shot" as const,
+        };
+        const alreadyPresent = existingNpcs.some(
+          (n) => (n.label ?? "").trim().toLowerCase() === nextNpc.label.trim().toLowerCase(),
+        );
+        if (!alreadyPresent) {
+          onUpdateDraft(
+            {
+              ...draft,
+              chapterEntities: {
+                npcs: [...existingNpcs, nextNpc],
+                creatures: draft.chapterEntities?.creatures ?? [],
+                props: draft.chapterEntities?.props ?? [],
+                vehicles: draft.chapterEntities?.vehicles ?? [],
+                factions: draft.chapterEntities?.factions ?? [],
+              },
+            },
+            "characters",
+          );
+        }
+
         setNpcRawDescription("");
       }
     } catch {
@@ -524,18 +605,30 @@ export function ChapterCastCanonStep({
               </p>
             )}
 
-            {resolvedNpcs.length > 0 && (
+            {allNpcRows.length > 0 && (
               <div className="space-y-2">
-                {resolvedNpcs.map((npc, i) => (
-                  <div key={i} className="flex items-start gap-2 rounded-lg border border-border/40 bg-background/30 p-3">
+                {allNpcRows.map((npc) => (
+                  <div
+                    key={`${npc.source}_${npc.id}`}
+                    className="flex items-start gap-2 rounded-lg border border-border/40 bg-background/30 p-3"
+                  >
                     <div className="flex-1 space-y-1">
-                      <p className="text-xs font-medium">{npc.label}</p>
-                      <p className="text-[11px] text-muted-foreground italic">{npc.narrativeHook}</p>
-                      <p className="text-[11px] text-muted-foreground">Visuels : {npc.promptFragment}</p>
+                      <p className="text-xs font-medium">
+                        {npc.label}
+                        {npc.source === "draft" ? (
+                          <span className="ml-2 text-[10px] text-muted-foreground/70">(persisté)</span>
+                        ) : null}
+                      </p>
+                      {npc.narrativeHook ? (
+                        <p className="text-[11px] text-muted-foreground italic">{npc.narrativeHook}</p>
+                      ) : null}
+                      {npc.promptFragment ? (
+                        <p className="text-[11px] text-muted-foreground">Visuels : {npc.promptFragment}</p>
+                      ) : null}
                     </div>
                     <button
                       type="button"
-                      onClick={() => setResolvedNpcs(prev => prev.filter((_, j) => j !== i))}
+                      onClick={() => removeNpcRow(npc)}
                       className="text-muted-foreground/50 hover:text-muted-foreground transition-colors mt-0.5"
                     >
                       <X className="h-3.5 w-3.5" />

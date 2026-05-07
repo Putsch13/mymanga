@@ -90,6 +90,12 @@ export interface DialogueContractValidationResult {
 
 /**
  * Valide un DialogueContract.
+ *
+ * P0 (mai 2026) — `strictMode` (mode premium) :
+ *   - SPEAKER_NOT_IDENTIFIED  warning -> error
+ *   - DIALOGUE_FLOATING       warning -> error (sauf `allowFloating`)
+ *   - DIALOGUE_TOO_LONG       warning -> error
+ *   - speakerId === "unknown" -> error SPEAKER_NOT_IDENTIFIED
  */
 export function validateDialogueContract(
   contract: DialogueContract,
@@ -100,12 +106,16 @@ export function validateDialogueContract(
     characterIds?: string[];
     /** Autoriser les dialogues flottants (speaker non visible). */
     allowFloating?: boolean;
+    /** Mode strict premium : transforme tous les warnings en errors. */
+    strictMode?: boolean;
   },
 ): DialogueContractValidationResult {
   const issues: DialogueContractIssue[] = [];
   const panelSet = new Set(options?.panelIds ?? []);
   const characterSet = new Set(options?.characterIds ?? []);
   const allowFloating = options?.allowFloating ?? false;
+  const strict = options?.strictMode === true;
+  const speakerSeverity: "error" | "warning" = strict ? "error" : "warning";
 
   let floatingLines = 0;
   let anchoredLines = 0;
@@ -123,13 +133,22 @@ export function validateDialogueContract(
       });
     }
 
-    if (characterSet.size > 0 && !characterSet.has(line.speakerId)) {
+    if (line.speakerId === "unknown" || line.speakerId.trim().length === 0) {
+      issues.push({
+        code: DIALOGUE_CONTRACT_ERROR_CODES.SPEAKER_NOT_IDENTIFIED,
+        message: `Speaker not identified for line ${i} in panel ${line.panelId}`,
+        speakerId: line.speakerId,
+        panelId: line.panelId,
+        lineIndex: i,
+        severity: strict ? "error" : "warning",
+      });
+    } else if (characterSet.size > 0 && !characterSet.has(line.speakerId)) {
       issues.push({
         code: DIALOGUE_CONTRACT_ERROR_CODES.SPEAKER_NOT_IDENTIFIED,
         message: `Speaker "${line.speakerId}" not in known characters for line ${i}`,
         speakerId: line.speakerId,
         lineIndex: i,
-        severity: "warning",
+        severity: speakerSeverity,
       });
     }
 
@@ -142,7 +161,7 @@ export function validateDialogueContract(
           panelId: line.panelId,
           speakerId: line.speakerId,
           lineIndex: i,
-          severity: "warning",
+          severity: strict ? "error" : "warning",
         });
       }
     } else {
@@ -155,7 +174,7 @@ export function validateDialogueContract(
         message: `Dialogue too long (${line.text.length} chars) in panel ${line.panelId}`,
         panelId: line.panelId,
         lineIndex: i,
-        severity: "warning",
+        severity: strict ? "error" : "warning",
       });
     }
   }

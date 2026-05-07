@@ -67,7 +67,7 @@ describe("premium-manga-cutaway / classification", () => {
       purpose: "story-consistent interior densified_to_meet_premium_range",
       narrationText: "environment only, prop insert as primary",
       notes: ["without a dominant identifiable face"],
-    } as Partial<PanelBlueprintPremium>);
+    });
 
     stripBannedPlaceholdersFromBlueprint(tainted);
 
@@ -81,8 +81,8 @@ describe("premium-manga-cutaway / classification", () => {
     const blueprints: PanelBlueprintPremium[] = [
       bp({ panelId: "p1", panelNumber: 1, subjectFocus: "hero" }),
       bp({ panelId: "p2", panelNumber: 2, subjectFocus: "environment", cutawayType: "environment" }),
-      bp({ panelId: "p3", panelNumber: 3, subjectFocus: "prop", cutawayType: "prop_insert" } as Partial<PanelBlueprintPremium>),
-      bp({ panelId: "p4", panelNumber: 4, subjectFocus: "location", cutawayType: "establishing_environment" } as Partial<PanelBlueprintPremium>),
+      bp({ panelId: "p3", panelNumber: 3, subjectFocus: "prop", cutawayType: "prop_insert" }),
+      bp({ panelId: "p4", panelNumber: 4, subjectFocus: "location", cutawayType: "environment" }),
       bp({ panelId: "p5", panelNumber: 5, subjectFocus: "hero" }),
       bp({ panelId: "p6", panelNumber: 6, subjectFocus: "environment", cutawayType: "environment" }),
     ];
@@ -96,7 +96,7 @@ describe("premium-manga-cutaway / classification", () => {
       panelNumber: 1,
       subjectFocus: "hero",
       cutawayType: "prop_insert",
-    } as Partial<PanelBlueprintPremium>);
+    });
     expect(isPremiumMangaCutawayBlueprint(insert)).toBe(true);
   });
 });

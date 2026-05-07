@@ -52,13 +52,14 @@ export type StudioResponse = {
   };
 };
 
-export type ChapterFlowStepId = "brief" | "cast_canon" | "plan" | "generation_review";
+export type ChapterFlowStepId = "brief" | "cast_canon" | "plan" | "dialogues" | "generation_review";
 
 export const FLOW_STEPS: Array<{ id: ChapterFlowStepId; title: string; description: string }> = [
   { id: "brief", title: "1. Brief", description: "Titre, pitch et base narrative du chapitre." },
   { id: "cast_canon", title: "2. Casting & Cohérence", description: "Personnages actifs, décor et continuité essentielle." },
   { id: "plan", title: "3. Plan du chapitre", description: "Direction narrative, outline, plan de prod et prêt à générer." },
-  { id: "generation_review", title: "4. Génération & Review", description: "Run, progression, rerolls et validation finale." },
+  { id: "dialogues", title: "4. Script & Dialogues", description: "Génère et corrige les bulles IA avant le launch." },
+  { id: "generation_review", title: "5. Génération & Review", description: "Run, progression, rerolls et validation finale." },
 ];
 
 export const PLOT_OPTIONS: Array<{ id: "safe" | "bold" | "shock"; label: string; description: string }> = [
@@ -107,6 +108,27 @@ export function mapStudioStepToFlowStep(step: ChapterStudioStep | null | undefin
     return "generation_review";
   }
   return "generation_review";
+}
+
+/**
+ * P0 (mai 2026) — l’étape "dialogues" est requise dès qu’on a un plan ;
+ * elle force l’utilisateur à générer (ou valider) les bulles IA avant le launch.
+ */
+export function isDialoguesStepRequired(draft: ChapterStudioData | null | undefined): boolean {
+  if (!draft) return false;
+  const hasPlan = (draft.productionPlan?.panelBlueprints?.length ?? 0) > 0;
+  if (!hasPlan) return false;
+  const dialogueDensity = draft.chapterIntentContract?.dialogueDensity ?? "medium";
+  return dialogueDensity !== "low";
+}
+
+/**
+ * P0 (mai 2026) — `true` quand l’utilisateur a effectivement validé / persisté
+ * un `chapterDialogueContract` (signal robuste pour gate launch).
+ */
+export function hasValidatedDialogueDraft(draft: ChapterStudioData | null | undefined): boolean {
+  if (!draft) return false;
+  return (draft.chapterDialogueContract?.totalLines ?? 0) > 0;
 }
 
 export function groupIssuesByFlowStep(issues: ChapterReadinessIssue[], flowStep: ChapterFlowStepId) {
