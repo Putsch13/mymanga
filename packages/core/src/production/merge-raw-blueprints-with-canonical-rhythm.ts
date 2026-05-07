@@ -200,6 +200,7 @@ export function mergeRawBlueprintsWithCanonicalRhythm(
   const lastConsumedByBeat = new Map<string, PanelBlueprintPremium>();
 
   const MAX_CANONICAL_INFLATION_RATIO = 1.2;
+  const MAX_PADDING_CLONE_RATIO = 0.10;
   const nativeCount = rawBlueprints.length;
   const canonicalCount = canonicalPlan.panels.length;
   const inflationRatio = nativeCount > 0 ? canonicalCount / nativeCount : 1;
@@ -210,8 +211,11 @@ export function mergeRawBlueprintsWithCanonicalRhythm(
       `${canonicalCount - Math.ceil(nativeCount * MAX_CANONICAL_INFLATION_RATIO)} panels are pure padding`,
     );
   }
+  const maxPaddingClones = Math.max(1, Math.floor(canonicalCount * MAX_PADDING_CLONE_RATIO));
 
-  return canonicalPlan.panels.map((cp) => {
+  let paddingCloneCount = 0;
+
+  const result = canonicalPlan.panels.map((cp) => {
     const canonical = canonicalByPanelId.get(cp.panelId);
     if (!canonical) {
       throw new Error(`merge_raw_blueprints_with_canonical_rhythm:no_canonical_for_panel:${cp.panelId}`);
@@ -233,12 +237,13 @@ export function mergeRawBlueprintsWithCanonicalRhythm(
       appliedRules = ["merge_raw_with_canonical_rhythm"];
     } else {
       const last = lastConsumedByBeat.get(cp.beatId);
-      if (last) {
+      if (last && paddingCloneCount < maxPaddingClones) {
         base = cloneBlueprint(last);
         const note = "rhythm_padding:cloned_from_last_panel_in_beat";
         base.notes = [...(base.notes ?? []), note];
         origin = "rhythm_padding_clone";
         appliedRules = ["merge_raw_with_canonical_rhythm", "rhythm_padding_clone_within_beat"];
+        paddingCloneCount++;
       } else {
         base = cloneBlueprint(canonical);
         base.dialogueLines = undefined;
@@ -256,4 +261,14 @@ export function mergeRawBlueprintsWithCanonicalRhythm(
       provenanceForMerge({ origin, cp, rules: appliedRules }),
     );
   });
+
+  if (paddingCloneCount > 0) {
+    const ratio = paddingCloneCount / canonicalCount;
+    console.info(
+      `[merge-canonical] padding_clones=${paddingCloneCount} total=${canonicalCount} ` +
+      `ratio=${(ratio * 100).toFixed(1)}% max_allowed=${(MAX_PADDING_CLONE_RATIO * 100).toFixed(0)}%`,
+    );
+  }
+
+  return result;
 }

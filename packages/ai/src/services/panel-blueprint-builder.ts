@@ -46,6 +46,7 @@ export type {
   CutawayBudgetReport,
   ContractualFocusAdequacyReport,
   PremiumReadinessCastContext,
+  PremiumPlanContractQaResult,
 } from "./blueprints/blueprint-budgets";
 export {
   computeChapterFocusBudget,
@@ -53,6 +54,7 @@ export {
   computeCutawayBudget,
   computeContractualFocusAdequacy,
   computePremiumReadinessScore,
+  runPremiumPlanContractQa,
 } from "./blueprints/blueprint-budgets";
 
 export { buildGoreDirectives } from "./blueprints/gore-directives";

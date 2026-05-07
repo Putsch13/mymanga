@@ -31,7 +31,8 @@ import {
   type ChapterStudioSnapshot,
   type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
-import { computeShotVarietyBudget, computeContractualFocusAdequacy, computePremiumReadinessScore, type PremiumReadinessCastContext } from "@manga-ai-studio/ai";
+import { computeShotVarietyBudget, computeContractualFocusAdequacy, computePremiumReadinessScore, runPremiumPlanContractQa, type PremiumReadinessCastContext } from "@manga-ai-studio/ai";
+import { repairProductionPlanContractualFocus, type FocusViolation } from "@manga-ai-studio/core";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { isUnlimitedAdminEmail } from "@/lib/auth/get-app-user";
 import { prisma } from "@manga-ai-studio/db";
@@ -631,7 +632,7 @@ export async function POST(_req: Request, ctx: Ctx) {
           typeof canon.canonPackCompleteness === "number" ? canon.canonPackCompleteness : 0,
       };
     });
-    const canonPackBlockers = canonPackPreflightBlockingReasons(canonPackChecks);
+    const canonPackBlockers = canonPackPreflightBlockingReasons(canonPackChecks, { minCompleteness: 1 });
     if (canonPackBlockers.length > 0) {
       logNarrative({
         domain: "canon-pack",
@@ -866,15 +867,20 @@ export async function POST(_req: Request, ctx: Ctx) {
     }
   }
 
-  if (Array.isArray(bpStructural) && bpStructural.length > 0) {
-    const traceDigest = computeNarrativeMemoryDigestFromOutline(outlineForStructuralQa);
-    const tracedBlueprints = hydratePanelProvenanceOnBlueprints(bpStructural as PanelBlueprintPremium[], {
-      narrativeMemoryDigest: traceDigest,
-    });
-    console.info(
-      `[launch] panel_traceability chapterId=${chapterId}`,
-      buildPanelTraceabilityReport(tracedBlueprints),
-    );
+  {
+    const bpForTraceability = Array.isArray(bpForContinuity) && bpForContinuity.length > 0
+      ? bpForContinuity
+      : bpStructural;
+    if (Array.isArray(bpForTraceability) && bpForTraceability.length > 0) {
+      const traceDigest = computeNarrativeMemoryDigestFromOutline(outlineForStructuralQa);
+      const tracedBlueprints = hydratePanelProvenanceOnBlueprints(bpForTraceability as PanelBlueprintPremium[], {
+        narrativeMemoryDigest: traceDigest,
+      });
+      console.info(
+        `[launch] panel_traceability chapterId=${chapterId}`,
+        buildPanelTraceabilityReport(tracedBlueprints),
+      );
+    }
   }
 
   if (isVisualContractPrelaunchBlocked(chapter.outline, chapter.generatedImages ?? 0)) {
@@ -912,53 +918,72 @@ export async function POST(_req: Request, ctx: Ctx) {
       console.warn(`[launch] shot_variety_check_failed (non-blocking): ${varietyErr instanceof Error ? varietyErr.message : varietyErr}`);
     }
 
-    // P1.2 + P1.3 + P3.1 + P3.2 : variété de cadrage ≠ variété de sujet.
-    // On lit le focusBudget persisté (P1.1) et on refuse les plans trop
-    // héros-centrés, ou sans plans de coupe contractuels (arme, décor,
-    // ennemi, PNJ). Complémentaire du shotVariety check ci-dessus.
+    // P0-3/P0-4/P0-8 : QA contractuelle unifiée + réparation déterministe
+    // + message d'erreur dynamique basé sur les violations réelles.
     try {
-      const contractualFocus = computeContractualFocusAdequacy(
-        blueprintsForVariety as Parameters<typeof computeContractualFocusAdequacy>[0],
-      );
-      const persistedFocusBudget = studioSnapshotForLaunch.data.productionPlan?.focusBudget ?? null;
-      const persistedBlockingViolations = persistedFocusBudget?.violations?.filter(
-        (v) => v.severity === "blocking",
-      ) ?? [];
+      const contractQa = runPremiumPlanContractQa({
+        blueprints: blueprintsForVariety as PanelBlueprintPremium[],
+      });
 
-      if (contractualFocus.blocking || persistedBlockingViolations.length > 0) {
-        const mergedViolations = [
-          ...contractualFocus.violations,
-          ...persistedBlockingViolations,
-        ];
-        console.warn(
-          `[launch] contractual_focus_inadequate chapterId=${chapterId} ` +
-          `score=${contractualFocus.score.toFixed(2)} ` +
-          `heroCenterRatio=${contractualFocus.heroCenterRatio.toFixed(2)} ` +
-          `envPanels=${contractualFocus.environmentPanels} ` +
-          `propInserts=${contractualFocus.propInsertPanels} ` +
-          `enemyFocus=${contractualFocus.enemyFocusPanels} ` +
-          `npcPanels=${contractualFocus.npcPanels} ` +
-          `violations=${JSON.stringify(mergedViolations.map((v) => v.type))}`,
+      if (!contractQa.ok) {
+        const violations: FocusViolation[] = contractQa.blocking.map((type) => ({
+          type: type as FocusViolation["type"],
+          message: type,
+          severity: "blocking" as const,
+        }));
+
+        const repairResult = repairProductionPlanContractualFocus(
+          blueprintsForVariety as PanelBlueprintPremium[],
+          violations,
         );
-        return NextResponse.json(
-          {
-            error:
-              "Le plan est trop centré héros ou manque de cutaways contractuels " +
-              "(décor, arme, PNJ, ennemi). Régénère le plan de production.",
-            code: "CONTRACTUAL_FOCUS_INADEQUATE",
-            score: contractualFocus.score,
-            heroCenterRatio: contractualFocus.heroCenterRatio,
-            violations: mergedViolations,
-            counters: {
-              environmentPanels: contractualFocus.environmentPanels,
-              propInsertPanels: contractualFocus.propInsertPanels,
-              enemyFocusPanels: contractualFocus.enemyFocusPanels,
-              npcPanels: contractualFocus.npcPanels,
-              reactionPanels: contractualFocus.reactionPanels,
-              aftermathPanels: contractualFocus.aftermathPanels,
+
+        if (repairResult.failed > 0) {
+          const VIOLATION_MESSAGES: Record<string, string> = {
+            missing_prop_insert:     "Aucun gros plan d'objet narratif prévu dans le plan.",
+            missing_weapon_insert:   "Aucun insert arme/objet clé prévu dans le plan.",
+            missing_environment:     "Aucun panel décor prévu pour ce chapitre.",
+            missing_enemy_focus:     "Un adversaire est requis mais aucun panel ne le met au premier plan.",
+            missing_npc_population:  "Un groupe de personnages est requis mais absent du plan.",
+            weak_location_binding_critical: "Les décors ne sont pas correctement liés aux panels (>60%).",
+            hero_overload_vs_contract: "Le plan est trop centré sur le héros.",
+          };
+          const details = contractQa.blocking
+            .map((v) => VIOLATION_MESSAGES[v] ?? v)
+            .join(" | ");
+          const errorMessage = `Plan incomplet : ${details} (propInserts=${contractQa.metrics.propInserts}, npcPanels=${contractQa.metrics.npcPanels}, heroCenterRatio=${contractQa.metrics.heroCenterRatio.toFixed(2)})`;
+
+          console.warn(
+            `[launch] contractual_focus_inadequate chapterId=${chapterId} ` +
+            `heroCenterRatio=${contractQa.metrics.heroCenterRatio.toFixed(2)} ` +
+            `envPanels=${contractQa.metrics.envPanels} ` +
+            `propInserts=${contractQa.metrics.propInserts} ` +
+            `npcPanels=${contractQa.metrics.npcPanels} ` +
+            `blocking=${JSON.stringify(contractQa.blocking)} ` +
+            `repairAttempted=${repairResult.attempted} repairFailed=${repairResult.failed}`,
+          );
+          return NextResponse.json(
+            {
+              error: errorMessage,
+              code: "CONTRACTUAL_FOCUS_INADEQUATE",
+              metrics: contractQa.metrics,
+              blocking: contractQa.blocking,
+              warnings: contractQa.warnings,
+              repairable: contractQa.repairable,
+              repairAttempted: repairResult.attempted,
+              repairSucceeded: repairResult.succeeded,
+              repairFailed: repairResult.failed,
             },
-          },
-          { status: 422 },
+            { status: 422 },
+          );
+        }
+
+        // Repair succeeded — update blueprints in snapshot
+        if (studioSnapshotForLaunch.data.productionPlan && typeof studioSnapshotForLaunch.data.productionPlan === "object") {
+          (studioSnapshotForLaunch.data.productionPlan as Record<string, unknown>).panelBlueprints = repairResult.repaired;
+        }
+        console.info(
+          `[launch] contractual_focus_repaired chapterId=${chapterId} ` +
+          `attempted=${repairResult.attempted} succeeded=${repairResult.succeeded}`,
         );
       }
     } catch (focusErr) {

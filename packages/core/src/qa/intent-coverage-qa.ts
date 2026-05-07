@@ -137,6 +137,12 @@ export function runIntentCoverageQa(input: IntentCoverageInput): IntentCoverageR
   const score = total === 0 ? 100 : Math.round((covered / total) * 100);
   const hasErrors = issues.some((i) => i.severity === "error");
 
+  const forbiddenDetected = issues.filter((i) => i.code === "FORBIDDEN_TERM_DETECTED").map((i) => i.detail);
+  console.info(`[outline] coverage=${covered}/${total} missing={${missingEvents.join(",")}}`);
+  if (forbiddenDetected.length > 0) {
+    console.warn(`[outline] forbidden_terms_detected={${forbiddenDetected.join(",")}}`);
+  }
+
   return {
     ok: !hasErrors,
     intentCoverageScore: score,

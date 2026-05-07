@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import type { PremiumReadinessDashboard } from "@/lib/readiness/build-premium-readiness-dashboard";
+import { resolveHumanError } from "@/lib/studio/human-error-messages";
 import { ChapterGenerateLauncher } from "./chapter-generate-launcher";
 import { ChapterReviewBoard } from "./chapter-review-board";
 import { PremiumReadinessDashboardCard } from "./premium-readiness-dashboard";
@@ -173,22 +174,26 @@ export function ChapterGenerationReviewStep({
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            {blockerItems.map((issue, i) => (
-              <div key={i} className="flex items-start justify-between gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3">
-                <div>
-                  <p className="font-medium text-amber-100">{issue.message}</p>
-                  {issue.ctaLabel && <p className="mt-0.5 text-xs text-amber-300/80">{issue.ctaLabel}</p>}
+            {blockerItems.map((issue, i) => {
+              const human = resolveHumanError(issue.id);
+              return (
+                <div key={i} className="flex items-start justify-between gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3">
+                  <div>
+                    <p className="font-medium text-amber-100">{human?.title ?? issue.message}</p>
+                    {human?.description && <p className="mt-0.5 text-xs text-amber-300/80">{human.description}</p>}
+                    {!human?.description && issue.ctaLabel && <p className="mt-0.5 text-xs text-amber-300/80">{issue.ctaLabel}</p>}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0 border-amber-500/30 text-amber-200 hover:bg-amber-500/20"
+                    onClick={() => void onIssueAction(issue)}
+                  >
+                    {human?.cta ?? "Corriger maintenant"}
+                  </Button>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="shrink-0 border-amber-500/30 text-amber-200 hover:bg-amber-500/20"
-                  onClick={() => void onIssueAction(issue)}
-                >
-                  Corriger maintenant
-                </Button>
-              </div>
-            ))}
+              );
+            })}
           </CardContent>
         </Card>
       )}

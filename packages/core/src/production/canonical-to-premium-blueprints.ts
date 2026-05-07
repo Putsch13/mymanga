@@ -194,7 +194,11 @@ export function canonicalPlanToPanelBlueprints(plan: CanonicalChapterProductionP
       dialogueLinesAnchored:
         tp.mode === "dialogue" && tp.anchor?.speakerId ? 1 : undefined,
       cutawayType,
-      heroCenterAllowed: true,
+      heroCenterAllowed:
+        subjectFocus === "hero" ||
+        subjectFocus === "speaker" ||
+        subjectFocus === "reaction" ||
+        subjectFocus === "duo",
       criticality: panel.criticality,
       notes: [...panel.notes],
       narrationText: tp.mode === "narration" ? (tp.text ?? null) : null,

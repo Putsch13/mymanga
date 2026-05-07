@@ -10,6 +10,7 @@ import {
   buildPanelBlueprintsFromBeat,
   computeChapterFocusBudget,
   computePremiumReadinessScore,
+  runPremiumPlanContractQa,
   enrichNarrativeFactsWithLLM,
   mergeNarrativeFacts,
   buildChapterShotPlan,
@@ -546,6 +547,15 @@ export async function POST(req: Request, ctx: Ctx) {
     narrativeMemoryDigest: narrativeDigest,
   });
 
+  for (const bp of allBlueprints) {
+    if (bp.requiredProps.length > 0 && !bp.propVisualDna) {
+      console.warn(`[estimate] blueprint_not_fully_hydrated panelId=${bp.panelId} requiredProps=${bp.requiredProps.length} propVisualDna=missing`);
+    }
+    if (bp.requiredNpcCount > 0 && (!bp.npcVisualDna || bp.npcVisualDna.length === 0)) {
+      console.warn(`[estimate] blueprint_not_fully_hydrated panelId=${bp.panelId} requiredNpcCount=${bp.requiredNpcCount} npcVisualDna=missing`);
+    }
+  }
+
   const structuralFromPersistedBlueprints = runStructuralQaOnPremiumBlueprints({
     chapterId: estimateChapterId,
     projectId,
@@ -693,12 +703,22 @@ export async function POST(req: Request, ctx: Ctx) {
     );
   }
 
+  const contractQa = runPremiumPlanContractQa({ blueprints: allBlueprints });
+  const contractQaOk = contractQa.ok;
+  if (!contractQaOk) {
+    console.warn(
+      `[estimate] contract_qa_failed chapterId=${targetChapter?.id ?? "new"} ` +
+      `blocking=${JSON.stringify(contractQa.blocking)} metrics=${JSON.stringify(contractQa.metrics)}`,
+    );
+  }
+
   const planReady =
     panelCountStatus === "ok"
     && canonicalPlan.qa.valid
     && finalStructuralQa.valid
     && characterRefResolutionOk
-    && continuityPreflightOk;
+    && continuityPreflightOk
+    && contractQaOk;
 
   console.log(
     `[estimate] estimate_generated projectId=${projectId} chapterId=${targetChapter?.id ?? "new"} ` +
@@ -816,6 +836,13 @@ export async function POST(req: Request, ctx: Ctx) {
       valid: continuityBlockers.length === 0,
       blockers: continuityBlockers,
       panelCount: continuityPreflights.length,
+    },
+    contractQa: {
+      ok: contractQa.ok,
+      blocking: contractQa.blocking,
+      warnings: contractQa.warnings,
+      repairable: contractQa.repairable,
+      metrics: contractQa.metrics,
     },
   });
 }

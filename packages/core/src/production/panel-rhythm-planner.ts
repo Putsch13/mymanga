@@ -244,7 +244,7 @@ export function determinePanelRole(
 ): PanelRole {
   if (isCutaway) {
     if (beat.hasTension && panelIndexInBeat === totalPanelsInBeat - 1) return "aftermath";
-    if (beat.props.length > 0 && panelIndexInBeat === 0) return "prop";
+    if (beat.props.length > 0) return "prop";
     if (beat.locations.length > 0) return "environment";
     return "cutaway";
   }

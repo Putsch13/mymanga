@@ -107,13 +107,78 @@ export function buildIntentNarrativeContract(
 
   const storyFacts = sentences.slice(0, 8);
 
+  // P1-2 — Extraction des lieux depuis prépositions spatiales
+  const locationPatterns = /\b(?:à|au|aux|sur|dans|en|vers|devant|derrière|près d[eu']|autour d[eu'])\s+(?:l[ea]s?\s+|un[e]?\s+)?([A-ZÀ-Ý][a-zà-ÿA-ZÀ-Ý'\s-]{2,40})/g;
+  const extractedLocations = new Set(requiredLocations);
+  let locMatch: RegExpExecArray | null;
+  while ((locMatch = locationPatterns.exec(userIntent)) !== null) {
+    const candidate = locMatch[1]?.trim();
+    if (candidate && candidate.length > 2) {
+      extractedLocations.add(candidate);
+    }
+  }
+
+  // P1-2 — Extraction des NPC groups (mots-clés pluriels)
+  const GROUP_KEYWORDS: Array<{ keyword: string; label: string; role: string }> = [
+    { keyword: "pêcheurs", label: "Groupe de pêcheurs", role: "population" },
+    { keyword: "marins", label: "Groupe de marins", role: "population" },
+    { keyword: "pirates", label: "Groupe de pirates", role: "menace" },
+    { keyword: "gardes", label: "Gardes", role: "autorité" },
+    { keyword: "soldats", label: "Soldats", role: "autorité" },
+    { keyword: "policiers", label: "Policiers", role: "autorité" },
+    { keyword: "chevaliers", label: "Chevaliers", role: "autorité" },
+    { keyword: "marchands", label: "Marchands", role: "population" },
+    { keyword: "villageois", label: "Villageois", role: "population" },
+    { keyword: "passants", label: "Passants", role: "population" },
+    { keyword: "habitants", label: "Habitants", role: "population" },
+    { keyword: "paysans", label: "Paysans", role: "population" },
+    { keyword: "médecins", label: "Médecins", role: "soin" },
+    { keyword: "soigneurs", label: "Soigneurs", role: "soin" },
+    { keyword: "bandits", label: "Bandits", role: "menace" },
+    { keyword: "ennemis", label: "Ennemis", role: "menace" },
+    { keyword: "mercenaires", label: "Mercenaires", role: "menace" },
+    { keyword: "voleurs", label: "Voleurs", role: "menace" },
+    { keyword: "moines", label: "Moines", role: "spirituel" },
+    { keyword: "prêtres", label: "Prêtres", role: "spirituel" },
+    { keyword: "étudiants", label: "Étudiants", role: "population" },
+    { keyword: "apprentis", label: "Apprentis", role: "population" },
+  ];
+  const dialogueVerbsRe = /\b(prévient|met en garde|alerte|crie|explique|avertit|menace|informe|annonce|raconte|révèle)\b/i;
+  const hasDialogueVerb = dialogueVerbsRe.test(userIntent);
+  const requiredNpcGroups: NpcGroupRequirement[] = [];
+  for (const g of GROUP_KEYWORDS) {
+    if (!lowerIntent.includes(g.keyword)) continue;
+    requiredNpcGroups.push({
+      id: `npc_group_${g.keyword}`,
+      label: g.label,
+      role: g.role,
+      requiredDialogue: hasDialogueVerb,
+      mustMention: [],
+    });
+  }
+  // Also include known NPC group labels
+  for (const label of input.knownNpcGroupLabels ?? []) {
+    if (lowerIntent.includes(label.toLowerCase())) {
+      const alreadyAdded = requiredNpcGroups.some((g) => g.label.toLowerCase() === label.toLowerCase());
+      if (!alreadyAdded) {
+        requiredNpcGroups.push({
+          id: `npc_group_known_${label.toLowerCase().replace(/\s+/g, "_")}`,
+          label,
+          role: "population",
+          requiredDialogue: hasDialogueVerb,
+          mustMention: [],
+        });
+      }
+    }
+  }
+
   return {
     version: 1,
     chapterId,
     storyFacts,
     requiredCharacters,
-    requiredNpcGroups: [],
-    requiredLocations,
+    requiredNpcGroups,
+    requiredLocations: [...extractedLocations],
     requiredEvents: events,
     forbiddenInventions: [],
   };

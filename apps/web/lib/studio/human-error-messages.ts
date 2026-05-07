@@ -64,6 +64,48 @@ export const HUMAN_ERROR_MESSAGES: Record<string, HumanErrorMessage> = {
     cta: "Vérifier la cohérence",
     targetPhase: "generation",
   },
+  missing_prop_insert: {
+    title: "Aucun gros plan d'objet narratif prévu",
+    description:
+      "Ton histoire mentionne un objet important mais aucune case ne le montre en détail.",
+    cta: "Réparer le plan",
+    targetPhase: "plan_dialogues",
+  },
+  missing_weapon_insert: {
+    title: "Aucun insert arme/objet clé prévu",
+    description:
+      "Une arme ou un objet clé est requis par l'histoire mais n'a pas de case dédiée.",
+    cta: "Réparer le plan",
+    targetPhase: "plan_dialogues",
+  },
+  missing_npc_population: {
+    title: "Les personnages secondaires n'ont pas de panel",
+    description:
+      "Un groupe de personnages est requis par l'histoire mais absent du découpage.",
+    cta: "Réparer le plan",
+    targetPhase: "plan_dialogues",
+  },
+  CONTRACTUAL_FOCUS_INADEQUATE: {
+    title: "Le plan de production est déséquilibré",
+    description:
+      "Il manque des cases de décor, d'objets ou de personnages secondaires dans le plan.",
+    cta: "Réparer le plan",
+    targetPhase: "plan_dialogues",
+  },
+  INTENT_COVERAGE_TOO_LOW: {
+    title: "Le plan ne couvre pas assez ton histoire",
+    description:
+      "Des événements importants de ton intention ne sont pas représentés dans le plan.",
+    cta: "Vérifier l'histoire",
+    targetPhase: "story",
+  },
+  CANON_PACK_INCOMPLETE: {
+    title: "La fiche d'un personnage principal est incomplète",
+    description:
+      "L'apparence du héros ou d'un personnage important n'est pas fixée — risque de dérive visuelle.",
+    cta: "Compléter la fiche personnage",
+    targetPhase: "characters",
+  },
 };
 
 /**

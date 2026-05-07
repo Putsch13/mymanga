@@ -332,5 +332,16 @@ Réponds uniquement avec JSON : {"lines":[{"panelId","speaker","text"}]}`,
     }
   }
 
+  const requiredActBeats = input.requiredDialogueActBeatIds ?? [];
+  const fulfilledActs = requiredActBeats.filter(
+    (bid) => !blockingErrors.some((e) => e.includes(bid)),
+  );
+  const missingActs = requiredActBeats.filter(
+    (bid) => blockingErrors.some((e) => e.includes(bid)),
+  );
+  console.info(
+    `[dialogue] requiredActs=${requiredActBeats.length} fulfilled=${fulfilledActs.length} missing={${missingActs.join(",")}}`,
+  );
+
   return { beatsTouched, linesWritten, warnings, blockingErrors };
 }

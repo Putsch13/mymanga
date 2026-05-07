@@ -145,12 +145,14 @@ export function computeChapterFocusBudget(
     });
   }
 
-  // Regle : au moins 1 prop insert si prop obligatoire
-  const hasMandatoryProp = blueprints.some((bp) => bp.requiredProps.length > 0);
+  // Regle : au moins 1 prop insert si prop obligatoire (visible/symbolic uniquement)
+  const hasMandatoryProp = blueprints.some(
+    (bp) => bp.requiredProps.some((p) => p.mustBeVisible === true),
+  );
   if (hasMandatoryProp && propInsertCount === 0) {
     violations.push({
       type: "missing_prop_insert",
-      message: "Des props obligatoires sont présents mais aucun panel prop/insert n'est prévu",
+      message: "Des props obligatoires (visibles) sont présents mais aucun panel prop/insert n'est prévu",
       severity: "warning",
     });
   }
@@ -417,7 +419,7 @@ export function computeContractualFocusAdequacy(
     if (bp.heroCenterAllowed && bp.subjectFocus === "hero") heroCenterCount++;
 
     if (bp.mustShowEnemy) hasEnemyObligation = true;
-    if (bp.requiredProps && bp.requiredProps.length > 0) hasMandatoryProp = true;
+    if (bp.requiredProps && bp.requiredProps.some((p) => p.mustBeVisible === true)) hasMandatoryProp = true;
     if (bp.requiredNpcCount > 0) hasNpcObligation = true;
   }
 
@@ -483,6 +485,117 @@ export function computeContractualFocusAdequacy(
     heroCenterRatio,
     violations,
     blocking: violations.some((v) => v.severity === "blocking"),
+  };
+}
+
+// ─── Unified Contract QA (P0-3) ──────────────────────────────────────────────
+
+export interface PremiumPlanContractQaResult {
+  ok: boolean;
+  blocking: string[];
+  warnings: string[];
+  repairable: string[];
+  metrics: {
+    propInserts: number;
+    weaponInserts: number;
+    envPanels: number;
+    npcPanels: number;
+    enemyFocus: number;
+    heroCenterRatio: number;
+    weakLocationBinding: number;
+  };
+}
+
+/**
+ * P0-3 — Fonction QA unifiée appelée par estimate ET launch.
+ * Une seule source de vérité pour la validité contractuelle du plan.
+ */
+export function runPremiumPlanContractQa(input: {
+  blueprints: PanelBlueprintPremium[];
+}): PremiumPlanContractQaResult {
+  const { blueprints } = input;
+  const adequacy = computeContractualFocusAdequacy(blueprints);
+  const budget = computeChapterFocusBudget(blueprints);
+
+  const blocking: string[] = [];
+  const warnings: string[] = [];
+  const repairable: string[] = [];
+
+  let weakLocationBinding = 0;
+  for (const bp of blueprints) {
+    const env = bp.environmentVisualDna as { locationName?: string } | null | undefined;
+    if (!env || typeof env.locationName !== "string") {
+      weakLocationBinding++;
+      continue;
+    }
+    const n = env.locationName.trim().toLowerCase();
+    if (n.length === 0 || n === "unknown" || n === "story-consistent setting") {
+      weakLocationBinding++;
+    }
+  }
+
+  for (const v of adequacy.violations) {
+    if (v.severity === "blocking") {
+      if (
+        v.type === "missing_prop_insert" ||
+        v.type === "missing_npc_population" ||
+        v.type === "missing_environment"
+      ) {
+        repairable.push(v.type);
+      }
+      blocking.push(v.type);
+    } else {
+      warnings.push(v.type);
+    }
+  }
+
+  for (const v of budget.violations) {
+    const key = v.type;
+    if (v.severity === "blocking" && !blocking.includes(key)) {
+      blocking.push(key);
+    } else if (v.severity === "warning" && !warnings.includes(key)) {
+      warnings.push(key);
+    }
+  }
+
+  const total = blueprints.length;
+  const weakRatio = total > 0 ? weakLocationBinding / total : 0;
+  if (weakRatio >= 0.6) {
+    blocking.push("weak_location_binding_critical");
+  } else if (weakRatio > 0.3) {
+    repairable.push("weak_location_binding_high");
+    warnings.push("weak_location_binding_high");
+  }
+
+  if (weakRatio >= 1 && total > 0) {
+    console.error(
+      `[contract-qa] 100%_weak_location_binding — probable hydration bug panelCount=${total}`,
+    );
+  }
+
+  const propInsertPanels = blueprints.filter(
+    (bp) => bp.subjectFocus === "prop" || bp.cutawayType === "prop_insert",
+  ).length;
+  const weaponInsertPanels = blueprints.filter(
+    (bp) =>
+      bp.subjectFocus === "prop" &&
+      bp.requiredProps?.some((p) => p.mustBeVisible === true),
+  ).length;
+
+  return {
+    ok: blocking.length === 0,
+    blocking,
+    warnings,
+    repairable,
+    metrics: {
+      propInserts: propInsertPanels,
+      weaponInserts: weaponInsertPanels,
+      envPanels: adequacy.environmentPanels,
+      npcPanels: adequacy.npcPanels,
+      enemyFocus: adequacy.enemyFocusPanels,
+      heroCenterRatio: adequacy.heroCenterRatio,
+      weakLocationBinding,
+    },
   };
 }
 

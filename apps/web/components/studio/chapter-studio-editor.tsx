@@ -250,6 +250,24 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
       ) {
         completedSet.add(prevWizardId);
       }
+
+      // P2-3: Auto-compile intent contract when leaving "intent" step
+      if (prevWizardId === "intent" && id !== "intent" && !draft.chapterIntentContract && chapterId) {
+        const pitch = draft.intent?.shortPitch?.trim();
+        if (pitch && pitch.length >= 8) {
+          fetch(`/api/projects/${projectId}/chapters/${chapterId}/intent-compile`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ shortPitch: pitch }),
+          }).then(async (res) => {
+            if (!res.ok) return;
+            const json = await res.json() as { contract?: unknown };
+            if (json.contract) {
+              updateDraft({ ...draft, chapterIntentContract: json.contract as typeof draft.chapterIntentContract });
+            }
+          }).catch(() => { /* non-blocking */ });
+        }
+      }
       setActiveFlowStep(nav.flowStep);
       updateDraft(
         {
@@ -275,7 +293,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
         section?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 160);
     },
-    [chapterNumber, draft, updateDraft],
+    [chapterNumber, chapterId, draft, projectId, updateDraft],
   );
 
   /** P1.3 — lien readiness `?wizard=plan` etc. : ouvre l’étape correspondante après chargement studio. */

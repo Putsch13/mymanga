@@ -32,3 +32,5 @@ export * from "./panel-continuity-preflight";
 export * from "./resolve-production-outline-for-premium-pipeline";
 export * from "./panel-dialogue-text-plan";
 export * from "./build-beat-micro-storyboard";
+export * from "./allocate-contractual-visual-slots";
+export * from "./repair-contractual-focus";
