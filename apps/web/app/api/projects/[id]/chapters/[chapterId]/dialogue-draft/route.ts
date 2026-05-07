@@ -72,6 +72,8 @@ type DialogueDraftResponse = {
   premiumErrors: string[];
   /** `true` si la persistance a écrit le snapshot. */
   persisted: boolean;
+  /** Blueprints enrichis avec dialogues — permet au client de resync son draft. */
+  panelBlueprints?: PanelBlueprintPremium[];
 };
 
 function uniquePush<T>(arr: T[], v: T): void {
@@ -276,6 +278,7 @@ export async function POST(req: Request, ctx: Ctx) {
     panels,
     premiumErrors,
     persisted,
+    panelBlueprints: normalized,
   };
 
   console.info(

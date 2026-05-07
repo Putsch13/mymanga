@@ -60,17 +60,20 @@ export function runIntentCoverageQa(input: IntentCoverageInput): IntentCoverageR
 
   const allBeatsText = beatSummaries.map(normalize).join(" ");
 
-  // Check requiredEvents coverage
+  // Check requiredEvents coverage — fuzzy word overlap between user intent
+  // sentences and concatenated beat summaries. We keep words > 2 chars (not 3)
+  // because many French entities are short ("mer", "île", "roi") and lower the
+  // threshold to 0.25 so that paraphrased beats still match the user's language.
   const missingEvents: string[] = [];
   let covered = 0;
   for (const evt of intentContract.requiredEvents) {
     const evtLabel = normalize(evt.label);
-    const words = evtLabel.split(/\s+/).filter((w) => w.length > 3);
+    const words = evtLabel.split(/\s+/).filter((w) => w.length > 2);
     const matchRatio = words.length === 0
       ? 0
       : words.filter((w) => allBeatsText.includes(w)).length / words.length;
 
-    if (matchRatio >= 0.4) {
+    if (matchRatio >= 0.25) {
       covered++;
     } else {
       missingEvents.push(evt.id);

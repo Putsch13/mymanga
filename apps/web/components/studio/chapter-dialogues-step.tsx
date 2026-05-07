@@ -56,6 +56,7 @@ type DialogueDraftResponse = {
   panels: DialogueDraftPanelView[];
   premiumErrors: string[];
   persisted: boolean;
+  panelBlueprints?: PanelBlueprintPremium[];
 };
 
 function asArray<T>(v: T[] | null | undefined): T[] {
@@ -154,6 +155,19 @@ export function ChapterDialoguesStep({
       }
       setResponse(data);
       setPremiumErrors(data.premiumErrors ?? []);
+
+      // Resync draft with server-persisted blueprints so that autosave and
+      // tab-switches don't overwrite the dialogues with the old draft.
+      if (data.persisted && Array.isArray(data.panelBlueprints) && data.panelBlueprints.length > 0) {
+        onUpdateDraft({
+          ...draft,
+          productionPlan: {
+            ...draft.productionPlan!,
+            panelBlueprints: data.panelBlueprints as never,
+          },
+          chapterDialogueContract: data.contract as never,
+        });
+      }
     } catch {
       setError("Impossible de joindre le serveur. Réessaie.");
     } finally {
