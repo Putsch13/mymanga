@@ -32,14 +32,25 @@ export function RepairActionButtons({
     setPending(action.id);
     setError(null);
     try {
+      const body = action.buildBody ? action.buildBody(context) : {};
+      if (body === null) {
+        throw new Error("Donnée manquante pour cette réparation. Complète l'intention/le héros avant.");
+      }
       const res = await fetch(action.endpoint(context), {
         method: action.method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify(body),
       });
       if (!res.ok && res.status !== 204) {
         const text = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}: ${text.slice(0, 200) || "réparation indisponible"}`);
+        let userMessage = `HTTP ${res.status}`;
+        try {
+          const parsed = JSON.parse(text) as { error?: string; message?: string };
+          userMessage = parsed.message ?? parsed.error ?? userMessage;
+        } catch {
+          if (text) userMessage = text.slice(0, 200);
+        }
+        throw new Error(userMessage);
       }
       onRepaired?.(action.id);
     } catch (err) {
@@ -51,28 +62,33 @@ export function RepairActionButtons({
 
   return (
     <div className={variant === "block" ? "space-y-2" : "flex flex-wrap items-center gap-2"}>
-      {actions.map((action) => (
-        <div key={action.id} className={variant === "block" ? "flex flex-col gap-1" : "inline-flex"}>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => runAction(action)}
-            disabled={pending !== null}
-            className="gap-1.5"
-          >
-            {pending === action.id ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Wrench className="h-3.5 w-3.5" />
-            )}
-            {action.label}
-          </Button>
-          {variant === "block" ? (
-            <span className="text-[11px] text-muted-foreground">{action.description}</span>
-          ) : null}
-        </div>
-      ))}
+      {actions.map((action) => {
+        const body = action.buildBody ? action.buildBody(context) : {};
+        const disabled = pending !== null || body === null;
+        return (
+          <div key={action.id} className={variant === "block" ? "flex flex-col gap-1" : "inline-flex"}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => runAction(action)}
+              disabled={disabled}
+              className="gap-1.5"
+              title={body === null ? "Donnée manquante (intention, héros…)" : undefined}
+            >
+              {pending === action.id ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Wrench className="h-3.5 w-3.5" />
+              )}
+              {action.label}
+            </Button>
+            {variant === "block" ? (
+              <span className="text-[11px] text-muted-foreground">{action.description}</span>
+            ) : null}
+          </div>
+        );
+      })}
       {error ? (
         <span className="text-xs text-red-400">{error}</span>
       ) : null}

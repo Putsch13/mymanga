@@ -20,12 +20,21 @@ export interface RepairAction {
   blockerCodes: string[];
   endpoint: (ctx: RepairContext) => string;
   method: "POST" | "PUT" | "PATCH";
+  /**
+   * Optional body builder. When omitted, an empty `{}` is sent.
+   * Returning `null` disables the action (e.g. missing context like userIntent).
+   */
+  buildBody?: (ctx: RepairContext) => Record<string, unknown> | null;
 }
 
 export interface RepairContext {
   projectId: string;
   chapterId: string;
   characterId?: string;
+  /** Required for `analyze_story` to seed the intent compile route. */
+  userIntent?: string | null;
+  /** Required for `complete_canon_pack` when no `characterId` is selected yet. */
+  heroCharacterId?: string | null;
 }
 
 export const REPAIR_ACTIONS: RepairAction[] = [
@@ -37,6 +46,11 @@ export const REPAIR_ACTIONS: RepairAction[] = [
     endpoint: (ctx) =>
       `/api/projects/${ctx.projectId}/chapters/${ctx.chapterId}/intent-compile`,
     method: "POST",
+    buildBody: (ctx) => {
+      const intent = (ctx.userIntent ?? "").trim();
+      if (intent.length < 8) return null;
+      return { rawUserIntent: intent };
+    },
   },
   {
     id: "create_npcs",
@@ -79,9 +93,15 @@ export const REPAIR_ACTIONS: RepairAction[] = [
     label: "Compléter la fiche personnage",
     description: "Génère la fiche visuelle complète depuis les données existantes.",
     blockerCodes: ["canon_pack_incomplete", "CANON_PACK_INCOMPLETE"],
-    endpoint: (ctx) =>
-      `/api/characters/${ctx.characterId ?? "unknown"}/generate-visual`,
+    endpoint: (ctx) => {
+      const id = ctx.characterId ?? ctx.heroCharacterId ?? "unknown";
+      return `/api/characters/${id}/generate-visual`;
+    },
     method: "POST",
+    buildBody: (ctx) => {
+      if (!ctx.characterId && !ctx.heroCharacterId) return null;
+      return {};
+    },
   },
 ];
 

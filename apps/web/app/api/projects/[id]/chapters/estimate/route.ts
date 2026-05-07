@@ -295,13 +295,29 @@ export async function POST(req: Request, ctx: Ctx) {
     roleType: c.roleType,
   }));
 
+  // P0 fix : NPC groups détectés dans le VisualWorld doivent être considérés
+  // comme des refs valides (sinon "Groupe de pêcheurs" remonte unresolved).
+  const npcGroupRefsForResolution = (bundle.visualWorldContract?.npcGroups ?? []).map((g) => ({
+    id: g.id,
+    label: g.label,
+  }));
+
   // Build production beats with narrative intelligence (3-layer pipeline)
   const enrichedBeats = await Promise.all(bundle.outline.beats.map(async (beat) => {
     const charLabels = Array.isArray(beat.characters) ? beat.characters : [];
-    const resolved = resolveCharacterRefsToIds(charLabels, characterCatalogForResolution);
+    const resolved = resolveCharacterRefsToIds(
+      charLabels,
+      characterCatalogForResolution,
+      npcGroupRefsForResolution,
+    );
     if (resolved.unresolved.length > 0) {
       console.warn(
         `[estimate] character_ref_unresolved beatId=${beat.id} labels=${JSON.stringify(resolved.unresolved)}`,
+      );
+    }
+    if (resolved.npcGroupIds && resolved.npcGroupIds.length > 0) {
+      console.info(
+        `[estimate] character_ref_npc_group_resolved beatId=${beat.id} groupIds=${JSON.stringify(resolved.npcGroupIds)}`,
       );
     }
     const productionBeat = {

@@ -12,11 +12,15 @@ export function PremiumReadinessDashboardCard({
   projectId,
   chapterId,
   characterId,
+  userIntent,
+  heroCharacterId,
 }: {
   dashboard: PremiumReadinessDashboard | null;
   projectId?: string;
   chapterId?: string;
   characterId?: string;
+  userIntent?: string | null;
+  heroCharacterId?: string | null;
 }) {
   if (!dashboard) return null;
 
@@ -119,7 +123,7 @@ export function PremiumReadinessDashboardCard({
                   {projectId && chapterId ? (
                     <RepairActionButtons
                       blockerCodes={[issue.code]}
-                      context={{ projectId, chapterId, characterId }}
+                      context={{ projectId, chapterId, characterId, userIntent, heroCharacterId }}
                     />
                   ) : null}
                 </li>

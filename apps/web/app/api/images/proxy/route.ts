@@ -19,6 +19,7 @@
  */
 import { NextResponse } from "next/server";
 import { isHostAllowed, verifySignature } from "./internals";
+import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,11 +55,23 @@ export async function GET(req: Request) {
     return new NextResponse("Invalid signature", { status: 403 });
   }
 
+  // P0 fix : si l'URL est une URL Supabase Storage publique (legacy),
+  // la transformer en signed URL avant de la fetch (sinon le bucket privé
+  // renvoie 400). Idempotent : retourne l'URL inchangée si déjà signée.
+  const fetchedUrl = (await signSupabaseUrlIfNeeded(targetUrl)) ?? targetUrl;
+  if (fetchedUrl !== targetUrl) {
+    try {
+      parsedUrl = new URL(fetchedUrl);
+    } catch {
+      // ignore — fall back to original parsedUrl
+    }
+  }
+
   const host = parsedUrl.hostname;
   console.log(`[proxy] fetching ${host} path=${parsedUrl.pathname.slice(0, 60)}`);
 
   try {
-    const upstream = await fetch(targetUrl, {
+    const upstream = await fetch(fetchedUrl, {
       headers: { "User-Agent": "MangaAIStudio/1.0" },
       signal: AbortSignal.timeout(30000),
     });

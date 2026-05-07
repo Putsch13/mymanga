@@ -51,11 +51,17 @@ export function ChapterGenerationReviewStep({
   preLaunchBlocked,
   sceneDialogueEnrichPreferred,
   onSceneDialogueEnrichPreferredChange,
+  userIntent,
+  heroCharacterId,
 }: {
   projectId: string;
   chapterId: string;
   projectTitle: string;
   chapterTitle: string;
+  /** User's free-text intent — used by the auto-repair "Analyser l'histoire" button. */
+  userIntent?: string | null;
+  /** Hero character id — used by the auto-repair "Compléter la fiche personnage" button. */
+  heroCharacterId?: string | null;
   blockerItems: ChapterReadinessIssue[];
   warningItems: ChapterReadinessIssue[];
   premiumDashboard: PremiumReadinessDashboard | null;
@@ -148,6 +154,8 @@ export function ChapterGenerationReviewStep({
         dashboard={premiumDashboard}
         projectId={projectId}
         chapterId={chapterId}
+        userIntent={userIntent}
+        heroCharacterId={heroCharacterId}
       />
 
       {/* Blocants détaillés avec CTA "Corriger" */}

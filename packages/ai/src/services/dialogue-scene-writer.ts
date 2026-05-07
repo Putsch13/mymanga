@@ -66,11 +66,21 @@ function beatText(outline: ProductionOutline | null | undefined, beatId: string)
 }
 
 function isSpeakerish(bp: PanelBlueprintPremium): boolean {
+  // P0 fix : élargir aux beats centrés sur des PNJ ou des groupes (pêcheurs,
+  // gardes, etc.) qui doivent pouvoir prévenir/avertir le héros. Sans ça, le
+  // dialogue-scene-writer skip silencieusement tous les beats où le PNJ parle.
+  const hasRequiredEntities = Array.isArray(bp.requiredEntityIds) && bp.requiredEntityIds.length > 0;
+  const hasMustShowChars = Array.isArray(bp.mustShowCharacterIds) && bp.mustShowCharacterIds.length > 0;
+  const carrierAllowsDialogue = bp.dialogueCarrier !== "narration";
   return (
     bp.dialogueCarrier === "speaker_visible"
     || bp.subjectFocus === "speaker"
     || bp.subjectFocus === "duo"
-    || /dialogue|parl|dit|réplique/i.test(bp.purpose)
+    || bp.subjectFocus === "group"
+    || bp.subjectFocus === "npc"
+    || (hasRequiredEntities && carrierAllowsDialogue)
+    || (hasMustShowChars && carrierAllowsDialogue)
+    || /dialogue|parl|dit|réplique|crie|alerte|prévient|avertit|hurle|s'écrie|s'exclame/i.test(bp.purpose)
   );
 }
 

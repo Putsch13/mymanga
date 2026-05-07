@@ -835,6 +835,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
             preLaunchBlocked={preLaunchBlocked}
             projectTitle={projectTitle}
             chapterTitle={summary.title}
+            userIntent={draft?.intent?.shortPitch ?? snapshot?.data.intent?.shortPitch ?? null}
             blockerItems={blockerItems}
             warningItems={warningItems}
             premiumDashboard={livePremiumDashboard}

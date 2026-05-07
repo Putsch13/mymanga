@@ -15,6 +15,13 @@ export type ResolveCharacterRefsResult = {
   ids: string[];
   /** Libellés d’entrée sans match catalogue (à signaler produit / QA) */
   unresolved: string[];
+  /** NPC group IDs résolus séparément (ne sont pas des personnages individuels) */
+  npcGroupIds?: string[];
+};
+
+export type NpcGroupRefForResolution = {
+  id: string;
+  label?: string | null;
 };
 
 function norm(s: string): string {
@@ -23,13 +30,19 @@ function norm(s: string): string {
 
 /**
  * Règles : match exact sur `id` ; sinon match insensible à la casse sur `name` et `displayName` (trim).
+ *
+ * Si `npcGroups` est fourni, les libellés qui matchent un NPC group sont retournés
+ * dans `npcGroupIds` (et NON dans `unresolved`). Cela évite que le QA premium
+ * échoue à tort sur des libellés comme "Groupe de pêcheurs", "Garde", etc.
  */
 export function resolveCharacterRefsToIds(
   refs: string[],
   characters: CharacterRefForResolution[],
+  npcGroups: readonly NpcGroupRefForResolution[] = [],
 ): ResolveCharacterRefsResult {
   const ids: string[] = [];
   const unresolved: string[] = [];
+  const npcGroupIds: string[] = [];
 
   const byId = new Map<string, CharacterRefForResolution>();
   const byName = new Map<string, CharacterRefForResolution>();
@@ -42,6 +55,16 @@ export function resolveCharacterRefsToIds(
       }
       const d = typeof c.displayName === "string" ? norm(c.displayName) : "";
       if (d && d !== n && !byName.has(d)) byName.set(d, c);
+    }
+  }
+
+  const npcByLabel = new Map<string, string>();
+  const npcByIdSet = new Set<string>();
+  for (const g of npcGroups) {
+    if (typeof g.id === "string" && g.id.length > 0) {
+      npcByIdSet.add(g.id);
+      const lbl = typeof g.label === "string" ? norm(g.label) : "";
+      if (lbl && !npcByLabel.has(lbl)) npcByLabel.set(lbl, g.id);
     }
   }
 
@@ -62,8 +85,22 @@ export function resolveCharacterRefsToIds(
       continue;
     }
 
+    if (npcByIdSet.has(ref)) {
+      npcGroupIds.push(ref);
+      continue;
+    }
+    const npcHit = npcByLabel.get(key);
+    if (npcHit) {
+      npcGroupIds.push(npcHit);
+      continue;
+    }
+
     unresolved.push(ref);
   }
 
-  return { ids: [...new Set(ids)], unresolved: [...new Set(unresolved)] };
+  return {
+    ids: [...new Set(ids)],
+    unresolved: [...new Set(unresolved)],
+    npcGroupIds: [...new Set(npcGroupIds)],
+  };
 }
