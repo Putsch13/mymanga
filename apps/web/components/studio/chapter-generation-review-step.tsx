@@ -144,7 +144,11 @@ export function ChapterGenerationReviewStep({
         </CardContent>
       </Card>
 
-      <PremiumReadinessDashboardCard dashboard={premiumDashboard} />
+      <PremiumReadinessDashboardCard
+        dashboard={premiumDashboard}
+        projectId={projectId}
+        chapterId={chapterId}
+      />
 
       {/* Blocants détaillés avec CTA "Corriger" */}
       {blockerItems.length > 0 && (

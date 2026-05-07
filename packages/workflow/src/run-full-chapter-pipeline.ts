@@ -241,6 +241,36 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         ? { ...(productionPlanRecord ?? {}), panelBlueprints: topLevelBlueprints }
         : productionPlanRecord;
 
+  // Sprint 2 — derive beat IDs requiring at least one dialogue act, so the
+  // dialogue-scene-writer fails closed on silent skips for narratively-locked beats.
+  let requiredDialogueActBeatIdsForPipeline: string[] = [];
+  if (chapter.userIntent && chapter.userIntent.length > 8) {
+    try {
+      const { buildIntentNarrativeContract } = await import("@manga-ai-studio/core");
+      const intentNarrative = buildIntentNarrativeContract({
+        chapterId,
+        userIntent: chapter.userIntent,
+      });
+      const dialogueEventIds = new Set(
+        intentNarrative.requiredEvents
+          .filter((e) => e.requiredDialogue === true || e.type === "dialogue")
+          .map((e) => e.id),
+      );
+      const beatBlueprints = (productionPlanForV3 as { panelBlueprints?: Array<{ beatId?: string; servedEventIds?: string[] }> } | undefined)
+        ?.panelBlueprints ?? [];
+      const beatIds = new Set<string>();
+      for (const bp of beatBlueprints) {
+        const served = Array.isArray(bp.servedEventIds) ? bp.servedEventIds : [];
+        if (typeof bp.beatId === "string" && served.some((id) => dialogueEventIds.has(id))) {
+          beatIds.add(bp.beatId);
+        }
+      }
+      requiredDialogueActBeatIdsForPipeline = [...beatIds];
+    } catch (err) {
+      console.warn("[full-chapter-pipeline] required_dialogue_act_beat_ids_build_failed", err);
+    }
+  }
+
   let priorChapterDialogueSnippets: string[] | undefined;
   if (chapter.chapterNumber > 1) {
     const prevChapter = await prisma.chapter.findFirst({
@@ -321,6 +351,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       chapterIntentContract: chapterIntentContractForPipeline,
       persistedVisualWorldContract: persistedVisualWorldForPipeline,
       chapterDialogueContract: chapterDialogueContractForPipeline,
+      requiredDialogueActBeatIds: requiredDialogueActBeatIdsForPipeline,
     });
 
     // P3 — gate : en mode premium-only, on SAUTE la pipeline legacy

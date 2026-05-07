@@ -5,11 +5,18 @@ import { AlertTriangle, CheckCircle2, ClipboardList, XCircle } from "lucide-reac
 import type { PremiumReadinessDashboard } from "@/lib/readiness/build-premium-readiness-dashboard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { RepairActionButtons } from "./repair-action-buttons";
 
 export function PremiumReadinessDashboardCard({
   dashboard,
+  projectId,
+  chapterId,
+  characterId,
 }: {
   dashboard: PremiumReadinessDashboard | null;
+  projectId?: string;
+  chapterId?: string;
+  characterId?: string;
 }) {
   if (!dashboard) return null;
 
@@ -96,16 +103,24 @@ export function PremiumReadinessDashboardCard({
               {blocked.map((issue, i) => (
                 <li
                   key={`${issue.code}-${i}`}
-                  className="flex flex-col gap-2 rounded-lg border border-red-500/20 bg-red-500/10 p-3 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-2 rounded-lg border border-red-500/20 bg-red-500/10 p-3"
                 >
-                  <div>
-                    <p className="font-medium text-red-50">{issue.message}</p>
-                    <p className="mt-0.5 text-[11px] text-red-200/70">{issue.code}</p>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="font-medium text-red-50">{issue.message}</p>
+                      <p className="mt-0.5 text-[11px] text-red-200/70">{issue.code}</p>
+                    </div>
+                    {issue.fixAction?.href ? (
+                      <Button asChild size="sm" variant="outline" className="shrink-0 border-red-400/40 text-red-100">
+                        <Link href={issue.fixAction.href}>{issue.fixAction.label}</Link>
+                      </Button>
+                    ) : null}
                   </div>
-                  {issue.fixAction?.href ? (
-                    <Button asChild size="sm" variant="outline" className="shrink-0 border-red-400/40 text-red-100">
-                      <Link href={issue.fixAction.href}>{issue.fixAction.label}</Link>
-                    </Button>
+                  {projectId && chapterId ? (
+                    <RepairActionButtons
+                      blockerCodes={[issue.code]}
+                      context={{ projectId, chapterId, characterId }}
+                    />
                   ) : null}
                 </li>
               ))}

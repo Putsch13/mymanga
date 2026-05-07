@@ -152,6 +152,13 @@ vi.mock("@manga-ai-studio/ai", () => ({
       humanReadable: "mocked shot plan",
     }),
   ),
+  runCutawayQa: vi.fn().mockReturnValue({
+    ok: true,
+    totalBeats: 0,
+    beatsWithCutaway: 0,
+    beatsWithoutCutaway: [],
+    warnings: [],
+  }),
 }));
 
 const ctx = { params: Promise.resolve({ id: "project-1" }) };

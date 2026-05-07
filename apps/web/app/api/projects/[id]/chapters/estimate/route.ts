@@ -13,6 +13,7 @@ import {
   enrichNarrativeFactsWithLLM,
   mergeNarrativeFacts,
   buildChapterShotPlan,
+  runCutawayQa,
   type PremiumReadinessCastContext,
 } from "@manga-ai-studio/ai";
 import {
@@ -587,6 +588,7 @@ export async function POST(req: Request, ctx: Ctx) {
       chapterTitle: targetChapter?.title ?? null,
       blueprints: allBlueprints,
     }),
+    cutawayQa: runCutawayQa(allBlueprints),
   };
 
   const contextDigest = [

@@ -6,7 +6,12 @@
  * inline. Sortie sérialisable, prête à renvoyer côté Next.
  */
 
-import type { ChapterIntentContract } from "@manga-ai-studio/core";
+import {
+  type ChapterIntentContract,
+  buildIntentNarrativeContract,
+  type IntentNarrativeContract,
+  logIntentContract,
+} from "@manga-ai-studio/core";
 import {
   compileChapterIntent,
   type CompileChapterIntentInput as RawInput,
@@ -23,10 +28,15 @@ export type CompileChapterIntentUsecaseInput = {
   pacing?: "slow" | "balanced" | "fast";
   dialogueLevel?: "low" | "medium" | "high";
   endingType?: string;
+  chapterId?: string;
+  knownCharacterNames?: string[];
+  knownLocationNames?: string[];
 };
 
 export type CompileChapterIntentUsecaseOutput = {
   contract: ChapterIntentContract;
+  /** Narrative intent contract (Sprint 1) — required events, NPC groups, locations. */
+  narrativeContract: IntentNarrativeContract | null;
   /** `true` si l’IA est intervenue (heuristique sinon). */
   usedAi: boolean;
 };
@@ -80,6 +90,27 @@ export const compileChapterIntentUsecase: Usecase<
     };
 
     const contract = await compileChapterIntent(payload);
-    return { contract, usedAi };
+
+    let narrativeContract: IntentNarrativeContract | null = null;
+    if (input.chapterId) {
+      try {
+        narrativeContract = buildIntentNarrativeContract({
+          chapterId: input.chapterId,
+          userIntent: rawUserIntent,
+          knownCharacterNames: input.knownCharacterNames ?? [],
+          knownLocationNames: input.knownLocationNames ?? [],
+        });
+        logIntentContract({
+          requiredEvents: narrativeContract.requiredEvents.length,
+          requiredNpcGroups: narrativeContract.requiredNpcGroups.length,
+          requiredLocations: narrativeContract.requiredLocations.length,
+          eventIds: narrativeContract.requiredEvents.map((e) => e.id),
+        });
+      } catch (err) {
+        console.warn("[compile-chapter-intent] narrative_contract_build_failed", err);
+      }
+    }
+
+    return { contract, narrativeContract, usedAi };
   },
 };

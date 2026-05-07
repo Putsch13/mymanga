@@ -188,6 +188,8 @@ export interface RunPremiumV3PipelineInput {
   persistedVisualWorldContract?: Record<string, unknown> | null;
   /** DialogueContract validé studio — prioritaire sur l’empreinte dérivée des blueprints. */
   chapterDialogueContract?: Record<string, unknown> | null;
+  /** Sprint 2 — beat IDs that have at least one required DialogueAct. */
+  requiredDialogueActBeatIds?: string[];
 }
 
 export interface RunPremiumV3PipelineResult {
@@ -914,6 +916,7 @@ export async function runPremiumV3Pipeline(
           avoidDialogueSnippets: input.priorChapterDialogueSnippets ?? undefined,
           forceSceneDialogueEnrich: enableDialoguist,
           rejectUnresolvedSpeakers: input.premiumV3OnlyEnabled && enableDialoguist,
+          requiredDialogueActBeatIds: input.requiredDialogueActBeatIds ?? [],
         });
         if (sceneDialogue.linesWritten > 0 || sceneDialogue.warnings.length > 0) {
           console.info(

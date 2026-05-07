@@ -19,7 +19,7 @@ export interface RepairAction {
   description: string;
   blockerCodes: string[];
   endpoint: (ctx: RepairContext) => string;
-  method: "POST" | "PUT";
+  method: "POST" | "PUT" | "PATCH";
 }
 
 export interface RepairContext {
@@ -51,19 +51,19 @@ export const REPAIR_ACTIONS: RepairAction[] = [
     id: "create_decors",
     label: "Créer les décors depuis l'histoire",
     description: "Génère le monde visuel depuis l'intention et les lieux connus.",
-    blockerCodes: ["missing_environment_visual_dna", "VISUAL_WORLD_MISSING"],
+    blockerCodes: ["missing_environment_visual_dna", "VISUAL_WORLD_MISSING", "premium_visual_world_required"],
     endpoint: (ctx) =>
       `/api/projects/${ctx.projectId}/chapters/${ctx.chapterId}/studio`,
-    method: "PUT",
+    method: "PATCH",
   },
   {
     id: "repair_plan",
     label: "Réparer le plan",
     description: "Régénère le plan du chapitre depuis l'intention analysée.",
-    blockerCodes: ["PREMIUM_OUTLINE_CONTRACT_INVALID", "DEGRADED_OUTLINE_FALLBACK"],
+    blockerCodes: ["PREMIUM_OUTLINE_CONTRACT_INVALID", "DEGRADED_OUTLINE_FALLBACK", "INTENT_COVERAGE_TOO_LOW"],
     endpoint: (ctx) =>
       `/api/projects/${ctx.projectId}/chapters/${ctx.chapterId}/approved-outline`,
-    method: "POST",
+    method: "PATCH",
   },
   {
     id: "repair_dialogues",
@@ -78,7 +78,7 @@ export const REPAIR_ACTIONS: RepairAction[] = [
     id: "complete_canon_pack",
     label: "Compléter la fiche personnage",
     description: "Génère la fiche visuelle complète depuis les données existantes.",
-    blockerCodes: ["canon_pack_incomplete"],
+    blockerCodes: ["canon_pack_incomplete", "CANON_PACK_INCOMPLETE"],
     endpoint: (ctx) =>
       `/api/characters/${ctx.characterId ?? "unknown"}/generate-visual`,
     method: "POST",

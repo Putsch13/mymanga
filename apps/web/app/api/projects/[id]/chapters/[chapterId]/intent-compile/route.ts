@@ -40,8 +40,11 @@ export async function POST(req: Request, ctx: Ctx) {
   }
 
   try {
-    const { contract, usedAi } = await compileChapterIntentUsecase.execute(body);
-    return NextResponse.json({ contract, chapterId: chapter.id, usedAi });
+    const { contract, narrativeContract, usedAi } = await compileChapterIntentUsecase.execute({
+      ...body,
+      chapterId: chapter.id,
+    });
+    return NextResponse.json({ contract, narrativeContract, chapterId: chapter.id, usedAi });
   } catch (err) {
     if (err instanceof UsecaseFailure && err.code === "INTENT_RAW_TOO_SHORT") {
       return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });

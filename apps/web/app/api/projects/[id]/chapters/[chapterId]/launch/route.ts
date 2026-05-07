@@ -6,6 +6,13 @@ import {
   computeNarrativeMemoryDigestFromOutline,
   computePanelContinuityPreflights,
   continuityPreflightBlockingReasons,
+  canonPackPreflightBlockingReasons,
+  buildIntentNarrativeContract,
+  runIntentCoverageQa,
+  logPreflight,
+  logNarrative,
+  logIntentContract,
+  logOutlineCoverage,
   getPremiumReadinessLaunchMinScore,
   hydratePanelProvenanceOnBlueprints,
   isPipelineV3PremiumOnlyEnabled,
@@ -571,6 +578,124 @@ export async function POST(_req: Request, ctx: Ctx) {
       }) as typeof bpForContinuity;
     }
   }
+  const canonListForCheck = snapshot.data.characterCanons ?? [];
+  if (strictPremiumContinuity && canonListForCheck.length > 0) {
+    const canonPackChecks = canonListForCheck.map((canon) => {
+      const tier = canon.importanceTier;
+      const roleType =
+        tier === "MAIN_HERO" ? "hero"
+          : tier === "SECONDARY_CORE" ? "deuteragonist"
+            : (canon.role ?? "supporting");
+      return {
+        characterId: canon.characterId,
+        roleType,
+        hasCanonPack: canon.hasCanonPack === true,
+        canonPackCompleteness:
+          typeof canon.canonPackCompleteness === "number" ? canon.canonPackCompleteness : 0,
+      };
+    });
+    const canonPackBlockers = canonPackPreflightBlockingReasons(canonPackChecks);
+    if (canonPackBlockers.length > 0) {
+      logNarrative({
+        domain: "canon-pack",
+        level: "error",
+        message: `canon_pack_blockers count=${canonPackBlockers.length}`,
+        data: { blockers: canonPackBlockers.join(",") },
+      });
+      logLaunchBlock(
+        projectId,
+        chapterId,
+        "CANON_PACK_INCOMPLETE",
+        "Premium hero/deuteragonist CanonPack incomplete",
+        { canonPackBlockers },
+      );
+      return NextResponse.json(
+        {
+          error: "canon_pack_incomplete",
+          code: "CANON_PACK_INCOMPLETE",
+          message:
+            "Le pack canonique d'un personnage principal est incomplet. " +
+            "Complète la fiche personnage dans le studio pour éviter la dérive visuelle, puis relance.",
+          canonPackBlockers,
+        },
+        { status: 422 },
+      );
+    }
+  }
+
+  // Intent Coverage QA — premium only, blocking when score < 60
+  if (strictPremiumContinuity && chapter.userIntent && chapter.userIntent.length > 8) {
+    try {
+      const knownLocations = (canonListForCheck.length > 0 ? canonListForCheck : [])
+        .map((c) => c.canonicalName)
+        .filter((n): n is string => Boolean(n));
+      const intentNarrative = buildIntentNarrativeContract({
+        chapterId,
+        userIntent: chapter.userIntent,
+        knownLocationNames: knownLocations,
+      });
+      logIntentContract({
+        requiredEvents: intentNarrative.requiredEvents.length,
+        requiredNpcGroups: intentNarrative.requiredNpcGroups.length,
+        requiredLocations: intentNarrative.requiredLocations.length,
+      });
+
+      const productionPlan = snapshot.data.productionPlan as { panelBlueprints?: Array<{ purpose?: string; beatId?: string }> } | undefined;
+      const beatSummariesSet = new Set<string>();
+      for (const bp of productionPlan?.panelBlueprints ?? []) {
+        if (typeof bp.purpose === "string") beatSummariesSet.add(bp.purpose);
+      }
+      const visualWorld = snapshot.data.visualWorldContract as
+        | { locations?: Array<{ canonicalName?: string }>; npcGroups?: Array<{ label?: string }> }
+        | undefined;
+      const vwLocs = (visualWorld?.locations ?? [])
+        .map((l) => l.canonicalName)
+        .filter((n): n is string => Boolean(n));
+      const vwNpcs = (visualWorld?.npcGroups ?? [])
+        .map((g) => g.label)
+        .filter((n): n is string => Boolean(n));
+
+      const coverage = runIntentCoverageQa({
+        intentContract: intentNarrative,
+        beatSummaries: [...beatSummariesSet],
+        visualWorldLocationNames: vwLocs,
+        visualWorldNpcGroupLabels: vwNpcs,
+        strict: false,
+      });
+
+      logOutlineCoverage({
+        covered: coverage.requiredEventsCovered,
+        total: coverage.requiredEventsTotal,
+        missingEventIds: coverage.missingEvents,
+      });
+
+      if (coverage.intentCoverageScore < 60 && intentNarrative.requiredEvents.length > 0) {
+        logLaunchBlock(
+          projectId,
+          chapterId,
+          "INTENT_COVERAGE_TOO_LOW",
+          `Intent coverage score=${coverage.intentCoverageScore} below threshold=60`,
+          { missingEvents: coverage.missingEvents, issues: coverage.issues.slice(0, 5) },
+        );
+        return NextResponse.json(
+          {
+            error: "intent_coverage_too_low",
+            code: "INTENT_COVERAGE_TOO_LOW",
+            message:
+              `Le plan ne couvre que ${coverage.intentCoverageScore}% de ton intention narrative. ` +
+              "Régénère le plan ou vérifie l'intention dans le wizard.",
+            intentCoverageScore: coverage.intentCoverageScore,
+            missingEvents: coverage.missingEvents,
+            coverageIssues: coverage.issues.slice(0, 10),
+          },
+          { status: 422 },
+        );
+      }
+    } catch (err) {
+      console.warn("[launch] intent_coverage_qa_failed", err);
+    }
+  }
+
   if (Array.isArray(bpForContinuity) && bpForContinuity.length > 0 && strictPremiumContinuity) {
     const continuityPreflights = computePanelContinuityPreflights(bpForContinuity as PanelBlueprintPremium[], {
       strictEnvironmentLocationBinding: strictPremiumContinuity,
@@ -578,6 +703,10 @@ export async function POST(_req: Request, ctx: Ctx) {
       strictPropVisualBinding: strictPremiumContinuity,
     });
     const continuityBlockers = continuityPreflightBlockingReasons(continuityPreflights);
+    logPreflight({
+      blockers: continuityBlockers.length,
+      dominantReason: continuityBlockers[0]?.split(":")[1],
+    });
     if (continuityBlockers.length > 0) {
       logLaunchBlock(
         projectId,
