@@ -91,11 +91,11 @@ export const REPAIR_ACTIONS: RepairAction[] = [
   {
     id: "complete_canon_pack",
     label: "Compléter la fiche personnage",
-    description: "Génère la fiche visuelle complète depuis les données existantes.",
+    description: "Génère l'ADN visuel, vocal et psychologique depuis les données existantes.",
     blockerCodes: ["canon_pack_incomplete", "CANON_PACK_INCOMPLETE"],
     endpoint: (ctx) => {
       const id = ctx.characterId ?? ctx.heroCharacterId ?? "unknown";
-      return `/api/characters/${id}/generate-visual`;
+      return `/api/characters/${id}/generate-dna`;
     },
     method: "POST",
     buildBody: (ctx) => {

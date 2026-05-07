@@ -463,6 +463,7 @@ export async function POST(req: Request, ctx: Ctx) {
     rawOutline: productionOutline,
     knownNpcGroups: npcGroupRefsForResolution,
     knownCharacters: characterCatalogForResolution,
+    visualWorld: bundle.visualWorldContract ?? null,
   });
   const mergedBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawBlueprints, canonicalPlan);
   const narrativeDigest = computeNarrativeMemoryDigestFromOutline(productionOutline);

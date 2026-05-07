@@ -18,6 +18,7 @@ import {
 import { applyDistributedCutawayRhythmToPanels } from "./distributed-cutaway-rhythm";
 import { runProductionPlanQa } from "./production-plan-qa";
 import { filterOutResolvedNpcGroupRefs, type NpcGroupRefForResolution } from "./resolve-character-refs";
+import { allocateContractualVisualSlots, consumeContractualSlot, type ContractualSlot } from "./allocate-contractual-visual-slots";
 import type {
   CanonicalChapterProductionPlan,
   CanonicalBeatPlan,
@@ -42,6 +43,27 @@ export interface BuildCanonicalPlanInput {
   knownNpcGroups?: readonly { id: string; label?: string | null }[];
   /** Catalogue personnages du projet : complète la résolution. */
   knownCharacters?: readonly { id: string; name?: string | null; displayName?: string | null }[];
+  /** VisualWorldContract — used to allocate contractual slots (props, NPCs)
+   *  before the generic rhythm pass. */
+  visualWorld?: {
+    props?: ReadonlyArray<{
+      id: string;
+      visibilityPolicy?: string | null;
+      continuityPolicy?: string;
+      requiredBeatIds?: string[];
+    }>;
+    npcGroups?: ReadonlyArray<{
+      id: string;
+      requiredBeatIds?: string[];
+    }>;
+    beatBindings?: ReadonlyArray<{
+      beatId: string;
+      primaryPropIds?: string[];
+      npcGroupIds?: string[];
+      locationId?: string | null;
+    }>;
+    locations?: ReadonlyArray<{ id: string }>;
+  } | null;
 }
 
 function generatePanelId(beatId: string, panelIndex: number): string {
@@ -353,6 +375,12 @@ export function buildCanonicalChapterProductionPlan(
 
   const rhythmPlan = planRhythm(normalizedOutline, input.rhythmConfig);
 
+  const contractualSlots = allocateContractualVisualSlots(
+    normalizedOutline.beats,
+    input.visualWorld ?? null,
+  );
+  const consumedSlots = new Set<string>();
+
   const panels: CanonicalPanelPlan[] = [];
   const beatPlans: CanonicalBeatPlan[] = [];
 
@@ -379,7 +407,7 @@ export function buildCanonicalChapterProductionPlan(
         panelInCurrentPage = 1;
       }
 
-      const panel = buildPanelPlan(
+      let panel = buildPanelPlan(
         panelId,
         beat,
         i,
@@ -389,6 +417,18 @@ export function buildCanonicalChapterProductionPlan(
         panelCountForBeat,
         isCutaway,
       );
+
+      if (isCutaway) {
+        const slot = consumeContractualSlot(contractualSlots, beat.beatId, consumedSlots);
+        if (slot) {
+          panel = {
+            ...panel,
+            role: slot.requiredRole as PanelRole,
+            subjectFocus: slot.subjectFocus,
+          };
+        }
+      }
+
       panels.push(panel);
       globalPanelIndex++;
     }

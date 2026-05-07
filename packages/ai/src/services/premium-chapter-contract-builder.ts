@@ -402,6 +402,7 @@ export function buildPremiumChapterContract(
     rawOutline: outlineForCanonical,
     knownNpcGroups: input.knownNpcGroups,
     knownCharacters: input.knownCharacters,
+    visualWorld: input.visualWorldContract ?? null,
   });
   const rawFlattened = enrichedBeats.flatMap((b) => b._blueprints);
   const mergedBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawFlattened, canonicalPlan);
@@ -690,6 +691,7 @@ export async function buildPremiumChapterContractAsync(
     rawOutline: outlineForCanonical,
     knownNpcGroups: input.knownNpcGroups,
     knownCharacters: input.knownCharacters,
+    visualWorld: input.visualWorldContract ?? null,
   });
   const rawFlattened = enrichedBeatsWithLLMBlueprints.flatMap((b) => b._blueprints);
   const mergedBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawFlattened, canonicalPlan);

@@ -632,7 +632,7 @@ export async function POST(_req: Request, ctx: Ctx) {
           typeof canon.canonPackCompleteness === "number" ? canon.canonPackCompleteness : 0,
       };
     });
-    const canonPackBlockers = canonPackPreflightBlockingReasons(canonPackChecks, { minCompleteness: 1 });
+    const canonPackBlockers = canonPackPreflightBlockingReasons(canonPackChecks, { minCompleteness: 0.7 });
     if (canonPackBlockers.length > 0) {
       logNarrative({
         domain: "canon-pack",
@@ -684,12 +684,24 @@ export async function POST(_req: Request, ctx: Ctx) {
       ];
 
       const knownCharNames = charRefsForLabels.map((c) => c.name).filter((n): n is string => Boolean(n));
+      const vwNpcGroupsForIntent = (visualWorldForLocs as { npcGroups?: Array<{ label?: string }> } | undefined)?.npcGroups ?? [];
+      const dbNpcGroupsForIntent = await prisma.npcGroup.findMany({
+        where: { projectId },
+        select: { label: true },
+      });
+      const knownNpcLabels = [
+        ...new Set([
+          ...vwNpcGroupsForIntent.map((g) => g.label).filter((l): l is string => Boolean(l)),
+          ...dbNpcGroupsForIntent.map((g) => g.label).filter(Boolean),
+        ]),
+      ];
       const intentNarrative = buildIntentNarrativeContract({
         chapterId,
         userIntent: chapter.userIntent,
         knownLocationNames: allLocationNames,
         knownCharacterNames: knownCharNames,
         knownCharacterIds: charRefsForLabels.map((c) => c.id),
+        knownNpcGroupLabels: knownNpcLabels,
       });
       logIntentContract({
         requiredEvents: intentNarrative.requiredEvents.length,

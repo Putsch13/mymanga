@@ -534,13 +534,16 @@ export function runPremiumPlanContractQa(input: {
     }
   }
 
+  const REPAIRABLE_VIOLATION_TYPES = new Set([
+    "missing_prop_insert",
+    "missing_weapon_insert",
+    "missing_npc_population",
+    "missing_environment",
+  ]);
+
   for (const v of adequacy.violations) {
     if (v.severity === "blocking") {
-      if (
-        v.type === "missing_prop_insert" ||
-        v.type === "missing_npc_population" ||
-        v.type === "missing_environment"
-      ) {
+      if (REPAIRABLE_VIOLATION_TYPES.has(v.type)) {
         repairable.push(v.type);
       }
       blocking.push(v.type);
@@ -552,6 +555,9 @@ export function runPremiumPlanContractQa(input: {
   for (const v of budget.violations) {
     const key = v.type;
     if (v.severity === "blocking" && !blocking.includes(key)) {
+      if (REPAIRABLE_VIOLATION_TYPES.has(key)) {
+        repairable.push(key);
+      }
       blocking.push(key);
     } else if (v.severity === "warning" && !warnings.includes(key)) {
       warnings.push(key);
