@@ -152,13 +152,13 @@ export function computePanelContinuityPreflights(
       && Boolean(speakerAnchorId)
       && !dna.has(speakerAnchorId!);
     const npcDnaMissingLine = missing.some((m) => m.startsWith("npc_visual_dna_insufficient:"));
-    const envBlocking =
-      missingEnvironmentDna && (critical || establishingLike || strictEnv);
+    // Environment DNA is a visual enhancement, not a structural prerequisite.
+    // Missing environmentVisualDna never blocks launch — the pipeline generates
+    // panels with a generic environment prompt. It remains a warning only.
     const propBlocking =
       (critical || strictProp) && missingPropVisualDna.length > 0;
     const blocking =
       (critical && missingCharacterDna.length > 0)
-      || envBlocking
       || propBlocking
       || missingSpeakerAnchorDna
       || (strictChar && missingCharacterDna.length > 0)

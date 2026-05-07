@@ -125,7 +125,7 @@ describe("computePanelContinuityPreflights", () => {
     ]);
   });
 
-  it("bloque un panel critique avec signaux lieu mais sans environmentVisualDna", () => {
+  it("panel critique avec signaux lieu mais sans environmentVisualDna : warning mais pas bloquant", () => {
     const [p] = computePanelContinuityPreflights([
       minimalBp({
         requiredCharacterIds: [],
@@ -134,13 +134,10 @@ describe("computePanelContinuityPreflights", () => {
       }),
     ]);
     expect(p.missingEnvironmentDna).toBe(true);
-    expect(p.blocking).toBe(true);
-    expect(continuityPreflightBlockingReasons([p])).toEqual([
-      "p1:missing_environment_visual_dna",
-    ]);
+    expect(p.blocking).toBe(false);
   });
 
-  it("strictEnvironmentLocationBinding : bloque un panel medium avec signaux lieu mais sans environmentVisualDna", () => {
+  it("strictEnvironmentLocationBinding : panel medium avec signaux lieu, warning mais pas bloquant", () => {
     const [p] = computePanelContinuityPreflights(
       [
         minimalBp({
@@ -152,8 +149,7 @@ describe("computePanelContinuityPreflights", () => {
       { strictEnvironmentLocationBinding: true },
     );
     expect(p.missingEnvironmentDna).toBe(true);
-    expect(p.blocking).toBe(true);
-    expect(continuityPreflightBlockingReasons([p])).toEqual(["p1:missing_environment_visual_dna"]);
+    expect(p.blocking).toBe(false);
   });
 
   it("strictEnvironmentLocationBinding désactivé : medium avec signaux lieu reste non bloquant", () => {
@@ -278,7 +274,7 @@ describe("computePanelContinuityPreflights", () => {
     ]);
   });
 
-  it("establishing sans environmentVisualDna → bloque (PR3)", () => {
+  it("establishing sans environmentVisualDna : warning mais pas bloquant", () => {
     const [p] = computePanelContinuityPreflights([
       minimalBp({
         criticality: "medium",
@@ -286,7 +282,6 @@ describe("computePanelContinuityPreflights", () => {
       }),
     ]);
     expect(p.missingEnvironmentDna).toBe(true);
-    expect(p.blocking).toBe(true);
-    expect(continuityPreflightBlockingReasons([p])).toEqual(["p1:missing_environment_visual_dna"]);
+    expect(p.blocking).toBe(false);
   });
 });

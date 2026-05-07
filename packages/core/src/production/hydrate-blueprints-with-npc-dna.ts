@@ -28,7 +28,7 @@ export type HydrateBlueprintsWithNpcDnaInput = {
 };
 
 function npcGroupToVisualDna(g: VisualWorldNpcGroup): NpcVisualDna {
-  const markers = [g.visualProfile, g.outfit, g.silhouette].filter((s) => s.trim().length > 0);
+  const markers = [g.visualProfile, g.outfit, g.silhouette].filter((s): s is string => typeof s === "string" && s.trim().length > 0);
   if (g.relationToLocation?.trim()) markers.push(`lieu: ${g.relationToLocation.trim()}`);
   return {
     continuityId: g.id,
