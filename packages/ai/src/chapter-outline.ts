@@ -516,6 +516,53 @@ function fallbackOutline(ctx: ChapterOutlineContext): ChapterOutlineResult {
  * Produit un outline structuré (résumé, cliffhanger, beats) pour le lecteur manga / pipeline.
  * Sans `OPENAI_API_KEY`, renvoie un gabarit déterministe basé sur l’intention utilisateur.
  */
+export class PremiumOutlineContractInvalidError extends Error {
+  override name = "PremiumOutlineContractInvalidError" as const;
+  constructor(public zodError: z.ZodError | null, reason?: string) {
+    super(
+      `PremiumOutlineContractInvalidError: ${reason ?? "outline_contract_invalid"} — ${
+        zodError ? zodError.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") : "unknown"
+      }`,
+    );
+  }
+}
+
+/**
+ * Best-effort JSON repair: normalizes LLM enum arrays to scalars
+ * before re-running Zod validation.
+ */
+function attemptRepairOutlineJson(raw: unknown): z.SafeParseReturnType<unknown, ChapterOutlineResult> {
+  if (!raw || typeof raw !== "object") return outlineResultSchema.safeParse(raw);
+  const obj = structuredClone(raw) as Record<string, unknown>;
+  if (Array.isArray(obj.beats)) {
+    for (const beat of obj.beats as Record<string, unknown>[]) {
+      if (Array.isArray(beat.pageRole)) beat.pageRole = beat.pageRole[0];
+      const sb = beat.structuredBeat as Record<string, unknown> | undefined;
+      if (sb) {
+        if (Array.isArray(sb.source)) sb.source = sb.source[0];
+        for (const arc of (sb.arcPromises ?? []) as Record<string, unknown>[]) {
+          if (Array.isArray(arc.stage)) arc.stage = arc.stage[0];
+          if (Array.isArray(arc.priority)) arc.priority = arc.priority[0];
+        }
+        for (const wc of (sb.worldConsequences ?? []) as Record<string, unknown>[]) {
+          if (Array.isArray(wc.scope)) wc.scope = wc.scope[0];
+          if (Array.isArray(wc.persistence)) wc.persistence = wc.persistence[0];
+        }
+        for (const hook of (sb.setupPayoffHooks ?? []) as Record<string, unknown>[]) {
+          if (Array.isArray(hook.kind)) hook.kind = hook.kind[0];
+        }
+      }
+      const bnc = beat.beatNarrativeContract as Record<string, unknown> | undefined;
+      if (bnc) {
+        if (Array.isArray(bnc.storyFunction)) bnc.storyFunction = bnc.storyFunction[0];
+        if (Array.isArray(bnc.actionEnvelope)) bnc.actionEnvelope = bnc.actionEnvelope[0];
+        if (Array.isArray(bnc.visualEscalationPolicy)) bnc.visualEscalationPolicy = bnc.visualEscalationPolicy[0];
+      }
+    }
+  }
+  return outlineResultSchema.safeParse(obj);
+}
+
 function buildOutlineFallbackResult(
   ctx: ChapterOutlineContext,
   fallbackReason: string,
@@ -704,19 +751,48 @@ RÈGLES DE COHÉRENCE INTER-CHAPITRES :
     }
 
     const parsed = JSON.parse(raw) as unknown;
-    const outline = outlineResultSchema.safeParse(parsed);
+    let outline = outlineResultSchema.safeParse(parsed);
     if (!outline.success) {
+      console.warn(
+        `[outline] initial_parse_failed chapter=${ctx.chapterNumber} ` +
+        `issues=${outline.error.issues.length} first=${outline.error.issues[0]?.path.join(".")}: ${outline.error.issues[0]?.message}`,
+      );
+      outline = attemptRepairOutlineJson(parsed);
+      if (outline.success) {
+        console.info(`[outline] repair_succeeded chapter=${ctx.chapterNumber}`);
+      }
+    }
+    if (!outline.success) {
+      if (isPipelineV3PremiumOnlyEnabled()) {
+        console.error(
+          `[outline] premium_fail_closed chapter=${ctx.chapterNumber} ` +
+          `issues=${outline.error.issues.length}`,
+        );
+        throw new PremiumOutlineContractInvalidError(outline.error, "outline_json_validation_failed");
+      }
       return buildOutlineFallbackResult(ctx, "Outline JSON validation failed");
     }
 
+    const normalizedOutline = normalizeOutlineResult(ctx, outline.data);
+    console.info(
+      `[outline] chapter=${ctx.chapterNumber} beats=${normalizedOutline.beats.length} ` +
+      `model=${model} status=FULLY_OPERATIONAL`,
+    );
     return {
-      outline: normalizeOutlineResult(ctx, outline.data),
+      outline: normalizedOutline,
       usedOpenAI: true,
       model,
       degradedStatus: "FULLY_OPERATIONAL",
     };
   } catch (e) {
+    if (e instanceof PremiumOutlineContractInvalidError) throw e;
     console.warn("[generateChapterOutline]", e);
+    if (isPipelineV3PremiumOnlyEnabled()) {
+      throw new PremiumOutlineContractInvalidError(
+        null,
+        e instanceof Error ? e.message : "unknown_outline_exception",
+      );
+    }
     return buildOutlineFallbackResult(
       ctx,
       e instanceof Error ? e.message : "Unknown outline exception",

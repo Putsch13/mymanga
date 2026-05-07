@@ -4,10 +4,18 @@
  */
 
 import type { EnvironmentVisualDna } from "../types/generation-debug-snapshot";
+import type { LocationCanon } from "../types/chapter-studio";
 import type { PanelBlueprintPremium } from "../types/narrative-facts";
 import type { VisualWorldContract, VisualWorldLocation } from "../visual-world/visual-world-contract";
 import { selectBeatLocationFromVisualWorld } from "../visual-world/select-beat-location";
 import { bindingForBeat } from "./visual-world-beat-bindings";
+
+export class MissingVisualWorldError extends Error {
+  override name = "MissingVisualWorldError" as const;
+  constructor(public code: string) {
+    super(`MissingVisualWorldError: ${code}`);
+  }
+}
 
 export function visualWorldLocationToEnvironmentDna(loc: VisualWorldLocation): EnvironmentVisualDna {
   return {
@@ -23,10 +31,26 @@ export function visualWorldLocationToEnvironmentDna(loc: VisualWorldLocation): E
   };
 }
 
+export function locationCanonToEnvironmentDna(canon: LocationCanon): EnvironmentVisualDna {
+  return {
+    locationName: canon.label,
+    locationId: canon.locationId,
+    anchorId: canon.locationId,
+    visualAnchors: [...canon.visualMarkers].slice(0, 6),
+    architectureHints: [...canon.architecture].slice(0, 6),
+    atmosphere: [...canon.atmosphere].slice(0, 4),
+    propAnchors: [],
+    lightingHints: [...(canon.lightingRules ?? [])].slice(0, 4),
+    forbiddenDrift: [...canon.forbiddenDrift].slice(0, 8),
+  };
+}
+
 export type HydrateBlueprintsWithEnvironmentDnaInput = {
   blueprints: PanelBlueprintPremium[];
   visualWorld: VisualWorldContract | null | undefined;
-  /** Premium : absence de binding lieu / lieu introuvable → erreur explicite. */
+  /** Fallback location canons when visualWorld is absent (non-strict only). */
+  locationCanons?: LocationCanon[];
+  /** Premium : absence de VisualWorld → throw MissingVisualWorldError. */
   strict?: boolean;
 };
 
@@ -60,7 +84,28 @@ function mergeEnv(prev: EnvironmentVisualDna, next: EnvironmentVisualDna): Envir
 export function hydrateBlueprintsWithEnvironmentDna(
   input: HydrateBlueprintsWithEnvironmentDnaInput,
 ): PanelBlueprintPremium[] {
-  if (!input.visualWorld) return input.blueprints;
+  if (!input.visualWorld) {
+    if (input.strict) {
+      throw new MissingVisualWorldError("premium_visual_world_required");
+    }
+    const canons = input.locationCanons ?? [];
+    if (canons.length === 0) return input.blueprints;
+    const primary = canons.find((c) => c.isPrimary) ?? canons[0];
+    const fallbackDna = locationCanonToEnvironmentDna(primary);
+    console.info(
+      `[env-dna] fallback_from_location_canon label="${primary.label}" ` +
+      `blueprints=${input.blueprints.length} canons=${canons.length}`,
+    );
+    return input.blueprints.map((bp) =>
+      bp.environmentVisualDna
+        ? bp
+        : {
+            ...bp,
+            environmentVisualDna: fallbackDna,
+            environmentAnchorId: fallbackDna.anchorId ?? fallbackDna.locationId ?? bp.environmentAnchorId ?? null,
+          },
+    );
+  }
   const vw = input.visualWorld;
 
   return input.blueprints.map((bp) => {

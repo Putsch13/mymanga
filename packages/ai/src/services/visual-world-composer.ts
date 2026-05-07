@@ -162,7 +162,7 @@ function buildUserPayload(input: ComposeVisualWorldContractInput): string {
     outputSchema: {
       version: 1,
       chapterId: "string",
-      source: ["ai_generated", "studio_curated", "mixed"],
+      source: "ai_generated | studio_curated | mixed",
       diagnostics: {
         warnings: ["string"],
         repaired: ["string"],
@@ -180,8 +180,8 @@ function buildUserPayload(input: ComposeVisualWorldContractInput): string {
           atmosphere: ["string"],
           recurringProps: ["string"],
           negativeConstraints: ["string"],
-          source: ["db_canon", "user_canon", "ai_generated", "story_text"],
-          canonPolicy: ["temporary", "promote_candidate", "locked"],
+          source: "db_canon | user_canon | ai_generated | story_text",
+          canonPolicy: "temporary | promote_candidate | locked",
         },
       ],
       props: [
@@ -193,8 +193,8 @@ function buildUserPayload(input: ComposeVisualWorldContractInput): string {
           ownerCharacterId: "string|null",
           locationId: "string|null",
           requiredBeatIds: ["string"],
-          continuityPolicy: ["single_use", "recurring", "symbolic"],
-          visibilityPolicy: ["visible", "mentioned", "background"],
+          continuityPolicy: "single_use | recurring | symbolic",
+          visibilityPolicy: "visible | mentioned | background",
           symbolicMeaning: "string|null",
         },
       ],
@@ -209,7 +209,7 @@ function buildUserPayload(input: ComposeVisualWorldContractInput): string {
           relationToLocation: "string|null",
           relationToCharacterIds: ["string"],
           requiredBeatIds: ["string"],
-          recurrencePolicy: ["background", "recurring", "named"],
+          recurrencePolicy: "background | recurring | named",
         },
       ],
       creatures: [
@@ -218,7 +218,7 @@ function buildUserPayload(input: ComposeVisualWorldContractInput): string {
           label: "string",
           visualDescription: "string",
           requiredBeatIds: ["string"],
-          threatLevel: ["none", "low", "medium", "high"],
+          threatLevel: "none | low | medium | high",
         },
       ],
       vehicles: [
@@ -227,7 +227,7 @@ function buildUserPayload(input: ComposeVisualWorldContractInput): string {
           label: "string",
           visualDescription: "string",
           requiredBeatIds: ["string"],
-          scale: ["small", "medium", "large", "massive"],
+          scale: "small | medium | large | massive",
         },
       ],
       factions: [
@@ -351,6 +351,14 @@ export async function composeVisualWorldContract(
   }
 
   const contract = parseVisualWorldContract(parsedJson);
+
+  console.info(
+    `[visual-world] locations=${contract.locations.length} npcGroups=${contract.npcGroups.length} ` +
+    `props=${contract.props.length} creatures=${contract.creatures.length} ` +
+    `vehicles=${contract.vehicles.length} factions=${contract.factions.length} ` +
+    `beatBindings=${contract.beatBindings.length} status=valid`,
+  );
+
   assertVisualWorldContractPremiumInvariants(contract, {
     chapterId: input.chapterId,
     expectedBeatIds,

@@ -7,8 +7,9 @@
  */
 
 import { z } from "zod";
+import { zodLlmEnum } from "../utils/zod-llm";
 
-export const visualWorldSourceSchema = z.enum(["ai_generated", "studio_curated", "mixed"]);
+export const visualWorldSourceSchema = zodLlmEnum(["ai_generated", "studio_curated", "mixed"]);
 export type VisualWorldSource = z.infer<typeof visualWorldSourceSchema>;
 
 export const visualWorldLocationSchema = z.object({
@@ -22,13 +23,13 @@ export const visualWorldLocationSchema = z.object({
   atmosphere: z.array(z.string()).default([]),
   recurringProps: z.array(z.string()).default([]),
   negativeConstraints: z.array(z.string()).default([]),
-  source: z.enum(["db_canon", "user_canon", "ai_generated", "story_text"]),
-  canonPolicy: z.enum(["temporary", "promote_candidate", "locked"]),
+  source: zodLlmEnum(["db_canon", "user_canon", "ai_generated", "story_text"]),
+  canonPolicy: zodLlmEnum(["temporary", "promote_candidate", "locked"]),
 });
 
 export type VisualWorldLocation = z.infer<typeof visualWorldLocationSchema>;
 
-export const propVisibilityPolicySchema = z.enum(["visible", "mentioned", "background"]);
+export const propVisibilityPolicySchema = zodLlmEnum(["visible", "mentioned", "background"]);
 export type PropVisibilityPolicy = z.infer<typeof propVisibilityPolicySchema>;
 
 export const propVisualDnaContractSchema = z.object({
@@ -39,7 +40,7 @@ export const propVisualDnaContractSchema = z.object({
   ownerCharacterId: z.string().optional().nullable(),
   locationId: z.string().optional().nullable(),
   requiredBeatIds: z.array(z.string()).default([]),
-  continuityPolicy: z.enum(["single_use", "recurring", "symbolic"]),
+  continuityPolicy: zodLlmEnum(["single_use", "recurring", "symbolic"]),
   visibilityPolicy: propVisibilityPolicySchema.optional().nullable(),
   symbolicMeaning: z.string().optional().nullable(),
 });
@@ -56,7 +57,7 @@ export const visualWorldNpcGroupSchema = z.object({
   relationToLocation: z.string().optional().nullable(),
   relationToCharacterIds: z.array(z.string()).default([]),
   requiredBeatIds: z.array(z.string()).default([]),
-  recurrencePolicy: z.enum(["background", "recurring", "named"]),
+  recurrencePolicy: zodLlmEnum(["background", "recurring", "named"]),
 });
 
 export type VisualWorldNpcGroup = z.infer<typeof visualWorldNpcGroupSchema>;
@@ -68,7 +69,7 @@ export const creatureVisualDnaSchema = z.object({
   requiredBeatIds: z.array(z.string()).default([]),
   threatLevel: z
     .preprocess(
-      (v) => (v == null || v === "" ? "none" : v),
+      (v) => (Array.isArray(v) ? v[0] : v == null || v === "" ? "none" : v),
       z.enum(["none", "low", "medium", "high"]),
     )
     .default("none"),
@@ -83,7 +84,7 @@ export const vehicleVisualDnaSchema = z.object({
   requiredBeatIds: z.array(z.string()).default([]),
   scale: z
     .preprocess(
-      (v) => (v == null || v === "" ? "medium" : v),
+      (v) => (Array.isArray(v) ? v[0] : v == null || v === "" ? "medium" : v),
       z.enum(["small", "medium", "large", "massive"]),
     )
     .default("medium"),

@@ -50,7 +50,7 @@ function propToBlueprintVisualDna(p: VisualWorldPropDna): BlueprintPropVisualDna
     canonicalName: p.canonicalName,
     category: p.category,
     visualDescription: p.visualDescription,
-    visibilityPolicy: p.visibilityPolicy ?? undefined,
+    visibilityPolicy: (p.visibilityPolicy ?? undefined) as BlueprintPropVisualDna["visibilityPolicy"],
     symbolicMeaning: p.symbolicMeaning?.trim() || undefined,
   };
 }

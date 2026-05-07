@@ -452,7 +452,7 @@ export async function POST(req: Request, ctx: Ctx) {
   allBlueprints = hydrateBlueprintsWithEnvironmentDna({
     blueprints: allBlueprints,
     visualWorld: bundle.visualWorldContract ?? null,
-    strict: isPipelineV3PremiumOnlyEnabled(),
+    strict: false,
   });
   if (bundle.visualWorldContract) {
     const strictVw = isPipelineV3PremiumOnlyEnabled();
