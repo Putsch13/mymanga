@@ -47,6 +47,8 @@ const CLOSEUP_RENDER_MODES = new Set<string>([
   "hero_closeup",
   "npc_closeup",
   "enemy_closeup",
+  "enemy_reveal",
+  "creature_reveal",
   "dialogue_over_shoulder",
   "dialogue_two_shot",
   "aftermath_dialogue",
