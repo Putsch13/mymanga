@@ -34,6 +34,8 @@ vi.mock("@manga-ai-studio/db", () => ({
   prisma: {
     character: { findMany: vi.fn().mockResolvedValue([]) },
     location: { findMany: vi.fn().mockResolvedValue([]) },
+    npcGroup: { findMany: vi.fn().mockResolvedValue([]) },
+    worldProp: { findMany: vi.fn().mockResolvedValue([]) },
   },
 }));
 

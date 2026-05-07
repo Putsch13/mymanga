@@ -18,6 +18,7 @@ import {
   qaCanonicalProductionPlanWithAutoRepair,
 } from "./build-canonical-production-plan";
 import { normalizeOutline } from "./normalize-outline";
+import { filterOutResolvedNpcGroupRefs, type NpcGroupRefForResolution } from "./resolve-character-refs";
 import { PRODUCTION_RULES, type ChapterFormat } from "./production-rules";
 import { nonEmptyArray, nonEmptyEnvironmentDna } from "./dna-nonempty";
 
@@ -132,6 +133,11 @@ export function buildCanonicalProductionPlanFromPremiumBlueprints(input: {
   format: ChapterFormat;
   productionOutline: unknown;
   blueprints: PanelBlueprintPremium[];
+  /** NPC groups connus du projet : les refs qui matchent ici sont retirées
+   *  de `unresolvedCharacterRefs`, évitant un faux QA fail. */
+  knownNpcGroups?: readonly { id: string; label?: string | null }[];
+  /** Catalogue personnages projet : complète la résolution. */
+  knownCharacters?: readonly { id: string; name?: string | null; displayName?: string | null }[];
 }): CanonicalChapterProductionPlan {
   const norm = normalizeOutline(input.productionOutline);
   const blueprints = [...input.blueprints].sort(
@@ -140,6 +146,20 @@ export function buildCanonicalProductionPlanFromPremiumBlueprints(input: {
 
   const beats: CanonicalBeatPlan[] = norm.beats.map((b) => {
     const ids = blueprints.filter((p) => p.beatId === b.beatId).map((p) => p.panelId);
+
+    let unresolvedRefs = b.unresolvedCharacterRefs ?? [];
+    if (unresolvedRefs.length > 0 && ((input.knownNpcGroups?.length ?? 0) > 0 || (input.knownCharacters?.length ?? 0) > 0)) {
+      unresolvedRefs = filterOutResolvedNpcGroupRefs(
+        unresolvedRefs,
+        (input.knownNpcGroups ?? []) as NpcGroupRefForResolution[],
+        (input.knownCharacters ?? []).map(c => ({
+          id: c.id,
+          name: c.name ?? undefined,
+          displayName: c.displayName ?? undefined,
+        })),
+      );
+    }
+
     return {
       beatId: b.beatId,
       beatIndex: b.beatIndex,
@@ -155,7 +175,7 @@ export function buildCanonicalProductionPlanFromPremiumBlueprints(input: {
       hasAction: b.hasAction,
       hasEmotion: b.hasEmotion,
       hasTension: b.hasTension,
-      unresolvedCharacterRefs: b.unresolvedCharacterRefs ?? [],
+      unresolvedCharacterRefs: unresolvedRefs,
     };
   });
 

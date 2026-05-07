@@ -17,6 +17,7 @@ import {
 } from "./panel-rhythm-planner";
 import { applyDistributedCutawayRhythmToPanels } from "./distributed-cutaway-rhythm";
 import { runProductionPlanQa } from "./production-plan-qa";
+import { filterOutResolvedNpcGroupRefs, type NpcGroupRefForResolution } from "./resolve-character-refs";
 import type {
   CanonicalChapterProductionPlan,
   CanonicalBeatPlan,
@@ -36,6 +37,11 @@ export interface BuildCanonicalPlanInput {
   format: ChapterFormat;
   rawOutline: unknown;
   rhythmConfig?: Partial<RhythmConfig>;
+  /** NPC groups connus du projet : les refs qui matchent sont retirées
+   *  de `unresolvedCharacterRefs` pour éviter les faux QA fail. */
+  knownNpcGroups?: readonly { id: string; label?: string | null }[];
+  /** Catalogue personnages du projet : complète la résolution. */
+  knownCharacters?: readonly { id: string; name?: string | null; displayName?: string | null }[];
 }
 
 function generatePanelId(beatId: string, panelIndex: number): string {
@@ -140,7 +146,22 @@ export function computeCanonicalProductionMetrics(panels: CanonicalPanelPlan[]):
 function buildBeatPlan(
   beat: NormalizedBeat,
   panelIds: string[],
+  knownNpcGroups?: readonly NpcGroupRefForResolution[],
+  knownCharacters?: readonly { id: string; name?: string | null; displayName?: string | null }[],
 ): CanonicalBeatPlan {
+  let unresolvedRefs = beat.unresolvedCharacterRefs ?? [];
+  if (unresolvedRefs.length > 0 && ((knownNpcGroups?.length ?? 0) > 0 || (knownCharacters?.length ?? 0) > 0)) {
+    unresolvedRefs = filterOutResolvedNpcGroupRefs(
+      unresolvedRefs,
+      (knownNpcGroups ?? []) as NpcGroupRefForResolution[],
+      (knownCharacters ?? []).map(c => ({
+        id: c.id,
+        name: c.name ?? undefined,
+        displayName: c.displayName ?? undefined,
+      })),
+    );
+  }
+
   return {
     beatId: beat.beatId,
     beatIndex: beat.beatIndex,
@@ -156,7 +177,7 @@ function buildBeatPlan(
     hasAction: beat.hasAction,
     hasEmotion: beat.hasEmotion,
     hasTension: beat.hasTension,
-    unresolvedCharacterRefs: beat.unresolvedCharacterRefs ?? [],
+    unresolvedCharacterRefs: unresolvedRefs,
   };
 }
 
@@ -372,7 +393,7 @@ export function buildCanonicalChapterProductionPlan(
       globalPanelIndex++;
     }
 
-    beatPlans.push(buildBeatPlan(beat, panelIdsForBeat));
+    beatPlans.push(buildBeatPlan(beat, panelIdsForBeat, input.knownNpcGroups, input.knownCharacters));
   }
 
   const panelsDistributed = applyDistributedCutawayRhythmToPanels(panels, normalizedOutline);

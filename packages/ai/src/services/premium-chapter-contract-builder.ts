@@ -38,6 +38,8 @@ function assertFinalStructuralQaAfterMerge(input: {
   format: "manga" | "webtoon";
   productionOutline: unknown;
   blueprints: PanelBlueprintPremium[];
+  knownNpcGroups?: readonly { id: string; label?: string | null }[];
+  knownCharacters?: readonly { id: string; name?: string | null; displayName?: string | null }[];
 }): void {
   const { qa } = runStructuralQaOnPremiumBlueprints(input);
   if (!qa.valid) {
@@ -101,6 +103,10 @@ export interface BuildPremiumChapterContractInput {
   visualWorldContract?: VisualWorldContract | null;
   /** Cast studio pour pénalités readiness (héros 2 / déuteragoniste). */
   premiumReadinessCast?: PremiumReadinessCastContext | null;
+  /** NPC groups connus du projet (DB + VW) pour la résolution QA structurelle. */
+  knownNpcGroups?: readonly { id: string; label?: string | null }[];
+  /** Catalogue personnages du projet pour la résolution QA structurelle. */
+  knownCharacters?: readonly { id: string; name?: string | null; displayName?: string | null }[];
 }
 
 function applyOptionalCharacterDnaHydration(
@@ -394,6 +400,8 @@ export function buildPremiumChapterContract(
     chapterTitle,
     format,
     rawOutline: outlineForCanonical,
+    knownNpcGroups: input.knownNpcGroups,
+    knownCharacters: input.knownCharacters,
   });
   const rawFlattened = enrichedBeats.flatMap((b) => b._blueprints);
   const mergedBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawFlattened, canonicalPlan);
@@ -409,6 +417,8 @@ export function buildPremiumChapterContract(
     format,
     productionOutline: outlineForCanonical,
     blueprints: allBlueprints,
+    knownNpcGroups: input.knownNpcGroups,
+    knownCharacters: input.knownCharacters,
   });
 
   const beatPanelCounts = new Map(canonicalPlan.beats.map((b) => [b.beatId, b.actualPanelCount]));
@@ -678,6 +688,8 @@ export async function buildPremiumChapterContractAsync(
     chapterTitle,
     format,
     rawOutline: outlineForCanonical,
+    knownNpcGroups: input.knownNpcGroups,
+    knownCharacters: input.knownCharacters,
   });
   const rawFlattened = enrichedBeatsWithLLMBlueprints.flatMap((b) => b._blueprints);
   const mergedBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawFlattened, canonicalPlan);
@@ -693,6 +705,8 @@ export async function buildPremiumChapterContractAsync(
     format,
     productionOutline: outlineForCanonical,
     blueprints: allBlueprints,
+    knownNpcGroups: input.knownNpcGroups,
+    knownCharacters: input.knownCharacters,
   });
 
   const beatPanelCounts = new Map(canonicalPlan.beats.map((b) => [b.beatId, b.actualPanelCount]));

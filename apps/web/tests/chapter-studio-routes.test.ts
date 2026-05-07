@@ -5,6 +5,8 @@ const prismaMock = {
   chapter: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
   character: { findMany: vi.fn() },
   job: { create: vi.fn() },
+  npcGroup: { findMany: vi.fn() },
+  worldProp: { findMany: vi.fn() },
 };
 
 const getAppUserMock = vi.fn();
@@ -286,6 +288,8 @@ beforeEach(() => {
   sendChapterGenerateRequestedMock.mockResolvedValue({ ok: true });
   runFullChapterPipelineFromJobMock.mockResolvedValue({ ok: true });
   prismaMock.character.findMany.mockResolvedValue([]);
+  prismaMock.npcGroup.findMany.mockResolvedValue([]);
+  prismaMock.worldProp.findMany.mockResolvedValue([]);
   patchChapterStudioSnapshotMock.mockReturnValue({
     status: "READY_FOR_GENERATION",
     currentStep: "production_plan",

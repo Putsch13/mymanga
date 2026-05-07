@@ -4,6 +4,8 @@ const prismaMock = {
   project: { findFirst: vi.fn() },
   chapter: { findFirst: vi.fn(), update: vi.fn() },
   character: { findMany: vi.fn() },
+  npcGroup: { findMany: vi.fn() },
+  worldProp: { findMany: vi.fn() },
 };
 
 const getAppUserMock = vi.fn();
@@ -181,6 +183,8 @@ beforeEach(() => {
     { id: "hero-1", roleType: "hero" },
   ]);
   prismaMock.chapter.update.mockResolvedValue({ id: "chapter-1" });
+  prismaMock.npcGroup.findMany.mockResolvedValue([]);
+  prismaMock.worldProp.findMany.mockResolvedValue([]);
   getOwnedChapterMock.mockResolvedValue(buildChapterRecord());
 });
 

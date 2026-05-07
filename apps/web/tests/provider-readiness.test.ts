@@ -12,6 +12,8 @@ const prismaMock = {
   chapter: { findFirst: vi.fn(), update: vi.fn() },
   character: { findMany: vi.fn() },
   job: { create: vi.fn() },
+  npcGroup: { findMany: vi.fn() },
+  worldProp: { findMany: vi.fn() },
 };
 
 const getAppUserMock = vi.fn();
@@ -69,6 +71,8 @@ describe("/launch — P0.4 provider readiness", () => {
     estimateChapterTextTokensFromRulesMock.mockResolvedValue(42);
     prismaMock.chapter.update.mockResolvedValue({ id: "chapter-1" });
     prismaMock.character.findMany.mockResolvedValue([]);
+    prismaMock.npcGroup.findMany.mockResolvedValue([]);
+    prismaMock.worldProp.findMany.mockResolvedValue([]);
   });
 
   it("refuse le lancement si FAL_KEY absent (canRunV3Premium=false)", async () => {

@@ -460,6 +460,8 @@ export async function POST(req: Request, ctx: Ctx) {
     chapterTitle: estimateChapterTitle,
     format: projectFormat,
     rawOutline: productionOutline,
+    knownNpcGroups: npcGroupRefsForResolution,
+    knownCharacters: characterCatalogForResolution,
   });
   const mergedBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawBlueprints, canonicalPlan);
   const narrativeDigest = computeNarrativeMemoryDigestFromOutline(productionOutline);
@@ -552,6 +554,8 @@ export async function POST(req: Request, ctx: Ctx) {
     format: projectFormat,
     productionOutline,
     blueprints: allBlueprints,
+    knownNpcGroups: npcGroupRefsForResolution,
+    knownCharacters: characterCatalogForResolution,
   });
   const finalStructuralQa = structuralFromPersistedBlueprints.qa;
   if (!finalStructuralQa.valid) {

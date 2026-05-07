@@ -9,6 +9,8 @@ const prismaMock = {
   chapter: { findFirst: vi.fn(), update: vi.fn() },
   character: { findMany: vi.fn() },
   job: { create: vi.fn() },
+  npcGroup: { findMany: vi.fn() },
+  worldProp: { findMany: vi.fn() },
 };
 
 const getAppUserMock = vi.fn();
@@ -162,6 +164,8 @@ beforeEach(() => {
   runFullChapterPipelineFromJobMock.mockResolvedValue({ ok: true });
   prismaMock.chapter.update.mockResolvedValue({ id: "chapter-1" });
   prismaMock.character.findMany.mockResolvedValue([]);
+  prismaMock.npcGroup.findMany.mockResolvedValue([]);
+  prismaMock.worldProp.findMany.mockResolvedValue([]);
 });
 
 describe("/launch — contrat premium", () => {

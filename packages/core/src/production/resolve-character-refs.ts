@@ -179,5 +179,27 @@ export function resolveCharacterRefsToIds(
   };
 }
 
+/**
+ * Filtre une liste de `unresolvedCharacterRefs` en éliminant celles qui matchent
+ * un NPC group connu. Utile quand un plan canonique a été persisté avec des
+ * `unresolvedCharacterRefs` avant que les NPC groups ne soient connus (ex.
+ * l'estimate a figé les refs, puis les NPC groups ont été ajoutés/découverts),
+ * et qu'on le re-valide plus tard dans `/launch`.
+ *
+ * Retourne les refs toujours non résolues (celles qui ne matchent aucun NPC
+ * group ni aucun personnage du catalogue).
+ */
+export function filterOutResolvedNpcGroupRefs(
+  unresolvedRefs: readonly string[],
+  npcGroups: readonly NpcGroupRefForResolution[],
+  characters: readonly CharacterRefForResolution[] = [],
+): string[] {
+  if (unresolvedRefs.length === 0) return [];
+  if (npcGroups.length === 0 && characters.length === 0) return [...unresolvedRefs];
+
+  const result = resolveCharacterRefsToIds([...unresolvedRefs], [...characters], npcGroups);
+  return result.unresolved;
+}
+
 // Exporté pour tests et autres consommateurs (ex. dialogue writer).
 export { stripCollectivePrefix as __stripCollectivePrefix };

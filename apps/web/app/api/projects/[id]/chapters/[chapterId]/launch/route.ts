@@ -520,6 +520,31 @@ export async function POST(_req: Request, ctx: Ctx) {
   let structuralCanonicalQaPassed = false;
   if (Array.isArray(bpStructural) && bpStructural.length > 0) {
     const fmt = chapter.project.format === "webtoon" ? "webtoon" : "manga";
+
+    // P0 fix : fournir NPC groups (DB + VW snapshot) et catalogue personnages
+    // pour re-résoudre les unresolvedCharacterRefs qui étaient figées dans le
+    // snapshot estimate. Sans ça, "Groupe de pêcheurs" etc. restent unresolved
+    // et la QA bloque le launch à tort.
+    const npcGroupRefMap = new Map<string, { id: string; label: string }>();
+    const vwNpcGroups = (snapshot.data.visualWorldContract as { npcGroups?: { id: string; label: string }[] } | null)?.npcGroups;
+    if (Array.isArray(vwNpcGroups)) {
+      for (const g of vwNpcGroups) {
+        if (typeof g.id === "string" && g.id.length > 0) {
+          npcGroupRefMap.set(g.id, { id: g.id, label: g.label ?? "" });
+        }
+      }
+    }
+    const projectNpcGroupsForQa = await prisma.npcGroup.findMany({
+      where: { projectId },
+      select: { id: true, label: true },
+    });
+    for (const g of projectNpcGroupsForQa) {
+      if (!npcGroupRefMap.has(g.id)) {
+        npcGroupRefMap.set(g.id, { id: g.id, label: g.label });
+      }
+    }
+    const npcGroupRefsForStructuralQa = [...npcGroupRefMap.values()];
+
     const structuralPlan = buildCanonicalProductionPlanFromPremiumBlueprints({
       chapterId,
       projectId,
@@ -528,6 +553,8 @@ export async function POST(_req: Request, ctx: Ctx) {
       format: fmt,
       productionOutline: outlineForStructuralQa,
       blueprints: bpStructural as PanelBlueprintPremium[],
+      knownNpcGroups: npcGroupRefsForStructuralQa,
+      knownCharacters: charRefsForLabels,
     });
     if (!structuralPlan.qa.valid) {
       console.warn(

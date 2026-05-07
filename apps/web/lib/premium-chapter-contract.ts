@@ -156,6 +156,10 @@ export async function buildPremiumChapterContractFromApprovedOutline(
   }
 
   let visualWorldContract: import("@manga-ai-studio/core").VisualWorldContract | undefined;
+  const projectWorldEntities = input.projectId
+    ? await readProjectWorldEntities(input.projectId)
+    : { npcGroups: [], worldProps: [] };
+
   if (
     isPremiumStrictMode()
     && process.env.OPENAI_API_KEY
@@ -188,10 +192,6 @@ export async function buildPremiumChapterContractFromApprovedOutline(
       const nameToId = new Map(
         charactersForWorld.map((c) => [c.name.trim().toLowerCase(), c.id] as const),
       );
-
-      // USER-WINS : passer les NpcGroup / WorldProp connus du projet pour que
-      // le LLM réutilise leurs id/label/visuels au lieu d'en réinventer.
-      const projectWorldEntities = await readProjectWorldEntities(input.projectId);
 
       visualWorldContract = await composeVisualWorldContract({
         chapterId: input.chapterId,
@@ -276,6 +276,15 @@ export async function buildPremiumChapterContractFromApprovedOutline(
     characterDnaHydration,
     visualWorldContract: visualWorldContract ?? undefined,
     premiumReadinessCast,
+    knownNpcGroups: projectWorldEntities.npcGroups.map((g) => ({
+      id: g.id,
+      label: g.label,
+    })),
+    knownCharacters: (characterDnaHydration?.characters ?? []).map((c) => ({
+      id: c.id,
+      name: c.name,
+      displayName: null as string | null,
+    })),
   });
 
   const outlineResult = productionOutlineSchema.safeParse(raw.productionOutline);
