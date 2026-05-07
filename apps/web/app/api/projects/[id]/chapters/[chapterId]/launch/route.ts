@@ -908,7 +908,27 @@ export async function POST(_req: Request, ctx: Ctx) {
   }
 
   // B3-3 : Shot Variety Enforcer — vérifier la variété des plans avant lancement
-  const blueprintsForVariety = studioSnapshotForLaunch.data.productionPlan?.panelBlueprints;
+  // Re-hydration avec le VW contract avant les checks focus/QA.
+  // Le snapshot peut contenir des blueprints sans environmentVisualDna hydraté ;
+  // on re-hydrate ici pour que runPremiumPlanContractQa ait des données complètes.
+  let blueprintsForVariety = studioSnapshotForLaunch.data.productionPlan?.panelBlueprints;
+  const vwForVariety = visualWorldContractSchema.safeParse(snapshot.data.visualWorldContract);
+  if (Array.isArray(blueprintsForVariety) && blueprintsForVariety.length > 0 && vwForVariety.success) {
+    try {
+      blueprintsForVariety = hydrateBlueprintsWithEnvironmentDna({
+        blueprints: blueprintsForVariety as PanelBlueprintPremium[],
+        visualWorld: vwForVariety.data,
+        strict: false,
+      }) as typeof blueprintsForVariety;
+      blueprintsForVariety = hydrateBlueprintsWithPropDna({
+        blueprints: blueprintsForVariety as PanelBlueprintPremium[],
+        visualWorld: vwForVariety.data,
+        strict: false,
+      }) as typeof blueprintsForVariety;
+    } catch (hydrateErr) {
+      console.warn(`[launch] blueprintsForVariety_rehydration_failed (non-blocking): ${hydrateErr instanceof Error ? hydrateErr.message : hydrateErr}`);
+    }
+  }
   if (Array.isArray(blueprintsForVariety) && blueprintsForVariety.length > 0) {
     try {
       const shotVariety = computeShotVarietyBudget(blueprintsForVariety as Parameters<typeof computeShotVarietyBudget>[0]);
@@ -949,7 +969,14 @@ export async function POST(_req: Request, ctx: Ctx) {
           violations,
         );
 
-        if (repairResult.failed > 0) {
+        // Ne bloquer que si la réparation a échoué sur une violation de CONTENU
+        // (prop, arme, NPC, ennemi). weak_location_binding est un warning de
+        // qualité de données, pas un blocage de contenu.
+        const contentViolations = violations.filter(
+          (v) => !(v.type as string).startsWith("weak_location_binding"),
+        );
+        const failedAfterRepair = contentViolations.length - repairResult.succeeded;
+        if (failedAfterRepair > 0) {
           const VIOLATION_MESSAGES: Record<string, string> = {
             missing_prop_insert:     "Aucun gros plan d'objet narratif prévu dans le plan.",
             missing_weapon_insert:   "Aucun insert arme/objet clé prévu dans le plan.",

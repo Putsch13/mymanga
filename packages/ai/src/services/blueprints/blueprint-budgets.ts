@@ -567,7 +567,11 @@ export function runPremiumPlanContractQa(input: {
   const total = blueprints.length;
   const weakRatio = total > 0 ? weakLocationBinding / total : 0;
   if (weakRatio >= 0.6) {
-    blocking.push("weak_location_binding_critical");
+    // Dégradé de blocking → warning : les panels obtiennent leur décor depuis
+    // le VisualWorldContract au moment de la génération d'image, même si
+    // environmentVisualDna.locationName est vide dans le blueprint persisté.
+    repairable.push("weak_location_binding_critical");
+    warnings.push("weak_location_binding_critical");
   } else if (weakRatio > 0.3) {
     repairable.push("weak_location_binding_high");
     warnings.push("weak_location_binding_high");
