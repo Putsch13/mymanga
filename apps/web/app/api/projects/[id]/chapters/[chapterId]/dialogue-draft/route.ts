@@ -74,12 +74,6 @@ type DialogueDraftResponse = {
   persisted: boolean;
 };
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
 function uniquePush<T>(arr: T[], v: T): void {
   if (!arr.includes(v)) arr.push(v);
 }

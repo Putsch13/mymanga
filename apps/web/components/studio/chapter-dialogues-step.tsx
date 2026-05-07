@@ -30,7 +30,6 @@ import type {
 } from "@manga-ai-studio/core";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -116,7 +115,7 @@ export function ChapterDialoguesStep({
   const [response, setResponse] = useState<DialogueDraftResponse | null>(null);
   const [editingPanelId, setEditingPanelId] = useState<string | null>(null);
 
-  const catalog = characterCatalog ?? [];
+  const catalog = useMemo(() => characterCatalog ?? [], [characterCatalog]);
   const planReady = (draft.productionPlan?.panelBlueprints?.length ?? 0) > 0;
   const persistedDraftViews = useMemo(() => viewsFromDraft(draft), [draft]);
   const views: DialogueDraftPanelView[] = response?.panels ?? persistedDraftViews;
