@@ -11,6 +11,8 @@ import {
 import {
   beatLocationSceneStringFromVisualWorld,
   locationSceneStringsFromVisualWorldContract,
+  isAntagonistRole,
+  isHeroRole,
   resolveCanonicalLocation,
   sceneStringFromVisualWorldLocation,
   selectBeatLocationFromVisualWorld,
@@ -69,8 +71,8 @@ function takeNames(context: ProjectContextForChapter, count: number) {
     const aFocused = focusSet.has(a.id) ? 1 : 0;
     const bFocused = focusSet.has(b.id) ? 1 : 0;
     if (aFocused !== bFocused) return bFocused - aFocused;
-    const aRole = /hero|heros|protagon/i.test(a.roleType ?? "") ? 1 : /antagon/i.test(a.roleType ?? "") ? 2 : 3;
-    const bRole = /hero|heros|protagon/i.test(b.roleType ?? "") ? 1 : /antagon/i.test(b.roleType ?? "") ? 2 : 3;
+    const aRole = isHeroRole(a.roleType) ? 1 : isAntagonistRole(a.roleType) ? 2 : 3;
+    const bRole = isHeroRole(b.roleType) ? 1 : isAntagonistRole(b.roleType) ? 2 : 3;
     return aRole - bRole;
   });
   return prioritized.slice(0, count).map((c) => c.name);

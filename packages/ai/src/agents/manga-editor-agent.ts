@@ -207,6 +207,10 @@ function derivePanelPurpose(
       return "threat_silhouette";
     case "creature_reveal":
       return "creature_reveal";
+    case "vehicle_reveal":
+      return "vehicle_reveal";
+    case "faction_reveal":
+      return "faction_reveal";
     case "aftermath_dialogue":
     case "combat_aftermath":
       return "combat_aftermath";
@@ -271,6 +275,10 @@ function pickSubjectFocus(mode: StoryboardRenderMode): StoryboardSubjectFocus {
       return "enemy";
     case "creature_reveal":
       return "creature";
+    case "vehicle_reveal":
+      return "vehicle";
+    case "faction_reveal":
+      return "faction";
     case "threat_silhouette":
       return "threat";
     case "aftermath_dialogue":
@@ -302,6 +310,8 @@ function pickShotType(mode: StoryboardRenderMode): StoryboardShotType {
       return "extreme_closeup";
     case "enemy_reveal":
     case "creature_reveal":
+    case "vehicle_reveal":
+    case "faction_reveal":
     case "threat_silhouette":
       return "wide";
     case "aftermath_dialogue":

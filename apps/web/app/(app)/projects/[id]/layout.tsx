@@ -12,14 +12,14 @@ type Props = {
   params: Promise<{ id: string }>;
 };
 
-const projectNav = (id: string) => [
+const projectNav = (id: string, studioChapterEditHref: string) => [
   { href: `/projects/${id}/chapters`, label: "Chapitres" },
   { href: `/projects/${id}`, label: "Vue d'ensemble" },
   { href: `/projects/${id}/characters`, label: "Personnages" },
   { href: `/projects/${id}/style`, label: "Style visuel" },
   { href: `/projects/${id}/canon`, label: "Canon" },
   { href: `/projects/${id}/bible`, label: "Bible" },
-  { href: `/projects/${id}/pipeline`, label: "Pipeline" },
+  { href: studioChapterEditHref, label: "Studio manga" },
   { href: `/projects/${id}/assets`, label: "Assets" },
   { href: `/projects/${id}/settings`, label: "Réglages" },
   { href: `/projects/${id}/history`, label: "Historique" },
@@ -55,6 +55,15 @@ export default async function ProjectStudioLayout({ children, params }: Props) {
   }
 
   if (!project) notFound();
+
+  const firstChapter = await prisma.chapter.findFirst({
+    where: { projectId: id },
+    orderBy: { chapterNumber: "asc" },
+    select: { id: true },
+  });
+  const studioChapterEditHref = firstChapter
+    ? `/projects/${id}/chapters/${firstChapter.id}/edit`
+    : `/projects/${id}/chapters/new`;
 
   let currentChapter: ReturnType<typeof buildChapterStudioListItem> | null = null;
   try {
@@ -95,7 +104,7 @@ export default async function ProjectStudioLayout({ children, params }: Props) {
           <p className="mt-2 text-sm text-muted-foreground">{project.pitch ?? "Aucun pitch défini."}</p>
         </div>
         <nav className="space-y-1">
-          {projectNav(id).map((item) => (
+          {projectNav(id, studioChapterEditHref).map((item) => (
             <Link key={item.href} href={item.href} className="block rounded-lg px-3 py-2 text-sm text-muted-foreground transition hover:bg-background/60 hover:text-foreground">
               {item.label}
             </Link>

@@ -1,11 +1,13 @@
 import { defineConfig } from "vitest/config";
 import path from "node:path";
 
+const repoContracts = path.resolve(__dirname, "../../tests/contracts/**/*.test.ts");
+
 export default defineConfig({
   test: {
     environment: "node",
     globals: true,
-    include: ["tests/**/*.test.ts"],
+    include: ["tests/**/*.test.ts", repoContracts],
     exclude: ["tests/e2e/**"],
     testTimeout: 20000,
   },

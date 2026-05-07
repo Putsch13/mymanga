@@ -281,6 +281,15 @@ function approvedBlueprintToStoryboardPanel(
       ? (ex.characterVisualDna as typeof bp.characterVisualDna)
       : (bp.characterVisualDna ?? []),
     npcVisualDna: Array.isArray(ex.npcVisualDna) ? (ex.npcVisualDna as typeof bp.npcVisualDna) : (bp.npcVisualDna ?? []),
+    creatureVisualDna: Array.isArray(ex.creatureVisualDna)
+      ? (ex.creatureVisualDna as typeof bp.creatureVisualDna)
+      : (bp.creatureVisualDna ?? []),
+    vehicleVisualDna: Array.isArray(ex.vehicleVisualDna)
+      ? (ex.vehicleVisualDna as typeof bp.vehicleVisualDna)
+      : (bp.vehicleVisualDna ?? []),
+    factionVisualDna: Array.isArray(ex.factionVisualDna)
+      ? (ex.factionVisualDna as typeof bp.factionVisualDna)
+      : (bp.factionVisualDna ?? []),
     worldPropsVisualDna: Array.isArray(ex.worldPropsVisualDna)
       ? (ex.worldPropsVisualDna as NonNullable<StoryboardPanel["worldPropsVisualDna"]>)
       : requiredPropsToWorldPropsVisualDna(bp.requiredProps ?? [], bp.beatId),

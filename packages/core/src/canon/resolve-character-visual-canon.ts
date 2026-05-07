@@ -10,6 +10,13 @@ import type {
   MediaAsset,
 } from "@manga-ai-studio/db";
 import type { CharacterImportanceTier } from "../types/chapter-studio";
+import {
+  isAntagonistRole,
+  isHeroRole,
+  isNpcRole,
+  isSecondaryHeroRole,
+  isSupportingRole,
+} from "../types/character-role";
 import { isStableImageUrl } from "../images/stable-image-url";
 import { resolveActiveCharacterLoraBinding } from "./character-canon-helpers";
 
@@ -69,12 +76,15 @@ function asRecord(v: unknown): Record<string, unknown> {
 }
 
 function resolveImportanceTier(role: string | null | undefined): CharacterImportanceTier {
+  if (isHeroRole(role)) return "MAIN_HERO";
+  if (isAntagonistRole(role)) return "SECONDARY_CORE";
+  if (isSecondaryHeroRole(role)) return "SECONDARY_CORE";
+  if (isSupportingRole(role)) return "IMPORTANT_SUPPORTING_CHARACTER";
   const r = (role ?? "").toLowerCase();
-  if (r === "hero" || r === "protagonist" || r === "main" || r === "main_hero") return "MAIN_HERO";
-  if (r === "deuteragonist" || r === "secondary") return "SECONDARY_CORE";
   if (r === "mentor" || r === "important" || r === "important_supporting_character") {
     return "IMPORTANT_SUPPORTING_CHARACTER";
   }
+  if (isNpcRole(role)) return "RECURRING_NPC";
   if (r === "recurring" || r === "named_npc" || r === "pnj") return "RECURRING_NPC";
   return "BACKGROUND_EXTRA";
 }

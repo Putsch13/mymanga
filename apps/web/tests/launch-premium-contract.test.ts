@@ -253,7 +253,7 @@ describe("/launch — contrat premium", () => {
     }
   });
 
-  it("PIPELINE_V3_PREMIUM_ONLY : appelle hydrateBlueprintsWithCharacterDna avant le preflight continuité", async () => {
+  it("PIPELINE_V3_PREMIUM_ONLY : hydrateBlueprintsWithCharacterDna (strict) puis lancement avec fixture premium complète", async () => {
     vi.stubEnv("PIPELINE_V3_PREMIUM_ONLY", "true");
     const origHydrate = studioCore.hydrateBlueprintsWithCharacterDna;
     const hydrateSpy = vi
@@ -266,10 +266,10 @@ describe("/launch — contrat premium", () => {
         roleType: "hero",
         hairColor: "noir",
         eyeColor: null,
-        appearance: null,
-        outfitDefault: null,
-        stableVisualDNA: {},
-        characterFingerprint: {},
+        appearance: "Athlétique",
+        outfitDefault: "Gi blanc",
+        stableVisualDNA: { scars: ["cicatrice légère"] },
+        characterFingerprint: { faceShape: "ovale" },
         visualProfile: {},
         wardrobeProfile: {},
         bodyState: {},
@@ -280,8 +280,43 @@ describe("/launch — contrat premium", () => {
         voiceVocabularyStyle: null,
         voiceFavoriteExpressions: [],
         voiceForbiddenExpressions: [],
-        visualRefs: [],
-        visualLocks: [],
+        visualRefs: [
+          {
+            imageUrl: "https://abcdefgh.supabase.co/storage/v1/object/public/canonical/hero-1.png",
+            isPrimary: true,
+          },
+        ],
+        visualLocks: [{ isActive: true }],
+        canonPack: null,
+        loraAttachments: [],
+      },
+      {
+        id: "support-1",
+        name: "Support",
+        roleType: "supporting",
+        hairColor: "blond",
+        eyeColor: null,
+        appearance: "Svelte",
+        outfitDefault: "Veste",
+        stableVisualDNA: {},
+        characterFingerprint: { silhouette: "fine" },
+        visualProfile: {},
+        wardrobeProfile: {},
+        bodyState: {},
+        continuityProfile: {},
+        speechProfile: {},
+        voiceRegister: null,
+        voiceSentenceLength: null,
+        voiceVocabularyStyle: null,
+        voiceFavoriteExpressions: [],
+        voiceForbiddenExpressions: [],
+        visualRefs: [
+          {
+            imageUrl: "https://abcdefgh.supabase.co/storage/v1/object/public/canonical/support-1.png",
+            isPrimary: true,
+          },
+        ],
+        visualLocks: [{ isActive: true }],
         canonPack: null,
         loraAttachments: [],
       },
@@ -294,13 +329,44 @@ describe("/launch — contrat premium", () => {
       expect(hydrateSpy).toHaveBeenCalled();
       const call = hydrateSpy.mock.calls.find((c) => Array.isArray(c[0]?.blueprints) && (c[0]?.blueprints as unknown[]).length > 0);
       expect(call?.[0]).toMatchObject({ strict: true });
-      // Fixture sans environmentVisualDna complet : le preflight strict premium bloque après hydratation défensive.
-      expect(response.status).toBe(422);
-      const json = (await response.json()) as { code?: string };
-      expect(json.code).toBe("PREMIUM_CONTINUITY_PREFLIGHT_FAILED");
+      // Fixture premium + VW beatBindings + refs canon : strict premium passe hydratation et continuité ; le job est créé.
+      expect(response.status).toBe(200);
+      const json = (await response.json()) as { ok?: boolean; jobId?: string };
+      expect(json.ok).toBe(true);
+      expect(json.jobId).toBe("job-1");
     } finally {
       hydrateSpy.mockRestore();
       vi.unstubAllEnvs();
     }
+  });
+
+  it("PIPELINE_V3_PREMIUM_ONLY : PREMIUM_READINESS_DASHBOARD_BLOCKED si visualWorldContract absent (ch.1)", async () => {
+    vi.stubEnv("PIPELINE_V3_PREMIUM_ONLY", "true");
+    const base = buildPremiumChapter();
+    const outline = base.outline as Record<string, unknown>;
+    const studio = outline.studio as Record<string, unknown>;
+    const data = { ...(studio.data as Record<string, unknown>) };
+    delete data.visualWorldContract;
+    prismaMock.chapter.findFirst.mockResolvedValue({
+      ...base,
+      outline: {
+        ...outline,
+        studio: {
+          ...studio,
+          data,
+        },
+      },
+    });
+    const mod = await import("../app/api/projects/[id]/chapters/[chapterId]/launch/route");
+    const response = await mod.POST(new Request("http://localhost", { method: "POST" }), ctx);
+    vi.unstubAllEnvs();
+    expect(response.status).toBe(422);
+    const json = (await response.json()) as {
+      code?: string;
+      premiumReadiness?: { status?: string; issues?: Array<{ severity?: string; code?: string }> };
+    };
+    expect(json.code).toBe("PREMIUM_READINESS_DASHBOARD_BLOCKED");
+    expect(json.premiumReadiness?.status).toBe("blocked");
+    expect(json.premiumReadiness?.issues?.some((i) => i.severity === "blocked")).toBe(true);
   });
 });

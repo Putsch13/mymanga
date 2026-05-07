@@ -58,6 +58,8 @@ export function toSubjectFocus(raw: string, bp?: { mustShowEnemy?: boolean }): S
   const v = raw.toLowerCase();
   if (v.includes("environment")) return "environment";
   if (v.includes("prop")) return "prop";
+  if (v.includes("vehicle") || v.includes("véhicule")) return "vehicle";
+  if (v.includes("faction") || v.includes("clan") || v.includes("syndicat")) return "faction";
   if (v.includes("enemy") || v.includes("antagon")) return "enemy";
   if (v.includes("creature") || v.includes("monster") || v.includes("beast")) return "threat";
   if (v.includes("npc")) return "important_npc";
@@ -89,13 +91,34 @@ export function deriveRenderMode(bp: PanelBlueprintPremium): StoryboardRenderMod
 
   const requiredSubjects = ((bp.requiredSubjects as string[] | undefined) ?? []).join(" ").toLowerCase();
   const purpose = (bp.purpose ?? "").toLowerCase();
+  const npcDnaList = Array.isArray(bp.npcVisualDna) ? bp.npcVisualDna : [];
+  const dnaHasVehicle =
+    npcDnaList.some((n) => (n.category ?? "").toLowerCase() === "vehicle")
+    || (Array.isArray(bp.vehicleVisualDna) && bp.vehicleVisualDna.length > 0);
+  const dnaHasFaction =
+    npcDnaList.some((n) => (n.category ?? "").toLowerCase() === "faction")
+    || (Array.isArray(bp.factionVisualDna) && bp.factionVisualDna.length > 0);
+
+  const isVehiclePanel =
+    requiredSubjects.includes("vehicle")
+    || /\b(véhicule|vehicule|van|moto|camion|car|ship|vaisseau|blindé|blinde)\b/i.test(purpose)
+    || dnaHasVehicle;
+  const isFactionPanel =
+    requiredSubjects.includes("faction")
+    || /\b(faction|clan|syndicat|uniforme|emblem|emblème|milice)\b/i.test(purpose)
+    || dnaHasFaction;
+
   const isCreaturePanel =
     requiredSubjects.includes("creature") ||
     requiredSubjects.includes("monster") ||
     requiredSubjects.includes("beast") ||
     purpose.includes("creature") ||
     purpose.includes("monstre") ||
-    purpose.includes("créature");
+    purpose.includes("créature") ||
+    (Array.isArray(bp.creatureVisualDna) && bp.creatureVisualDna.length > 0);
+
+  if (isVehiclePanel) return "vehicle_reveal";
+  if (isFactionPanel) return "faction_reveal";
 
   if (isCreaturePanel) return "creature_reveal";
   if (cutaway === "environment") return "establishing_environment";
@@ -426,6 +449,9 @@ export function buildStoryboardPlanFromPremiumBlueprints(args: {
         continuityState: bp.continuityState ?? null,
         characterVisualDna: bp.characterVisualDna ?? [],
         npcVisualDna: bp.npcVisualDna ?? [],
+        creatureVisualDna: bp.creatureVisualDna ?? [],
+        vehicleVisualDna: bp.vehicleVisualDna ?? [],
+        factionVisualDna: bp.factionVisualDna ?? [],
         worldPropsVisualDna: requiredPropsToWorldPropsVisualDna(bp.requiredProps ?? [], bp.beatId),
         environmentVisualDna: bp.environmentVisualDna ?? null,
       };

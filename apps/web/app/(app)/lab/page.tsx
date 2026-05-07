@@ -136,7 +136,7 @@ export default async function LabPage() {
                         </Link>
                       </Button>
                       <Button asChild size="sm" className="gap-2">
-                        <Link href={`/projects/${project.id}/pipeline`}>
+                        <Link href={last ? `/projects/${project.id}/chapters/${last.id}/edit` : `/projects/${project.id}/chapters/new`}>
                           <Wand2 className="h-4 w-4" />
                           Générer
                         </Link>

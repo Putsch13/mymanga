@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { AutofillMeta, ChapterReadinessIssue, ChapterStudioData, ChapterStudioSnapshot, ChapterStudioStep } from "@manga-ai-studio/core";
 import { buildChapterReadinessReport, PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
+import { buildPremiumReadinessDashboard } from "@/lib/readiness/build-premium-readiness-dashboard";
 import { Button } from "@/components/ui/button";
 import type { OutlineProgressionIssue } from "@/lib/outline-progression-guard";
 import { ChapterBriefStep } from "./chapter-brief-step";
@@ -22,6 +24,16 @@ import {
   type ChapterFlowStepId,
   type StudioResponse,
 } from "./chapter-studio-flow";
+import { ChapterWizardShell } from "@/features/studio/wizard/chapter-wizard-shell";
+import {
+  CHAPTER_WIZARD_STEP_ORDER,
+  studioStepToWizardStepId,
+  WIZARD_STEP_NAV,
+  type ChapterWizardDeriveExtras,
+  type ChapterWizardStepId,
+  type HeroWizardReadiness,
+} from "@/features/studio/wizard/chapter-wizard-model";
+import { useChapterWizardState } from "@/features/studio/wizard/use-chapter-wizard-state";
 
 type CharacterCatalogEntry = {
   id: string;
@@ -38,6 +50,8 @@ function primaryStudioStepForFlowStep(flowStep: ChapterFlowStepId): ChapterStudi
 }
 
 export function ChapterStudioEditor({ projectId, chapterId }: { projectId: string; chapterId: string }) {
+  const searchParams = useSearchParams();
+  const lastAppliedWizardParam = useRef<string | null>(null);
   const [projectTitle, setProjectTitle] = useState("");
   const [chapterTitle, setChapterTitle] = useState("");
   const [snapshot, setSnapshot] = useState<ChapterStudioSnapshot | null>(null);
@@ -56,6 +70,9 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
   const [chapterVisualContract, setChapterVisualContract] = useState<unknown>(null);
   const [chapterVisualContractUi, setChapterVisualContractUi] = useState<StudioResponse["chapterVisualContractUi"]>(undefined);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [chapterNumber, setChapterNumber] = useState<number | null>(null);
+  const [heroWizardReadiness, setHeroWizardReadiness] = useState<HeroWizardReadiness | null>(null);
+  const [wizardExpanded, setWizardExpanded] = useState(true);
   const hasExistingContent = Boolean(
     snapshot?.data?.intent?.shortPitch ||
     snapshot?.data?.narrativeContract?.centralConflict
@@ -71,6 +88,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
     setChapterVisualContractUi(json.chapterVisualContractUi);
     setProjectTitle(json.project.title);
     setChapterTitle(json.chapter.title ?? `Chapitre ${json.chapter.chapterNumber}`);
+    setChapterNumber(json.chapter.chapterNumber);
     setSnapshot(json.snapshot);
     setGenerationContext(json.generationContext);
     setCharacterCatalog(json.characterCatalog ?? []);
@@ -89,11 +107,23 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
       intensityCurve: [],
       forbiddenNarrativeMisses: [],
     } : undefined);
+    const initialWizard = loadedData.chapterWizard
+      ? {
+          currentStep: loadedData.chapterWizard.currentStep,
+          completedSteps: loadedData.chapterWizard.completedSteps ?? [],
+          dismissedTips: loadedData.chapterWizard.dismissedTips ?? [],
+        }
+      : {
+          currentStep: studioStepToWizardStepId(json.snapshot.currentStep),
+          completedSteps: [] as string[],
+          dismissedTips: [] as string[],
+        };
     setDraft({
       ...loadedData,
       selectedPlotLabel: loadedData.selectedPlotLabel ?? "bold",
       creativityControls: normalizeCreativeControls(loadedData.creativityControls),
       narrativeContract: autoContract,
+      chapterWizard: initialWizard,
     });
     setActiveStudioStep(json.snapshot.currentStep);
     setActiveFlowStep(mapStudioStepToFlowStep(json.snapshot.currentStep));
@@ -104,11 +134,19 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
     void loadStudio();
   }, [loadStudio]);
 
+  useEffect(() => {
+    lastAppliedWizardParam.current = null;
+  }, [chapterId]);
+
   useEffect(() => () => {
     if (autosaveRef.current) {
       window.clearTimeout(autosaveRef.current);
     }
   }, []);
+
+  useEffect(() => {
+    if (chapterNumber !== 1) setHeroWizardReadiness(null);
+  }, [chapterNumber]);
 
   const save = useCallback(async (nextDraft: ChapterStudioData, step = activeStudioStep) => {
     setSaving(true);
@@ -136,6 +174,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
         ...nextSnapshot.data,
         selectedPlotLabel: nextSnapshot.data.selectedPlotLabel ?? nextDraft.selectedPlotLabel ?? "bold",
         creativityControls: normalizeCreativeControls(nextSnapshot.data.creativityControls ?? nextDraft.creativityControls),
+        chapterWizard: nextSnapshot.data.chapterWizard ?? nextDraft.chapterWizard,
       });
       setActiveStudioStep(step);
       setSaving(false);
@@ -156,8 +195,33 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
   }, [activeStudioStep, save]);
 
   const goToFlowStep = useCallback((flowStep: ChapterFlowStepId, fieldId?: string | null, stepOverride?: ChapterStudioStep) => {
+    const nextStudio = stepOverride ?? primaryStudioStepForFlowStep(flowStep);
     setActiveFlowStep(flowStep);
-    setActiveStudioStep(stepOverride ?? primaryStudioStepForFlowStep(flowStep));
+    if (chapterNumber === 1 && draft) {
+      const prevWizardId = draft.chapterWizard?.currentStep;
+      const w = studioStepToWizardStepId(nextStudio, { draft, flowStep });
+      const completedSet = new Set(draft.chapterWizard?.completedSteps ?? []);
+      if (
+        typeof prevWizardId === "string"
+        && prevWizardId !== w
+        && CHAPTER_WIZARD_STEP_ORDER.includes(prevWizardId as ChapterWizardStepId)
+      ) {
+        completedSet.add(prevWizardId);
+      }
+      updateDraft(
+        {
+          ...draft,
+          chapterWizard: {
+            currentStep: w,
+            completedSteps: Array.from(completedSet),
+            dismissedTips: draft.chapterWizard?.dismissedTips ?? [],
+          },
+        },
+        nextStudio,
+      );
+    } else {
+      setActiveStudioStep(nextStudio);
+    }
 
     window.setTimeout(() => {
       if (fieldId) {
@@ -169,7 +233,59 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
       const section = document.querySelector<HTMLElement>(`[data-studio-section="${flowStep}"]`);
       section?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 120);
-  }, []);
+  }, [chapterNumber, draft, updateDraft]);
+
+  const navigateWizardStep = useCallback(
+    (id: ChapterWizardStepId) => {
+      if (chapterNumber !== 1 || !draft) return;
+      const nav = WIZARD_STEP_NAV[id];
+      const prevWizardId = draft.chapterWizard?.currentStep;
+      const completedSet = new Set(draft.chapterWizard?.completedSteps ?? []);
+      if (
+        typeof prevWizardId === "string"
+        && prevWizardId !== id
+        && CHAPTER_WIZARD_STEP_ORDER.includes(prevWizardId as ChapterWizardStepId)
+      ) {
+        completedSet.add(prevWizardId);
+      }
+      setActiveFlowStep(nav.flowStep);
+      updateDraft(
+        {
+          ...draft,
+          chapterWizard: {
+            currentStep: id,
+            completedSteps: Array.from(completedSet),
+            dismissedTips: draft.chapterWizard?.dismissedTips ?? [],
+          },
+        },
+        nav.studioStep,
+      );
+      window.setTimeout(() => {
+        if (nav.scrollFieldId) {
+          const target = document.querySelector<HTMLElement>(`[data-studio-field="${nav.scrollFieldId}"]`);
+          if (target) {
+            target.scrollIntoView({ behavior: "smooth", block: "center" });
+            target.focus();
+            return;
+          }
+        }
+        const section = document.querySelector<HTMLElement>(`[data-studio-section="${nav.flowStep}"]`);
+        section?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 160);
+    },
+    [chapterNumber, draft, updateDraft],
+  );
+
+  /** P1.3 — lien readiness `?wizard=plan` etc. : ouvre l’étape correspondante après chargement studio. */
+  useEffect(() => {
+    if (loading || chapterNumber !== 1 || !draft) return;
+    const w = searchParams.get("wizard");
+    if (!w) return;
+    if (!CHAPTER_WIZARD_STEP_ORDER.includes(w as ChapterWizardStepId)) return;
+    if (lastAppliedWizardParam.current === w) return;
+    lastAppliedWizardParam.current = w;
+    navigateWizardStep(w as ChapterWizardStepId);
+  }, [loading, chapterNumber, draft, searchParams, navigateWizardStep]);
 
   const generateOutlines = useCallback(async () => {
     if (!draft?.intent?.shortPitch) {
@@ -384,6 +500,36 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
     }
   }, [draft, snapshot]);
 
+  const livePremiumDashboard = useMemo(() => {
+    if (!draft || !snapshot) return null;
+    const liveSnapshot: ChapterStudioSnapshot = {
+      ...snapshot,
+      data: { ...draft },
+    };
+    try {
+      return buildPremiumReadinessDashboard({
+        snapshot: liveSnapshot,
+        projectId,
+        chapterId,
+        chapterNumber,
+      });
+    } catch {
+      return null;
+    }
+  }, [draft, snapshot, projectId, chapterId, chapterNumber]);
+
+  const wizardExtras: ChapterWizardDeriveExtras | null = useMemo(() => {
+    if (chapterNumber !== 1) return null;
+    return { chapterNumber: 1, heroReadiness: heroWizardReadiness };
+  }, [chapterNumber, heroWizardReadiness]);
+
+  const wizardVm = useChapterWizardState({
+    draft,
+    liveReadiness,
+    chapterNumber,
+    wizardExtras,
+  });
+
   if (loading || !draft || !snapshot) {
     return <div className="rounded-2xl border border-border/60 bg-card/30 p-6 text-sm text-muted-foreground">Chargement du studio…</div>;
   }
@@ -399,9 +545,12 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
   const stackReady =
     (generationContext?.stack.canGenerateChapters ?? true) && !premiumVisualBlocked;
   const canAccessReview = generatedImages > 0 || ["QA_REVIEW", "NEEDS_FIXES", "COMPLETED", "PUBLISHED", "GENERATION_PARTIAL"].includes(snapshot.status);
+  const premiumLaunchBlocked = (livePremiumDashboard?.status === "blocked" && generatedImages === 0) ?? false;
   const launchDisabledMessage =
-    blockerItems.length > 0 && generatedImages === 0
-      ? "Corrige d’abord les blocants du studio pour lancer la génération."
+    (blockerItems.length > 0 || premiumLaunchBlocked) && generatedImages === 0
+      ? premiumLaunchBlocked && blockerItems.length === 0
+        ? "Corrige d’abord les blocants premium (checklist contrats) avant de lancer."
+        : "Corrige d’abord les blocants du studio pour lancer la génération."
       : premiumVisualBlocked
         ? "Configuration serveur : QA visuelle premium incomplète (variables d’environnement). Corrige la liste ci-dessous ou contacte l’administrateur."
         : !stackReady
@@ -452,6 +601,14 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
         <ChapterOnboardingBanner
           projectId={projectId}
           hasCharacters={characterCatalog.length > 0}
+        />
+
+        <ChapterWizardShell
+          enabled={chapterNumber === 1}
+          expanded={wizardExpanded}
+          onExpandedChange={setWizardExpanded}
+          steps={wizardVm.steps}
+          onStepClick={navigateWizardStep}
         />
 
         {/* P1.4 — bannière de réparation guidée : reste visible en haut du
@@ -577,6 +734,9 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
             warningItems={briefWarnings}
             generatingOutline={generatingOutline}
             expertMode={expertMode}
+            chapterNumber={chapterNumber}
+            projectId={projectId}
+            chapterId={chapterId}
             onIssueAction={handleIssueAction}
             onUpdateDraft={updateDraft}
             onGenerateBase={generateOutlines}
@@ -590,6 +750,9 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
             warningItems={castCanonWarnings}
             characterCatalog={characterCatalog}
             projectId={projectId}
+            chapterId={chapterId}
+            chapterNumber={chapterNumber}
+            onHeroReadinessChange={setHeroWizardReadiness}
             onIssueAction={handleIssueAction}
             onUpdateDraft={updateDraft}
             onContinue={() => goToFlowStep("plan")}
@@ -616,6 +779,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
             onGenerateOutlines={generateOutlines}
             onRewriteBeat={rewriteBeat}
             rewritingBeat={autofilling}
+            characterCatalog={characterCatalog}
             onValidatePlan={() => {
               // P0.3 — si le contrat de production est incomplet (blueprints <
               // minimumImages), on reste sur l'étape `plan` et on remonte le
@@ -660,6 +824,7 @@ export function ChapterStudioEditor({ projectId, chapterId }: { projectId: strin
             chapterTitle={summary.title}
             blockerItems={blockerItems}
             warningItems={warningItems}
+            premiumDashboard={livePremiumDashboard}
             generatedImages={generatedImages}
             minimumImages={minimumImages}
             stackReady={stackReady}

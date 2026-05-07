@@ -3,6 +3,7 @@ import { isSecondaryHeroRole } from "@manga-ai-studio/core";
 export * from "./scene-extras-registry";
 export * from "./species-resolver";
 export * from "./dialogue-memory";
+export * from "./dialogue-voice-drift";
 
 type RagDocumentInput = {
   projectId: string;

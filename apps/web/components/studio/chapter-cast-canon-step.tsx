@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ChapterReadinessIssue, ChapterStudioData } from "@manga-ai-studio/core";
+import {
+  type ChapterReadinessIssue,
+  type ChapterStudioData,
+  applyHeroInvariant,
+  isAntagonistRole,
+  isHeroRole,
+  isSupportingRole,
+} from "@manga-ai-studio/core";
 import { Loader2, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +19,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { CharacterPicker } from "./character-picker";
 import { TagInput } from "./tag-input";
 import { StudioInlineIssues } from "./studio-inline-issues";
+import { ChapterHeroWizardPanel } from "@/features/studio/wizard/chapter-hero-wizard-panel";
+import { ChapterSecondaryCastWizardPanel } from "@/features/studio/wizard/chapter-secondary-cast-wizard-panel";
+import { ChapterLocationsWizardPanel } from "@/features/studio/wizard/chapter-locations-wizard-panel";
+import { ChapterLivingWorldWizardPanel } from "@/features/studio/wizard/chapter-living-world-wizard-panel";
+import { ChapterVisualStyleWizardPanel } from "@/features/studio/wizard/chapter-visual-style-wizard-panel";
+import type { HeroWizardReadiness } from "@/features/studio/wizard/chapter-wizard-model";
 
 type CharacterCatalogEntry = {
   id: string;
@@ -26,6 +39,9 @@ export function ChapterCastCanonStep({
   warningItems,
   characterCatalog,
   projectId,
+  chapterId,
+  chapterNumber,
+  onHeroReadinessChange,
   onIssueAction,
   onUpdateDraft,
   onContinue,
@@ -35,14 +51,19 @@ export function ChapterCastCanonStep({
   warningItems: ChapterReadinessIssue[];
   characterCatalog?: CharacterCatalogEntry[];
   projectId: string;
+  chapterId?: string;
+  chapterNumber?: number | null;
+  onHeroReadinessChange?: (readiness: HeroWizardReadiness | null) => void;
   onIssueAction: (issue: ChapterReadinessIssue) => void | Promise<void>;
   onUpdateDraft: (next: ChapterStudioData, step?: "characters" | "canon") => void;
   onContinue: () => void;
 }) {
   const catalog = characterCatalog ?? [];
-  const heroes = catalog.filter((c) => /hero|protagon|main_char/i.test(c.roleType ?? ""));
-  const antagonists = catalog.filter((c) => /antagon|villain/i.test(c.roleType ?? ""));
-  const mainChars = catalog.filter((c) => /hero|protagon|support|main/i.test(c.roleType ?? ""));
+  const heroes = catalog.filter((c) => isHeroRole(c.roleType));
+  const antagonists = catalog.filter((c) => isAntagonistRole(c.roleType));
+  const mainChars = catalog.filter(
+    (c) => isHeroRole(c.roleType) || isSupportingRole(c.roleType),
+  );
 
   // Auto-sélection silencieuse du héros si heroCharacterId vide mais actifs contiennent un héros
   const autoHeroId =
@@ -58,21 +79,24 @@ export function ChapterCastCanonStep({
   }, [autoHeroId]);
 
   function updateCharacterSelection(patch: Partial<NonNullable<ChapterStudioData["characterSelection"]>>) {
+    const merged: NonNullable<ChapterStudioData["characterSelection"]> = {
+      heroCharacterId: draft.characterSelection?.heroCharacterId ?? null,
+      secondaryHeroCharacterId: draft.characterSelection?.secondaryHeroCharacterId ?? null,
+      deuteragonistCharacterId: draft.characterSelection?.deuteragonistCharacterId ?? null,
+      coreCastCharacterIds: draft.characterSelection?.coreCastCharacterIds ?? [],
+      activeCharacterIds: draft.characterSelection?.activeCharacterIds ?? [],
+      lockedCharacterIds: draft.characterSelection?.lockedCharacterIds ?? [],
+      speakingCharacterIds: draft.characterSelection?.speakingCharacterIds ?? [],
+      evolvingCharacterIds: draft.characterSelection?.evolvingCharacterIds ?? [],
+      antagonistCharacterIds: draft.characterSelection?.antagonistCharacterIds ?? [],
+      recurringNpcIds: draft.characterSelection?.recurringNpcIds ?? [],
+      ...patch,
+    };
+    const hero = typeof merged.heroCharacterId === "string" ? merged.heroCharacterId.trim() : "";
+    const finalSelection = hero ? applyHeroInvariant(merged, hero) : merged;
     onUpdateDraft({
       ...draft,
-      characterSelection: {
-        heroCharacterId: draft.characterSelection?.heroCharacterId ?? null,
-        secondaryHeroCharacterId: draft.characterSelection?.secondaryHeroCharacterId ?? null,
-        deuteragonistCharacterId: draft.characterSelection?.deuteragonistCharacterId ?? null,
-        coreCastCharacterIds: draft.characterSelection?.coreCastCharacterIds ?? [],
-        activeCharacterIds: draft.characterSelection?.activeCharacterIds ?? [],
-        lockedCharacterIds: draft.characterSelection?.lockedCharacterIds ?? [],
-        speakingCharacterIds: draft.characterSelection?.speakingCharacterIds ?? [],
-        evolvingCharacterIds: draft.characterSelection?.evolvingCharacterIds ?? [],
-        antagonistCharacterIds: draft.characterSelection?.antagonistCharacterIds ?? [],
-        recurringNpcIds: draft.characterSelection?.recurringNpcIds ?? [],
-        ...patch,
-      },
+      characterSelection: finalSelection,
     }, "characters");
   }
 
@@ -126,8 +150,8 @@ export function ChapterCastCanonStep({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           rawDescription: npcRawDescription,
-          universe: "fantasy",
-          tone: "épique",
+          universe: (draft.chapterIntentContract?.understoodPitch ?? "").slice(0, 200) || "manga",
+          tone: draft.chapterIntentContract?.tone?.trim() || "dramatic",
         }),
       });
       const data = await res.json() as {
@@ -196,6 +220,37 @@ export function ChapterCastCanonStep({
 
   return (
     <div data-studio-section="cast_canon" className="max-w-3xl space-y-6">
+      {chapterNumber === 1 && chapterId && onHeroReadinessChange ? (
+        <ChapterHeroWizardPanel
+          projectId={projectId}
+          chapterId={chapterId}
+          draft={draft}
+          characterCatalog={catalog}
+          onUpdateDraft={onUpdateDraft}
+          onHeroReadinessChange={onHeroReadinessChange}
+        />
+      ) : null}
+
+      {chapterNumber === 1 && chapterId ? (
+        <ChapterSecondaryCastWizardPanel
+          projectId={projectId}
+          chapterId={chapterId}
+          draft={draft}
+          characterCatalog={catalog}
+          onPatchCharacterSelection={updateCharacterSelection}
+        />
+      ) : null}
+
+      {chapterNumber === 1 && chapterId ? (
+        <ChapterLocationsWizardPanel chapterId={chapterId} draft={draft} onUpdateDraft={onUpdateDraft} />
+      ) : null}
+
+      {chapterNumber === 1 && chapterId ? (
+        <ChapterLivingWorldWizardPanel chapterId={chapterId} draft={draft} onUpdateDraft={onUpdateDraft} />
+      ) : null}
+
+      {chapterNumber === 1 ? <ChapterVisualStyleWizardPanel draft={draft} onUpdateDraft={onUpdateDraft} /> : null}
+
       <Card className="border-border/60 bg-card/40">
         <CardHeader>
           <CardTitle className="text-base">Personnages du chapitre</CardTitle>

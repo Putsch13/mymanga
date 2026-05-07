@@ -10,6 +10,11 @@ import type {
 } from "./reader-page-format";
 import type { SceneContinuitySnapshot } from "./generation-debug-snapshot";
 import type { PanelTextContract } from "../generation/panel-text-contract";
+import type {
+  CreatureVisualDna,
+  FactionVisualDna,
+  VehicleVisualDna,
+} from "../visual-world/visual-world-contract";
 
 // ─── Narrative Facts ──────────────────────────────────────────────────────────
 
@@ -300,7 +305,12 @@ export interface PanelBlueprintPremium {
   sceneRoster?: SceneRosterEntry[];
   continuityState?: SceneContinuitySnapshot | null;
   characterVisualDna?: CharacterVisualDna[];
+  /** Groupes PNJ monde (hors créatures / véhicules / factions — P0.12). */
   npcVisualDna?: NpcVisualDna[];
+  /** Créatures liées au beat (VisualWorldContract → hydratation). */
+  creatureVisualDna?: CreatureVisualDna[];
+  vehicleVisualDna?: VehicleVisualDna[];
+  factionVisualDna?: FactionVisualDna[];
   environmentVisualDna?: EnvironmentVisualDna | null;
   /** Ancre décor (souvent = `environmentVisualDna.anchorId` / id lieu VW). */
   environmentAnchorId?: string | null;

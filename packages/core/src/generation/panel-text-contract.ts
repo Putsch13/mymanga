@@ -408,3 +408,36 @@ export function buildPanelTextContractFromBlueprintTextFields(
     panelTextBundle: fields.panelTextBundle ?? null,
   });
 }
+
+/** Cible blueprint / panel avec champs texte legacy + contrat optionnel. */
+export type BlueprintTextSyncTarget = BlueprintTextFieldsLike & {
+  textContract?: PanelTextContract | null;
+};
+
+/**
+ * P0.16 — Aligne `dialogueLines`, `panelTextBundle`, `narrationText`, `sfxCues` et `textContract`
+ * sur un `PanelTextContract` unique.
+ */
+export function syncAllTextViewsFromPanelTextContract<T extends BlueprintTextSyncTarget>(
+  panel: T,
+  contract: PanelTextContract,
+): T & { textContract: PanelTextContract } {
+  const dialogueLines = contract.dialogues.map((d) => ({
+    speaker: d.speakerName,
+    text: d.text,
+    ...(d.speakerId ? { characterId: d.speakerId } : {}),
+  }));
+  const sfxStrings = contract.sfx.map((s) => s.text);
+  return {
+    ...panel,
+    textContract: contract,
+    dialogueLines,
+    narrationText: contract.narration ?? null,
+    sfxCues: sfxStrings.length ? sfxStrings : null,
+    panelTextBundle: {
+      dialogues: dialogueLines.map((l) => ({ speaker: l.speaker, text: l.text })),
+      narration: contract.narration ?? null,
+      sfx: sfxStrings,
+    },
+  };
+}

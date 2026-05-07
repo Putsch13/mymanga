@@ -7,6 +7,11 @@ import {
   resolveEffectiveCharacterCanon as resolveEffectiveCharacterCanonCore,
   type ChapterStudioSnapshot,
   type CharacterCanon,
+  isHeroRole,
+  isAntagonistRole,
+  isSecondaryHeroRole,
+  isSupportingRole,
+  isNpcRole,
 } from "@manga-ai-studio/core";
 import { asRecord, asStringArray, safeString } from "./utils";
 import {
@@ -53,14 +58,17 @@ export function buildCharacterCanonFromCharacter(character: {
   const activeLoraBinding = resolveActiveCharacterLoraBinding({ activeLock });
   const legacyLoraBindingString = encodeLegacyLoraBindingString(activeLoraBinding);
 
-  const importanceTier =
-    /hero|protagon/i.test(character.roleType ?? "")
-      ? "MAIN_HERO"
-      : /antagon|main|core/i.test(character.roleType ?? "")
-        ? "SECONDARY_CORE"
-        : /support|ally|secondary/i.test(character.roleType ?? "")
+  const importanceTier = isHeroRole(character.roleType)
+    ? "MAIN_HERO"
+    : isAntagonistRole(character.roleType)
+      ? "SECONDARY_CORE"
+      : isSecondaryHeroRole(character.roleType)
+        ? "IMPORTANT_SUPPORTING_CHARACTER"
+        : isSupportingRole(character.roleType)
           ? "IMPORTANT_SUPPORTING_CHARACTER"
-          : "RECURRING_NPC";
+          : isNpcRole(character.roleType)
+            ? "RECURRING_NPC"
+            : "RECURRING_NPC";
 
   return {
     characterId: character.id,

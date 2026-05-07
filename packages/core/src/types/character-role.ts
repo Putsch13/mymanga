@@ -180,3 +180,35 @@ export function isNpcRole(value: unknown): boolean {
   const role = canonicalizeCharacterRoleType(value);
   return role === "npc" || role === "recurring_npc";
 }
+
+/**
+ * Personnages dont le canon doit être contrôlé avant launch (héros, co-héros
+ * canon `secondary`, antagoniste). Utilisé pour filtres Prisma `roleType in (...)`.
+ */
+export const CRITICAL_STUDIO_ROLE_TYPES_FOR_QUERY: readonly string[] = (() => {
+  const s = new Set<string>();
+  for (const [alias, canon] of Object.entries(ALIAS_TABLE)) {
+    if (canon === "hero" || canon === "antagonist" || canon === "secondary") {
+      s.add(alias);
+      s.add(alias.replace(/_/g, " "));
+      s.add(alias.replace(/_/g, "-"));
+    }
+  }
+  for (const raw of [
+    "hero",
+    "antagonist",
+    "secondary",
+    "main",
+    "HERO",
+    "Héros",
+    "héros",
+    "SECONDARY_CORE",
+    "Antagoniste",
+    "antagoniste",
+    "Protagoniste",
+    "protagoniste",
+  ]) {
+    s.add(raw);
+  }
+  return [...s];
+})();

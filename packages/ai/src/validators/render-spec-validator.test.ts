@@ -192,4 +192,84 @@ describe("validateRenderSpec", () => {
       // ok peut être true car ce n'est pas fatal
     },
   );
+
+  it("P0.12 — vehicle_reveal sans npcVisualDna category vehicle est fatal", () => {
+    const r = validateRenderSpec(
+      makeSpec({
+        renderMode: "vehicle_reveal",
+        panelPurpose: "vehicle_reveal",
+        shotType: "wide",
+        subjectFocus: "vehicle",
+        npcVisualDna: [{ continuityId: "g1", displayName: "Foule", category: "crowd", visualMarkers: [] }],
+      }),
+    );
+    expect(r.ok).toBe(false);
+    expect(r.fatalIssues.some((i) => i.includes("vehicle_reveal_missing_vehicle_npcVisualDna"))).toBe(true);
+  });
+
+  it("P0.12 — vehicle_reveal avec vehicleVisualDna (sans npc category) évite l'erreur fatal", () => {
+    const r = validateRenderSpec(
+      makeSpec({
+        renderMode: "vehicle_reveal",
+        panelPurpose: "vehicle_reveal",
+        shotType: "wide",
+        subjectFocus: "vehicle",
+        npcVisualDna: undefined,
+        vehicleVisualDna: [
+          { id: "v1", label: "Van", visualDescription: "Noir", requiredBeatIds: [], scale: "medium" },
+        ],
+      }),
+    );
+    expect(r.fatalIssues.some((i) => i.includes("vehicle_reveal_missing_vehicle_npcVisualDna"))).toBe(false);
+  });
+
+  it("P0.12 — vehicle_reveal avec npcVisualDna vehicle évite l'erreur fatal associée (legacy)", () => {
+    const r = validateRenderSpec(
+      makeSpec({
+        renderMode: "vehicle_reveal",
+        panelPurpose: "vehicle_reveal",
+        shotType: "wide",
+        subjectFocus: "vehicle",
+        npcVisualDna: [{ continuityId: "v1", displayName: "Van", category: "vehicle", visualMarkers: ["noir"] }],
+      }),
+    );
+    expect(r.fatalIssues.some((i) => i.includes("vehicle_reveal_missing_vehicle_npcVisualDna"))).toBe(false);
+  });
+
+  it("P0.12 — faction_reveal avec factionVisualDna évite l'erreur fatal", () => {
+    const r = validateRenderSpec(
+      makeSpec({
+        renderMode: "faction_reveal",
+        panelPurpose: "faction_reveal",
+        shotType: "wide",
+        subjectFocus: "faction",
+        npcVisualDna: undefined,
+        factionVisualDna: [
+          {
+            id: "f1",
+            label: "Syndicat",
+            visualMarkers: ["violet"],
+            visualMotifs: [],
+            colors: [],
+            requiredBeatIds: [],
+          },
+        ],
+      }),
+    );
+    expect(r.fatalIssues.some((i) => i.includes("faction_reveal_missing_faction_npcVisualDna"))).toBe(false);
+  });
+
+  it("P0.12 — faction_reveal sans npcVisualDna faction est fatal", () => {
+    const r = validateRenderSpec(
+      makeSpec({
+        renderMode: "faction_reveal",
+        panelPurpose: "faction_reveal",
+        shotType: "wide",
+        subjectFocus: "faction",
+        npcVisualDna: undefined,
+      }),
+    );
+    expect(r.ok).toBe(false);
+    expect(r.fatalIssues.some((i) => i.includes("faction_reveal_missing_faction_npcVisualDna"))).toBe(true);
+  });
 });

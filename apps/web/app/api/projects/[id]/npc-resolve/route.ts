@@ -25,7 +25,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   // l'existence d'un projet tiers.
   const project = await prisma.project.findFirst({
     where: { id: projectId, userId: user.id },
-    select: { id: true },
+    select: { id: true, primaryGenre: true, tone: true },
   });
   if (!project) return notFound();
 
@@ -41,8 +41,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   }
 
   const desc = body.rawDescription.toLowerCase();
-  const universe = (body.universe ?? "fantasy").toLowerCase();
-  const tone = (body.tone ?? "épique").toLowerCase();
+  const universe = (body.universe ?? project.primaryGenre ?? "generic").trim().toLowerCase() || "generic";
+  const tone = (body.tone ?? project.tone ?? "neutre").trim().toLowerCase() || "neutre";
 
   const speciesLabel = detectSpeciesInDescription(body.rawDescription);
 

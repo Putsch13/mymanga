@@ -18,7 +18,13 @@
  *     chapter-visual-memory : jamais referencePolicy NONE)
  */
 
-import type { NpcVisualDna, VisualWorldPropDna } from "@manga-ai-studio/core";
+import type {
+  CreatureVisualDna,
+  FactionVisualDna,
+  NpcVisualDna,
+  VehicleVisualDna,
+  VisualWorldPropDna,
+} from "@manga-ai-studio/core";
 import type { ChapterStyleBible } from "./chapter-style-bible";
 import type {
   PanelPurpose,
@@ -217,6 +223,9 @@ export interface PanelRenderSpec {
    * Consommé par le prompt minimal (plafonné) en complément des héros `visibleCharacters`.
    */
   npcVisualDna?: NpcVisualDna[] | null;
+  creatureVisualDna?: CreatureVisualDna[] | null;
+  vehicleVisualDna?: VehicleVisualDna[] | null;
+  factionVisualDna?: FactionVisualDna[] | null;
   /** Props monde / beat (VW + `RequiredProp` mappés) pour le prompt image. */
   worldPropsVisualDna?: VisualWorldPropDna[] | null;
   /**

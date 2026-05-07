@@ -100,8 +100,11 @@ export function mapStudioStepToFlowStep(step: ChapterStudioStep | null | undefin
   if (!step) return "brief";
   if (step === "intent") return "brief";
   if (step === "characters" || step === "canon") return "cast_canon";
-  if (step === "narrative_contract" || step === "editorial_outline" || step === "production_outline" || step === "production_plan" || step === "readiness") {
+  if (step === "narrative_contract" || step === "editorial_outline" || step === "production_outline" || step === "production_plan") {
     return "plan";
+  }
+  if (step === "readiness") {
+    return "generation_review";
   }
   return "generation_review";
 }

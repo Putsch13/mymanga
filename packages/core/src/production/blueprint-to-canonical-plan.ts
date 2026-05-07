@@ -113,6 +113,9 @@ function blueprintToCanonicalPanel(bp: PanelBlueprintPremium, globalIndex: numbe
     notes: bp.notes ?? [],
     ...(nonEmptyArray(bp.characterVisualDna) ? { characterVisualDna: bp.characterVisualDna } : {}),
     ...(nonEmptyArray(bp.npcVisualDna) ? { npcVisualDna: bp.npcVisualDna } : {}),
+    ...(nonEmptyArray(bp.creatureVisualDna) ? { creatureVisualDna: bp.creatureVisualDna } : {}),
+    ...(nonEmptyArray(bp.vehicleVisualDna) ? { vehicleVisualDna: bp.vehicleVisualDna } : {}),
+    ...(nonEmptyArray(bp.factionVisualDna) ? { factionVisualDna: bp.factionVisualDna } : {}),
     ...(nonEmptyEnvironmentDna(bp.environmentVisualDna)
       ? { environmentVisualDna: bp.environmentVisualDna }
       : {}),

@@ -250,6 +250,15 @@ async function preparePanelData(
     ],
     characterVisualDna: panel.characterVisualDna ?? [],
     npcVisualDna: panel.npcVisualDna ?? [],
+    ...(Array.isArray(panel.creatureVisualDna) && panel.creatureVisualDna.length > 0
+      ? { creatureVisualDna: panel.creatureVisualDna }
+      : {}),
+    ...(Array.isArray(panel.vehicleVisualDna) && panel.vehicleVisualDna.length > 0
+      ? { vehicleVisualDna: panel.vehicleVisualDna }
+      : {}),
+    ...(Array.isArray(panel.factionVisualDna) && panel.factionVisualDna.length > 0
+      ? { factionVisualDna: panel.factionVisualDna }
+      : {}),
     environmentVisualDna:
       panel.environmentVisualDna
       ?? {

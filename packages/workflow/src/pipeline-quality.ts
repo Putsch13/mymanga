@@ -23,6 +23,12 @@ export type PipelineJobInput = {
   premiumReadinessScore?: number;
   /** Persistance studio : dialoguiste scène pour ce run (s’ajoute à OPENAI_SCENE_DIALOGUE_ENRICH). */
   sceneDialogueEnrich?: boolean;
+  /** Intention compilée (wizard P0.5) — traçabilité / hashes contrat génération. */
+  chapterIntentContract?: unknown;
+  /** VisualWorld persisté au studio avant run — empreinte provenance côté user. */
+  persistedVisualWorldContract?: unknown;
+  /** DialogueContract validé au studio (wizard script). */
+  chapterDialogueContract?: unknown;
 };
 
 export function resolveEffectivePanelBlueprints(opts: {

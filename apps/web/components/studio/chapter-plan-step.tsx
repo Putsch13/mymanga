@@ -1,7 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import type { ChapterReadinessIssue, ChapterStudioData, EstimateCanonicalProductionPlan } from "@manga-ai-studio/core";
+import type {
+  ChapterReadinessIssue,
+  ChapterStudioData,
+  ChapterStudioStep,
+  EstimateCanonicalProductionPlan,
+} from "@manga-ai-studio/core";
 import { AlertTriangle, Pencil, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +15,9 @@ import { FieldTooltip } from "@/components/ui/field-tooltip";
 import { Label } from "@/components/ui/label";
 import type { OutlineProgressionIssue } from "@/lib/outline-progression-guard";
 import { NarrativeContractCard } from "./narrative-contract-card";
+import { PremiumPlanSceneOverview } from "./premium-plan-scene-overview";
 import { ProductionPlanCard } from "./production-plan-card";
+import { ChapterScriptDialoguesPanel } from "./chapter-script-dialogues-panel";
 import { StudioInlineIssues } from "./studio-inline-issues";
 
 /**
@@ -330,6 +337,7 @@ export function ChapterPlanStep({
   onValidatePlan,
   onRewriteBeat,
   rewritingBeat,
+  characterCatalog,
 }: {
   draft: ChapterStudioData;
   /** Snapshot `chapter.outline.chapterVisualContract` (GET studio). */
@@ -346,11 +354,13 @@ export function ChapterPlanStep({
   };
   progressionIssues?: OutlineProgressionIssue[];
   onIssueAction: (issue: ChapterReadinessIssue) => void | Promise<void>;
-  onUpdateDraft: (next: ChapterStudioData, step?: "narrative_contract") => void;
+  onUpdateDraft: (next: ChapterStudioData, step?: ChapterStudioStep) => void;
   onGenerateOutlines: () => void | Promise<void>;
   onValidatePlan: () => void;
   onRewriteBeat?: (beatId: string, instructions: string) => void | Promise<void>;
   rewritingBeat?: boolean;
+  /** P1.2 — personnages projet pour ancrer les bulles (characterId). */
+  characterCatalog?: Array<{ id: string; name: string; roleType?: string | null }>;
 }) {
   const hasOutline = (draft.editorialOutline?.beats?.length ?? 0) > 0 || (draft.productionOutline?.beats?.length ?? 0) > 0;
 
@@ -538,6 +548,18 @@ export function ChapterPlanStep({
         canonicalProductionPlan={canonicalPlan ?? null}
       />
 
+      <PremiumPlanSceneOverview
+        draft={draft}
+        onRewriteBeat={onRewriteBeat}
+        rewritingBeat={rewritingBeat}
+      />
+
+      <ChapterScriptDialoguesPanel
+        draft={draft}
+        characterCatalog={characterCatalog ?? []}
+        onUpdateDraft={(next) => onUpdateDraft(next, "production_plan")}
+      />
+
       {/* Métriques legacy : masquées quand le plan canonique existe (une seule vérité). */}
       {draft.productionPlan?.premiumReadinessScore !== undefined && !canonicalPlan && (
         <Card className="border-border/60 bg-card/40">
@@ -604,7 +626,7 @@ export function ChapterPlanStep({
         </details>
       )}
 
-      <Card className="border-border/60 bg-card/40">
+      <Card className="border-border/60 bg-card/40" data-studio-field="studio-plan-contract-overview">
         <CardHeader>
           <CardTitle className="text-base">État du chapitre avant génération</CardTitle>
         </CardHeader>

@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import type { PremiumReadinessDashboard } from "@/lib/readiness/build-premium-readiness-dashboard";
 import { ChapterGenerateLauncher } from "./chapter-generate-launcher";
 import { ChapterReviewBoard } from "./chapter-review-board";
+import { PremiumReadinessDashboardCard } from "./premium-readiness-dashboard";
 import { StudioInlineIssues } from "./studio-inline-issues";
 
 function readVisualContractLaunchHints(snapshot: unknown): {
@@ -35,6 +37,7 @@ export function ChapterGenerationReviewStep({
   chapterTitle,
   blockerItems,
   warningItems,
+  premiumDashboard,
   generatedImages,
   minimumImages,
   stackReady,
@@ -55,6 +58,7 @@ export function ChapterGenerationReviewStep({
   chapterTitle: string;
   blockerItems: ChapterReadinessIssue[];
   warningItems: ChapterReadinessIssue[];
+  premiumDashboard: PremiumReadinessDashboard | null;
   generatedImages: number;
   minimumImages: number;
   stackReady: boolean;
@@ -72,8 +76,11 @@ export function ChapterGenerationReviewStep({
   onSceneDialogueEnrichPreferredChange?: (value: boolean) => void;
 }) {
   const vcHints = readVisualContractLaunchHints(chapterVisualContract ?? null);
-  const launchBlockedByReadiness = blockerItems.length > 0 && generatedImages === 0;
-  const planReady = blockerItems.length === 0;
+  const studioBlockers = blockerItems.length > 0 && generatedImages === 0;
+  const premiumBlockers = (premiumDashboard?.status === "blocked" && generatedImages === 0) ?? false;
+  const launchBlockedByReadiness = studioBlockers || premiumBlockers;
+  const planReady = !studioBlockers;
+  const premiumPlanReady = !premiumDashboard || premiumDashboard.status !== "blocked";
   const minimumReached = generatedImages >= minimumImages && minimumImages > 0;
 
   return (
@@ -85,13 +92,21 @@ export function ChapterGenerationReviewStep({
           <CardTitle className="text-base">Prêt à générer ?</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 ${planReady ? "border-green-500/30 bg-green-500/10" : "border-amber-500/30 bg-amber-500/10"}`}>
               {planReady
                 ? <CheckCircle2 className="h-4 w-4 shrink-0 text-green-400" />
                 : <XCircle className="h-4 w-4 shrink-0 text-amber-400" />}
               <span className={planReady ? "text-green-200" : "text-amber-200"}>
-                {planReady ? "Plan prêt" : "Plan à corriger"}
+                {planReady ? "Studio (brief / plan)" : "Studio à corriger"}
+              </span>
+            </div>
+            <div className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 ${premiumPlanReady ? "border-green-500/30 bg-green-500/10" : "border-amber-500/30 bg-amber-500/10"}`}>
+              {premiumPlanReady
+                ? <CheckCircle2 className="h-4 w-4 shrink-0 text-green-400" />
+                : <XCircle className="h-4 w-4 shrink-0 text-amber-400" />}
+              <span className={premiumPlanReady ? "text-green-200" : "text-amber-200"}>
+                {premiumPlanReady ? "Contrats premium OK" : "Contrats premium"}
               </span>
             </div>
             <div className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 ${stackReady ? "border-green-500/30 bg-green-500/10" : "border-red-500/30 bg-red-500/10"}`}>
@@ -128,6 +143,8 @@ export function ChapterGenerationReviewStep({
           )}
         </CardContent>
       </Card>
+
+      <PremiumReadinessDashboardCard dashboard={premiumDashboard} />
 
       {/* Blocants détaillés avec CTA "Corriger" */}
       {blockerItems.length > 0 && (
@@ -206,7 +223,7 @@ export function ChapterGenerationReviewStep({
         </Card>
       )}
 
-      <Card className="border-border/60 bg-card/40">
+      <Card className="border-border/60 bg-card/40" data-studio-field="studio-chapter-generation-launcher">
         <CardHeader>
           <CardTitle className="text-base">Lancer la génération</CardTitle>
         </CardHeader>

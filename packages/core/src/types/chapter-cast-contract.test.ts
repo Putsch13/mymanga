@@ -7,6 +7,8 @@ import {
   ChapterCastContractError,
   CAST_CONTRACT_ERROR_CODES,
   orderedEditorHeroCharacterIds,
+  applyHeroInvariant,
+  validateStudioCastHeroInvariants,
   type ChapterCastContract,
 } from "./chapter-cast-contract";
 
@@ -393,6 +395,44 @@ describe("ChapterCastContract", () => {
       expect(
         result.issues.some((i) => i.code === CAST_CONTRACT_ERROR_CODES.HERO_ROLE_MISMATCH),
       ).toBe(true);
+    });
+  });
+
+  describe("P0.2 — applyHeroInvariant + validateStudioCastHeroInvariants", () => {
+    it("applyHeroInvariant ajoute le héros dans active, core et locked", () => {
+      const out = applyHeroInvariant(
+        {
+          heroCharacterId: "h1",
+          activeCharacterIds: ["x"],
+          coreCastCharacterIds: ["x"],
+          lockedCharacterIds: ["x"],
+        },
+        "h1",
+      );
+      expect(out.activeCharacterIds).toContain("h1");
+      expect(out.coreCastCharacterIds).toContain("h1");
+      expect(out.lockedCharacterIds).toContain("h1");
+    });
+
+    it("validateStudioCastHeroInvariants échoue si le héros manque du locked (brut)", () => {
+      const r = validateStudioCastHeroInvariants({
+        heroCharacterId: "h1",
+        activeCharacterIds: ["h1"],
+        coreCastCharacterIds: ["h1"],
+        lockedCharacterIds: [],
+      });
+      expect(r.ok).toBe(false);
+      expect(r.issues.some((i) => i.code === CAST_CONTRACT_ERROR_CODES.HERO_NOT_IN_LOCKED)).toBe(true);
+    });
+
+    it("validateStudioCastHeroInvariants OK quand héros présent partout", () => {
+      const r = validateStudioCastHeroInvariants({
+        heroCharacterId: "h1",
+        activeCharacterIds: ["h1", "a"],
+        coreCastCharacterIds: ["h1"],
+        lockedCharacterIds: ["h1"],
+      });
+      expect(r.ok).toBe(true);
     });
   });
 });

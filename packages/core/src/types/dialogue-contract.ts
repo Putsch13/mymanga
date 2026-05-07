@@ -180,14 +180,15 @@ export function validateDialogueContract(
  */
 export interface DialogueContractBlueprintInput {
   panelId: string;
-  dialogueLines?: Array<{ speaker?: string; text: string }> | null;
+  dialogueLines?: Array<{ speaker?: string; text: string; characterId?: string }> | null;
   requiredCharacterIds?: string[];
   visibleCharacterIds?: string[];
   mustShowCharacterIds?: string[];
   dialogueCarrier?: string;
   subjectFocus?: string;
   speakerAnchorCharacterId?: string | null;
-  mangaPanelFunction?: string;
+  /** Aligné sur PanelBlueprintPremium (peut être null côté schéma). */
+  mangaPanelFunction?: string | null;
   dialogueLinesAnchored?: number;
 }
 
@@ -259,8 +260,11 @@ export function buildDialogueContractFromBlueprints(
     if (!bp.dialogueLines || bp.dialogueLines.length === 0) continue;
 
     for (const dl of bp.dialogueLines) {
-      const speakerId = dl.speaker ?? "unknown";
-      const speakerName = characterNameById[speakerId] ?? dl.speaker ?? "???";
+      const speakerId =
+        typeof dl.characterId === "string" && dl.characterId.trim().length > 0
+          ? dl.characterId.trim()
+          : (dl.speaker?.trim() || "unknown");
+      const speakerName = characterNameById[speakerId] ?? dl.speaker?.trim() ?? (speakerId === "unknown" ? "???" : speakerId);
       const speakerVisible = isSpeakerVisibleInPanel(speakerId, bp);
 
       lines.push({

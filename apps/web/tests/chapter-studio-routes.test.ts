@@ -455,6 +455,9 @@ describe("routes Chapter Studio", () => {
 
     expect(payload.readiness.status).toBe("blocked");
     expect(payload.readiness.blockingIssues.length).toBeGreaterThan(0);
+    expect(payload.premiumDashboard).toBeDefined();
+    expect(payload.premiumDashboard.status).toBe("blocked");
+    expect(Array.isArray(payload.premiumDashboard.issues)).toBe(true);
   });
 
   it("P8 — readiness BLOQUE un plan de 52 blueprints (sous la range 70-75)", async () => {

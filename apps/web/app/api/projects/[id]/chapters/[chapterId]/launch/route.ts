@@ -16,6 +16,11 @@ import {
   hydrateBlueprintsWithPropDna,
   visualWorldContractSchema,
   PREMIUM_PANEL_RANGE,
+  applyHeroInvariant,
+  buildChapterCastContract,
+  assertValidChapterCastContract,
+  ChapterCastContractError,
+  resolveCharacterRefsToIds,
   type ChapterStudioSnapshot,
   type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
@@ -43,10 +48,16 @@ import {
   resolveApprovedOutlineFromSnapshot,
 } from "@/lib/premium-chapter-contract";
 import { assertChapterCanonReadiness } from "@/lib/canon/assert-chapter-canon-readiness";
+import { canonViolationsToPremiumErrors } from "@/shared/errors/generation-errors";
+import { buildPremiumReadinessDashboard } from "@/lib/readiness/build-premium-readiness-dashboard";
 import { toPrismaInputJson } from "@/lib/to-prisma-input-json";
 import { premiumVisualQaPreflightResponse } from "@/lib/generation/premium-visual-qa-preflight";
 import { isVisualContractPrelaunchBlocked } from "@/lib/visual-contract-prelaunch-gate";
-import { premiumCharacterStudioSelect, toCharacterRowsForDnaHydration } from "@/lib/premium-character-studio-select";
+import { premiumCharacterStudioSelect, toCharacterRowsForDnaHydration, type PremiumCharacterStudioRow } from "@/lib/premium-character-studio-select";
+import {
+  buildUnresolvedCharacterLabelsPayload,
+  mapCharacterLabelsToIdsSequential,
+} from "@/lib/characters/resolve-character-labels";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -212,37 +223,223 @@ export async function POST(_req: Request, ctx: Ctx) {
     reviewBlockedReason: chapter.reviewBlockedReason,
   });
 
+  if (premiumOnly) {
+    const ic = snapshot.data.chapterIntentContract;
+    if (!ic) {
+      logLaunchBlock(projectId, chapterId, "INTENT_CONTRACT_REQUIRED", "Premium launch requires compiled chapter intent");
+      return NextResponse.json(
+        {
+          error: "intent_contract_required",
+          code: "INTENT_CONTRACT_REQUIRED",
+          message:
+            "En mode premium, compile l’intention du chapitre (étape Intention du wizard) et enregistre le contrat avant de lancer.",
+        },
+        { status: 422 },
+      );
+    }
+    if (typeof ic.confidenceScore !== "number" || ic.confidenceScore < 0.75) {
+      logLaunchBlock(projectId, chapterId, "INTENT_CONFIDENCE_TOO_LOW", "Intent confidence below premium threshold", {
+        confidenceScore: ic.confidenceScore,
+      });
+      return NextResponse.json(
+        {
+          error: "intent_confidence_too_low",
+          code: "INTENT_CONFIDENCE_TOO_LOW",
+          message:
+            "La confiance sur l’intention compilée est trop faible (< 75 %). Précise le pitch, les contraintes ou réessaie la compilation.",
+          confidenceScore: ic.confidenceScore,
+          ambiguityFlags: ic.ambiguityFlags,
+        },
+        { status: 422 },
+      );
+    }
+  }
+
   const readiness = snapshot.data.readinessReport ?? buildChapterReadinessReport(snapshot);
   if (readiness.status === "blocked") {
     return validationError("Le chapitre n'est pas prêt pour la génération.", readiness);
   }
 
+  if (premiumOnly) {
+    const premiumDashboard = buildPremiumReadinessDashboard({
+      snapshot,
+      projectId,
+      chapterId,
+      chapterNumber: chapter.chapterNumber,
+    });
+    if (premiumDashboard.status === "blocked") {
+      logLaunchBlock(projectId, chapterId, "PREMIUM_READINESS_DASHBOARD_BLOCKED", "Premium readiness dashboard blocked launch", {
+        issueCodes: premiumDashboard.issues.filter((i) => i.severity === "blocked").map((i) => i.code),
+      });
+      return NextResponse.json(
+        {
+          error: "premium_readiness_blocked",
+          code: "PREMIUM_READINESS_DASHBOARD_BLOCKED",
+          message:
+            "Des blocages premium empêchent le lancement (intention, monde visuel, script, couverture). Corrige les points listés puis réessaie.",
+          premiumReadiness: {
+            status: premiumDashboard.status,
+            score: premiumDashboard.score,
+            issues: premiumDashboard.issues,
+            catalogErrors: premiumDashboard.catalogErrors,
+            dialogueQaSummary: premiumDashboard.dialogueQaSummary,
+          },
+        },
+        { status: 422 },
+      );
+    }
+  }
+
   const chapterCharacterSelection = asRecord(snapshot.data.characterSelection);
   const snapshotDataRecord = asRecord(snapshot.data);
-  const focusCharacterIds = Array.isArray(chapterCharacterSelection.activeCharacterIds)
+  let focusCharacterIds = Array.isArray(chapterCharacterSelection.activeCharacterIds)
     ? chapterCharacterSelection.activeCharacterIds.filter(
         (id): id is string => typeof id === "string" && id.length > 0,
       )
     : [];
-  const lockedCharacterIds = Array.isArray(chapterCharacterSelection.lockedCharacterIds)
+  let lockedCharacterIds = Array.isArray(chapterCharacterSelection.lockedCharacterIds)
     ? chapterCharacterSelection.lockedCharacterIds.filter(
         (id): id is string => typeof id === "string" && id.length > 0,
       )
     : [];
-  const heroCharacterId =
+  let coreCastCharacterIds = Array.isArray(chapterCharacterSelection.coreCastCharacterIds)
+    ? chapterCharacterSelection.coreCastCharacterIds.filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      )
+    : [];
+  let heroCharacterId =
     typeof chapterCharacterSelection.heroCharacterId === "string" && chapterCharacterSelection.heroCharacterId.length > 0
       ? chapterCharacterSelection.heroCharacterId
       : null;
-  const secondaryHeroCharacterId =
+  let secondaryHeroCharacterId =
     typeof chapterCharacterSelection.secondaryHeroCharacterId === "string"
     && chapterCharacterSelection.secondaryHeroCharacterId.length > 0
       ? chapterCharacterSelection.secondaryHeroCharacterId
       : null;
-  const deuteragonistCharacterId =
+
+  let deuteragonistCharacterId =
     typeof chapterCharacterSelection.deuteragonistCharacterId === "string"
     && chapterCharacterSelection.deuteragonistCharacterId.trim().length > 0
       ? chapterCharacterSelection.deuteragonistCharacterId.trim()
       : null;
+
+  const bpForContinuityProbe = snapshot.data.productionPlan?.panelBlueprints;
+  const strictContinuityNeedsChars =
+    strictPremiumContinuity
+    && Array.isArray(bpForContinuityProbe)
+    && bpForContinuityProbe.length > 0;
+
+  let chapterProjectCharacters: PremiumCharacterStudioRow[] = [];
+  if (premiumOnly || strictContinuityNeedsChars) {
+    chapterProjectCharacters = await prisma.character.findMany({
+      where: { projectId },
+      select: premiumCharacterStudioSelect,
+    });
+  }
+
+  const charRefsForLabels = chapterProjectCharacters.map((c) => ({
+    id: c.id,
+    name: c.name,
+    displayName: null as string | null,
+    roleType: c.roleType,
+  }));
+
+  if (premiumOnly) {
+    const unresolvedCollector: string[] = [];
+
+    if (heroCharacterId) {
+      const h = resolveCharacterRefsToIds([heroCharacterId], charRefsForLabels);
+      if (h.unresolved.length > 0) unresolvedCollector.push(...h.unresolved);
+      else if (h.ids.length > 0) heroCharacterId = h.ids[0]!;
+    }
+
+    if (secondaryHeroCharacterId) {
+      const s = resolveCharacterRefsToIds([secondaryHeroCharacterId], charRefsForLabels);
+      if (s.unresolved.length > 0) unresolvedCollector.push(...s.unresolved);
+      else if (s.ids.length > 0) secondaryHeroCharacterId = s.ids[0]!;
+    }
+
+    if (deuteragonistCharacterId) {
+      const d = resolveCharacterRefsToIds([deuteragonistCharacterId], charRefsForLabels);
+      if (d.unresolved.length > 0) unresolvedCollector.push(...d.unresolved);
+      else if (d.ids.length > 0) deuteragonistCharacterId = d.ids[0]!;
+    }
+
+    const focusSan = mapCharacterLabelsToIdsSequential(focusCharacterIds, charRefsForLabels);
+    unresolvedCollector.push(...focusSan.unresolvedLabels);
+    focusCharacterIds = focusSan.sanitizedIds;
+
+    const lockedSan = mapCharacterLabelsToIdsSequential(lockedCharacterIds, charRefsForLabels);
+    unresolvedCollector.push(...lockedSan.unresolvedLabels);
+    lockedCharacterIds = lockedSan.sanitizedIds;
+
+    const coreSan = mapCharacterLabelsToIdsSequential(coreCastCharacterIds, charRefsForLabels);
+    unresolvedCollector.push(...coreSan.unresolvedLabels);
+    coreCastCharacterIds = coreSan.sanitizedIds;
+
+    const uniqueUnresolved = [...new Set(unresolvedCollector)];
+    if (uniqueUnresolved.length > 0) {
+      const { suggestions } = buildUnresolvedCharacterLabelsPayload(uniqueUnresolved, charRefsForLabels);
+      logLaunchBlock(projectId, chapterId, "CHARACTER_LABELS_UNRESOLVED", "Cast contains unresolved character labels", {
+        unresolvedLabels: uniqueUnresolved,
+      });
+      return NextResponse.json(
+        {
+          error: "character_labels_unresolved",
+          code: "CHARACTER_LABELS_UNRESOLVED",
+          message:
+            "Certains personnages du cast sont encore des noms ou des libellés non reliés à un personnage du projet. Associe-les à un personnage existant ou crée le personnage avant de lancer.",
+          unresolvedLabels: uniqueUnresolved,
+          suggestions,
+        },
+        { status: 422 },
+      );
+    }
+  }
+
+  if (premiumOnly && heroCharacterId) {
+    const merged = applyHeroInvariant(
+      {
+        heroCharacterId,
+        secondaryHeroCharacterId,
+        activeCharacterIds: focusCharacterIds,
+        coreCastCharacterIds,
+        lockedCharacterIds,
+      },
+      heroCharacterId,
+    );
+    focusCharacterIds = [...(merged.activeCharacterIds ?? [])];
+    lockedCharacterIds = [...(merged.lockedCharacterIds ?? [])];
+    coreCastCharacterIds = [...(merged.coreCastCharacterIds ?? [])];
+  }
+
+  if (premiumOnly && heroCharacterId) {
+    try {
+      const castContract = buildChapterCastContract({
+        chapterId,
+        heroCharacterId,
+        secondaryHeroCharacterId,
+        activeCharacterIds: focusCharacterIds,
+        characters: chapterProjectCharacters.map((c) => ({ id: c.id, name: c.name, roleType: c.roleType })),
+      });
+      assertValidChapterCastContract(castContract);
+    } catch (err) {
+      if (err instanceof ChapterCastContractError) {
+        logLaunchBlock(projectId, chapterId, "CAST_CONTRACT_INVALID", err.message, { issues: err.issues });
+        return NextResponse.json(
+          {
+            error: "chapter_cast_contract_invalid",
+            code: "CAST_CONTRACT_INVALID",
+            message: err.message,
+            issues: err.issues,
+          },
+          { status: 422 },
+        );
+      }
+      throw err;
+    }
+  }
+
   const coProtagonistCharacterIdsForHydration = [...new Set(
     [secondaryHeroCharacterId, deuteragonistCharacterId].filter((x): x is string => Boolean(x)),
   )];
@@ -337,15 +534,18 @@ export async function POST(_req: Request, ctx: Ctx) {
   const bpForContinuityRaw = snapshot.data.productionPlan?.panelBlueprints;
   let bpForContinuity = bpForContinuityRaw;
   if (Array.isArray(bpForContinuity) && bpForContinuity.length > 0 && strictPremiumContinuity) {
-    const chars = await prisma.character.findMany({
-      where: { projectId },
-      select: premiumCharacterStudioSelect,
-    });
+    const charsForHydration =
+      chapterProjectCharacters.length > 0
+        ? chapterProjectCharacters
+        : await prisma.character.findMany({
+            where: { projectId },
+            select: premiumCharacterStudioSelect,
+          });
     const canonList = snapshot.data.characterCanons ?? [];
     const canonMap = new Map(canonList.map((c) => [c.characterId, c] as const));
     bpForContinuity = hydrateBlueprintsWithCharacterDna({
       blueprints: bpForContinuity as PanelBlueprintPremium[],
-      characters: toCharacterRowsForDnaHydration(chars),
+      characters: toCharacterRowsForDnaHydration(charsForHydration),
       characterCanonsById: canonMap,
       strict: true,
       ...(coProtagonistCharacterIdsForHydration.length > 0
@@ -630,12 +830,15 @@ export async function POST(_req: Request, ctx: Ctx) {
       requiredCharacterIds: requiredCanonCharacterIds.length > 0 ? requiredCanonCharacterIds : null,
     });
     if (canonReport.blocking) {
+      const blockingViolations = canonReport.violations.filter((v) => v.severity === "blocking");
+      const premiumErrors = canonViolationsToPremiumErrors(blockingViolations, { projectId, chapterId });
+      const leadUserMessage =
+        premiumErrors[0]?.userMessage
+        ?? "Un ou plusieurs personnages critiques n’ont pas une assise canonique suffisante pour lancer le chapitre.";
       console.warn(
         `[launch] canon_readiness_blocked chapterId=${chapterId} ` +
         `violations=${JSON.stringify(
-          canonReport.violations
-            .filter((v) => v.severity === "blocking")
-            .map((v) => ({ id: v.characterId, score: v.score, reason: v.reason })),
+          blockingViolations.map((v) => ({ id: v.characterId, score: v.score, reason: v.reason })),
         )}`,
       );
       return NextResponse.json(
@@ -647,6 +850,8 @@ export async function POST(_req: Request, ctx: Ctx) {
           code: "CANON_READINESS_BLOCKED",
           violations: canonReport.violations,
           thresholds: canonReport.thresholds,
+          leadUserMessage,
+          premiumErrors,
         },
         { status: 422 },
       );

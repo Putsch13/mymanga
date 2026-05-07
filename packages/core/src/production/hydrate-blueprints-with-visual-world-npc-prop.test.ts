@@ -142,7 +142,7 @@ describe("hydrateBlueprintsWithVisualWorldNpcAndProps", () => {
     expect(out.requiredProps?.[0].canonicalName).toBe("Ancien nom");
   });
 
-  it("injecte créatures, véhicules et factions liés au beat comme npcVisualDna catégorisés", () => {
+  it("injecte npcVisualDna, tableaux monde dédiés (créature / véhicule / faction) depuis beatBindings", () => {
     const vw = minimalVw({
       creatures: [
         {
@@ -169,12 +169,11 @@ describe("hydrateBlueprintsWithVisualWorldNpcAndProps", () => {
       blueprints: [minimalBlueprint()],
       visualWorld: vw,
     });
-    const byId = new Map(out.npcVisualDna?.map((d) => [d.continuityId, d]));
-    expect(byId.get("npc-guard")?.category).toBe("antagonist_support");
-    expect(byId.get("cr1")?.category).toBe("creature");
-    expect(byId.get("v1")?.category).toBe("vehicle");
-    expect(byId.get("f1")?.category).toBe("faction");
-    expect(out.npcVisualDna?.length).toBe(4);
+    expect(out.npcVisualDna?.length).toBe(1);
+    expect(out.npcVisualDna?.[0].continuityId).toBe("npc-guard");
+    expect(out.creatureVisualDna?.map((c) => c.id).sort()).toEqual(["cr1"]);
+    expect(out.vehicleVisualDna?.map((v) => v.id).sort()).toEqual(["v1"]);
+    expect(out.factionVisualDna?.map((f) => f.id).sort()).toEqual(["f1"]);
   });
 
   it("lie une créature au beat via beatBinding.creatureIds même sans requiredBeatIds sur la créature", () => {
@@ -223,8 +222,7 @@ describe("hydrateBlueprintsWithVisualWorldNpcAndProps", () => {
       blueprints: [minimalBlueprint()],
       visualWorld: vw,
     });
-    const cr = out.npcVisualDna?.find((d) => d.continuityId === "cr-bound");
-    expect(cr?.category).toBe("creature");
-    expect(cr?.displayName).toBe("Wyrm");
+    expect(out.creatureVisualDna?.some((c) => c.id === "cr-bound")).toBe(true);
+    expect(out.npcVisualDna?.some((d) => d.continuityId === "cr-bound")).toBe(false);
   });
 });

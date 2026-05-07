@@ -2,6 +2,9 @@ import { z } from "zod";
 import { chapterAiReadinessSchema } from "../ai-readiness";
 import { PREMIUM_PANEL_RANGE } from "../premium-panel-range";
 import { visualWorldContractSchema } from "../visual-world/visual-world-contract";
+import { chapterIntentContractSchema } from "./chapter-intent-contract";
+import { dialogueContractSchema } from "./dialogue-contract";
+import { chapterVisualStyleContractSchema } from "./chapter-visual-style-contract";
 import type { ApprovedChapterOutline } from "./approved-outline";
 import type {
   NarrativeFact,
@@ -261,9 +264,21 @@ export const locationCanonSchema = z.object({
   weatherVariants: z.array(z.string()).default([]),
   mustKeep: z.array(z.string()).default([]),
   forbiddenDrift: z.array(z.string()).default([]),
+  /** P0.8 — décor principal du chapitre (wizard chapitre 1 + readiness). */
+  isPrimary: z.boolean().optional().default(false),
+  /** Brief visuel libre (complète visualMarkers pour l’IA). */
+  visualBrief: z.string().optional().nullable(),
+  /** Type de lieu (ville, intérieur, extérieur, etc.). */
+  locationType: z.string().optional().nullable(),
+  fixedElements: z.array(z.string()).default([]),
+  lightingRules: z.array(z.string()).default([]),
+  palette: z.array(z.string()).default([]),
+  referenceImages: z.array(z.string()).default([]),
 });
 
 export type LocationCanon = z.infer<typeof locationCanonSchema>;
+/** Alias spec P0.8 — même schéma que `LocationCanon` studio. */
+export type ChapterLocationContract = LocationCanon;
 
 export const chapterIntentSchema = z.object({
   chapterNumber: z.number().int().positive().optional().nullable(),
@@ -601,6 +616,85 @@ export const chapterEntityRegistrySchema = z.object({
 
 export type ChapterEntityRegistry = z.infer<typeof chapterEntityRegistrySchema>;
 
+/** P0.9 — PNJ / foule (wizard « monde vivant »), mappé vers `VisualWorldContract.npcGroups`. */
+export const chapterWorldNpcContractSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  narrativeRole: z.string().optional().nullable(),
+  appearance: z.string().optional().nullable(),
+  behavior: z.string().optional().nullable(),
+  panelMoments: z.array(z.string()).default([]),
+  recurrence: z.enum(["one_shot", "recurring"]).default("one_shot"),
+});
+
+export type ChapterWorldNpcContract = z.infer<typeof chapterWorldNpcContractSchema>;
+
+/** P0.9 — Créature / monstre → `VisualWorldContract.creatures`. */
+export const chapterWorldCreatureContractSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  species: z.string().optional().nullable(),
+  sizeLabel: z.string().optional().nullable(),
+  silhouette: z.string().optional().nullable(),
+  powers: z.string().optional().nullable(),
+  behavior: z.string().optional().nullable(),
+  threatLevel: z.enum(["none", "low", "medium", "high"]).default("medium"),
+  revealMoment: z.string().optional().nullable(),
+  recurrence: z.enum(["unique", "recurring"]).default("unique"),
+});
+
+export type ChapterWorldCreatureContract = z.infer<typeof chapterWorldCreatureContractSchema>;
+
+/** P0.9 — Objet important → `VisualWorldContract.props`. */
+export const chapterWorldPropContractSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  ownerCharacterId: z.string().optional().nullable(),
+  ownerLabel: z.string().optional().nullable(),
+  visualDescription: z.string().optional().nullable(),
+  narrativeFunction: z.string().optional().nullable(),
+  momentHints: z.array(z.string()).default([]),
+  continuityRules: z.array(z.string()).default([]),
+});
+
+export type ChapterWorldPropContract = z.infer<typeof chapterWorldPropContractSchema>;
+
+/** P0.9 — Véhicule → `VisualWorldContract.vehicles`. */
+export const chapterWorldVehicleContractSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  type: z.string().optional().nullable(),
+  design: z.string().optional().nullable(),
+  ownerLabel: z.string().optional().nullable(),
+  condition: z.string().optional().nullable(),
+  sceneFunction: z.string().optional().nullable(),
+});
+
+export type ChapterWorldVehicleContract = z.infer<typeof chapterWorldVehicleContractSchema>;
+
+/** P0.9 — Faction / clan → `VisualWorldContract.factions`. */
+export const chapterWorldFactionContractSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  symbol: z.string().optional().nullable(),
+  uniform: z.string().optional().nullable(),
+  colors: z.array(z.string()).default([]),
+  storyRole: z.string().optional().nullable(),
+  visibleMembersNote: z.string().optional().nullable(),
+});
+
+export type ChapterWorldFactionContract = z.infer<typeof chapterWorldFactionContractSchema>;
+
+export const chapterEntitiesSchema = z.object({
+  npcs: z.array(chapterWorldNpcContractSchema).default([]),
+  creatures: z.array(chapterWorldCreatureContractSchema).default([]),
+  props: z.array(chapterWorldPropContractSchema).default([]),
+  vehicles: z.array(chapterWorldVehicleContractSchema).default([]),
+  factions: z.array(chapterWorldFactionContractSchema).default([]),
+});
+
+export type ChapterEntities = z.infer<typeof chapterEntitiesSchema>;
+
 export const autofillMetaSchema = z.object({
   source: z.literal("ai_autofill"),
   generatedAt: z.string(),
@@ -691,6 +785,15 @@ export const chapterPipelinePreferencesSchema = z.object({
 
 export type ChapterPipelinePreferences = z.infer<typeof chapterPipelinePreferencesSchema>;
 
+/** P0.4 — état du wizard « premier chapitre » persisté dans le snapshot studio (pas de state React seul). */
+export const chapterWizardStateSchema = z.object({
+  currentStep: z.string().min(1).default("intent"),
+  completedSteps: z.array(z.string()).default([]),
+  dismissedTips: z.array(z.string()).default([]),
+});
+
+export type ChapterWizardState = z.infer<typeof chapterWizardStateSchema>;
+
 export const chapterStudioDataSchema = z.object({
   intent: chapterIntentSchema.optional(),
   narrativeContract: chapterNarrativeContractSchema.optional(),
@@ -710,8 +813,12 @@ export const chapterStudioDataSchema = z.object({
   autofillMeta: autofillMetaSchema.optional(),
   estimateContext: estimateContextSchema.optional(),
   entityRegistry: chapterEntityRegistrySchema.optional(),
+  /** P0.9 — Monde vivant (PNJ, créatures, props, véhicules, factions) — wizard ch.1 + sync VisualWorld. */
+  chapterEntities: chapterEntitiesSchema.optional(),
   /** Profil look visuel autoritaire du chapitre — source de vérité style */
   chapterLookProfile: chapterLookProfileSchema.optional(),
+  /** P0.10 — Direction artistique wizard (enrichit / pilote `chapterLookProfile`). */
+  chapterVisualStyleContract: chapterVisualStyleContractSchema.optional(),
   /** Préférences pipeline (flags optionnels persistés avec le snapshot studio). */
   pipelinePreferences: chapterPipelinePreferencesSchema.optional(),
   /** P1.2 — dernier état readiness IA (optionnel ; peut être rafraîchi au launch). */
@@ -719,6 +826,12 @@ export const chapterStudioDataSchema = z.object({
   premiumBlockingReasons: z.array(z.string()).optional(),
   /** Contrat monde visuel IA (persisté avec le snapshot pour estimate/launch). */
   visualWorldContract: visualWorldContractSchema.optional(),
+  /** P0.5 — intention compilée / validée (wizard premium). */
+  chapterIntentContract: chapterIntentContractSchema.optional(),
+  /** P1.2 / P0.14 — contrat dialogues validé studio (persisté → job → empreinte génération). */
+  chapterDialogueContract: dialogueContractSchema.optional(),
+  /** P0.4 — progression wizard chapitre 1 (étape courante, jalons, astuces masquées). */
+  chapterWizard: chapterWizardStateSchema.optional(),
 });
 
 export type ChapterStudioData = z.infer<typeof chapterStudioDataSchema>;

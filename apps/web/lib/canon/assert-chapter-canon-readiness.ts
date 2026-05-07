@@ -15,6 +15,7 @@
  *   - severity = "warning" si score < 60 mais présence minimum (ref OU lock)
  */
 import { prisma } from "@manga-ai-studio/db";
+import { CRITICAL_STUDIO_ROLE_TYPES_FOR_QUERY } from "@manga-ai-studio/core";
 import {
   computeCanonStabilityScore,
   extractStabilitySignals,
@@ -50,7 +51,8 @@ const BLOCKING_BELOW_SCORE = 30;
 /**
  * Sélection des personnages critiques d'un projet :
  *   1. Tous les personnages avec `visualLocks.isActive = true` (lock explicite)
- *   2. Tous les personnages avec `roleType` dans { hero, antagonist, main }
+ *   2. Tous les personnages avec `roleType` reconnu comme héros / co-héros /
+ *      antagoniste (variantes FR/EN via @manga-ai-studio/core)
  *   3. Optionnellement, les personnages passés via `requiredCharacterIds`
  *      (si un orchestrateur amont sait qu'un chapitre parle de Bob)
  */
@@ -65,7 +67,7 @@ export async function assertChapterCanonReadiness(params: {
       projectId,
       OR: [
         { visualLocks: { some: { isActive: true } } },
-        { roleType: { in: ["hero", "antagonist", "main"] } },
+        { roleType: { in: [...CRITICAL_STUDIO_ROLE_TYPES_FOR_QUERY] } },
         requiredCharacterIds && requiredCharacterIds.length > 0
           ? { id: { in: requiredCharacterIds } }
           : { id: "__never__" },

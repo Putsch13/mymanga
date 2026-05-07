@@ -158,6 +158,9 @@ export function canonicalPlanToPanelBlueprints(plan: CanonicalChapterProductionP
 
     const characterVisualDna = nonEmptyArray(panel.characterVisualDna);
     const npcVisualDna = nonEmptyArray(panel.npcVisualDna);
+    const creatureVisualDna = nonEmptyArray(panel.creatureVisualDna);
+    const vehicleVisualDna = nonEmptyArray(panel.vehicleVisualDna);
+    const factionVisualDna = nonEmptyArray(panel.factionVisualDna);
     const environmentVisualDna = nonEmptyEnvironmentDna(panel.environmentVisualDna ?? undefined);
     const propVisualDna = nonEmptyArray(panel.propVisualDna);
     const continuityObjectIds = nonEmptyArray(panel.continuityObjectIds);
@@ -203,6 +206,9 @@ export function canonicalPlanToPanelBlueprints(plan: CanonicalChapterProductionP
       textContract,
       ...(characterVisualDna ? { characterVisualDna: [...characterVisualDna] } : {}),
       ...(npcVisualDna ? { npcVisualDna: [...npcVisualDna] } : {}),
+      ...(creatureVisualDna ? { creatureVisualDna: [...creatureVisualDna] } : {}),
+      ...(vehicleVisualDna ? { vehicleVisualDna: [...vehicleVisualDna] } : {}),
+      ...(factionVisualDna ? { factionVisualDna: [...factionVisualDna] } : {}),
       ...(environmentVisualDna ? { environmentVisualDna } : {}),
       ...(propVisualDna ? { propVisualDna: [...propVisualDna] } : {}),
       ...(continuityObjectIds ? { continuityObjectIds: [...continuityObjectIds] } : {}),

@@ -16,8 +16,7 @@ type Props = {
 
 const chapterNav = (projectId: string, chapterId: string) => [
   { href: `/projects/${projectId}/chapters/${chapterId}`, label: "Summary" },
-  { href: `/projects/${projectId}/chapters/${chapterId}/edit`, label: "Edit" },
-  { href: `/projects/${projectId}/chapters/${chapterId}/generate`, label: "Generate" },
+  { href: `/projects/${projectId}/chapters/${chapterId}/edit`, label: "Studio & génération" },
   { href: `/projects/${projectId}/chapters/${chapterId}/review`, label: "Review" },
   { href: `/projects/${projectId}/chapters/${chapterId}/read`, label: "Reader" },
 ];

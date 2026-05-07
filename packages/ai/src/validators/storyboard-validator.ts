@@ -68,6 +68,9 @@ const CUTAWAY_RENDER_MODES: ReadonlySet<StoryboardRenderMode> = new Set([
   "insert_object",
   "surveillance_reveal",
   "threat_silhouette",
+  "creature_reveal",
+  "vehicle_reveal",
+  "faction_reveal",
 ]);
 
 const COMBAT_RENDER_MODES: ReadonlySet<StoryboardRenderMode> = new Set([

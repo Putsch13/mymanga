@@ -278,6 +278,18 @@ export function buildPanelRenderSpec(
     },
     layoutMeta,
     npcVisualDna: Array.isArray(panel.npcVisualDna) && panel.npcVisualDna.length > 0 ? panel.npcVisualDna : undefined,
+    creatureVisualDna:
+      Array.isArray(panel.creatureVisualDna) && panel.creatureVisualDna.length > 0
+        ? panel.creatureVisualDna
+        : undefined,
+    vehicleVisualDna:
+      Array.isArray(panel.vehicleVisualDna) && panel.vehicleVisualDna.length > 0
+        ? panel.vehicleVisualDna
+        : undefined,
+    factionVisualDna:
+      Array.isArray(panel.factionVisualDna) && panel.factionVisualDna.length > 0
+        ? panel.factionVisualDna
+        : undefined,
     ...(() => {
       const w = panel.worldPropsVisualDna;
       const props = Array.isArray(w) && w.length > 0 ? w : undefined;

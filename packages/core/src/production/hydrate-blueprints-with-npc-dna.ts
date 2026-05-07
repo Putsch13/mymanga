@@ -1,6 +1,12 @@
 /**
- * Hydrate `npcVisualDna` (et entités assimilées PNJ) depuis un `VisualWorldContract`.
+ * Hydrate les ADN monde depuis un `VisualWorldContract` :
+ * - `npcVisualDna` : groupes PNJ uniquement
+ * - `creatureVisualDna` / `vehicleVisualDna` / `factionVisualDna` : tableaux dédiés (P0.12)
+ *
  * Ordre pipeline : après `hydrateBlueprintsWithPropDna`.
+ *
+ * **API préférée** : `hydrateBlueprintsWithWorldEntities` depuis
+ * `hydrate-blueprints-with-world-entities.ts` (même signature, alias exporté).
  */
 
 import type { NpcVisualDna } from "../types/generation-debug-snapshot";
@@ -35,49 +41,22 @@ function npcGroupToVisualDna(g: VisualWorldNpcGroup): NpcVisualDna {
   };
 }
 
-function creatureToNpcDna(c: CreatureVisualDna): NpcVisualDna {
-  return {
-    continuityId: c.id,
-    displayName: c.label,
-    category: "creature",
-    visualMarkers: [c.visualDescription.trim()],
-    threatLevel: c.threatLevel,
-  };
-}
-
-function vehicleToNpcDna(v: VehicleVisualDna): NpcVisualDna {
-  return {
-    continuityId: v.id,
-    displayName: v.label,
-    category: "vehicle",
-    visualMarkers: [v.visualDescription.trim()],
-    vehicleScale: v.scale,
-  };
-}
-
-function factionToNpcDna(f: FactionVisualDna): NpcVisualDna {
-  const motifBits = [
-    ...f.visualMarkers.map((s) => s.trim()).filter(Boolean),
-    ...f.visualMotifs.map((s) => s.trim()).filter(Boolean),
-    ...f.colors.map((s) => s.trim()).filter(Boolean),
-    f.emblem?.trim() ? `emblem:${f.emblem.trim()}` : "",
-    f.label.trim(),
-  ].filter(Boolean);
-  const markers = [...new Set(motifBits)];
-  return {
-    continuityId: f.id,
-    displayName: f.label,
-    category: "faction",
-    visualMarkers: markers.length > 0 ? markers : [f.label],
-  };
-}
-
 function mergeNpcDna(existing: NpcVisualDna[] | undefined, added: NpcVisualDna[]): NpcVisualDna[] {
   const byId = new Map((existing ?? []).map((d) => [d.continuityId ?? d.displayName ?? "", { ...d }]));
   for (const d of added) {
     const key = d.continuityId ?? d.displayName ?? "";
     if (!key) continue;
     if (!byId.has(key)) byId.set(key, d);
+  }
+  return [...byId.values()];
+}
+
+function mergeWorldEntityById<T extends { id: string }>(existing: T[] | undefined, added: T[]): T[] {
+  const byId = new Map((existing ?? []).map((e) => [e.id, { ...e } as T]));
+  for (const e of added) {
+    const id = e.id?.trim();
+    if (!id) continue;
+    if (!byId.has(id)) byId.set(id, e);
   }
   return [...byId.values()];
 }
@@ -111,32 +90,47 @@ export function hydrateBlueprintsWithNpcDna(
       }
       npcDnas.push(npcGroupToVisualDna(g));
     }
+
+    const creatureDnas: CreatureVisualDna[] = [];
     for (const id of creatureIds) {
       const c = creatureById.get(id);
       if (!c) {
         if (strict) throw new Error(`premium_visual_world_unknown_creature:${id}@${bp.beatId}`);
         continue;
       }
-      npcDnas.push(creatureToNpcDna(c));
+      creatureDnas.push(c);
     }
+
+    const vehicleDnas: VehicleVisualDna[] = [];
     for (const id of vehicleIds) {
       const v = vehicleById.get(id);
       if (!v) {
         if (strict) throw new Error(`premium_visual_world_unknown_vehicle:${id}@${bp.beatId}`);
         continue;
       }
-      npcDnas.push(vehicleToNpcDna(v));
+      vehicleDnas.push(v);
     }
+
+    const factionDnas: FactionVisualDna[] = [];
     for (const id of factionIds) {
       const f = factionById.get(id);
       if (!f) {
         if (strict) throw new Error(`premium_visual_world_unknown_faction:${id}@${bp.beatId}`);
         continue;
       }
-      npcDnas.push(factionToNpcDna(f));
+      factionDnas.push(f);
     }
 
-    const merged = mergeNpcDna(bp.npcVisualDna, npcDnas);
-    return npcDnas.length === 0 ? bp : { ...bp, npcVisualDna: merged };
+    if (npcDnas.length === 0 && creatureDnas.length === 0 && vehicleDnas.length === 0 && factionDnas.length === 0) {
+      return bp;
+    }
+
+    return {
+      ...bp,
+      npcVisualDna: mergeNpcDna(bp.npcVisualDna, npcDnas),
+      creatureVisualDna: mergeWorldEntityById(bp.creatureVisualDna, creatureDnas),
+      vehicleVisualDna: mergeWorldEntityById(bp.vehicleVisualDna, vehicleDnas),
+      factionVisualDna: mergeWorldEntityById(bp.factionVisualDna, factionDnas),
+    };
   });
 }

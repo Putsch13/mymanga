@@ -6,6 +6,8 @@ import {
   chapterStudioStepSchema,
   computeNarrativeMemoryDigestFromOutline,
   hydratePanelProvenanceOnBlueprints,
+  buildDialogueContractFromBlueprints,
+  normalizePremiumBlueprintTextViews,
   type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
 import { computePremiumReadinessScore, type PremiumReadinessCastContext } from "@manga-ai-studio/ai";
@@ -29,6 +31,7 @@ import {
 } from "@manga-ai-studio/workflow";
 import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
 import { toProxiedServerUrl } from "@/lib/images/proxy-url.server";
+import { sanitizeChapterCharacterSelectionIds } from "@/lib/characters/resolve-character-labels";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -55,7 +58,7 @@ export async function GET(_req: Request, ctx: Ctx) {
       scenes: {
         include: {
           images: {
-            select: { status: true },
+            select: { status: true, userValidatedAt: true, retryCount: true },
           },
         },
       },
@@ -185,6 +188,11 @@ export async function GET(_req: Request, ctx: Ctx) {
   });
   const stack = getGenerationStackStatus();
   const allImages = chapter.scenes.flatMap((scene) => scene.images);
+  const imageStatsExtras = {
+    generating: allImages.filter((image) => image.status === "generating").length,
+    locked: allImages.filter((image) => image.userValidatedAt != null).length,
+    retried: allImages.filter((image) => (image.retryCount ?? 0) > 0).length,
+  };
 
   const chapterVisualContract = extractChapterVisualContractFromOutline(asRecord(chapter.outline));
   const chapterVisualContractUi = extractChapterVisualContractUiFromOutline(asRecord(chapter.outline));
@@ -216,6 +224,7 @@ export async function GET(_req: Request, ctx: Ctx) {
         completed: allImages.filter((image) => image.status === "completed").length,
         failed: allImages.filter((image) => image.status === "failed" || image.status === "blocked").length,
         pending: allImages.filter((image) => image.status === "pending" || image.status === "planned").length,
+        ...imageStatsExtras,
       },
     },
     chapterVisualContract,
@@ -256,7 +265,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
     );
   }
   const body = parsed.data;
-  const snapshot = patchChapterStudioSnapshot(chapter.outline, body.data, {
+  let snapshot = patchChapterStudioSnapshot(chapter.outline, body.data, {
     chapterNumber: chapter.chapterNumber,
     chapterTitle: chapter.title,
     chapterSummary: chapter.summary,
@@ -265,6 +274,37 @@ export async function PATCH(req: Request, ctx: Ctx) {
     currentStep: body.currentStep,
     transitionReason: body.transitionReason ?? "studio_patch",
   });
+
+  const projectCharactersRows = await prisma.character.findMany({
+    where: { projectId },
+    select: { id: true, name: true, roleType: true },
+  });
+  const refsForSanitize = projectCharactersRows.map((c) => ({
+    id: c.id,
+    name: c.name,
+    displayName: null as string | null,
+    roleType: c.roleType,
+  }));
+
+  if (snapshot.data.characterSelection) {
+    const { selection: sanitizedSel, strippedLabels } = sanitizeChapterCharacterSelectionIds(
+      snapshot.data.characterSelection,
+      refsForSanitize,
+    );
+    if (strippedLabels.length > 0) {
+      console.warn(
+        `[studio PATCH] project=${projectId} chapter=${chapterId} cast non résolu retiré:`,
+        strippedLabels.slice(0, 24),
+      );
+    }
+    snapshot = {
+      ...snapshot,
+      data: {
+        ...snapshot.data,
+        characterSelection: sanitizedSel,
+      },
+    };
+  }
 
   const outlineRecord = asRecord(chapter.outline);
 
@@ -302,19 +342,32 @@ export async function PATCH(req: Request, ctx: Ctx) {
           const hydratedBps = hydratePanelProvenanceOnBlueprints(mergedBps as PanelBlueprintPremium[], {
             narrativeMemoryDigest: narrativeDigest,
           });
+          const textSyncBps = hydratedBps.map((bp) => normalizePremiumBlueprintTextViews(bp));
           return {
             ...mppRec,
-            panelBlueprints: hydratedBps,
-            premiumReadinessScore: computePremiumReadinessScore(hydratedBps, premiumReadinessCast),
+            panelBlueprints: textSyncBps,
+            premiumReadinessScore: computePremiumReadinessScore(textSyncBps, premiumReadinessCast),
           } as Record<string, unknown>;
         })()
       : mergedProductionPlanRaw;
+
+  const mppFinal = mergedProductionPlan as Record<string, unknown>;
+  const dialogueBlueprints = Array.isArray(mppFinal.panelBlueprints)
+    ? (mppFinal.panelBlueprints as PanelBlueprintPremium[])
+    : [];
+
+  const characterNameById = Object.fromEntries(projectCharactersRows.map((c) => [c.id, c.name]));
 
   const mergedSnapshot = {
     ...snapshot,
     data: {
       ...snapshot.data,
       productionPlan: mergedProductionPlan as never,
+      chapterDialogueContract: buildDialogueContractFromBlueprints(
+        chapterId,
+        dialogueBlueprints,
+        characterNameById,
+      ) as never,
     },
   };
 

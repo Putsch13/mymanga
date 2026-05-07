@@ -93,6 +93,26 @@ export interface ContractCreature {
   refUrl?: string | null;
 }
 
+/** Véhicule issu du VisualWorldContract (P0.12). */
+export interface ContractVehicle {
+  vehicleId: string;
+  label: string;
+  normalizedLabel: string;
+  visualDescription: string;
+  sourceBeatId?: string;
+  refUrl?: string | null;
+}
+
+/** Faction / clan issu du VisualWorldContract (P0.12). */
+export interface ContractFaction {
+  factionId: string;
+  label: string;
+  normalizedLabel: string;
+  visualDescription: string;
+  sourceBeatId?: string;
+  refUrl?: string | null;
+}
+
 export interface ContractBeat {
   beatId: string;
   beatNumber: number;
@@ -103,6 +123,10 @@ export interface ContractBeat {
   requiredProps: string[];
   requiredNpcGroups: string[];
   requiredCreatures: string[];
+  /** Ids `VisualWorldContract.vehicles` liés au beat (bindings + requiredBeatIds). */
+  requiredVehicles: string[];
+  /** Ids `VisualWorldContract.factions` liés au beat. */
+  requiredFactions: string[];
   visualEvents: string[];
   dialogueRequired: boolean;
 }
@@ -117,7 +141,7 @@ export interface ContractCharacterRef {
 }
 
 export interface ContractCoverageRequirement {
-  type: "character" | "location" | "prop" | "npc_group" | "creature" | "beat";
+  type: "character" | "location" | "prop" | "npc_group" | "creature" | "vehicle" | "faction" | "beat";
   entityId: string;
   minimumPanelCount: number;
 }
@@ -159,6 +183,10 @@ export interface PanelGenerationContract {
   requiredProps: string[];
   requiredNpcGroups: string[];
   requiredCreatures: string[];
+  /** Ids véhicules imposés pour ce panel (VisualWorld + beat binding). */
+  requiredVehicles: string[];
+  /** Ids factions imposées pour ce panel. */
+  requiredFactions: string[];
 
   textContract: PanelTextContract;
 
@@ -182,6 +210,12 @@ export interface ContractSourceHashes {
   productionPlanHash: string;
   characterCanonHash: string;
   locationCanonHash: string;
+  /** Monde visuel (lieux, props, PNJ contractuels, entités). */
+  visualWorldHash: string;
+  /** Dialogues persistés ou empreinte des lignes dans les blueprints. */
+  dialogueContractHash: string;
+  /** Cast chapitre (héros, actifs, verrous). */
+  castContractHash: string;
 }
 
 export interface ProjectRagContextContract {
@@ -216,6 +250,8 @@ export interface ChapterGenerationContract {
   props: ContractProp[];
   npcGroups: ContractNpcGroup[];
   creatures: ContractCreature[];
+  vehicles: ContractVehicle[];
+  factions: ContractFaction[];
 
   beats: ContractBeat[];
   panels: PanelGenerationContract[];
@@ -237,6 +273,8 @@ export function computeContractHash(contract: Omit<ChapterGenerationContract, "c
     src: contract.source,
     chars: contract.characters.map(c => c.characterId).sort(),
     locs: contract.locations.map(l => l.locationId).sort(),
+    veh: contract.vehicles.map(v => v.vehicleId).sort(),
+    fac: contract.factions.map(f => f.factionId).sort(),
     beats: contract.beats.map(b => b.beatId).sort(),
     panels: contract.panels.length,
   });
@@ -306,6 +344,22 @@ export function validateChapterGenerationContract(
   }
 
   if (options.premiumOnly) {
+    const invalidHash = (value: string, key: string) => {
+      const v = typeof value === "string" ? value.trim() : "";
+      if (!v || v === "n/a" || v.toLowerCase() === "n/a") {
+        issues.push(`source_hash_invalid:${key}`);
+      }
+    };
+    const src = contract.source;
+    invalidHash(src.userIntentHash, "userIntentHash");
+    invalidHash(src.approvedOutlineHash, "approvedOutlineHash");
+    invalidHash(src.productionPlanHash, "productionPlanHash");
+    invalidHash(src.characterCanonHash, "characterCanonHash");
+    invalidHash(src.locationCanonHash, "locationCanonHash");
+    invalidHash(src.visualWorldHash, "visualWorldHash");
+    invalidHash(src.dialogueContractHash, "dialogueContractHash");
+    invalidHash(src.castContractHash, "castContractHash");
+
     const skipHero = options.skipHeroVisualRef === true;
     for (const char of contract.characters) {
       if (!skipHero && char.role === "hero" && !char.faceRefUrl && !char.loraUrl) {

@@ -15,6 +15,7 @@
  *   - Tokens de prompt pour appliquer la relégation
  */
 
+import { isHeroRole } from "@manga-ai-studio/core";
 import type { DominantSubjectKind } from "./dominant-subject";
 import { isAnonymousGroupDominant, shouldExcludeHeroFromComposition } from "./dominant-subject";
 
@@ -268,7 +269,7 @@ export function isHeroRelegated(config: RelegationConfig): boolean {
 }
 
 export function getHeroRelegationTokens(config: RelegationConfig): string[] {
-  const heroEntity = config.relegatedEntities.find((e) => e.role === "hero" || e.role === "protagonist");
+  const heroEntity = config.relegatedEntities.find((e) => isHeroRole(e.role));
   return heroEntity?.promptTokens ?? [];
 }
 

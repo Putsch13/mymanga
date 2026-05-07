@@ -970,5 +970,18 @@ export function buildGenerationJobInputFromSnapshot(opts: GenerationJobInputOpti
     input.sceneDialogueEnrich = true;
   }
 
+  const intent = snapshot.data.chapterIntentContract;
+  if (intent != null && typeof intent === "object" && !Array.isArray(intent)) {
+    input.chapterIntentContract = intent as Record<string, unknown>;
+  }
+  const pVw = snapshot.data.visualWorldContract;
+  if (pVw != null && typeof pVw === "object" && !Array.isArray(pVw)) {
+    input.persistedVisualWorldContract = pVw as Record<string, unknown>;
+  }
+  const dialogue = snapshot.data.chapterDialogueContract;
+  if (dialogue != null && typeof dialogue === "object" && !Array.isArray(dialogue)) {
+    input.chapterDialogueContract = dialogue as Record<string, unknown>;
+  }
+
   return input;
 }

@@ -38,6 +38,7 @@ import {
   type ChapterCastContract,
   type ChapterStoryContract,
   type VisualWorldContract,
+  parseVisualWorldContract,
   legacyDialogueLinesFromStoryboardPanelLike,
   type StoryboardPanelLikeForTextContract,
 } from "@manga-ai-studio/core";
@@ -181,6 +182,12 @@ export interface RunPremiumV3PipelineInput {
   priorChapterDialogueSnippets?: string[] | null;
   /** Studio : forcer le dialoguiste scène pour ce run (cumulable avec OPENAI_SCENE_DIALOGUE_ENRICH). */
   sceneDialogueEnrich?: boolean;
+  /** Intention compilée persistée (studio) — hash `userIntent` / traçabilité premium. */
+  chapterIntentContract?: Record<string, unknown> | null;
+  /** VisualWorld persisté au studio — prioritaire pour `visualWorldHash` si présent. */
+  persistedVisualWorldContract?: Record<string, unknown> | null;
+  /** DialogueContract validé studio — prioritaire sur l’empreinte dérivée des blueprints. */
+  chapterDialogueContract?: Record<string, unknown> | null;
 }
 
 export interface RunPremiumV3PipelineResult {
@@ -190,6 +197,11 @@ export interface RunPremiumV3PipelineResult {
     VisualWorldDiscoveryPassResult,
     "discoverySource" | "visualWorldComposeMeta"
   > | null;
+  /**
+   * Avertissements non bloquants (dialogue scène, pré-rendu QA, render…)
+   * — surfacés dans le studio via `Job.output.pipelineUserWarnings`.
+   */
+  pipelineUserWarnings?: string[];
 }
 
 function assertPremiumOnlyV3Config(input: Pick<RunPremiumV3PipelineInput, "pipelineV3Enabled" | "premiumV3OnlyEnabled">) {
@@ -393,8 +405,27 @@ export async function runPremiumV3Pipeline(
 
   const pipelineStartMs = Date.now();
   const timings: Record<string, number> = {};
+  const pipelineUserWarnings: string[] = [];
+
+  function dedupePipelineWarnings(): string[] | undefined {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of pipelineUserWarnings) {
+      const s = typeof raw === "string" ? raw.trim() : "";
+      if (!s || seen.has(s)) continue;
+      seen.add(s);
+      out.push(s);
+    }
+    return out.length > 0 ? out : undefined;
+  }
 
   try {
+    if (visualQaProductionConfigSkipped) {
+      pipelineUserWarnings.push(
+        "QA visuelle production incomplète : rendu possible en « needs_review » (clés serveur manquantes ou PREMIUM_VISUAL_QA_REQUIRED=false).",
+      );
+    }
+
     const approvedPlanDriven = hasApprovedPlanDrivenInput(input);
     const projectFormat = resolveProjectFormat(input.project, input.projectId);
     const resolvedProductionOutline = resolveProductionOutlineForPremiumPipeline({
@@ -471,6 +502,20 @@ export async function runPremiumV3Pipeline(
       );
     }
 
+    let persistedVisualWorld: VisualWorldContract | null = null;
+    if (input.persistedVisualWorldContract && typeof input.persistedVisualWorldContract === "object") {
+      try {
+        persistedVisualWorld = parseVisualWorldContract(input.persistedVisualWorldContract);
+      } catch (e) {
+        console.warn(
+          `[pipeline:v3:visual-world] snapshot studio invalide, fallback découverte — ${String(e)}`,
+        );
+      }
+    }
+    const discoveredVisualWorld = visualDiscoveryResult.visualWorldContract;
+    /** Studio persisté prime sur la découverte (P0.11). */
+    const effectiveVisualWorld = persistedVisualWorld ?? discoveredVisualWorld;
+
     const npcGroupsFromBlueprints = extractNpcGroupsFromBlueprints(input.panelBlueprints);
     // Premium NPC groups must come from VisualWorldContract or canonicalized blueprints.
     // Do not reintroduce regex NPC discovery in this file — legacy merge lives in
@@ -483,11 +528,11 @@ export async function runPremiumV3Pipeline(
     }
 
     const premium = Boolean(input.premiumV3OnlyEnabled);
-    const vw = visualDiscoveryResult.visualWorldContract;
+    const vw = effectiveVisualWorld;
     const useVisualWorldNpcPrimary =
       premium
-      && visualDiscoveryResult.discoverySource === "ai_composed"
-      && vw !== null;
+      && vw !== null
+      && (visualDiscoveryResult.discoverySource === "ai_composed" || persistedVisualWorld !== null);
 
     let mergedNpcGroups: LegacyNpcGroupForCast[];
     let mergedNpcGroupsMap: Map<string, LegacyNpcGroupForCast>;
@@ -702,22 +747,22 @@ export async function runPremiumV3Pipeline(
           });
           const vwStrict = Boolean(input.premiumV3OnlyEnabled);
           const envHydrated =
-            visualDiscoveryResult.visualWorldContract
+            vw
               ? hydrateBlueprintsWithEnvironmentDna({
                   blueprints: dnaHydrated,
-                  visualWorld: visualDiscoveryResult.visualWorldContract,
+                  visualWorld: vw,
                   strict: vwStrict,
                 })
               : dnaHydrated;
           const npcPropHydrated =
-            visualDiscoveryResult.visualWorldContract
+            vw
               ? hydrateBlueprintsWithNpcDna({
                   blueprints: hydrateBlueprintsWithPropDna({
                     blueprints: envHydrated,
-                    visualWorld: visualDiscoveryResult.visualWorldContract,
+                    visualWorld: vw,
                     strict: vwStrict,
                   }),
-                  visualWorld: visualDiscoveryResult.visualWorldContract,
+                  visualWorld: vw,
                   strict: vwStrict,
                 })
               : envHydrated;
@@ -868,11 +913,20 @@ export async function runPremiumV3Pipeline(
           contentRating: typeof input.project?.contentRating === "string" ? input.project.contentRating : null,
           avoidDialogueSnippets: input.priorChapterDialogueSnippets ?? undefined,
           forceSceneDialogueEnrich: enableDialoguist,
+          rejectUnresolvedSpeakers: input.premiumV3OnlyEnabled && enableDialoguist,
         });
         if (sceneDialogue.linesWritten > 0 || sceneDialogue.warnings.length > 0) {
           console.info(
             `[pipeline:v3:scene-dialogue] beatsTouched=${sceneDialogue.beatsTouched} linesWritten=${sceneDialogue.linesWritten} warnings=${sceneDialogue.warnings.join(";") || "none"}`,
           );
+        }
+        if (input.premiumV3OnlyEnabled && enableDialoguist && sceneDialogue.blockingErrors.length > 0) {
+          throw new Error(`premium_scene_dialogue_speaker_blocked:${sceneDialogue.blockingErrors.join("|")}`);
+        }
+        for (const w of sceneDialogue.warnings) {
+          if (typeof w === "string" && w.trim().length > 0) {
+            pipelineUserWarnings.push(`Dialogue de scène — ${w.trim()}`);
+          }
         }
 
         if (input.premiumV3OnlyEnabled && enableDialoguist) {
@@ -1593,6 +1647,7 @@ export async function runPremiumV3Pipeline(
           chapterNumber: input.chapterNumber,
           outlineBeats: outlineBeatsForContract,
           panelBlueprints: panelBlueprintsForPremiumPath,
+          visualWorld: vw,
           heroCharacterId: castContract.heroCharacterId,
           focusCharacterIds: castContract.activeCharacterIds.filter(Boolean),
           characters: input.rawCharacters.map((c) => ({
@@ -1623,6 +1678,20 @@ export async function runPremiumV3Pipeline(
             visualDescription:
               typeof loc.visualDNA?.description === "string" ? loc.visualDNA.description : null,
           })),
+          sourceHashMaterial: {
+            chapterUserIntent: input.chapterUserIntent ?? null,
+            chapterIntentContractJson: input.chapterIntentContract
+              ? JSON.stringify(input.chapterIntentContract)
+              : null,
+            persistedVisualWorldJson: input.persistedVisualWorldContract
+              ? JSON.stringify(input.persistedVisualWorldContract)
+              : null,
+            dialogueContractJson: input.chapterDialogueContract
+              ? JSON.stringify(input.chapterDialogueContract)
+              : null,
+            visualWorldObject: vw ?? undefined,
+            castContract,
+          },
         });
 
         if (input.premiumV3OnlyEnabled) {
@@ -1634,13 +1703,20 @@ export async function runPremiumV3Pipeline(
         }
       }
 
-      runPreRenderPremiumQaOrThrow({
+      const preRenderQaResult = runPreRenderPremiumQaOrThrow({
         storyboardPlan: storyboardPassResult.storyboardPlan,
         chapterSummary: input.chapterSummary,
         chapterUserIntent: input.chapterUserIntent,
         chapterLocationName: input.chapterLocationName,
         mainCharacterNames,
       });
+      // P00.1 — défensif : la pass peut être mockée (tests) et retourner undefined sans throw.
+      const preRenderIssues = Array.isArray(preRenderQaResult?.issues) ? preRenderQaResult.issues : [];
+      for (const issue of preRenderIssues) {
+        if (typeof issue === "string" && issue.trim().length > 0) {
+          pipelineUserWarnings.push(`Pré-rendu storyboard — ${issue.trim()}`);
+        }
+      }
       await saveStoryboardPlan(input.chapterId, storyboardPassResult.storyboardPlan);
 
       const renderFalEnabled = isPipelineV3RenderFalEnabled();
@@ -1694,6 +1770,11 @@ export async function runPremiumV3Pipeline(
         console.warn(
           `[pipeline:v3:render] warnings=${renderPassResult.summary.warnings.slice(0, 5).join(" | ")}`,
         );
+        for (const w of renderPassResult.summary.warnings.slice(0, 20)) {
+          if (typeof w === "string" && w.trim().length > 0) {
+            pipelineUserWarnings.push(`Rendu / QA image — ${w.trim()}`);
+          }
+        }
       }
 
       // P1.7 — Props QA pass : détection des props fantômes dans les render specs
@@ -1770,5 +1851,9 @@ export async function runPremiumV3Pipeline(
     `[pipeline:v3:report] chapterId=${input.chapterId} v3RenderSucceeded=${v3RenderSucceeded} ${timingReport}`,
   );
 
-  return { v3RenderSucceeded, visualWorldDiscovery: visualWorldDiscoveryAudit };
+  return {
+    v3RenderSucceeded,
+    visualWorldDiscovery: visualWorldDiscoveryAudit,
+    pipelineUserWarnings: dedupePipelineWarnings(),
+  };
 }

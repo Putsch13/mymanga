@@ -103,7 +103,7 @@ async function renderReadPage(params: Props["params"], searchParamsP: Props["sea
           <AlertCircle className="h-8 w-8 text-white/30" />
           <p className="text-lg font-medium text-white/80">Ce chapitre n&apos;a pas encore été généré.</p>
           <Link
-            href={`/projects/${projectId}/generate`}
+            href={`/projects/${projectId}/chapters/${chapterId}/edit`}
             className="rounded-full bg-white/10 px-4 py-2 text-sm text-white/80 hover:bg-white/20 transition-colors"
           >
             Générer ce chapitre →
@@ -227,7 +227,7 @@ async function renderReadPage(params: Props["params"], searchParamsP: Props["sea
           <div className="flex flex-col items-center gap-3">
             {chapter.scenes.length === 0 ? (
               <Link
-                href={`/projects/${projectId}/generate`}
+                href={`/projects/${projectId}/chapters/${chapterId}/edit`}
                 className="inline-flex items-center gap-2 rounded-full bg-white px-8 py-4 text-base font-semibold text-black shadow-2xl shadow-white/20 transition-all hover:scale-105 hover:shadow-white/40"
               >
                 <Sparkles className="h-5 w-5" />

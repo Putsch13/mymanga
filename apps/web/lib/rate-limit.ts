@@ -18,6 +18,7 @@ const CONFIGS = {
   // P1-6 : buckets dédiés aux endpoints AI qui étaient sans garde
   "chapter-outline":    { requests: 20, window: "1 h" as const },
   "chapter-autofill":   { requests: 30, window: "1 h" as const },
+  "chapter-intent-compile": { requests: 25, window: "1 h" as const },
   "character-ai-suggest": { requests: 15, window: "1 h" as const },
   "scene-image-retry":  { requests: 30, window: "1 h" as const },
   "ai-generate":        { requests: 30, window: "1 h" as const },

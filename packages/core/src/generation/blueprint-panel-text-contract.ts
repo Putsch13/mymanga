@@ -6,6 +6,7 @@
 import type { PanelBlueprintPremium } from "../types/narrative-facts";
 import {
   buildPanelTextContractFromBlueprintTextFields,
+  syncAllTextViewsFromPanelTextContract,
   textContractToLegacyDialogue,
   validatePanelTextContract,
   type PanelTextContract,
@@ -41,6 +42,15 @@ export function legacyDialogueLinesFromBlueprintPremium(
 
 export function blueprintPrimaryDialogueLineCount(bp: BlueprintTextSourcePick): number {
   return legacyDialogueLinesFromBlueprintPremium(bp).filter((l) => String(l.text ?? "").trim().length > 0).length;
+}
+
+/**
+ * P0.16 — À la persistance studio : une seule source de vérité texte ; propage vers dialogueLines,
+ * panelTextBundle, narrationText, sfxCues.
+ */
+export function normalizePremiumBlueprintTextViews(bp: PanelBlueprintPremium): PanelBlueprintPremium {
+  const contract = resolvePanelTextContractFromBlueprintPremium(bp);
+  return syncAllTextViewsFromPanelTextContract(bp, contract) as PanelBlueprintPremium;
 }
 
 /** Recalcule `textContract` après mutation des champs texte fragment (PR9). */

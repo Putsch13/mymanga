@@ -160,7 +160,7 @@ const WORLD_PROP_DESC_CHARS = 100;
 const WORLD_PROP_TOTAL_CHARS = 200;
 
 /**
- * Props monde / beat (`VisualWorldPropDna` / `RequiredProp` mappés).
+ * Props monde / beat (`VisualWorldPropDna` / `RequiredProp` mappés) — bloc **PROPS:** (P0.12).
  */
 export function formatWorldPropsVisualDnaForPrompt(spec: PanelRenderSpec): string {
   const list = spec.propVisualDna ?? spec.worldPropsVisualDna;
@@ -179,7 +179,7 @@ export function formatWorldPropsVisualDnaForPrompt(spec: PanelRenderSpec): strin
     chunks.push(tail ? `${bit} [${tail}]` : bit);
   }
   if (!chunks.length) return "";
-  let s = `Key props: ${chunks.join(" | ")}.`;
+  let s = `PROPS: ${chunks.join(" | ")}.`;
   if (s.length > WORLD_PROP_TOTAL_CHARS) {
     s = `${s.slice(0, WORLD_PROP_TOTAL_CHARS - 1)}…`;
   }
@@ -202,56 +202,150 @@ function worldEntityKindLabel(category: string | null | undefined): "Creature" |
   return null;
 }
 
-/**
- * Figures monde hors cast principal (`npcVisualDna`) : PNJ de groupe, créatures,
- * véhicules, factions (issus du VisualWorldContract, hydratation blueprint).
- * Texte court pour le bloc ENVIRONMENT ; plafonné. Les créatures / véhicules /
- * factions passent avant les PNJ crowd pour le budget caractères.
- */
-export function formatNpcVisualDnaForPrompt(spec: PanelRenderSpec): string {
-  const list = spec.npcVisualDna;
-  if (!Array.isArray(list) || list.length === 0) return "";
-  const sorted = [...list].sort(
-    (a, b) => npcWorldPresenceSortKey(a.category) - npcWorldPresenceSortKey(b.category),
-  );
-  const chunks: string[] = [];
-  for (const n of sorted.slice(0, NPC_PROMPT_MAX)) {
-    const name =
-      normalizePromptClause(n.displayName ?? "")
-      || normalizePromptClause(String(n.continuityId ?? "").replace(/^npc[-_]?/i, ""))
-      || "figure";
-    const cat = normalizePromptClause(n.category ?? "");
-    const markers = Array.isArray(n.visualMarkers)
-      ? n.visualMarkers
-          .map((m) => normalizePromptClause(String(m)))
-          .filter(Boolean)
-          .slice(0, NPC_MARKER_MAX_PER_NPC)
-          .join(", ")
-      : "";
-    const tierBits = [
-      n.threatLevel && n.category === "creature" ? `threat:${n.threatLevel}` : null,
-      n.vehicleScale && n.category === "vehicle" ? `scale:${n.vehicleScale}` : null,
-    ]
-      .filter(Boolean)
-      .join(", ");
-    const kind = worldEntityKindLabel(n.category);
-    let line: string;
-    if (kind) {
-      const tierSuffix = tierBits ? ` [${tierBits}]` : "";
-      const core = markers ? `${name} (${markers})` : name;
-      line = `${kind}: ${core}${tierSuffix}`;
-    } else {
-      const bits = [name, cat || null, markers || null].filter(Boolean) as string[];
-      line = bits.join("; ");
-    }
-    if (line.trim()) chunks.push(line);
+function shouldSkipNpcRowForDedicatedDup(spec: PanelRenderSpec, category: string | null | undefined): boolean {
+  const c = (category ?? "").trim().toLowerCase();
+  if (c === "creature" && Array.isArray(spec.creatureVisualDna) && spec.creatureVisualDna.length > 0) return true;
+  if (c === "vehicle" && Array.isArray(spec.vehicleVisualDna) && spec.vehicleVisualDna.length > 0) return true;
+  if (c === "faction" && Array.isArray(spec.factionVisualDna) && spec.factionVisualDna.length > 0) return true;
+  return false;
+}
+
+type WorldEntityBucket = "creature" | "vehicle" | "faction" | "npc";
+
+type TaggedWorldLine = { sort: number; bucket: WorldEntityBucket; line: string };
+
+function creatureLineFromContract(cr: NonNullable<PanelRenderSpec["creatureVisualDna"]>[number]): string {
+  const name =
+    normalizePromptClause(cr.label)
+    || normalizePromptClause(String(cr.id ?? "").replace(/^cre[-_]?/i, ""))
+    || "creature";
+  const markers = normalizePromptClause(cr.visualDescription);
+  const tier = cr.threatLevel && cr.threatLevel !== "none" ? ` [threat:${cr.threatLevel}]` : "";
+  const core = markers ? `${name} (${markers})` : name;
+  return `${core}${tier}`.trim();
+}
+
+function vehicleLineFromContract(v: NonNullable<PanelRenderSpec["vehicleVisualDna"]>[number]): string {
+  const name = normalizePromptClause(v.label) || normalizePromptClause(String(v.id ?? "")) || "vehicle";
+  const markers = normalizePromptClause(v.visualDescription);
+  const tier = v.scale ? ` [scale:${v.scale}]` : "";
+  const core = markers ? `${name} (${markers})` : name;
+  return `${core}${tier}`.trim();
+}
+
+function factionLineFromContract(f: NonNullable<PanelRenderSpec["factionVisualDna"]>[number]): string {
+  const name = normalizePromptClause(f.label) || normalizePromptClause(String(f.id ?? "")) || "faction";
+  const motifBits = [
+    ...f.visualMarkers.map((s) => normalizePromptClause(String(s))).filter(Boolean),
+    ...f.visualMotifs.map((s) => normalizePromptClause(String(s))).filter(Boolean),
+    ...f.colors.map((s) => normalizePromptClause(String(s))).filter(Boolean),
+    f.emblem?.trim() ? `emblem:${normalizePromptClause(f.emblem)}` : "",
+  ].filter(Boolean);
+  const uniq = [...new Set(motifBits)].slice(0, 4).join(", ");
+  return uniq ? `${name} (${uniq})` : name;
+}
+
+function npcGroupLineFromNpcVisual(n: NonNullable<PanelRenderSpec["npcVisualDna"]>[number]): string {
+  const name =
+    normalizePromptClause(n.displayName ?? "")
+    || normalizePromptClause(String(n.continuityId ?? "").replace(/^npc[-_]?/i, ""))
+    || "figure";
+  const cat = normalizePromptClause(n.category ?? "");
+  const markers = Array.isArray(n.visualMarkers)
+    ? n.visualMarkers
+        .map((m) => normalizePromptClause(String(m)))
+        .filter(Boolean)
+        .slice(0, NPC_MARKER_MAX_PER_NPC)
+        .join(", ")
+    : "";
+  const tierBits = [
+    n.threatLevel && n.category === "creature" ? `threat:${n.threatLevel}` : null,
+    n.vehicleScale && n.category === "vehicle" ? `scale:${n.vehicleScale}` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const kind = worldEntityKindLabel(n.category);
+  if (kind) {
+    const tierSuffix = tierBits ? ` [${tierBits}]` : "";
+    const core = markers ? `${name} (${markers})` : name;
+    return `${core}${tierSuffix}`.trim();
   }
-  if (!chunks.length) return "";
-  let s = `World presence: ${chunks.join(" | ")}.`;
+  const bits = [name, cat || null, markers || null].filter(Boolean) as string[];
+  return bits.join("; ");
+}
+
+function collectTaggedWorldEntities(spec: PanelRenderSpec): TaggedWorldLine[] {
+  const rows: TaggedWorldLine[] = [];
+
+  if (Array.isArray(spec.creatureVisualDna)) {
+    for (const cr of spec.creatureVisualDna) {
+      rows.push({ sort: 0, bucket: "creature", line: creatureLineFromContract(cr) });
+    }
+  }
+
+  if (Array.isArray(spec.vehicleVisualDna)) {
+    for (const v of spec.vehicleVisualDna) {
+      rows.push({ sort: 1, bucket: "vehicle", line: vehicleLineFromContract(v) });
+    }
+  }
+
+  if (Array.isArray(spec.factionVisualDna)) {
+    for (const f of spec.factionVisualDna) {
+      rows.push({ sort: 2, bucket: "faction", line: factionLineFromContract(f) });
+    }
+  }
+
+  const npcList = spec.npcVisualDna;
+  if (Array.isArray(npcList)) {
+    for (const n of npcList) {
+      if (shouldSkipNpcRowForDedicatedDup(spec, n.category)) continue;
+      const kind = worldEntityKindLabel(n.category);
+      const line = npcGroupLineFromNpcVisual(n);
+      if (!line.trim()) continue;
+      if (kind === "Creature") {
+        rows.push({ sort: 0, bucket: "creature", line });
+      } else if (kind === "Vehicle") {
+        rows.push({ sort: 1, bucket: "vehicle", line });
+      } else if (kind === "Faction") {
+        rows.push({ sort: 2, bucket: "faction", line });
+      } else {
+        rows.push({ sort: npcWorldPresenceSortKey(n.category), bucket: "npc", line });
+      }
+    }
+  }
+
+  rows.sort((a, b) => a.sort - b.sort || a.line.localeCompare(b.line));
+  return rows.slice(0, NPC_PROMPT_MAX);
+}
+
+/** P0.12 — blocs explicites pour le modèle image (suffixe ENVIRONMENT). */
+function formatStructuredWorldEntitiesForPrompt(spec: PanelRenderSpec): string {
+  const picked = collectTaggedWorldEntities(spec);
+  if (!picked.length) return "";
+  const creatures = picked.filter((r) => r.bucket === "creature").map((r) => r.line);
+  const vehicles = picked.filter((r) => r.bucket === "vehicle").map((r) => r.line);
+  const factions = picked.filter((r) => r.bucket === "faction").map((r) => r.line);
+  const npcs = picked.filter((r) => r.bucket === "npc").map((r) => r.line);
+
+  const sections: string[] = [];
+  if (creatures.length) sections.push(`CREATURES: ${creatures.join(" | ")}`);
+  if (vehicles.length) sections.push(`VEHICLES: ${vehicles.join(" | ")}`);
+  if (factions.length) sections.push(`FACTIONS: ${factions.join(" | ")}`);
+  if (npcs.length) sections.push(`NPCS: ${npcs.join(" | ")}`);
+
+  let s = sections.join(". ");
   if (s.length > NPC_VISUAL_PROMPT_CHARS) {
     s = `${s.slice(0, NPC_VISUAL_PROMPT_CHARS - 1)}…`;
   }
-  return s;
+  return `${s}.`;
+}
+
+/**
+ * Figures monde hors cast principal : blocs **CREATURES / VEHICLES / FACTIONS / NPCS**
+ * (P0.12), plafonnés pour le suffixe ENVIRONMENT.
+ */
+export function formatNpcVisualDnaForPrompt(spec: PanelRenderSpec): string {
+  return formatStructuredWorldEntitiesForPrompt(spec);
 }
 
 /** Suffixe décor : `environmentDNA` + props beat + présence monde (PNJ / créatures / véhicules / factions, PR6–PR7). */
@@ -260,7 +354,7 @@ function buildDecorDnaAndNpcSuffix(spec: PanelRenderSpec): string {
   const propRaw = formatWorldPropsVisualDnaForPrompt(spec);
   const npcRaw = formatNpcVisualDnaForPrompt(spec);
   const parts: string[] = [];
-  if (dnaRaw) parts.push(`DNA: ${dnaRaw}`);
+  if (dnaRaw) parts.push(`LOCATION: ${dnaRaw}`);
   if (propRaw) parts.push(propRaw);
   if (npcRaw) parts.push(npcRaw);
   if (!parts.length) return "";
@@ -301,6 +395,12 @@ export function buildPromptSubjectBlock(spec: PanelRenderSpec): string {
   }
   if (spec.renderMode === "creature_reveal") {
     return `SUBJECT: non-human creature(s) as primary subject, species-consistent silhouette and proportions, characters (if present) relegated to observer role in midground.`;
+  }
+  if (spec.renderMode === "vehicle_reveal") {
+    return `SUBJECT: vehicle(s) as primary readable subject, coherent scale and industrial design, wheels or hull clearly visible; characters if any stay secondary or in cockpit only.`;
+  }
+  if (spec.renderMode === "faction_reveal") {
+    return `SUBJECT: faction members as coordinated group, uniform motifs and emblems readable, collective silhouette; not a generic anonymous crowd.`;
   }
   if (spec.renderMode === "threat_silhouette") {
     return `SUBJECT: looming silhouette / unidentified figure observed from distance, backlit or obscured, no clear facial features, atmospheric menace.`;
@@ -594,6 +694,21 @@ export const FORBIDDEN_BY_RENDER_MODE: Record<PanelRenderSpec["renderMode"], str
     "environment only",
     "hero only close-up",
     "no creature visible",
+  ],
+  vehicle_reveal: [
+    "tight face",
+    "hero portrait",
+    "face filling frame",
+    "hero only close-up",
+    "empty street without vehicle",
+    "no vehicle visible",
+    "environment only",
+  ],
+  faction_reveal: [
+    "single random passerby",
+    "hero portrait filling frame",
+    "no uniform cues",
+    "generic crowd without emblems",
   ],
   threat_silhouette: [
     "clear facial features",
@@ -1002,7 +1117,7 @@ export function compactPropDnaForPrompt(spec: PanelRenderSpec): string {
   return formatWorldPropsVisualDnaForPrompt(spec);
 }
 
-/** PR4 — alias CTO : groupes PNJ / entités monde plafonnés (`NPC_PROMPT_MAX`). */
+/** PR4 — alias CTO : blocs CREATURES / VEHICLES / FACTIONS / NPCS (P0.12, `NPC_PROMPT_MAX`). */
 export function compactNpcDnaForPrompt(spec: PanelRenderSpec): string {
   return formatNpcVisualDnaForPrompt(spec);
 }

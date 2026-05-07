@@ -72,6 +72,7 @@ export async function GET(_req: Request, ctx: Ctx) {
                 metadata: true,
                 generationRunId: true,      // P1.14 : filtre run courant
                 userValidatedAt: true,      // P1.14 : exception panels validés
+                retryCount: true,
                 falTraces: {
                   orderBy: { createdAt: "desc" },
                   take: 6,
@@ -155,6 +156,9 @@ export async function GET(_req: Request, ctx: Ctx) {
     completed: allImages.filter((i) => i.status === "completed" && i.imageUrl).length,
     failed: allImages.filter((i) => i.status === "failed" || i.status === "blocked").length,
     pending: allImages.filter((i) => i.status === "planned" || i.status === "pending").length,
+    generating: allImages.filter((i) => i.status === "generating").length,
+    locked: allImages.filter((i) => i.userValidatedAt != null).length,
+    retried: allImages.filter((i) => (i.retryCount ?? 0) > 0).length,
   };
   const studioSnapshot = patchChapterStudioSnapshot(
     chapter.outline,

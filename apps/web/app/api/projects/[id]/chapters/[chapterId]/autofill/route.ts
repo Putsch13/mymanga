@@ -3,11 +3,16 @@ import { z } from "zod";
 import { runChapterAutofill } from "@manga-ai-studio/ai";
 import { prisma } from "@manga-ai-studio/db";
 import { buildProjectContext } from "@manga-ai-studio/memory";
-import { chapterStudioDataSchema, chapterStudioSnapshotSchema } from "@manga-ai-studio/core";
+import {
+  chapterStudioDataSchema,
+  chapterStudioSnapshotSchema,
+  normalizePremiumBlueprintTextViews,
+  repairGhostCharacters,
+} from "@manga-ai-studio/core";
+import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
 import { getOwnedProject } from "@/lib/ownership";
-import { repairGhostCharacters } from "@manga-ai-studio/core";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
@@ -230,6 +235,29 @@ export async function POST(req: Request, ctx: Ctx) {
     );
   }
 
+  const validatedPatch = patchValidation.data;
+  let suggestedPatchOut: Record<string, unknown> = { ...(result.suggestedPatch as Record<string, unknown>) };
+  const ppIn = validatedPatch.productionPlan;
+  if (
+    ppIn
+    && typeof ppIn === "object"
+    && Array.isArray(ppIn.panelBlueprints)
+    && ppIn.panelBlueprints.length > 0
+  ) {
+    const ppRec = ppIn as { panelBlueprints: PanelBlueprintPremium[] } & Record<string, unknown>;
+    const normalizedBps = ppRec.panelBlueprints.map((bp) => normalizePremiumBlueprintTextViews(bp));
+    suggestedPatchOut = {
+      ...suggestedPatchOut,
+      productionPlan: {
+        ...(typeof suggestedPatchOut.productionPlan === "object" && suggestedPatchOut.productionPlan !== null
+          ? (suggestedPatchOut.productionPlan as Record<string, unknown>)
+          : {}),
+        ...ppRec,
+        panelBlueprints: normalizedBps,
+      },
+    };
+  }
+
   console.log(
     `[autofill] autofill_success chapterId=${chapterId} mode=${body.mode} ` +
     `appliedFields=${appliedFields.join(",")}`,
@@ -239,7 +267,7 @@ export async function POST(req: Request, ctx: Ctx) {
     ok: true,
     chapterId,
     mode: body.mode,
-    suggestedPatch: result.suggestedPatch,
+    suggestedPatch: suggestedPatchOut,
     assumptions: result.assumptions,
     confidence: result.confidence,
     unresolvedQuestions: result.unresolvedQuestions,

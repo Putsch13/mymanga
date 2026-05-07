@@ -41,6 +41,19 @@ export interface EnrichPremiumBlueprintsSceneDialogueInput {
   avoidDialogueSnippets?: string[] | null;
   /** Studio / job : activer même si OPENAI_SCENE_DIALOGUE_ENRICH n’est pas à 1. */
   forceSceneDialogueEnrich?: boolean;
+  /**
+   * P0.14 — Premium : toute réplique dont le speaker ne mappe pas à un `characterId`
+   * produit une entrée dans `blockingErrors` (le pipeline peut faire échouer le job).
+   */
+  rejectUnresolvedSpeakers?: boolean;
+}
+
+export interface EnrichPremiumBlueprintsSceneDialogueResult {
+  beatsTouched: number;
+  linesWritten: number;
+  warnings: string[];
+  /** Erreurs bloquantes si `rejectUnresolvedSpeakers` et speaker LLM non résolu. */
+  blockingErrors: string[];
 }
 
 function beatText(outline: ProductionOutline | null | undefined, beatId: string): string {
@@ -64,17 +77,18 @@ function isSpeakerish(bp: PanelBlueprintPremium): boolean {
  */
 export async function enrichPremiumBlueprintsSceneDialogue(
   input: EnrichPremiumBlueprintsSceneDialogueInput,
-): Promise<{ beatsTouched: number; linesWritten: number; warnings: string[] }> {
+): Promise<EnrichPremiumBlueprintsSceneDialogueResult> {
   const warnings: string[] = [];
+  const blockingErrors: string[] = [];
   const envScene = process.env.OPENAI_SCENE_DIALOGUE_ENRICH === "1";
   const allowScene = input.forceSceneDialogueEnrich === true || envScene;
   if (!allowScene) {
     warnings.push("scene_dialogue_skipped_not_enabled");
-    return { beatsTouched: 0, linesWritten: 0, warnings };
+    return { beatsTouched: 0, linesWritten: 0, warnings, blockingErrors };
   }
   if (!process.env.OPENAI_API_KEY) {
     warnings.push("scene_dialogue_skipped_no_openai");
-    return { beatsTouched: 0, linesWritten: 0, warnings };
+    return { beatsTouched: 0, linesWritten: 0, warnings, blockingErrors };
   }
 
   const profile = getDialogueStyleProfile({
@@ -169,12 +183,6 @@ Réponds uniquement avec JSON : {"lines":[{"panelId","speaker","text"}]}`,
         const bp = byId.get(line.panelId);
         if (!bp) continue;
 
-        // P0.2 — Forcer TOUS les attributs speaker pour éviter no_speaker_panel_for_dialogue_beat
-        bp.dialogueLines = [{ speaker: line.speaker, text: line.text.trim() }];
-        bp.dialogueLinesAnchored = Math.max(1, bp.dialogueLinesAnchored ?? 0);
-        bp.dialogueCarrier = "speaker_visible";
-
-        // Résoudre le speaker character ID
         const speakerName = line.speaker.toLowerCase().trim();
         const resolvedSpeakerId =
           bp.speakerAnchorCharacterId ??
@@ -184,9 +192,19 @@ Réponds uniquement avec JSON : {"lines":[{"panelId","speaker","text"}]}`,
           bp.mustShowCharacterIds?.[0] ??
           null;
 
-        if (resolvedSpeakerId) {
-          bp.speakerAnchorCharacterId = resolvedSpeakerId;
+        if (!resolvedSpeakerId) {
+          const msg = `scene_dialogue_speaker_unresolved panel=${line.panelId} speaker=${line.speaker}`;
+          warnings.push(msg);
+          if (input.rejectUnresolvedSpeakers) {
+            blockingErrors.push(`DIALOGUE_SPEAKER_UNKNOWN:${msg}`);
+          }
+          continue;
         }
+
+        bp.dialogueLines = [{ speaker: line.speaker, text: line.text.trim(), characterId: resolvedSpeakerId }];
+        bp.dialogueLinesAnchored = Math.max(1, bp.dialogueLinesAnchored ?? 0);
+        bp.dialogueCarrier = "speaker_visible";
+        bp.speakerAnchorCharacterId = resolvedSpeakerId;
 
         // Déterminer le focus selon le nombre de speakers potentiels
         const visibleCharCount = bp.mustShowCharacterIds?.length ?? 1;
@@ -221,5 +239,5 @@ Réponds uniquement avec JSON : {"lines":[{"panelId","speaker","text"}]}`,
     }
   }
 
-  return { beatsTouched, linesWritten, warnings };
+  return { beatsTouched, linesWritten, warnings, blockingErrors };
 }

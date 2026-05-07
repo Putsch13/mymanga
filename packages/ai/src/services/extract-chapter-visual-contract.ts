@@ -5,6 +5,7 @@
 
 import OpenAI from "openai";
 import { z } from "zod";
+import { normalizeCharacterRoleType } from "@manga-ai-studio/core";
 import type { ChapterVisualContract } from "../contracts/chapter-visual-contract";
 import type { RequiredVisualCoverage } from "./required-visual-coverage";
 
@@ -70,33 +71,26 @@ function stripDiacriticsKey(s: string): string {
 
 /**
  * Normalise les rôles renvoyés par le LLM (FR / synonymes) avant `safeParse` Zod.
+ * Délègue à `normalizeCharacterRoleType` (core) pour une seule table d’alias studio.
  */
 export function normalizeCharacterRole(value: unknown): "main" | "secondary" | "npc" | "unknown" {
-  const raw = stripDiacriticsKey(String(value ?? ""));
-  const map: Record<string, "main" | "secondary" | "npc" | "unknown"> = {
-    hero: "main",
-    heros: "main",
-    protagoniste: "main",
-    "personnage principal": "main",
-    principal: "main",
-    main: "main",
-    secondary: "secondary",
-    secondaire: "secondary",
-    support: "secondary",
-    allie: "secondary",
-    ally: "secondary",
-    npc: "npc",
-    pnj: "npc",
-    figurant: "npc",
-    groupe: "npc",
-    ami: "npc",
-    amie: "npc",
-    unknown: "unknown",
-    inconnu: "unknown",
-    inconnue: "unknown",
-    autre: "unknown",
-  };
-  return map[raw] ?? "unknown";
+  const { role } = normalizeCharacterRoleType(value);
+  switch (role) {
+    case "hero":
+      return "main";
+    case "antagonist":
+    case "rival":
+      return "secondary";
+    case "ally":
+    case "support":
+    case "secondary":
+      return "secondary";
+    case "npc":
+    case "recurring_npc":
+      return "npc";
+    default:
+      return "unknown";
+  }
 }
 
 function normalizeGroupKind(value: unknown): "npc_group" | "species" | "crowd" | "faction" {

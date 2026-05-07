@@ -158,6 +158,20 @@ const RENDER_MODE_ROUTE_TABLE: Record<StoryboardRenderMode, RouteBase> = {
     sizePreset: "landscape",
     retryPolicy: "strict_environment",
   },
+  vehicle_reveal: {
+    modelId: FAL_RENDER_ROUTE_MODEL_IDS.creatureFocused,
+    panelCategory: "VEHICLE_REVEAL",
+    referencePolicy: "LIGHT",
+    sizePreset: "landscape",
+    retryPolicy: "strict_environment",
+  },
+  faction_reveal: {
+    modelId: FAL_RENDER_ROUTE_MODEL_IDS.groupFocused,
+    panelCategory: "FACTION_REVEAL",
+    referencePolicy: "LIGHT",
+    sizePreset: "landscape",
+    retryPolicy: "strict_environment",
+  },
   threat_silhouette: {
     modelId: FAL_RENDER_ROUTE_MODEL_IDS.threatFocused,
     panelCategory: "THREAT_SILHOUETTE",
@@ -222,6 +236,8 @@ const ENEMY_MODES_DOWNGRADE_TO_LIGHT: readonly string[] = [
   "enemy_reveal",
   "enemy_closeup",
   "creature_reveal",
+  "vehicle_reveal",
+  "faction_reveal",
   "threat_silhouette",
 ];
 

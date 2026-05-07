@@ -131,6 +131,18 @@ function overlayCanonicalStructure(
       nonEmptyArray(rawBase.npcVisualDna)
       ?? nonEmptyArray(canonical.npcVisualDna)
       ?? [],
+    creatureVisualDna:
+      nonEmptyArray(rawBase.creatureVisualDna)
+      ?? nonEmptyArray(canonical.creatureVisualDna)
+      ?? [],
+    vehicleVisualDna:
+      nonEmptyArray(rawBase.vehicleVisualDna)
+      ?? nonEmptyArray(canonical.vehicleVisualDna)
+      ?? [],
+    factionVisualDna:
+      nonEmptyArray(rawBase.factionVisualDna)
+      ?? nonEmptyArray(canonical.factionVisualDna)
+      ?? [],
     propVisualDna:
       nonEmptyArray(rawBase.propVisualDna)
       ?? nonEmptyArray(canonical.propVisualDna)

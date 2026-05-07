@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   legacyDialogueLinesFromBlueprintPremium,
+  normalizePremiumBlueprintTextViews,
   resolvePanelTextContractFromBlueprintPremium,
   syncBlueprintTextContractFromTextFragments,
 } from "./blueprint-panel-text-contract";
@@ -52,5 +53,41 @@ describe("blueprint-panel-text-contract (PR9)", () => {
     syncBlueprintTextContractFromTextFragments(bp);
     expect(bp.textContract?.hasText).toBe(true);
     expect(resolvePanelTextContractFromBlueprintPremium(bp).dialogues[0]?.text).toBe("Hi");
+  });
+
+  it("normalizePremiumBlueprintTextViews propage le textContract persisté vers dialogueLines (P0.16)", () => {
+    const bp = {
+      panelId: "p1",
+      beatId: "b1",
+      panelNumber: 1,
+      purpose: "test",
+      shotType: "medium",
+      cameraAngle: "eye",
+      subjectFocus: "hero",
+      cutawayType: "none",
+      heroCenterAllowed: true,
+      criticality: "low",
+      mustShowEnemy: false,
+      requiredNpcCount: 0,
+      requiredProps: [],
+      requiredLocationSignals: [],
+      dialogueLines: [{ speaker: "Stale", text: "wrong" }],
+      textContract: {
+        panelId: "p1",
+        hasText: true,
+        dialogues: [{ speakerName: "Hero", text: "Canon", speakerId: "c1" }],
+        narration: null,
+        sfx: [],
+        placement: {
+          reserveTextArea: true,
+          preferredAnchorZones: [],
+          avoidFaces: true,
+          overflowStrategy: "bubble_stack" as const,
+        },
+      },
+    } as PanelBlueprintPremium;
+    const n = normalizePremiumBlueprintTextViews(bp);
+    expect(n.dialogueLines?.[0]?.text).toBe("Canon");
+    expect((n.dialogueLines?.[0] as { characterId?: string }).characterId).toBe("c1");
   });
 });

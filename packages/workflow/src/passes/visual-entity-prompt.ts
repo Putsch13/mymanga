@@ -27,6 +27,12 @@ import type { StoryboardRenderMode } from "@manga-ai-studio/ai/contracts";
  * Map les concepts d'entité vers StoryboardRenderMode réels.
  */
 export function resolveRenderModeForEntity(entity: VisualEntity): StoryboardRenderMode {
+  const kind = (entity.userDefinedKind ?? "").toLowerCase();
+  if (kind === "vehicle") return "vehicle_reveal";
+  if (entity.isFaction || kind === "faction") return "faction_reveal";
+  if (kind === "creature" || kind === "monster" || entity.semanticTags.some((t) => /creature|monster|beast/i.test(t))) {
+    return "creature_reveal";
+  }
   if (entity.isOpponent && entity.canAppearAsGroup) return "group_tension";
   if (entity.isOpponent) return "enemy_reveal";
   if (entity.canAppearAsGroup) return "group_tension";

@@ -151,6 +151,22 @@ describe("DialogueContract", () => {
       expect(contract.totalLines).toBe(0);
       expect(contract.panelsWithDialogue).toBe(0);
     });
+
+    it("prioritise characterId over speaker for speakerId and speakerName from map", () => {
+      const blueprints = [
+        {
+          panelId: "p1",
+          dialogueLines: [{ characterId: "char-uuid-1", speaker: "Wrong label", text: "Salut." }],
+          requiredCharacterIds: ["char-uuid-1"],
+        },
+      ];
+      const contract = buildDialogueContractFromBlueprints("ch-1", blueprints, {
+        "char-uuid-1": "Kenji",
+      });
+
+      expect(contract.lines[0].speakerId).toBe("char-uuid-1");
+      expect(contract.lines[0].speakerName).toBe("Kenji");
+    });
   });
 
   describe("formatDialogueContractLog", () => {

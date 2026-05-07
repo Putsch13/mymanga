@@ -17,6 +17,11 @@
 import { z } from "zod";
 import type { CharacterVisualDna, EnvironmentVisualDna, NpcVisualDna } from "../types/generation-debug-snapshot";
 import type { BlueprintPropVisualDna } from "../types/narrative-facts";
+import type {
+  CreatureVisualDna,
+  FactionVisualDna,
+  VehicleVisualDna,
+} from "../visual-world/visual-world-contract";
 import { PRODUCTION_RULES, type ChapterFormat } from "./production-rules";
 
 export type PanelRole =
@@ -105,6 +110,9 @@ export interface CanonicalPanelPlan {
   /** Porté depuis les blueprints premium (reconstruction plan) — merge raw/canon. */
   characterVisualDna?: CharacterVisualDna[];
   npcVisualDna?: NpcVisualDna[];
+  creatureVisualDna?: CreatureVisualDna[];
+  vehicleVisualDna?: VehicleVisualDna[];
+  factionVisualDna?: FactionVisualDna[];
   environmentVisualDna?: EnvironmentVisualDna | null;
   propVisualDna?: BlueprintPropVisualDna[];
   continuityObjectIds?: string[];
@@ -265,6 +273,9 @@ export const canonicalPanelPlanSchema = z.object({
   notes: z.array(z.string()),
   characterVisualDna: z.array(z.any()).optional(),
   npcVisualDna: z.array(z.any()).optional(),
+  creatureVisualDna: z.array(z.any()).optional(),
+  vehicleVisualDna: z.array(z.any()).optional(),
+  factionVisualDna: z.array(z.any()).optional(),
   environmentVisualDna: z.any().nullable().optional(),
   propVisualDna: z.array(z.any()).optional(),
   continuityObjectIds: z.array(z.string()).optional(),

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PanelBlueprintPremium } from "@manga-ai-studio/core";
 
-import { buildStoryboardPlanFromPremiumBlueprints } from "./storyboard-from-premium-plan";
+import { buildStoryboardPlanFromPremiumBlueprints, deriveRenderMode } from "./storyboard-from-premium-plan";
 
 function makeBlueprint(panelNumber: number, pageNumber = 1): PanelBlueprintPremium {
   return {
@@ -182,6 +182,42 @@ describe("storyboard-from-premium-plan", () => {
       });
 
       expect(plan.pages[0]?.panels[0]?.renderMode).toBe("creature_reveal");
+    });
+  });
+
+  describe("deriveRenderMode — véhicule et faction (P0.12)", () => {
+    it("retourne vehicle_reveal quand npcVisualDna category vehicle", () => {
+      const bp = {
+        ...makeBlueprint(1),
+        npcVisualDna: [{ continuityId: "v1", displayName: "Van", category: "vehicle", visualMarkers: ["noir"] }],
+      } as PanelBlueprintPremium;
+      expect(deriveRenderMode(bp)).toBe("vehicle_reveal");
+    });
+
+    it("retourne vehicle_reveal quand vehicleVisualDna est présent (sans npc category)", () => {
+      const bp = {
+        ...makeBlueprint(1),
+        vehicleVisualDna: [{ id: "v1", label: "Van", visualDescription: "x", requiredBeatIds: [], scale: "medium" }],
+      } as PanelBlueprintPremium;
+      expect(deriveRenderMode(bp)).toBe("vehicle_reveal");
+    });
+
+    it("retourne faction_reveal quand factionVisualDna est présent (sans npc category)", () => {
+      const bp = {
+        ...makeBlueprint(1),
+        factionVisualDna: [
+          { id: "f1", label: "Syndicat", visualMarkers: [], visualMotifs: [], colors: [], requiredBeatIds: [] },
+        ],
+      } as PanelBlueprintPremium;
+      expect(deriveRenderMode(bp)).toBe("faction_reveal");
+    });
+
+    it("retourne faction_reveal quand npcVisualDna category faction", () => {
+      const bp = {
+        ...makeBlueprint(1),
+        npcVisualDna: [{ continuityId: "f1", displayName: "Syndicat", category: "faction", visualMarkers: ["violet"] }],
+      } as PanelBlueprintPremium;
+      expect(deriveRenderMode(bp)).toBe("faction_reveal");
     });
   });
 });

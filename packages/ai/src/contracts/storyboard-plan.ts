@@ -17,13 +17,16 @@
 
 import type {
   CharacterVisualDna,
+  CreatureVisualDna,
   EnvironmentVisualDna,
+  FactionVisualDna,
   NpcVisualDna,
   PanelTextContract,
   ReaderPageTemplateId,
   ReaderTextPlacementHint,
   SceneContinuitySnapshot,
   SceneRosterEntry,
+  VehicleVisualDna,
   VisualWorldPropDna,
 } from "@manga-ai-studio/core";
 
@@ -68,8 +71,19 @@ export type StoryboardRenderMode =
    * Révélation d'une ou plusieurs créatures (animaux fantastiques,
    * monstres, espèces non-humanoïdes). OBLIGATOIRE dès qu'un beat
    * introduit une créature — un `establishing_environment` ne couvre pas.
+   * Valide avec `creatureVisualDna` ou `npcVisualDna` category `creature` (legacy).
    */
   | "creature_reveal"
+  /**
+   * Révélation d'un véhicule narratif (transport, blindé, vaisseau).
+   * Requiert `vehicleVisualDna` (P0.12) ou à défaut `npcVisualDna` avec `category: "vehicle"` (legacy).
+   */
+  | "vehicle_reveal"
+  /**
+   * Mise en scène d'une faction (uniformes, emblèmes, groupe cohérent).
+   * Requiert `factionVisualDna` ou `npcVisualDna` avec `category: "faction"` (legacy).
+   */
+  | "faction_reveal"
   /**
    * Silhouette menaçante observée de loin ou en backlit. Obligatoire
    * pour les beats "ombre / silhouette / observateur invisible".
@@ -116,6 +130,14 @@ export type StoryboardSubjectFocus =
    */
   | "creature"
   /**
+   * Véhicule comme sujet visuel principal (distinct de décor mobile générique).
+   */
+  | "vehicle"
+  /**
+   * Faction / groupe uniformé comme sujet de case.
+   */
+  | "faction"
+  /**
    * Menace observée de loin (silhouette, ombre, présence ambiante
    * identifiable mais sans visage clair).
    */
@@ -132,7 +154,7 @@ export type StoryboardCutawayType =
   | "surveillance";
 
 /**
- * COMMIT P3.B — PanelPurpose enum strict (22 valeurs).
+ * COMMIT P3.B — PanelPurpose enum strict (24 valeurs).
  *
  * `panelPurpose` exprime l'INTENTION ÉDITORIALE d'une case. C'est ce
  * qui distingue :
@@ -159,6 +181,8 @@ export const PANEL_PURPOSES = [
   "confrontation_standoff",
   "threat_silhouette",
   "creature_reveal",
+  "vehicle_reveal",
+  "faction_reveal",
   "environment_cutaway",
   "prop_insert",
   "surveillance_insert",
@@ -287,6 +311,9 @@ export interface StoryboardPanel {
   continuityState?: SceneContinuitySnapshot | null;
   characterVisualDna?: CharacterVisualDna[];
   npcVisualDna?: NpcVisualDna[];
+  creatureVisualDna?: CreatureVisualDna[];
+  vehicleVisualDna?: VehicleVisualDna[];
+  factionVisualDna?: FactionVisualDna[];
   /**
    * Props requis du beat / VW, forme alignée {@link VisualWorldPropDna}
    * pour le render spec (PR7).
@@ -364,6 +391,8 @@ export const STORYBOARD_RENDER_MODES: readonly StoryboardRenderMode[] = [
   "enemy_closeup",
   "enemy_reveal",
   "creature_reveal",
+  "vehicle_reveal",
+  "faction_reveal",
   "threat_silhouette",
   "aftermath_dialogue",
   "insert_object",
@@ -389,6 +418,8 @@ export const STORYBOARD_SUBJECT_FOCUSES: readonly StoryboardSubjectFocus[] = [
   "environment",
   "prop",
   "creature",
+  "vehicle",
+  "faction",
   "threat",
   "reaction",
 ] as const;

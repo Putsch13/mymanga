@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import {
+  canonReadinessPremiumErrorsToFixRows,
+  premiumReadinessBlockedIssuesToFixRows,
+  premiumReadinessDashboardBaseMessage,
+  type LaunchFixRow,
+} from "@/lib/studio/launch-readiness-fix-rows";
 import {
   ChapterLaunchRequestError,
   isWrongGenerationRouteError,
@@ -13,9 +20,10 @@ import { GenerationProgressBoard } from "./generation-progress-board";
 type JobState = {
   id: string;
   status: string;
+  error?: string | null;
   output?: {
     currentStep?: string;
-    steps?: Array<{ key: string; status: string }>;
+    steps?: Array<{ key: string; status: string; label?: string }>;
   };
 };
 
@@ -38,7 +46,30 @@ export function ChapterGenerateLauncher({
   const [job, setJob] = useState<JobState | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [details, setDetails] = useState<unknown>(null);
+  const [fixRows, setFixRows] = useState<LaunchFixRow[] | null>(null);
   const [launching, setLaunching] = useState(false);
+
+  /** Reprendre un job Inngest déjà actif après refresh (P1.4). */
+  useEffect(() => {
+    let cancelled = false;
+    async function hydrateActiveJob() {
+      try {
+        const res = await fetch(`/api/projects/${projectId}/chapters/${chapterId}`, { cache: "no-store" });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { activeJob?: { id?: string } | null };
+        const id = data.activeJob?.id;
+        if (typeof id === "string" && id.length > 0) {
+          setJobId((prev) => prev ?? id);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    void hydrateActiveJob();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, chapterId]);
 
   useEffect(() => {
     if (!jobId) return;
@@ -68,6 +99,7 @@ export function ChapterGenerateLauncher({
     setLaunching(true);
     setMessage(null);
     setDetails(null);
+    setFixRows(null);
     console.info("[studio:launch] clicked", {
       projectId,
       chapterId,
@@ -94,6 +126,7 @@ export function ChapterGenerateLauncher({
             chapterId,
             error: err.payload?.error ?? err.message,
           });
+          setFixRows(null);
           setMessage(STUDIO_WRONG_ROUTE_USER_MESSAGE);
           setDetails(err.payload ?? null);
           return;
@@ -102,6 +135,7 @@ export function ChapterGenerateLauncher({
         const code = typeof payload.code === "string" ? payload.code : null;
         const errorKey = typeof payload.error === "string" ? payload.error : null;
         if (code === "SHOT_MONOTONY") {
+          setFixRows(null);
           const vs = typeof payload.varietyScore === "number" ? payload.varietyScore : null;
           const pct = vs !== null ? `${(vs * 100).toFixed(0)}%` : "trop basse";
           const missing = Array.isArray(payload.missingShots) && payload.missingShots.length > 0
@@ -111,6 +145,7 @@ export function ChapterGenerateLauncher({
             `⚠️ Variété de plans insuffisante (${pct}).${missing} Retourne dans le studio et régénère le plan pour diversifier les shots.`,
           );
         } else if (code === "INCOMPLETE_PLAN" || errorKey === "incomplete_plan") {
+          setFixRows(null);
           const count = typeof payload.panelBlueprintCount === "number" ? payload.panelBlueprintCount : null;
           const minimum = typeof payload.minimumImages === "number" ? payload.minimumImages : null;
           const ratio = count !== null && minimum !== null ? `${count} blueprints pour un minimum de ${minimum}` : "un plan incomplet";
@@ -118,6 +153,7 @@ export function ChapterGenerateLauncher({
             `Le plan validé côté studio est incomplet : ${ratio}. Retourne à l'étape Plan et clique sur « Régénérer le plan » avant de relancer la génération.`,
           );
         } else if (code === "premium_contract_incomplete" || errorKey === "premium_contract_incomplete") {
+          setFixRows(null);
           const missing = Array.isArray(payload.missing) && payload.missing.length > 0
             ? (payload.missing as string[]).join(", ")
             : "éléments inconnus";
@@ -125,6 +161,7 @@ export function ChapterGenerateLauncher({
             `Le contrat visuel est incomplet : ${missing}. Retourne dans le studio → étape Plan → Valider le plan avant de relancer.`,
           );
         } else if (code === "PREMIUM_VISUAL_QA_CONFIG_MISSING") {
+          setFixRows(null);
           const missing = Array.isArray(payload.missing) && payload.missing.length > 0
             ? (payload.missing as string[]).join(", ")
             : "variables serveur";
@@ -133,12 +170,28 @@ export function ChapterGenerateLauncher({
               `Ajoute ces variables sur l'hébergeur (ex. Render), ou définis PREMIUM_VISUAL_QA_REQUIRED=false pour un mode dégradé (qualité needs_review).`,
           );
         } else if (code === "VISUAL_CONTRACT_PRELAUNCH_REQUIRED" || errorKey === "visual_contract_prelaunch_required") {
+          setFixRows(null);
           setMessage(
             typeof payload.message === "string"
               ? payload.message
               : "Confirme le contrat visuel dans le studio (panneau violet en haut) avant le premier lancement.",
           );
+        } else if (code === "PREMIUM_READINESS_DASHBOARD_BLOCKED") {
+          const pr = payload.premiumReadiness as { issues?: Array<{ message?: string; severity?: string; fixAction?: { label: string; href: string } }> } | undefined;
+          setMessage(premiumReadinessDashboardBaseMessage(payload.message));
+          setFixRows(premiumReadinessBlockedIssuesToFixRows(pr?.issues));
+        } else if (code === "CANON_READINESS_BLOCKED") {
+          const lead =
+            typeof payload.leadUserMessage === "string" && payload.leadUserMessage.trim().length > 0
+              ? payload.leadUserMessage
+              : null;
+          setMessage(
+            lead
+            ?? "Canon personnage insuffisant : génère ou verrouille les références des personnages critiques avant de lancer.",
+          );
+          setFixRows(canonReadinessPremiumErrorsToFixRows(payload.premiumErrors));
         } else {
+          setFixRows(null);
           setMessage(
             (typeof payload.message === "string" && payload.message)
             || (typeof payload.error === "string" && payload.error)
@@ -146,9 +199,16 @@ export function ChapterGenerateLauncher({
             || "Erreur inconnue lors du lancement.",
           );
         }
-        setDetails(payload.details ?? null);
+        setDetails(
+          code === "CANON_READINESS_BLOCKED"
+            ? (Array.isArray(payload.premiumErrors) ? payload.premiumErrors : payload)
+            : code === "PREMIUM_READINESS_DASHBOARD_BLOCKED"
+              ? (payload.premiumReadiness ?? payload)
+              : (payload.details ?? null),
+        );
         return;
       }
+      setFixRows(null);
       setMessage(err instanceof Error ? err.message : "Erreur inconnue lors du lancement.");
       return;
     }
@@ -164,19 +224,16 @@ export function ChapterGenerateLauncher({
 
     setMessage(typeof json.message === "string" ? json.message : null);
     setDetails(json.details ?? null);
+    setFixRows(null);
     if (typeof json.jobId === "string") setJobId(json.jobId);
   }
 
-  const steps = job?.output?.steps ?? [];
-  const progress = steps.length > 0
-    ? Math.round((steps.filter((step) => step.status === "completed").length / steps.length) * 100)
-    : job
-      ? job.status === "completed"
-        ? 100
-        : job.status === "running"
-          ? 40
-          : 5
-      : 0;
+  const jobErrorMessage =
+    job?.status === "failed" || job?.status === "canceled"
+      ? typeof job.error === "string"
+        ? job.error
+        : "Le job de génération a échoué. Consulte les logs ou relance depuis le studio."
+      : null;
 
   return (
     <div className="space-y-6">
@@ -193,7 +250,28 @@ export function ChapterGenerateLauncher({
           ))}
         </ul>
       ) : null}
-      {message ? <p data-testid="chapter-launch-message" className="text-sm text-muted-foreground">{message}</p> : null}
+      {message ? (
+        <p data-testid="chapter-launch-message" className="text-sm text-muted-foreground whitespace-pre-line">
+          {message}
+        </p>
+      ) : null}
+      {fixRows && fixRows.length > 0 ? (
+        <ul className="list-none space-y-2 pl-0 text-sm text-muted-foreground" data-testid="chapter-launch-fix-rows">
+          {fixRows.map((row, idx) => (
+            <li key={`${row.message}-${idx}`} className="flex flex-col gap-1 sm:flex-row sm:flex-wrap sm:items-baseline">
+              <span className="min-w-0 shrink">• {row.message}</span>
+              {row.fixHref && row.fixLabel ? (
+                <Link
+                  href={row.fixHref}
+                  className="shrink-0 text-sm font-medium text-primary underline underline-offset-4 hover:no-underline"
+                >
+                  {row.fixLabel}
+                </Link>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {details && typeof details === "object" && "blockingIssues" in (details as Record<string, unknown>) ? (
         <ul className="space-y-1 text-sm text-muted-foreground">
           {Array.isArray((details as Record<string, unknown>).blockingIssues)
@@ -202,9 +280,11 @@ export function ChapterGenerateLauncher({
         </ul>
       ) : null}
       <GenerationProgressBoard
-        progress={progress}
-        currentStep={job?.output?.currentStep ?? (job ? job.status : "ready")}
-        stats={initialStats}
+        projectId={projectId}
+        chapterId={chapterId}
+        initialStats={initialStats}
+        job={job}
+        jobErrorMessage={jobErrorMessage}
       />
     </div>
   );

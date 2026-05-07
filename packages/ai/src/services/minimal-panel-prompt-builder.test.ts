@@ -449,12 +449,12 @@ describe("buildMinimalPanelPrompt", () => {
         },
       }),
     );
-    expect(r.positive).toContain("DNA:");
+    expect(r.positive).toContain("LOCATION:");
     expect(r.positive).toContain("stone arch");
     expect(r.positive).toContain("overcast");
   });
 
-  it("injecte npcVisualDna (world presence) dans le bloc ENVIRONMENT du prompt", () => {
+  it("injecte npcVisualDna (bloc NPCS) dans le bloc ENVIRONMENT du prompt", () => {
     const r = buildMinimalPanelPrompt(
       makeSpec({
         npcVisualDna: [
@@ -467,12 +467,12 @@ describe("buildMinimalPanelPrompt", () => {
         ],
       }),
     );
-    expect(r.positive).toContain("World presence");
+    expect(r.positive).toContain("NPCS:");
     expect(r.positive).toContain("Dock worker");
     expect(r.positive.toLowerCase()).toContain("hard hat");
   });
 
-  it("priorise créature / véhicule / faction avant les PNJ crowd dans le prompt", () => {
+  it("priorise créature / véhicule / faction avant les PNJ crowd dans le prompt (tableaux dédiés P0.12)", () => {
     const r = buildMinimalPanelPrompt(
       makeSpec({
         npcVisualDna: [
@@ -482,30 +482,36 @@ describe("buildMinimalPanelPrompt", () => {
             category: "passerby",
             visualMarkers: ["blurred"],
           },
+        ],
+        creatureVisualDna: [
           {
-            continuityId: "cre-1",
-            displayName: "River wyrm",
-            category: "creature",
-            visualMarkers: ["iridescent scales", "steam from nostrils"],
+            id: "cre-1",
+            label: "River wyrm",
+            visualDescription: "iridescent scales, steam from nostrils",
+            requiredBeatIds: [],
+            threatLevel: "high",
           },
+        ],
+        vehicleVisualDna: [
           {
-            continuityId: "veh-1",
-            displayName: "Patrol skiff",
-            category: "vehicle",
-            visualMarkers: ["rusted hull"],
+            id: "veh-1",
+            label: "Patrol skiff",
+            visualDescription: "rusted hull",
+            requiredBeatIds: [],
+            scale: "medium",
           },
         ],
       }),
     );
-    const idxCreature = r.positive.indexOf("Creature:");
-    const idxCrowd = r.positive.indexOf("Crowd A");
+    const idxCreature = r.positive.indexOf("CREATURES:");
+    const idxCrowd = r.positive.indexOf("NPCS:");
     expect(idxCreature).toBeGreaterThan(-1);
     expect(idxCrowd).toBeGreaterThan(-1);
     expect(idxCreature).toBeLessThan(idxCrowd);
-    expect(r.positive).toContain("Vehicle:");
+    expect(r.positive).toContain("VEHICLES:");
   });
 
-  it("injecte worldPropsVisualDna (Key props) dans le bloc ENVIRONMENT", () => {
+  it("injecte worldPropsVisualDna (bloc PROPS) dans le bloc ENVIRONMENT", () => {
     const r = buildMinimalPanelPrompt(
       makeSpec({
         worldPropsVisualDna: [
@@ -522,7 +528,7 @@ describe("buildMinimalPanelPrompt", () => {
         ],
       }),
     );
-    expect(r.positive).toContain("Key props");
+    expect(r.positive).toContain("PROPS:");
     expect(r.positive).toContain("Sealed crate");
     expect(r.positive.toLowerCase()).toContain("wax");
   });

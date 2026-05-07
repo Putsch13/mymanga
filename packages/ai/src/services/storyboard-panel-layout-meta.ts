@@ -22,6 +22,8 @@ const LANDSCAPE_MODES = new Set<StoryboardRenderMode>([
   "establishing_environment",
   "silent_transition",
   "creature_reveal",
+  "vehicle_reveal",
+  "faction_reveal",
   "enemy_reveal",
   "surveillance_reveal",
   "group_tension",

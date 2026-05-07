@@ -12,6 +12,7 @@
     "./contracts": "./src/contracts/index.ts"
   },
   "scripts": {
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "echo ok"
   },

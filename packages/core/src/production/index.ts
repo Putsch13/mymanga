@@ -24,6 +24,7 @@ export * from "./premium-pipeline-character-visual-dna";
 export * from "./hydrate-blueprints-with-environment-dna";
 export * from "./hydrate-blueprints-with-prop-dna";
 export * from "./hydrate-blueprints-with-npc-dna";
+export * from "./hydrate-blueprints-with-world-entities";
 export * from "./hydrate-blueprints-with-visual-world-npc-prop";
 export * from "./panel-provenance-hydrate";
 export * from "./resolve-character-refs";

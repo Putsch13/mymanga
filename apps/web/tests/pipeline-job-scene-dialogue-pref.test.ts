@@ -48,4 +48,68 @@ describe("buildGenerationJobInputFromSnapshot — scene dialogue pref", () => {
     });
     expect(out.sceneDialogueEnrich).toBe(true);
   });
+
+  it("propage chapterIntentContract et persistedVisualWorldContract depuis le snapshot", async () => {
+    const { buildGenerationJobInputFromSnapshot } = await import("@/lib/premium-chapter-contract");
+    const bps = Array.from({ length: 72 }, (_, i) => ({
+      panelNumber: i + 1,
+      panelId: `p${i + 1}`,
+      subjectFocus: "hero",
+    }));
+    const snap = makeSnapshot(bps) as Record<string, unknown>;
+    (snap.data as Record<string, unknown>).chapterIntentContract = {
+      understoodPitch: "Test pitch",
+      confidenceScore: 0.88,
+    };
+    (snap.data as Record<string, unknown>).visualWorldContract = {
+      locations: [{ id: "l1", name: "Rue" }],
+    };
+    const out = buildGenerationJobInputFromSnapshot({
+      source: "test",
+      chapterId: "c1",
+      focusCharacterIds: [],
+      snapshot: snap as Parameters<typeof buildGenerationJobInputFromSnapshot>[0]["snapshot"],
+      approvedOutline: { approvalVersion: 1 } as unknown as Parameters<
+        typeof buildGenerationJobInputFromSnapshot
+      >[0]["approvedOutline"],
+    });
+    expect(out.chapterIntentContract).toMatchObject({ understoodPitch: "Test pitch" });
+    expect(out.persistedVisualWorldContract).toMatchObject({ locations: [{ id: "l1", name: "Rue" }] });
+  });
+
+  it("propage chapterDialogueContract depuis le snapshot", async () => {
+    const { buildGenerationJobInputFromSnapshot } = await import("@/lib/premium-chapter-contract");
+    const bps = Array.from({ length: 72 }, (_, i) => ({
+      panelNumber: i + 1,
+      panelId: `p${i + 1}`,
+      subjectFocus: "hero",
+    }));
+    const snap = makeSnapshot(bps) as Record<string, unknown>;
+    (snap.data as Record<string, unknown>).chapterDialogueContract = {
+      chapterId: "c1",
+      lines: [
+        {
+          panelId: "p1",
+          speakerId: "h1",
+          speakerName: "Ken",
+          text: "Allons-y.",
+          speakerVisible: true,
+          dialogueType: "speech",
+        },
+      ],
+      totalLines: 1,
+      panelsWithDialogue: 1,
+      uniqueSpeakers: ["h1"],
+    };
+    const out = buildGenerationJobInputFromSnapshot({
+      source: "test",
+      chapterId: "c1",
+      focusCharacterIds: [],
+      snapshot: snap as Parameters<typeof buildGenerationJobInputFromSnapshot>[0]["snapshot"],
+      approvedOutline: { approvalVersion: 1 } as unknown as Parameters<
+        typeof buildGenerationJobInputFromSnapshot
+      >[0]["approvedOutline"],
+    });
+    expect(out.chapterDialogueContract).toMatchObject({ chapterId: "c1", totalLines: 1 });
+  });
 });

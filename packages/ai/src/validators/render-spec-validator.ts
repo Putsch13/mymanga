@@ -62,6 +62,32 @@ function isSentinel(value: string | null | undefined): boolean {
   return FORBIDDEN_FIELD_SENTINELS.has(value.trim().toLowerCase());
 }
 
+function npcVisualDnaHasCategory(spec: PanelRenderSpec, expected: string): boolean {
+  const list = spec.npcVisualDna;
+  if (!Array.isArray(list)) return false;
+  const want = expected.trim().toLowerCase();
+  return list.some((n) => (n.category ?? "").trim().toLowerCase() === want);
+}
+
+function hasDedicatedWorldDnaList(list: unknown): boolean {
+  return Array.isArray(list) && list.length > 0;
+}
+
+function renderSpecHasCreatureDna(spec: PanelRenderSpec): boolean {
+  if (npcVisualDnaHasCategory(spec, "creature")) return true;
+  return hasDedicatedWorldDnaList(spec.creatureVisualDna);
+}
+
+function renderSpecHasVehicleDna(spec: PanelRenderSpec): boolean {
+  if (npcVisualDnaHasCategory(spec, "vehicle")) return true;
+  return hasDedicatedWorldDnaList(spec.vehicleVisualDna);
+}
+
+function renderSpecHasFactionDna(spec: PanelRenderSpec): boolean {
+  if (npcVisualDnaHasCategory(spec, "faction")) return true;
+  return hasDedicatedWorldDnaList(spec.factionVisualDna);
+}
+
 /**
  * P7.24 — Erreurs fatales vs non-fatales.
  * Seules les erreurs fatales bloquent le rendu.
@@ -71,6 +97,8 @@ const FATAL_ISSUE_PATTERNS = [
   /\.styleBible_missing/,
   /\.panelPurpose_missing_or_sentinel/,
   /\.renderMode_missing_or_sentinel/,
+  /\.vehicle_reveal_missing_vehicle_npcVisualDna/,
+  /\.faction_reveal_missing_faction_npcVisualDna/,
 ];
 
 function isFatalIssue(issue: string): boolean {
@@ -116,6 +144,16 @@ export function validateRenderSpec(spec: PanelRenderSpec): RenderSpecValidationR
   }
   if (isSentinel(spec.subjectFocus)) {
     issues.push(`${prefix}.subjectFocus_missing_or_sentinel=${spec.subjectFocus ?? "null"}`);
+  }
+
+  if (spec.renderMode === "creature_reveal" && !renderSpecHasCreatureDna(spec)) {
+    issues.push(`${prefix}.creature_reveal_missing_creature_npcVisualDna`);
+  }
+  if (spec.renderMode === "vehicle_reveal" && !renderSpecHasVehicleDna(spec)) {
+    issues.push(`${prefix}.vehicle_reveal_missing_vehicle_npcVisualDna`);
+  }
+  if (spec.renderMode === "faction_reveal" && !renderSpecHasFactionDna(spec)) {
+    issues.push(`${prefix}.faction_reveal_missing_faction_npcVisualDna`);
   }
 
   if (!spec.styleBible) issues.push(`${prefix}.styleBible_missing`);

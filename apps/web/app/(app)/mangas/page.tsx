@@ -105,8 +105,11 @@ export default async function MyMangasPage() {
             const last = p.chapters[0];
             const lastLink = last
               ? `/projects/${p.id}/chapters/${last.id}/read`
-              : `/projects/${p.id}/pipeline`;
-            const actionLabel = last ? "Continuer la lecture" : "Générer le chapitre 1";
+              : `/projects/${p.id}/chapters/new`;
+            const studioHref = last
+              ? `/projects/${p.id}/chapters/${last.id}/edit`
+              : `/projects/${p.id}/chapters/new`;
+            const actionLabel = last ? "Continuer la lecture" : "Créer le chapitre 1";
 
             return (
               <Card key={p.id} className="border-border/60 bg-card/50">
@@ -138,7 +141,7 @@ export default async function MyMangasPage() {
                       </Link>
                     </Button>
                     <Button asChild variant="outline">
-                      <Link href={`/projects/${p.id}/pipeline`}>Générer la suite</Link>
+                      <Link href={studioHref}>Studio / génération</Link>
                     </Button>
                     <Button asChild variant="outline">
                       <Link href={`/projects/${p.id}`}>Ouvrir le studio</Link>

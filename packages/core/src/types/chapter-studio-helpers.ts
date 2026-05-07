@@ -381,7 +381,7 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
     });
   }
 
-  if ((snapshot.data.chapterCanon?.continuityNotes.length ?? 0) === 0) {
+  if ((snapshot.data.chapterCanon?.continuityNotes?.length ?? 0) === 0) {
     addWarning({
       id: "missing_continuity_notes",
       step: "canon",

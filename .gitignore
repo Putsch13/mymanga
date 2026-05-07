@@ -23,3 +23,5 @@ Archive*.zip
 audit-bundle-*.tar.gz
 audit-source-only.zip
 audit-source-only-*.zip
+# Exports locaux (zip d'audit / pack non audité) — artefacts dev uniquement.
+exports/*.zip

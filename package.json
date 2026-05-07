@@ -8,7 +8,7 @@
     "typecheck": "pnpm -r exec tsc --noEmit",
     "check:types": "pnpm typecheck",
     "check:premium-boundaries": "pnpm --filter @manga-ai-studio/workflow exec vitest run src/__tests__/premium-no-legacy-imports.test.ts src/__tests__/premium-pipeline-no-regex-npc.test.ts",
-    "check:premium": "pnpm run check:types && pnpm run check:premium-boundaries",
+    "check:premium": "pnpm run check:types && pnpm audit:imports && pnpm run check:premium-boundaries",
     "typecheck:scripts": "pnpm --filter @manga-ai-studio/web run typecheck:scripts",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
@@ -25,6 +25,7 @@
     "audit:routes": "tsx apps/web/scripts/audit-api-routes.ts",
     "audit:assets": "tsx apps/web/scripts/audit-generated-assets.ts",
     "audit:legacy": "tsx apps/web/scripts/audit-legacy-imports.ts",
+    "audit:imports": "node scripts/audit-local-imports.mjs",
     "cleanup:generation": "tsx apps/web/scripts/cleanup-stale-generation-run.ts",
     "graph:circular": "madge --circular .",
     "deadcode": "ts-prune"

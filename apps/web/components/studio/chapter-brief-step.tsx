@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { FieldTooltip } from "@/components/ui/field-tooltip";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { ChapterIntentCompilePanel } from "@/features/studio/wizard/chapter-intent-compile-panel";
 import { PLOT_OPTIONS } from "./chapter-studio-flow";
 import { StudioInlineIssues } from "./studio-inline-issues";
 
@@ -40,6 +41,9 @@ export function ChapterBriefStep({
   warningItems,
   generatingOutline,
   expertMode,
+  chapterNumber,
+  projectId,
+  chapterId,
   onIssueAction,
   onUpdateDraft,
   onGenerateBase,
@@ -50,6 +54,9 @@ export function ChapterBriefStep({
   warningItems: ChapterReadinessIssue[];
   generatingOutline: boolean;
   expertMode?: boolean;
+  chapterNumber?: number | null;
+  projectId?: string;
+  chapterId?: string;
   onIssueAction: (issue: ChapterReadinessIssue) => void | Promise<void>;
   onUpdateDraft: (next: ChapterStudioData, step?: "intent") => void;
   onGenerateBase: () => void | Promise<void>;
@@ -222,6 +229,10 @@ export function ChapterBriefStep({
           </div>
         </CardContent>
       </Card>
+
+      {chapterNumber === 1 && projectId && chapterId ? (
+        <ChapterIntentCompilePanel projectId={projectId} chapterId={chapterId} draft={draft} onUpdateDraft={onUpdateDraft} />
+      ) : null}
 
       <StudioInlineIssues title="Blocants du brief" issues={issues} emptyLabel="Aucun blocant sur le brief." testIdPrefix={null} onAction={onIssueAction} />
       <StudioInlineIssues title="Warnings du brief" issues={warningItems} tone="neutral" testIdPrefix={null} onAction={onIssueAction} />

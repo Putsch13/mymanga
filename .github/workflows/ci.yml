@@ -31,6 +31,9 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Audit local imports (broken ./ ../ paths)
+        run: pnpm audit:imports
+
       - name: Test all packages
         run: pnpm test
         env:

@@ -1,3 +1,5 @@
+import { chapterIntentContractSchema, visualWorldContractSchema } from "@manga-ai-studio/core";
+
 export const premiumTestUser = {
   id: "user-1",
   email: "user@test.com",
@@ -12,6 +14,80 @@ export const premiumTestProject = {
   user: premiumTestUser,
   title: "Mon Projet",
 };
+
+function buildPremiumVisualWorldFixture(beatCount: number) {
+  const n = Math.max(10, beatCount);
+  return visualWorldContractSchema.parse({
+    chapterId: "chapter-1",
+    source: "mixed",
+    locations: [
+      {
+        id: "loc-dojo",
+        label: "dojo",
+        kind: "interior",
+        description: "Dojo principal (fixture premium).",
+        source: "db_canon",
+        canonPolicy: "locked",
+      },
+      {
+        id: "loc-rooftop",
+        label: "rooftop",
+        kind: "exterior",
+        description: "Toit urbain (fixture premium).",
+        source: "db_canon",
+        canonPolicy: "locked",
+      },
+    ],
+    props: [
+      {
+        id: "prop-katana",
+        canonicalName: "katana",
+        category: "weapon",
+        visualDescription: "Katana de test",
+        continuityPolicy: "recurring",
+      },
+    ],
+    npcGroups: [],
+    creatures: [
+      {
+        id: "creature-1",
+        label: "creature-1",
+        visualDescription: "Créature mécanique de fixture",
+        threatLevel: "medium",
+      },
+    ],
+    vehicles: [],
+    factions: [],
+    beatBindings: Array.from({ length: n }, (_, i) => ({
+      beatId: `beat-${i + 1}`,
+      locationId: i % 2 === 0 ? "loc-dojo" : "loc-rooftop",
+      creatureIds: i === 0 ? ["creature-1"] : [],
+      primaryPropIds: i === 0 ? ["prop-katana"] : [],
+    })),
+  });
+}
+
+const premiumIntentContractFixture = chapterIntentContractSchema.parse({
+  rawUserIntent:
+    "Fixture premium — chapitre de test avec cast, plan 75 panels, créature et prop pour valider le lancement.",
+  understoodPitch: "Chapitre de test : valider le pipeline premium avec héros, antagoniste et plan complet.",
+  mustInclude: ["Présenter le héros", "Conserver la cohérence visuelle du héros"],
+  mustAvoid: ["Changer le design du héros sans raison narrative"],
+  requiredCharacters: ["hero-1", "support-1"],
+  requiredLocations: ["dojo", "rooftop"],
+  requiredNpcs: [],
+  requiredCreatures: ["creature-1"],
+  requiredProps: ["katana"],
+  emotionalGoal: "Tension puis espoir",
+  plotGoal: "Faire progresser l'arc principal du test",
+  characterArcGoal: "Le héros assume une décision difficile",
+  tone: "dramatic",
+  pacing: "balanced",
+  dialogueDensity: "medium",
+  expectedCliffhanger: true,
+  ambiguityFlags: [],
+  confidenceScore: 0.92,
+});
 
 function buildApprovedOutline(beatCount: number) {
   return {
@@ -100,7 +176,7 @@ function buildProductionPlan(beatCount: number) {
         speakerAnchorCharacterId: isCutaway ? null : ("hero-1" as const),
         dialogueLines: isCutaway
           ? undefined
-          : ([{ speaker: "hero-1", text: "Ligne test." }] as const),
+          : ([{ speaker: "Hero", text: "Ligne test.", characterId: "hero-1" }] as const),
       };
     }),
     premiumReadinessScore: 0.85,
@@ -116,6 +192,24 @@ function buildProductionPlan(beatCount: number) {
 
 export function buildPremiumStudioData(beatCount = 10) {
   return {
+    intent: {
+      shortPitch: "Chapitre de test premium avec héros, décor et créature pour valider le launch.",
+      workingTitle: "Fixture premium",
+    },
+    narrativeContract: {
+      emotionalGoal: "Tension",
+      heroStateAtStart: "Hésitant",
+      heroStateAtEnd: "Déterminé",
+      centralConflict: "Test central",
+      revealOrInformationGain: "Information mineure",
+      chapterQuestion: "Le héros peut-il tenir ?",
+      endingMode: "cliffhanger" as const,
+      tone: "dramatic",
+    },
+    chapterCanon: {
+      currentLocation: "dojo",
+      continuityNotes: [],
+    },
     characterSelection: {
       heroCharacterId: "hero-1",
       coreCastCharacterIds: ["hero-1", "support-1"],
@@ -127,6 +221,8 @@ export function buildPremiumStudioData(beatCount = 10) {
     locationIds: ["dojo", "rooftop"],
     productionOutline: buildProductionOutline(beatCount),
     productionPlan: buildProductionPlan(beatCount),
+    chapterIntentContract: premiumIntentContractFixture,
+    visualWorldContract: buildPremiumVisualWorldFixture(beatCount),
     readinessReport: {
       status: "ready",
       imageCounts: {

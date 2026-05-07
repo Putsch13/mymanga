@@ -65,6 +65,13 @@ export function buildLocationCanonFromLocation(location: LocationCanonInput & {
     weatherVariants: asStringArray(metadata.weatherVariants),
     mustKeep: Array.from(new Set(mustKeep)),
     forbiddenDrift: asStringArray(metadata.forbiddenDrift),
+    isPrimary: false,
+    visualBrief: safeString(location.description) || null,
+    locationType: null,
+    fixedElements: [],
+    lightingRules: [...resolved.canonicalLighting],
+    palette: [...resolved.canonicalPalette],
+    referenceImages: [],
   };
 }
 

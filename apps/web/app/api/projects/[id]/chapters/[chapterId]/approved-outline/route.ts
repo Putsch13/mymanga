@@ -12,6 +12,12 @@ import {
   hydrateBlueprintsWithEnvironmentDna,
   hydrateBlueprintsWithNpcDna,
   hydrateBlueprintsWithPropDna,
+  applyHeroInvariant,
+  buildChapterCastContract,
+  assertValidChapterCastContract,
+  ChapterCastContractError,
+  resolveCharacterRefsToIds,
+  buildDialogueContractFromBlueprints,
   type PanelBlueprintPremium,
   type ProductionOutline,
   type ProductionPlan,
@@ -26,6 +32,10 @@ import {
   reconcileIncomingPremiumContract,
 } from "@/lib/premium-chapter-contract";
 import { premiumCharacterStudioSelect, toCharacterRowsForDnaHydration } from "@/lib/premium-character-studio-select";
+import {
+  buildUnresolvedCharacterLabelsPayload,
+  mapCharacterLabelsToIdsSequential,
+} from "@/lib/characters/resolve-character-labels";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -51,6 +61,13 @@ export async function PATCH(req: Request, ctx: Ctx) {
     where: { projectId },
     select: premiumCharacterStudioSelect,
   });
+  const premiumOnly = isPipelineV3PremiumOnlyEnabled();
+  const charRefsForLabels = projectCharacters.map((c) => ({
+    id: c.id,
+    name: c.name,
+    displayName: null as string | null,
+    roleType: c.roleType,
+  }));
   const body = await req.json();
   const approvedOutline = approvedOutlineSchema.parse(body.approvedOutline);
   const existingOutline = asRecord(chapter.outline);
@@ -92,7 +109,41 @@ export async function PATCH(req: Request, ctx: Ctx) {
 
   const fallbackHeroCharacterId =
     projectCharacters.find((c) => isHeroRole(c.roleType))?.id ?? null;
-  const heroCharacterId = snapshotHeroCharacterId ?? fallbackHeroCharacterId;
+  let heroCharacterId: string | null = snapshotHeroCharacterId ?? fallbackHeroCharacterId;
+  let secondaryHeroCharacterId: string | null = snapshotSecondaryHeroCharacterId;
+
+  if (premiumOnly) {
+    const unresolvedCollector: string[] = [];
+
+    if (snapshotHeroCharacterId) {
+      const rH = resolveCharacterRefsToIds([snapshotHeroCharacterId], charRefsForLabels);
+      if (rH.unresolved.length > 0) unresolvedCollector.push(...rH.unresolved);
+      else if (rH.ids.length > 0) heroCharacterId = rH.ids[0]!;
+    }
+
+    if (secondaryHeroCharacterId) {
+      const rS = resolveCharacterRefsToIds([secondaryHeroCharacterId], charRefsForLabels);
+      if (rS.unresolved.length > 0) unresolvedCollector.push(...rS.unresolved);
+      else if (rS.ids.length > 0) secondaryHeroCharacterId = rS.ids[0]!;
+    }
+
+    const uniqueUnresolvedHeroes = [...new Set(unresolvedCollector)];
+    if (uniqueUnresolvedHeroes.length > 0) {
+      const { suggestions } = buildUnresolvedCharacterLabelsPayload(uniqueUnresolvedHeroes, charRefsForLabels);
+      return NextResponse.json(
+        {
+          error: "character_labels_unresolved",
+          code: "CHARACTER_LABELS_UNRESOLVED",
+          message:
+            "Certains personnages du cast sont encore des noms ou des libellés non reliés à un personnage du projet. Associe-les à un personnage existant avant d’approuver l’outline.",
+          unresolvedLabels: uniqueUnresolvedHeroes,
+          suggestions,
+        },
+        { status: 422 },
+      );
+    }
+  }
+
   const usedFallbackHeroCharacterId =
     snapshotHeroCharacterId === null
     && fallbackHeroCharacterId !== null
@@ -103,6 +154,109 @@ export async function PATCH(req: Request, ctx: Ctx) {
     snapshotHeroCharacterId,
     usedFallbackHeroCharacterId,
   };
+
+  let resolvedActiveCharacterIds = activeCharacterIds.length > 0
+    ? [...activeCharacterIds]
+    : [...new Set(approvedOutline.beats.flatMap((b) => b.characters ?? []))].filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      );
+
+  let coreCastFiltered = Array.isArray(characterSelection.coreCastCharacterIds)
+    ? characterSelection.coreCastCharacterIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+    : [];
+  let lockedFiltered = Array.isArray(characterSelection.lockedCharacterIds)
+    ? characterSelection.lockedCharacterIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+    : [];
+  let speakingFiltered = Array.isArray(characterSelection.speakingCharacterIds)
+    ? characterSelection.speakingCharacterIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+    : [];
+  let evolvingFiltered = Array.isArray(characterSelection.evolvingCharacterIds)
+    ? characterSelection.evolvingCharacterIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+    : [];
+  let antagonistFiltered = Array.isArray(characterSelection.antagonistCharacterIds)
+    ? characterSelection.antagonistCharacterIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+    : [];
+  let recurringNpcFiltered = Array.isArray(characterSelection.recurringNpcIds)
+    ? characterSelection.recurringNpcIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+    : [];
+
+  if (premiumOnly) {
+    const unresolvedCollector: string[] = [];
+    const collect = (san: { unresolvedLabels: string[] }) => {
+      unresolvedCollector.push(...san.unresolvedLabels);
+    };
+
+    const actSan = mapCharacterLabelsToIdsSequential(resolvedActiveCharacterIds, charRefsForLabels);
+    collect(actSan);
+    resolvedActiveCharacterIds = actSan.sanitizedIds;
+
+    const coreSan = mapCharacterLabelsToIdsSequential(coreCastFiltered, charRefsForLabels);
+    collect(coreSan);
+    coreCastFiltered = coreSan.sanitizedIds;
+
+    const lockedSan = mapCharacterLabelsToIdsSequential(lockedFiltered, charRefsForLabels);
+    collect(lockedSan);
+    lockedFiltered = lockedSan.sanitizedIds;
+
+    const speakSan = mapCharacterLabelsToIdsSequential(speakingFiltered, charRefsForLabels);
+    collect(speakSan);
+    speakingFiltered = speakSan.sanitizedIds;
+
+    const evoSan = mapCharacterLabelsToIdsSequential(evolvingFiltered, charRefsForLabels);
+    collect(evoSan);
+    evolvingFiltered = evoSan.sanitizedIds;
+
+    const antSan = mapCharacterLabelsToIdsSequential(antagonistFiltered, charRefsForLabels);
+    collect(antSan);
+    antagonistFiltered = antSan.sanitizedIds;
+
+    const npcSan = mapCharacterLabelsToIdsSequential(recurringNpcFiltered, charRefsForLabels);
+    collect(npcSan);
+    recurringNpcFiltered = npcSan.sanitizedIds;
+
+    const uniqueUnresolved = [...new Set(unresolvedCollector)];
+    if (uniqueUnresolved.length > 0) {
+      const { suggestions } = buildUnresolvedCharacterLabelsPayload(uniqueUnresolved, charRefsForLabels);
+      return NextResponse.json(
+        {
+          error: "character_labels_unresolved",
+          code: "CHARACTER_LABELS_UNRESOLVED",
+          message:
+            "Certains personnages du cast sont encore des noms ou des libellés non reliés à un personnage du projet. Associe-les à un personnage existant avant d’approuver l’outline.",
+          unresolvedLabels: uniqueUnresolved,
+          suggestions,
+        },
+        { status: 422 },
+      );
+    }
+  }
+
+  let studioSnapshotForContract = readChapterStudioSnapshotFromOutline({
+    outline: chapter.outline,
+    chapterNumber: chapter.chapterNumber,
+    chapterTitle: chapter.title,
+  });
+
+  if (premiumOnly && studioSnapshotForContract.data.characterSelection) {
+    studioSnapshotForContract = {
+      ...studioSnapshotForContract,
+      data: {
+        ...studioSnapshotForContract.data,
+        characterSelection: {
+          ...studioSnapshotForContract.data.characterSelection,
+          ...(heroCharacterId ? { heroCharacterId } : {}),
+          ...(secondaryHeroCharacterId ? { secondaryHeroCharacterId } : {}),
+          activeCharacterIds: resolvedActiveCharacterIds,
+          coreCastCharacterIds: coreCastFiltered,
+          lockedCharacterIds: lockedFiltered,
+          speakingCharacterIds: speakingFiltered,
+          evolvingCharacterIds: evolvingFiltered,
+          antagonistCharacterIds: antagonistFiltered,
+          recurringNpcIds: recurringNpcFiltered,
+        },
+      },
+    };
+  }
 
   const providedProductionOutline = body.productionOutline;
   const providedProductionPlan = body.productionPlan;
@@ -120,12 +274,6 @@ export async function PATCH(req: Request, ctx: Ctx) {
       ? ("webtoon" as const)
       : ("manga" as const);
 
-  const studioSnapshotForContract = readChapterStudioSnapshotFromOutline({
-    outline: chapter.outline,
-    chapterNumber: chapter.chapterNumber,
-    chapterTitle: chapter.title,
-  });
-
   const rebuiltContract = await buildPremiumChapterContractFromApprovedOutline({
     approvedOutline,
     chapterId,
@@ -138,7 +286,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
     projectTone: project?.tone ?? null,
     minimumPanels: chapterMinimumImages,
     studioSnapshot: studioSnapshotForContract,
-    secondaryHeroCharacterId: snapshotSecondaryHeroCharacterId,
+    secondaryHeroCharacterId,
   });
 
   // Si productionOutline + productionPlan sont fournis (depuis generate/page.tsx), les persister après réconciliation.
@@ -240,8 +388,8 @@ export async function PATCH(req: Request, ctx: Ctx) {
           characterCanonsById: Object.keys(characterCanonsById).length > 0 ? characterCanonsById : undefined,
           characterCanons: canons.length > 0 ? canons : null,
           strict: isPipelineV3PremiumOnlyEnabled(),
-          ...(snapshotSecondaryHeroCharacterId
-            ? { coProtagonistCharacterIds: [snapshotSecondaryHeroCharacterId] as const }
+          ...(secondaryHeroCharacterId
+            ? { coProtagonistCharacterIds: [secondaryHeroCharacterId] as const }
             : {}),
         });
         if (rebuiltContract.visualWorldContract) {
@@ -291,7 +439,6 @@ export async function PATCH(req: Request, ctx: Ctx) {
       ? (resolvedPlanRecord.minimumImages as number)
       : PREMIUM_PANEL_RANGE.min;
 
-  const premiumOnly = isPipelineV3PremiumOnlyEnabled();
   const continuityPreflights = premiumOnly
     ? computePanelContinuityPreflights(resolvedPanelBlueprints, {
         strictEnvironmentLocationBinding: true,
@@ -345,46 +492,83 @@ export async function PATCH(req: Request, ctx: Ctx) {
     `heroCenterRatio=${(premiumMeta as Record<string, unknown>).heroCenterRatio ?? "n/a"}`,
   );
 
-  // ─── Construire characterSelection canonique pour persistance ───────────────
-  // Si le héros a été déterminé (snapshot ou fallback), on le persiste pour que
-  // les routes de lancement le retrouvent sans fallback à chaque fois.
-  const resolvedActiveCharacterIds = activeCharacterIds.length > 0
-    ? activeCharacterIds
-    : [...new Set(approvedOutline.beats.flatMap((b) => b.characters ?? []))].filter(Boolean);
-
-  const persistedCharacterSelection = {
+  const persistedCharacterSelectionRaw = {
     heroCharacterId: heroCharacterId ?? undefined,
-    secondaryHeroCharacterId:
-      typeof characterSelection.secondaryHeroCharacterId === "string"
-      && characterSelection.secondaryHeroCharacterId.length > 0
-        ? characterSelection.secondaryHeroCharacterId
-        : undefined,
-    coreCastCharacterIds: Array.isArray(characterSelection.coreCastCharacterIds)
-      ? characterSelection.coreCastCharacterIds.filter((id): id is string => typeof id === "string" && id.length > 0)
-      : [],
+    secondaryHeroCharacterId: secondaryHeroCharacterId ?? undefined,
+    coreCastCharacterIds: coreCastFiltered,
     activeCharacterIds: resolvedActiveCharacterIds,
-    lockedCharacterIds: Array.isArray(characterSelection.lockedCharacterIds)
-      ? characterSelection.lockedCharacterIds.filter((id): id is string => typeof id === "string" && id.length > 0)
-      : [],
-    speakingCharacterIds: Array.isArray(characterSelection.speakingCharacterIds)
-      ? characterSelection.speakingCharacterIds.filter((id): id is string => typeof id === "string" && id.length > 0)
-      : [],
-    evolvingCharacterIds: Array.isArray(characterSelection.evolvingCharacterIds)
-      ? characterSelection.evolvingCharacterIds.filter((id): id is string => typeof id === "string" && id.length > 0)
-      : [],
-    antagonistCharacterIds: Array.isArray(characterSelection.antagonistCharacterIds)
-      ? characterSelection.antagonistCharacterIds.filter((id): id is string => typeof id === "string" && id.length > 0)
-      : [],
-    recurringNpcIds: Array.isArray(characterSelection.recurringNpcIds)
-      ? characterSelection.recurringNpcIds.filter((id): id is string => typeof id === "string" && id.length > 0)
-      : [],
+    lockedCharacterIds: lockedFiltered,
+    speakingCharacterIds: speakingFiltered,
+    evolvingCharacterIds: evolvingFiltered,
+    antagonistCharacterIds: antagonistFiltered,
+    recurringNpcIds: recurringNpcFiltered,
   };
+
+  const persistedCharacterSelection =
+    heroCharacterId
+      ? {
+          ...persistedCharacterSelectionRaw,
+          ...applyHeroInvariant(
+            {
+              heroCharacterId: persistedCharacterSelectionRaw.heroCharacterId ?? null,
+              secondaryHeroCharacterId: persistedCharacterSelectionRaw.secondaryHeroCharacterId ?? null,
+              activeCharacterIds: persistedCharacterSelectionRaw.activeCharacterIds,
+              coreCastCharacterIds: persistedCharacterSelectionRaw.coreCastCharacterIds,
+              lockedCharacterIds: persistedCharacterSelectionRaw.lockedCharacterIds,
+            },
+            heroCharacterId,
+          ),
+          speakingCharacterIds: persistedCharacterSelectionRaw.speakingCharacterIds,
+          evolvingCharacterIds: persistedCharacterSelectionRaw.evolvingCharacterIds,
+          antagonistCharacterIds: persistedCharacterSelectionRaw.antagonistCharacterIds,
+          recurringNpcIds: persistedCharacterSelectionRaw.recurringNpcIds,
+        }
+      : persistedCharacterSelectionRaw;
+
+  if (isPipelineV3PremiumOnlyEnabled() && typeof persistedCharacterSelection.heroCharacterId === "string") {
+    try {
+      const contract = buildChapterCastContract({
+        chapterId,
+        heroCharacterId: persistedCharacterSelection.heroCharacterId,
+        secondaryHeroCharacterId:
+          typeof persistedCharacterSelection.secondaryHeroCharacterId === "string"
+            ? persistedCharacterSelection.secondaryHeroCharacterId
+            : null,
+        activeCharacterIds: persistedCharacterSelection.activeCharacterIds,
+        characters: projectCharacters.map((c) => ({ id: c.id, name: c.name, roleType: c.roleType })),
+      });
+      assertValidChapterCastContract(contract);
+    } catch (err) {
+      if (err instanceof ChapterCastContractError) {
+        return NextResponse.json(
+          {
+            error: "chapter_cast_contract_invalid",
+            code: "CAST_CONTRACT_INVALID",
+            message: err.message,
+            issues: err.issues,
+          },
+          { status: 422 },
+        );
+      }
+      throw err;
+    }
+  }
 
   console.info(
     `[approved-outline] persisting_character_selection chapterId=${chapterId} ` +
     `heroCharacterId=${persistedCharacterSelection.heroCharacterId ?? "none"} ` +
     `activeCharacterIds=${persistedCharacterSelection.activeCharacterIds.length} ` +
     `usedFallback=${usedFallbackHeroCharacterId}`,
+  );
+
+  const characterNameById = Object.fromEntries(projectCharacters.map((c) => [c.id, c.name]));
+  const planBlueprints = Array.isArray(resolvedProductionPlan.panelBlueprints)
+    ? (resolvedProductionPlan.panelBlueprints as PanelBlueprintPremium[])
+    : [];
+  const chapterDialogueContract = buildDialogueContractFromBlueprints(
+    chapterId,
+    planBlueprints,
+    characterNameById,
   );
 
   const studioSnapshot = patchChapterStudioSnapshot(
@@ -407,6 +591,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
       productionPlan: resolvedProductionPlan,
       characterSelection: persistedCharacterSelection,
       visualWorldContract: rebuiltContract.visualWorldContract,
+      chapterDialogueContract,
     },
     {
       chapterNumber: chapter.chapterNumber,

@@ -4,6 +4,11 @@ import type {
   TextAnchorZone,
   TextOverflowStrategy,
 } from "./reader-page-format";
+import type {
+  CreatureVisualDna,
+  FactionVisualDna,
+  VehicleVisualDna,
+} from "../visual-world/visual-world-contract";
 
 export interface CharacterVisualDna {
   characterId: string;
@@ -134,6 +139,10 @@ export interface GenerationDebugSnapshot {
   roster: SceneRosterEntry[];
   characterVisualDna: CharacterVisualDna[];
   npcVisualDna: NpcVisualDna[];
+  /** P0.12 — absents sur les snapshots antérieurs. */
+  creatureVisualDna?: CreatureVisualDna[];
+  vehicleVisualDna?: VehicleVisualDna[];
+  factionVisualDna?: FactionVisualDna[];
   environmentVisualDna?: EnvironmentVisualDna | null;
   continuity: SceneContinuitySnapshot;
   text: PanelTextDebugSnapshot;

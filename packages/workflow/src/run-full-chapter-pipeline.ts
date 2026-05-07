@@ -184,6 +184,42 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
   );
 
   const outlineRecord = (chapter.outline as Record<string, unknown> | null | undefined) ?? {};
+  const studioFromOutline =
+    outlineRecord.studio && typeof outlineRecord.studio === "object" && !Array.isArray(outlineRecord.studio)
+      ? (outlineRecord.studio as { data?: Record<string, unknown> })
+      : null;
+  const studioData = studioFromOutline?.data ?? null;
+  const chapterIntentContractFromStudio =
+    studioData?.chapterIntentContract && typeof studioData.chapterIntentContract === "object"
+      ? (studioData.chapterIntentContract as Record<string, unknown>)
+      : null;
+  const persistedVwFromStudio =
+    studioData?.visualWorldContract && typeof studioData.visualWorldContract === "object"
+      ? (studioData.visualWorldContract as Record<string, unknown>)
+      : null;
+
+  const chapterIntentContractJob =
+    jobInput.chapterIntentContract && typeof jobInput.chapterIntentContract === "object"
+      ? (jobInput.chapterIntentContract as Record<string, unknown>)
+      : null;
+  const persistedVwJob =
+    jobInput.persistedVisualWorldContract && typeof jobInput.persistedVisualWorldContract === "object"
+      ? (jobInput.persistedVisualWorldContract as Record<string, unknown>)
+      : null;
+
+  const chapterDialogueContractJob =
+    jobInput.chapterDialogueContract && typeof jobInput.chapterDialogueContract === "object"
+      ? (jobInput.chapterDialogueContract as Record<string, unknown>)
+      : null;
+  const chapterDialogueContractFromStudio =
+    studioData?.chapterDialogueContract && typeof studioData.chapterDialogueContract === "object"
+      ? (studioData.chapterDialogueContract as Record<string, unknown>)
+      : null;
+
+  const chapterIntentContractForPipeline = chapterIntentContractJob ?? chapterIntentContractFromStudio;
+  const persistedVisualWorldForPipeline = persistedVwJob ?? persistedVwFromStudio;
+  const chapterDialogueContractForPipeline = chapterDialogueContractJob ?? chapterDialogueContractFromStudio;
+
   const approvedOutlineForV3 =
     outlineRecord.approvedOutline
     && typeof outlineRecord.approvedOutline === "object"
@@ -220,7 +256,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
   }
 
   try {
-    const { v3RenderSucceeded, visualWorldDiscovery } = await runPremiumV3Pipeline({
+    const { v3RenderSucceeded, visualWorldDiscovery, pipelineUserWarnings } = await runPremiumV3Pipeline({
       chapterId,
       projectId,
       chapterNumber,
@@ -282,6 +318,9 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       priorChapterDialogueSnippets,
       sceneDialogueEnrich: sceneDialogueEnrichFromJob,
       characterCanonsById: characterCanonsByIdFromChapterOutline(chapter.outline),
+      chapterIntentContract: chapterIntentContractForPipeline,
+      persistedVisualWorldContract: persistedVisualWorldForPipeline,
+      chapterDialogueContract: chapterDialogueContractForPipeline,
     });
 
     // P3 — gate : en mode premium-only, on SAUTE la pipeline legacy
@@ -347,6 +386,7 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       await mergeJobOutput(jobId, {
         premiumV3: true,
         visualWorldDiscovery: visualWorldDiscovery ?? null,
+        ...(pipelineUserWarnings && pipelineUserWarnings.length > 0 ? { pipelineUserWarnings } : {}),
       });
       await prisma.job.update({
         where: { id: jobId },

@@ -184,6 +184,10 @@ function defaultPurposeForRenderMode(mode: StoryboardRenderMode): PanelPurpose {
       return "threat_silhouette";
     case "creature_reveal":
       return "creature_reveal";
+    case "vehicle_reveal":
+      return "vehicle_reveal";
+    case "faction_reveal":
+      return "faction_reveal";
     case "aftermath_dialogue":
       return "combat_aftermath";
     case "combat_exchange":

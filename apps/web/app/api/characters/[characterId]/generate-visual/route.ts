@@ -25,7 +25,12 @@ import { assertStableImageUrl } from "@/lib/images/assert-stable-image-url";
 import { assertStableCanonicalAsset } from "@/lib/images/assert-stable-canonical-asset";
 import { toProxiedServerUrl } from "@/lib/images/proxy-url.server";
 import { logCanonAudit } from "@/lib/canon/canon-audit-log";
-import { resolveCharacterVisualCanon, type CharacterCanonInput } from "@manga-ai-studio/core";
+import {
+  resolveCharacterVisualCanon,
+  type CharacterCanonInput,
+  isHeroRole,
+  isSecondaryHeroRole,
+} from "@manga-ai-studio/core";
 import {
   serializeBodyStateForPrompt,
   serializeWardrobeProfileForPrompt,
@@ -581,8 +586,8 @@ export async function POST(_req: Request, ctx: Ctx) {
       console.error(`[generate-visual] Failed to extract fingerprint:`, fpError instanceof Error ? fpError.message : fpError);
     }
 
-    // E1 : Trigger LoRA auto-training pour les personnages clés (HERO ou SECONDARY_CORE)
-    const isKeyCharacter = character.roleType === "HERO" || character.roleType === "SECONDARY_CORE";
+    // E1 : Trigger LoRA auto-training pour les personnages clés (héros principal ou co-héros canon)
+    const isKeyCharacter = isHeroRole(character.roleType) || isSecondaryHeroRole(character.roleType);
     if (isKeyCharacter) {
       try {
         await prisma.character.update({
