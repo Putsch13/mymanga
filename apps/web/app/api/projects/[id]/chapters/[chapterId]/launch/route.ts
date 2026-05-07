@@ -759,10 +759,18 @@ export async function POST(_req: Request, ctx: Ctx) {
   }
 
   if (Array.isArray(bpForContinuity) && bpForContinuity.length > 0 && strictPremiumContinuity) {
+    // Only enforce strict environment DNA check if the VisualWorldContract
+    // actually exists and has locations. Otherwise the hydration had nothing
+    // to inject and every panel would be a false-positive blocker.
+    const vwForPreflight = visualWorldContractSchema.safeParse(snapshot.data.visualWorldContract);
+    const hasVwLocations = vwForPreflight.success
+      && Array.isArray(vwForPreflight.data.locations)
+      && vwForPreflight.data.locations.length > 0;
+
     const continuityPreflights = computePanelContinuityPreflights(bpForContinuity as PanelBlueprintPremium[], {
-      strictEnvironmentLocationBinding: strictPremiumContinuity,
+      strictEnvironmentLocationBinding: hasVwLocations,
       strictCharacterDnaBinding: strictPremiumContinuity,
-      strictPropVisualBinding: strictPremiumContinuity,
+      strictPropVisualBinding: hasVwLocations,
     });
     const continuityBlockers = continuityPreflightBlockingReasons(continuityPreflights);
     logPreflight({
