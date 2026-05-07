@@ -5,14 +5,23 @@ services:
     region: oregon
     plan: starter
     buildCommand: |
+      set -e
       npm install -g pnpm@10.33.0
       pnpm install --frozen-lockfile
       pnpm --filter @manga-ai-studio/db exec prisma generate
+      # Auto-apply pending Prisma migrations on deploy.
+      # Requires DIRECT_URL env var pointing at the pooler in session mode (port 5432, no pgbouncer params).
+      # Fail-closed: if a migration fails, the deploy fails — no partial schema in prod.
+      pnpm --filter @manga-ai-studio/db exec prisma migrate deploy
       pnpm --filter @manga-ai-studio/web build
     startCommand: pnpm --filter @manga-ai-studio/web start
     healthCheckPath: /api/diagnostics/public
     envVars:
       - key: DATABASE_URL
+        sync: false
+      # Pooler session mode (port 5432) for migrations.
+      # Format : postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require
+      - key: DIRECT_URL
         sync: false
       - key: NEXT_PUBLIC_SUPABASE_URL
         sync: false
