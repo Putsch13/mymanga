@@ -48,6 +48,7 @@ function panelSatisfies(
       ...(panel.mustShow ?? []),
       panel.actionLine ?? "",
       panel.panelPurpose ?? "",
+      ...((panel.visualAnchors as { characterIds?: string[] } | undefined)?.characterIds ?? []),
     ]
       .join(" | ")
       .toLowerCase();
