@@ -44,6 +44,29 @@ export type ComposeVisualWorldContractInput = {
     canonImageUrl?: string | null;
     canonLocked?: boolean | null;
   }>;
+  /**
+   * USER-WINS : groupes PNJ déjà connus du projet (auto-extraits + édités par
+   * l'utilisateur via le wizard). Le compositeur DOIT les RÉUTILISER (mêmes
+   * id/label/visuel) au lieu de réinventer un groupe similaire.
+   */
+  knownNpcGroups?: Array<{
+    id: string;
+    label: string;
+    description?: string | null;
+    visualProfile?: string | null;
+    outfit?: string | null;
+    silhouette?: string | null;
+    userEdited?: boolean;
+  }>;
+  /** USER-WINS : props/artefacts déjà connus du projet (idem). */
+  knownWorldProps?: Array<{
+    id: string;
+    label: string;
+    description?: string | null;
+    visualDescription?: string | null;
+    kind?: string | null;
+    userEdited?: boolean;
+  }>;
 };
 
 export type ComposeKnownLocationDbRow = {
@@ -130,6 +153,8 @@ function buildSystemPrompt(): string {
     "- primaryPropIds, npcGroupIds, creatureIds, vehicleIds, factionIds : uniquement des ids présents dans les tableaux correspondants du contrat (tableaux vides autorisés).",
     "- Réutilise les ids de knownLocations quand le texte correspond ; si un lieu vient de la DB, mets source db_canon ou user_canon et canonPolicy locked ou promote_candidate si canonLocked est true.",
     "- Chaque entrée knownLocations peut inclure visualBrief, establishedVisualBrief, canonImageUrl : exploite-les pour décrire les locations[] sans inventer un décor contradictoire.",
+    "- USER-WINS knownNpcGroups : si un groupe PNJ existant correspond, RÉUTILISE son id, label, visualProfile, outfit, silhouette tels quels (surtout si userEdited=true). Ne renomme jamais un groupe édité par l'utilisateur.",
+    "- USER-WINS knownWorldProps : idem. Si un prop existant correspond, réutilise son id et son label EXACT (surtout si userEdited=true).",
     "- Chaque location doit avoir description non vide, kind cohérent, visualAnchors/architecture/lighting/atmosphere utiles (tableaux, peuvent être courts).",
     "- props : visibilité (visibilityPolicy visible|mentioned|background) et symbolicMeaning si le prop est métaphorique ; requiredBeatIds cohérents.",
     "- npcGroups : foules, gardes, marchands, etc. avec visualProfile/outfit/silhouette concrets ; relationToCharacterIds si liés à des héros connus.",
@@ -159,6 +184,8 @@ function buildUserPayload(input: ComposeVisualWorldContractInput): string {
     beats: beatLines,
     knownCharacters: input.knownCharacters,
     knownLocations: input.knownLocations,
+    knownNpcGroups: input.knownNpcGroups ?? [],
+    knownWorldProps: input.knownWorldProps ?? [],
     outputSchema: {
       version: 1,
       chapterId: "string",

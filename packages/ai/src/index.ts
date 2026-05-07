@@ -177,6 +177,7 @@ export * from "./services/extract-chapter-visual-contract";
 export * from "./services/dialogue-style-director";
 export * from "./services/dialogue-variety-guard";
 export * from "./services/dialogue-scene-writer";
+export * from "./services/extract-world-entities-from-intent";
 export * from "./validators/storyboard-validator";
 export * from "./validators/render-spec-validator";
 export * from "./validators/visual-coverage-validator";

@@ -291,6 +291,10 @@ model Project {
   characterPropInventories CharacterPropInventory[]
   speciesArchetypes   SpeciesArchetype[]
   entityCanonCaches   EntityCanonCache[]
+  /// World entities auto-detected from chapter intents (LLM extraction)
+  /// Editable by user, persisted across chapters (user-wins on regeneration).
+  npcGroups           NpcGroup[]
+  worldProps          WorldProp[]
 }
 
 model ProjectSettings {
@@ -1334,4 +1338,74 @@ model EntityCanonCache {
 
   @@unique([projectId, canonicalName])
   @@index([projectId])
+}
+
+/// Groupe de PNJ auto-détecté depuis l'intention utilisateur (LLM).
+/// Persisté au niveau projet pour que le même groupe ("Clan des Profondeurs",
+/// "Pêcheurs du port") soit réutilisé/cohérent entre chapitres.
+/// USER-WINS : si `userEdited = true`, le pipeline IA ne réécrit JAMAIS
+/// `label`, `description`, `visualProfile`, `outfit`, `silhouette`.
+model NpcGroup {
+  id                String   @id @default(cuid())
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// Slug stable pour matcher entre runs (ex. "clan-des-profondeurs").
+  /// Utilisé comme identifiant de référence dans VisualWorldContract.
+  slug              String
+  /// Nom affichable (ex. "Clan des Profondeurs"). Éditable.
+  label             String
+  /// Description narrative courte. Éditable.
+  description       String?
+  /// Profil visuel structuré (couleurs, posture, ambiance générale). Éditable.
+  visualProfile     String?
+  /// Tenue/uniforme distinctif. Éditable.
+  outfit            String?
+  /// Silhouette générale (build, accessoires types). Éditable.
+  silhouette        String?
+  /// Trace d'où vient l'extraction initiale ("intent_compile_llm" / "manual" / "wizard_sync").
+  source            String   @default("intent_compile_llm")
+  /// True dès que l'utilisateur a modifié au moins un champ via UI.
+  /// Une fois true, les regen IA n'écrasent jamais les champs édités.
+  userEdited        Boolean  @default(false)
+  /// Premier chapitre où ce groupe apparaît (utile pour l'audit).
+  firstSeenChapterId String?
+  /// Compteur d'apparitions dans des chapitres (incrémenté à la détection).
+  appearanceCount   Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([projectId, slug])
+  @@index([projectId])
+}
+
+/// Accessoire / artefact / prop d'univers auto-détecté depuis l'intention.
+/// Même logique USER-WINS que NpcGroup. Distinct de CharacterPropInventory
+/// (qui appartient à un personnage donné) : ici c'est une bibliothèque
+/// d'objets narratifs récurrents au niveau projet.
+model WorldProp {
+  id                String   @id @default(cuid())
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// Slug stable (ex. "talisman-pourpre").
+  slug              String
+  /// Nom affichable (ex. "Talisman pourpre gravé"). Éditable.
+  label             String
+  /// Description narrative courte. Éditable.
+  description       String?
+  /// Description visuelle structurée pour le pipeline. Éditable.
+  visualDescription String?
+  /// Catégorie : "weapon" / "artefact" / "tool" / "accessory" / "vehicle" / "other".
+  kind              String   @default("other")
+  /// Importance narrative : "key" (objet pivot), "recurring", "one_shot".
+  narrativeWeight   String   @default("recurring")
+  source            String   @default("intent_compile_llm")
+  userEdited        Boolean  @default(false)
+  firstSeenChapterId String?
+  appearanceCount   Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([projectId, slug])
+  @@index([projectId])
+  @@index([projectId, kind])
 }

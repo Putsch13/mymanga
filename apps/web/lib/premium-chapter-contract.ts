@@ -26,6 +26,7 @@ import {
 import { buildPremiumChapterContractAsync, composeVisualWorldContract, toComposeVisualWorldKnownLocation, type PremiumReadinessCastContext } from "@manga-ai-studio/ai";
 import { prisma } from "@manga-ai-studio/db";
 import { premiumCharacterStudioSelect, toCharacterRowsForDnaHydration } from "./premium-character-studio-select";
+import { readProjectWorldEntities } from "./world-entities/upsert-world-entities";
 
 // ─── Constante canonique des champs premium ───────────────────────────────────
 
@@ -188,6 +189,10 @@ export async function buildPremiumChapterContractFromApprovedOutline(
         charactersForWorld.map((c) => [c.name.trim().toLowerCase(), c.id] as const),
       );
 
+      // USER-WINS : passer les NpcGroup / WorldProp connus du projet pour que
+      // le LLM réutilise leurs id/label/visuels au lieu d'en réinventer.
+      const projectWorldEntities = await readProjectWorldEntities(input.projectId);
+
       visualWorldContract = await composeVisualWorldContract({
         chapterId: input.chapterId,
         chapterSummary: input.chapterSummary ?? null,
@@ -211,6 +216,23 @@ export async function buildPremiumChapterContractFromApprovedOutline(
           description: c.appearance ?? null,
         })),
         knownLocations: locationsForWorld.map((loc) => toComposeVisualWorldKnownLocation(loc)),
+        knownNpcGroups: projectWorldEntities.npcGroups.map((g) => ({
+          id: g.id,
+          label: g.label,
+          description: g.description,
+          visualProfile: g.visualProfile,
+          outfit: g.outfit,
+          silhouette: g.silhouette,
+          userEdited: g.userEdited,
+        })),
+        knownWorldProps: projectWorldEntities.worldProps.map((p) => ({
+          id: p.id,
+          label: p.label,
+          description: p.description,
+          visualDescription: p.visualDescription,
+          kind: p.kind,
+          userEdited: p.userEdited,
+        })),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
