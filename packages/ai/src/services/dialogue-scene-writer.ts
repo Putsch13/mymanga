@@ -48,6 +48,18 @@ export interface EnrichPremiumBlueprintsSceneDialogueInput {
   rejectUnresolvedSpeakers?: boolean;
   /** Beat IDs that have required DialogueActs — skip without targets is a blocking error. */
   requiredDialogueActBeatIds?: string[];
+  /**
+   * P0 — IDs des héros principaux : utilisés pour équilibrer la distribution
+   * des répliques (éviter que tout retombe sur le héros 1).
+   */
+  heroCharacterId?: string | null;
+  secondaryHeroCharacterId?: string | null;
+  /**
+   * P0 — Groupes de PNJ disponibles pour ce chapitre. Le writer peut leur
+   * assigner des répliques (ex. "Pêcheur", "Garde", "Marchand"). Sans ça,
+   * le LLM retombe systématiquement sur le héros.
+   */
+  npcGroups?: ReadonlyArray<{ id: string; label: string }>;
 }
 
 export interface EnrichPremiumBlueprintsSceneDialogueResult {
@@ -134,14 +146,45 @@ export async function enrichPremiumBlueprintsSceneDialogue(
     }
 
     const beatCtx = beatText(input.productionOutline ?? null, beatId);
-    const panelSpecs = targets.map((p) => ({
-      panelId: p.panelId,
-      purpose: p.purpose.slice(0, 280),
-      speakerHint:
+    const npcGroups = input.npcGroups ?? [];
+
+    // P0 fix : construire un hint de speaker plus riche, incluant les NPC
+    // groups si le panel a des requiredEntityIds. Sans ça, le LLM ne sait
+    // pas qu'il peut faire parler un pêcheur / garde / marchand et retombe
+    // toujours sur le héros.
+    const npcLabelByEntityId = new Map(npcGroups.map((g) => [g.id, g.label] as const));
+    const panelSpecs = targets.map((p) => {
+      const requiredNpcLabels = (p.requiredEntityIds ?? [])
+        .map((id) => npcLabelByEntityId.get(id))
+        .filter((l): l is string => Boolean(l));
+      const baseHint =
         (p.speakerAnchorCharacterId && input.characterNameById[p.speakerAnchorCharacterId])
         ?? (p.mustShowCharacterIds?.[0] && input.characterNameById[p.mustShowCharacterIds[0]!])
-        ?? "",
-    }));
+        ?? "";
+      return {
+        panelId: p.panelId,
+        purpose: p.purpose.slice(0, 280),
+        speakerHint: baseHint,
+        availableSpeakerLabels: requiredNpcLabels,
+        subjectFocus: p.subjectFocus,
+      };
+    });
+
+    // Build the canonical roster of speakers for the LLM. Premium: all
+    // catalog characters + NPC group labels. The model MUST pick from here.
+    const heroName =
+      (input.heroCharacterId && input.characterNameById[input.heroCharacterId]) || null;
+    const secondaryHeroName =
+      (input.secondaryHeroCharacterId && input.characterNameById[input.secondaryHeroCharacterId]) || null;
+    const otherCharacterNames = Object.entries(input.characterNameById)
+      .filter(([id]) => id !== input.heroCharacterId && id !== input.secondaryHeroCharacterId)
+      .map(([, name]) => name);
+    const allowedSpeakers = [
+      ...(heroName ? [{ name: heroName, role: "hero" }] : []),
+      ...(secondaryHeroName ? [{ name: secondaryHeroName, role: "secondary_hero" }] : []),
+      ...otherCharacterNames.map((name) => ({ name, role: "supporting" })),
+      ...npcGroups.map((g) => ({ name: g.label, role: "npc_group" })),
+    ];
 
     try {
       const model = process.env.OPENAI_SCENE_DIALOGUE_MODEL ?? "gpt-4o-mini";
@@ -154,7 +197,20 @@ export async function enrichPremiumBlueprintsSceneDialogue(
           {
             role: "system",
             content: `Tu es dialoguiste manga. Écris des répliques courtes en français, visuelles, sans exposer l'intrigue platement.
-Règles : une ligne par panelId demandé ; pas de répétition entre lignes ; ne recopie pas les fragments listés dans avoidPhrasesFromPriorChapter ; pas de clichés type "je dois devenir plus fort" ; respecte le profil de style JSON.
+
+RÈGLES DE LOCUTEUR (TRÈS IMPORTANT) :
+- Le champ "speaker" DOIT correspondre EXACTEMENT à un nom listé dans "allowedSpeakers".
+- ÉQUILIBRE les répliques : ne mets PAS toutes les répliques sur le héros. Si un héros 2 (role:secondary_hero) ou un PNJ (role:npc_group) est listé dans "allowedSpeakers" du beat, fais-les parler activement (interaction, désaccord, mise en garde, info).
+- Si le panel a "availableSpeakerLabels" non vide, c'est que ce sont des PNJ qui DOIVENT parler dans ce panel — utilise leur label exact comme "speaker".
+- Si "subjectFocus" est "duo" : alterne deux speakers différents.
+- Si "subjectFocus" est "group" ou "npc" : privilégie un PNJ comme speaker.
+
+RÈGLES DE STYLE :
+- Une ligne par panelId demandé ; pas de répétition entre lignes.
+- Ne recopie pas les fragments listés dans avoidPhrasesFromPriorChapter.
+- Pas de clichés type "je dois devenir plus fort".
+- Respecte le profil de style JSON.
+
 Réponds uniquement avec JSON : {"lines":[{"panelId","speaker","text"}]}`,
           },
           {
@@ -166,6 +222,7 @@ Réponds uniquement avec JSON : {"lines":[{"panelId","speaker","text"}]}`,
               userIntent: (input.chapterUserIntent ?? "").slice(0, 400),
               styleProfile: profile,
               avoidPhrasesFromPriorChapter: (input.avoidDialogueSnippets ?? []).slice(0, 40),
+              allowedSpeakers,
               panels: panelSpecs,
             }),
           },
@@ -199,18 +256,34 @@ Réponds uniquement avec JSON : {"lines":[{"panelId","speaker","text"}]}`,
       }
 
       const byId = new Map(targets.map((p) => [p.panelId, p] as const));
+      const npcLabelToId = new Map(
+        npcGroups.map((g) => [g.label.toLowerCase().trim(), g.id] as const),
+      );
+
       for (const line of parsed.data.lines) {
         const bp = byId.get(line.panelId);
         if (!bp) continue;
 
         const speakerName = line.speaker.toLowerCase().trim();
+
+        // Prio 1 : match exact sur un personnage du catalogue.
+        const characterIdMatch = Object.entries(input.characterNameById).find(
+          ([, name]) => name.toLowerCase().trim() === speakerName,
+        )?.[0];
+
+        // Prio 2 : match sur un NPC group label.
+        const npcGroupIdMatch = npcLabelToId.get(speakerName);
+
+        // Prio 3 : si le panel a un speakerAnchor déterministe, on l'utilise.
+        // Prio 4 (dernier recours) : premier mustShowCharacterIds, mais
+        // SEULEMENT si le LLM n'a pas explicitement nommé un PNJ qu'on ne sait
+        // pas mapper (sinon on écrase silencieusement le rôle voulu).
         const resolvedSpeakerId =
-          bp.speakerAnchorCharacterId ??
-          Object.entries(input.characterNameById).find(
-            ([, name]) => name.toLowerCase().trim() === speakerName,
-          )?.[0] ??
-          bp.mustShowCharacterIds?.[0] ??
-          null;
+          characterIdMatch
+          ?? npcGroupIdMatch
+          ?? bp.speakerAnchorCharacterId
+          ?? bp.mustShowCharacterIds?.[0]
+          ?? null;
 
         if (!resolvedSpeakerId) {
           const msg = `scene_dialogue_speaker_unresolved panel=${line.panelId} speaker=${line.speaker}`;

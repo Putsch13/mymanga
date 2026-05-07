@@ -904,6 +904,10 @@ export async function runPremiumV3Pipeline(
         // P2.11 — Le dialoguiste IA s'active automatiquement en mode premium,
         // ou explicitement via input.sceneDialogueEnrich.
         const enableDialoguist = input.sceneDialogueEnrich === true || input.premiumV3OnlyEnabled;
+        const npcGroupsForDialogue = (effectiveVisualWorld?.npcGroups ?? []).map((g) => ({
+          id: g.id,
+          label: g.label,
+        }));
         const sceneDialogue = await enrichPremiumBlueprintsSceneDialogue({
           blueprints: rebal.blueprints,
           productionOutline: resolvedProductionOutline ?? null,
@@ -917,6 +921,9 @@ export async function runPremiumV3Pipeline(
           forceSceneDialogueEnrich: enableDialoguist,
           rejectUnresolvedSpeakers: input.premiumV3OnlyEnabled && enableDialoguist,
           requiredDialogueActBeatIds: input.requiredDialogueActBeatIds ?? [],
+          heroCharacterId: castContract.heroCharacterId ?? input.heroCharacterId ?? null,
+          secondaryHeroCharacterId: input.secondaryHeroCharacterId ?? null,
+          npcGroups: npcGroupsForDialogue,
         });
         if (sceneDialogue.linesWritten > 0 || sceneDialogue.warnings.length > 0) {
           console.info(

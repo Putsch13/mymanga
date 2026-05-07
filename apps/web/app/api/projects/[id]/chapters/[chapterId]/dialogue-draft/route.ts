@@ -164,6 +164,16 @@ export async function POST(req: Request, ctx: Ctx) {
 
   const writableBlueprints: PanelBlueprintPremium[] = blueprints.map((bp) => ({ ...bp }));
 
+  // P0 fix : récupérer héros 1, héros 2 et NPC groups depuis le snapshot studio
+  // pour que le dialoguiste équilibre la distribution des répliques au lieu de
+  // tout assigner au héros principal.
+  const cs = data.characterSelection;
+  const visualWorld = data.visualWorldContract;
+  const npcGroupsForDialogue = (visualWorld?.npcGroups ?? []).map((g) => ({
+    id: g.id,
+    label: g.label,
+  }));
+
   const enrichResult = await enrichPremiumBlueprintsSceneDialogue({
     blueprints: writableBlueprints,
     productionOutline,
@@ -175,6 +185,9 @@ export async function POST(req: Request, ctx: Ctx) {
     contentRating: project?.contentRating ?? null,
     forceSceneDialogueEnrich: body.force === true,
     rejectUnresolvedSpeakers: strict,
+    heroCharacterId: cs?.heroCharacterId ?? null,
+    secondaryHeroCharacterId: cs?.secondaryHeroCharacterId ?? null,
+    npcGroups: npcGroupsForDialogue,
   });
 
   const normalized = writableBlueprints.map((bp) => normalizePremiumBlueprintTextViews(bp));
