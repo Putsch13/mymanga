@@ -142,7 +142,7 @@ export async function POST(req: Request, ctx: Ctx) {
 
   if (process.env.OPENAI_API_KEY && isPipelineV3PremiumOnlyEnabled()) {
     try {
-      const [charactersForWorld, locationsForWorld] = await Promise.all([
+      const [charactersForWorld, locationsForWorld, knownNpcGroupsForWorld, knownPropsForWorld] = await Promise.all([
         prisma.character.findMany({
           where: { projectId },
           select: { id: true, name: true, roleType: true, appearance: true },
@@ -160,6 +160,29 @@ export async function POST(req: Request, ctx: Ctx) {
             canonLocked: true,
             metadata: true,
             visualRefs: true,
+          },
+        }),
+        // P0 USER-WINS : passer les NPC groups projet déjà détectés/édités au LLM
+        // pour qu'il réutilise leurs id/label au lieu d'en réinventer.
+        prisma.npcGroup.findMany({
+          where: { projectId },
+          select: {
+            id: true,
+            label: true,
+            description: true,
+            visualProfile: true,
+            outfit: true,
+            silhouette: true,
+            userEdited: true,
+          },
+        }),
+        prisma.worldProp.findMany({
+          where: { projectId },
+          select: {
+            id: true,
+            label: true,
+            visualDescription: true,
+            userEdited: true,
           },
         }),
       ]);
@@ -189,6 +212,21 @@ export async function POST(req: Request, ctx: Ctx) {
           description: c.appearance ?? null,
         })),
         knownLocations: locationsForWorld.map((loc) => toComposeVisualWorldKnownLocation(loc)),
+        knownNpcGroups: knownNpcGroupsForWorld.map((g) => ({
+          id: g.id,
+          label: g.label,
+          description: g.description ?? null,
+          visualProfile: g.visualProfile ?? null,
+          outfit: g.outfit ?? null,
+          silhouette: g.silhouette ?? null,
+          userEdited: g.userEdited,
+        })),
+        knownWorldProps: knownPropsForWorld.map((p) => ({
+          id: p.id,
+          label: p.label,
+          visualDescription: p.visualDescription ?? null,
+          userEdited: p.userEdited,
+        })),
       });
       const approvedReplay = buildApprovedChapterOutlineReplayFromOutlineBeats({
         summary: bundle.outline.chapter_goal,
@@ -297,10 +335,27 @@ export async function POST(req: Request, ctx: Ctx) {
 
   // P0 fix : NPC groups détectés dans le VisualWorld doivent être considérés
   // comme des refs valides (sinon "Groupe de pêcheurs" remonte unresolved).
-  const npcGroupRefsForResolution = (bundle.visualWorldContract?.npcGroups ?? []).map((g) => ({
-    id: g.id,
-    label: g.label,
-  }));
+  // On fusionne 2 sources : (1) le VisualWorldContract du chapitre courant si
+  // déjà composé, (2) la table projet `NpcGroup` (auto-détectés par
+  // `extractWorldEntitiesFromIntent` lors du compile intent), pour que même
+  // un premier `/estimate` (avant `composeVisualWorldContract`) résolve
+  // correctement les libellés "Groupe de pêcheurs" etc.
+  const projectNpcGroups = await prisma.npcGroup.findMany({
+    where: { projectId },
+    select: { id: true, label: true },
+  });
+  const npcGroupRefMap = new Map<string, { id: string; label: string }>();
+  for (const g of bundle.visualWorldContract?.npcGroups ?? []) {
+    if (typeof g.id === "string" && g.id.length > 0) {
+      npcGroupRefMap.set(g.id, { id: g.id, label: g.label });
+    }
+  }
+  for (const g of projectNpcGroups) {
+    if (!npcGroupRefMap.has(g.id)) {
+      npcGroupRefMap.set(g.id, { id: g.id, label: g.label });
+    }
+  }
+  const npcGroupRefsForResolution = [...npcGroupRefMap.values()];
 
   // Build production beats with narrative intelligence (3-layer pipeline)
   const enrichedBeats = await Promise.all(bundle.outline.beats.map(async (beat) => {

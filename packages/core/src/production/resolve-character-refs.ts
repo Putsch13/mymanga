@@ -25,7 +25,75 @@ export type NpcGroupRefForResolution = {
 };
 
 function norm(s: string): string {
-  return s.trim().toLowerCase();
+  return s
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+/**
+ * Préfixes français qui désignent un collectif et qu'on doit STRIP avant de
+ * matcher contre un label de NPC group. Ainsi :
+ *   - "Groupe de pêcheurs" → "pecheurs" → match "Pêcheurs"
+ *   - "Les gardes du port" → "gardes du port" → match
+ *   - "Bande de bandits"  → "bandits"
+ *   - "Foule de villageois" → "villageois"
+ */
+const COLLECTIVE_PREFIX_PATTERNS = [
+  /^groupe\s+(?:de|d')\s+/i,
+  /^bande\s+(?:de|d')\s+/i,
+  /^foule\s+(?:de|d')\s+/i,
+  /^groupes?\s+(?:de|d')\s+/i,
+  /^equipe\s+(?:de|d')\s+/i,
+  /^equipes?\s+(?:de|d')\s+/i,
+  /^les?\s+/i,
+  /^des?\s+/i,
+  /^un\s+(?:groupe|gang|clan)\s+(?:de|d')\s+/i,
+];
+
+function stripCollectivePrefix(label: string): string {
+  let result = label;
+  for (const p of COLLECTIVE_PREFIX_PATTERNS) {
+    if (p.test(result)) {
+      result = result.replace(p, "").trim();
+      break;
+    }
+  }
+  return result;
+}
+
+/**
+ * Tente de matcher un label sur un NPC group via 3 stratégies :
+ *   1. Match exact normalisé
+ *   2. Match après strip des préfixes collectifs ("Groupe de pêcheurs" → "pêcheurs")
+ *   3. Match par sous-chaîne réciproque ("Pêcheurs du port" ⊇ "pêcheurs")
+ */
+function findNpcGroupMatch(
+  rawLabel: string,
+  npcByLabel: Map<string, string>,
+): string | null {
+  const normalized = norm(rawLabel);
+  if (npcByLabel.has(normalized)) return npcByLabel.get(normalized)!;
+
+  const stripped = norm(stripCollectivePrefix(rawLabel));
+  if (stripped !== normalized && npcByLabel.has(stripped)) {
+    return npcByLabel.get(stripped)!;
+  }
+
+  // Sous-chaîne réciproque : on prend le label le plus court qui contient
+  // ou est contenu par notre référence (évite les faux-positifs trop larges).
+  for (const [groupLabel, groupId] of npcByLabel.entries()) {
+    if (groupLabel.length < 3) continue;
+    if (
+      (stripped.length >= 3 && (groupLabel.includes(stripped) || stripped.includes(groupLabel)))
+      || (normalized.length >= 3 && (groupLabel.includes(normalized) || normalized.includes(groupLabel)))
+    ) {
+      return groupId;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -34,6 +102,10 @@ function norm(s: string): string {
  * Si `npcGroups` est fourni, les libellés qui matchent un NPC group sont retournés
  * dans `npcGroupIds` (et NON dans `unresolved`). Cela évite que le QA premium
  * échoue à tort sur des libellés comme "Groupe de pêcheurs", "Garde", etc.
+ *
+ * Le matching NPC group tolère les préfixes collectifs français
+ * ("Groupe de", "Bande de", "Les", "Des"…) et fait un match par sous-chaîne
+ * pour absorber les variantes de description.
  */
 export function resolveCharacterRefsToIds(
   refs: string[],
@@ -73,6 +145,7 @@ export function resolveCharacterRefsToIds(
     const ref = raw.trim();
     if (!ref) continue;
 
+    // Prio 1 : match catalogue personnages par id ou par nom normalisé.
     if (byId.has(ref)) {
       ids.push(ref);
       continue;
@@ -85,11 +158,12 @@ export function resolveCharacterRefsToIds(
       continue;
     }
 
+    // Prio 2 : NPC group par id ou par label (avec strip préfixes + sous-chaîne).
     if (npcByIdSet.has(ref)) {
       npcGroupIds.push(ref);
       continue;
     }
-    const npcHit = npcByLabel.get(key);
+    const npcHit = findNpcGroupMatch(ref, npcByLabel);
     if (npcHit) {
       npcGroupIds.push(npcHit);
       continue;
@@ -104,3 +178,6 @@ export function resolveCharacterRefsToIds(
     npcGroupIds: [...new Set(npcGroupIds)],
   };
 }
+
+// Exporté pour tests et autres consommateurs (ex. dialogue writer).
+export { stripCollectivePrefix as __stripCollectivePrefix };

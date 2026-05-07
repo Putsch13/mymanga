@@ -5,6 +5,8 @@ const prismaMock = {
   chapter: { findFirst: vi.fn() },
   character: { findMany: vi.fn() },
   location: { findMany: vi.fn() },
+  npcGroup: { findMany: vi.fn() },
+  worldProp: { findMany: vi.fn() },
 };
 
 const getAppUserMock = vi.fn();
@@ -233,6 +235,8 @@ beforeEach(() => {
   generateChapterBundleMock.mockResolvedValue(makeBundle());
   prismaMock.character.findMany.mockResolvedValue([]);
   prismaMock.location.findMany.mockResolvedValue([]);
+  prismaMock.npcGroup.findMany.mockResolvedValue([]);
+  prismaMock.worldProp.findMany.mockResolvedValue([]);
 
   // Default premium mocks
   inferNarrativeFactsFromBeatMock.mockReturnValue([{ type: "action", confidence: 0.9, beatId: "beat_1", source: "heuristic" }]);
