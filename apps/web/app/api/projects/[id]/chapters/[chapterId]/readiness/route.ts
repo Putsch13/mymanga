@@ -6,7 +6,7 @@ import { notFound, unauthorized } from "@/lib/api-response";
 import { readChapterStudioSnapshotFromOutline } from "@/lib/chapter-studio";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { computePremiumAiReadiness } from "@/lib/compute-premium-ai-readiness";
-import { buildPremiumReadinessDashboard } from "@/lib/readiness/build-premium-readiness-dashboard";
+import { buildPremiumReadinessDashboardUsecase } from "@/server/usecases";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
@@ -45,7 +45,7 @@ export async function GET(_req: Request, ctx: Ctx) {
   const stack = getGenerationStackStatus();
   const premiumOnly = isPipelineV3PremiumOnlyEnabled();
   const { aiReadiness, premiumBlockingReasons } = computePremiumAiReadiness({ stack, premiumOnly });
-  const premiumDashboard = buildPremiumReadinessDashboard({
+  const { dashboard: premiumDashboard } = await buildPremiumReadinessDashboardUsecase.execute({
     snapshot,
     projectId,
     chapterId,
