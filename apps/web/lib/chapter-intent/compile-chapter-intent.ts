@@ -1,6 +1,12 @@
 /**
  * P0.5 — Compile les champs intention utilisateur en `ChapterIntentContract`.
  * Heuristique locale (sans LLM) + option OpenAI si `OPENAI_API_KEY` est défini.
+ *
+ * Le `confidenceScore` est CALCULÉ post-LLM via `recomputeConfidenceFromContract`
+ * pour éviter qu'un LLM trop conservateur (gpt-4o-mini renvoie souvent 0.6-0.7
+ * sur des pitchs solides) ne bloque le launch en `INTENT_CONFIDENCE_TOO_LOW`.
+ * Le score se base sur les champs effectivement remplis du contrat plutôt que
+ * sur l'auto-évaluation du modèle.
  */
 import type { ChapterIntentContract } from "@manga-ai-studio/core";
 import { chapterIntentContractSchema } from "@manga-ai-studio/core";
@@ -140,7 +146,10 @@ async function openAiContract(input: CompileChapterIntentInput): Promise<Chapter
       {
         role: "system",
         content:
-          "You are a manga chapter intent compiler. Output strict JSON only, no markdown. confidenceScore reflects how clear and actionable the user's intent is.",
+          "You are a manga chapter intent compiler. Output strict JSON only, no markdown."
+          + " For confidenceScore (0-1), be GENEROUS: a clear plot direction, ≥1 named character and ≥1 location"
+          + " is already 0.7. Score 0.85+ if the user provides emotional goal, cliffhanger, and concrete must-include events."
+          + " Only score below 0.5 if the intent is genuinely vague (1-2 sentences, no entities, no goal).",
       },
       { role: "user", content: userPayload },
     ],
@@ -153,12 +162,81 @@ async function openAiContract(input: CompileChapterIntentInput): Promise<Chapter
   return chapterIntentContractSchema.parse(parsed);
 }
 
+/**
+ * Recalcule un confidence score robuste basé sur les champs effectivement remplis
+ * du contrat (et non sur l'auto-évaluation du LLM, souvent trop conservatrice).
+ *
+ * Barème (somme = 1.0) :
+ * - 0.20 : pitch présent et significatif (≥ 60 chars)
+ * - 0.20 : ≥ 1 `mustInclude` OU `plotGoal` non vide
+ * - 0.15 : ≥ 1 personnage requis OU `requiredNpcs` ≥ 1
+ * - 0.10 : ≥ 1 lieu requis
+ * - 0.10 : `emotionalGoal` OU `characterArcGoal` non vide
+ * - 0.10 : `tone` ou `pacing` non default
+ * - 0.10 : `expectedCliffhanger` défini
+ * - 0.05 : `dialogueDensity` exprimé explicitement
+ *
+ * On garantit un minimum de 0.55 si `understoodPitch.length ≥ 100` et
+ * `mustInclude.length + requiredCharacters.length ≥ 2` pour éviter de bloquer
+ * un utilisateur qui a clairement décrit son chapitre.
+ */
+export function recomputeConfidenceFromContract(contract: ChapterIntentContract): number {
+  let score = 0;
+
+  const pitchLen = (contract.understoodPitch ?? "").trim().length;
+  if (pitchLen >= 60) score += 0.2;
+  else if (pitchLen >= 30) score += 0.1;
+
+  if ((contract.mustInclude?.length ?? 0) >= 1 || (contract.plotGoal ?? "").trim().length > 0) {
+    score += 0.2;
+  }
+
+  const charsCount = (contract.requiredCharacters?.length ?? 0) + (contract.requiredNpcs?.length ?? 0);
+  if (charsCount >= 2) score += 0.15;
+  else if (charsCount >= 1) score += 0.08;
+
+  if ((contract.requiredLocations?.length ?? 0) >= 1) score += 0.1;
+
+  if ((contract.emotionalGoal ?? "").trim().length > 0 || (contract.characterArcGoal ?? "").trim().length > 0) {
+    score += 0.1;
+  }
+
+  if ((contract.tone ?? "").trim().length > 0 || contract.pacing !== "balanced") {
+    score += 0.1;
+  }
+
+  if (typeof contract.expectedCliffhanger === "boolean") {
+    score += 0.1;
+  }
+
+  if (contract.dialogueDensity != null && contract.dialogueDensity !== "medium") {
+    score += 0.05;
+  }
+
+  // Plancher anti-blocage : si le pitch est clair ET au moins 2 entités précises,
+  // on garantit 0.55 minimum pour passer le seuil par défaut (0.5).
+  if (pitchLen >= 100 && (contract.mustInclude?.length ?? 0) + charsCount >= 2) {
+    score = Math.max(score, 0.55);
+  }
+
+  return Math.min(1, Math.max(0, score));
+}
+
 export async function compileChapterIntent(input: CompileChapterIntentInput): Promise<ChapterIntentContract> {
+  let contract: ChapterIntentContract;
   try {
     const ai = await openAiContract(input);
-    if (ai) return ai;
+    contract = ai ?? heuristicContract(input);
   } catch {
-    // fallback heuristique
+    contract = heuristicContract(input);
   }
-  return heuristicContract(input);
+
+  // Override : on remplace le confidenceScore (LLM ou heuristique brute) par
+  // un calcul déterministe basé sur les champs remplis. Ainsi, si l'utilisateur
+  // a rempli sérieusement son intention, il atteindra le seuil quoi qu'il arrive.
+  const robustScore = recomputeConfidenceFromContract(contract);
+  return {
+    ...contract,
+    confidenceScore: Math.max(contract.confidenceScore ?? 0, robustScore),
+  };
 }

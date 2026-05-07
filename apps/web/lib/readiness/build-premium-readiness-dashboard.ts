@@ -147,10 +147,15 @@ export function buildPremiumReadinessDashboard(input: {
       { label: "Affiner l’intention", href: editHref(projectId, chapterId, "intent") },
     );
   } else if (data.chapterIntentContract && typeof data.chapterIntentContract.confidenceScore === "number") {
-    if (data.chapterIntentContract.confidenceScore < 0.75) {
+    // Aligné avec le seuil produit `INTENT_CONFIDENCE_THRESHOLD = 0.5` du
+    // launch route (cf. compile-chapter-intent.ts).
+    if (data.chapterIntentContract.confidenceScore < 0.5) {
+      const flags = data.chapterIntentContract.ambiguityFlags?.length
+        ? ` — ${data.chapterIntentContract.ambiguityFlags.join(", ")}`
+        : "";
       pushCatalog(
         "INTENT_CONFIDENCE_TOO_LOW",
-        `Score ${Math.round(data.chapterIntentContract.confidenceScore * 100)} %`,
+        `Score ${Math.round(data.chapterIntentContract.confidenceScore * 100)} %${flags}`,
         "intent",
       );
     }

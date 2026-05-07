@@ -244,17 +244,27 @@ export async function POST(_req: Request, ctx: Ctx) {
         { status: 422 },
       );
     }
-    if (typeof ic.confidenceScore !== "number" || ic.confidenceScore < 0.75) {
+    // Seuil produit aligné avec le score post-traitement de
+    // `recomputeConfidenceFromContract`. À 0.5 on bloque uniquement les
+    // pitchs vraiment trop pauvres (pas de personnages + pas de plot goal).
+    const INTENT_CONFIDENCE_THRESHOLD = 0.5;
+    if (typeof ic.confidenceScore !== "number" || ic.confidenceScore < INTENT_CONFIDENCE_THRESHOLD) {
       logLaunchBlock(projectId, chapterId, "INTENT_CONFIDENCE_TOO_LOW", "Intent confidence below premium threshold", {
         confidenceScore: ic.confidenceScore,
+        threshold: INTENT_CONFIDENCE_THRESHOLD,
+        ambiguityFlags: ic.ambiguityFlags,
       });
+      const pct = Math.round((ic.confidenceScore ?? 0) * 100);
+      const flags = ic.ambiguityFlags?.length ? ` Causes : ${ic.ambiguityFlags.join(", ")}.` : "";
       return NextResponse.json(
         {
           error: "intent_confidence_too_low",
           code: "INTENT_CONFIDENCE_TOO_LOW",
           message:
-            "La confiance sur l’intention compilée est trop faible (< 75 %). Précise le pitch, les contraintes ou réessaie la compilation.",
+            `La confiance sur l’intention compilée est de ${pct}% (seuil ${Math.round(INTENT_CONFIDENCE_THRESHOLD * 100)}%).${flags}`
+            + " Précise le pitch, ajoute des personnages/lieux requis ou un objectif émotionnel, puis relance « Analyser l’histoire ».",
           confidenceScore: ic.confidenceScore,
+          confidenceThreshold: INTENT_CONFIDENCE_THRESHOLD,
           ambiguityFlags: ic.ambiguityFlags,
         },
         { status: 422 },

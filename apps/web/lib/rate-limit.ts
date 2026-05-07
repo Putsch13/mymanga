@@ -18,7 +18,10 @@ const CONFIGS = {
   // P1-6 : buckets dédiés aux endpoints AI qui étaient sans garde
   "chapter-outline":    { requests: 20, window: "1 h" as const },
   "chapter-autofill":   { requests: 30, window: "1 h" as const },
-  "chapter-intent-compile": { requests: 25, window: "1 h" as const },
+  // P2 : on monte à 60/h car le bouton "Analyser l'histoire" est itératif :
+  // l'utilisateur ajuste son pitch et relance souvent. 25/h était trop bas
+  // et provoquait des 429 en cours d'édition.
+  "chapter-intent-compile": { requests: 60, window: "1 h" as const },
   "chapter-dialogue-draft": { requests: 30, window: "1 h" as const },
   "character-ai-suggest": { requests: 15, window: "1 h" as const },
   "scene-image-retry":  { requests: 30, window: "1 h" as const },
