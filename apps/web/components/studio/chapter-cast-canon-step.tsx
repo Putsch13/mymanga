@@ -504,15 +504,18 @@ export function ChapterCastCanonStep({
 
       <Card className="border-border/60 bg-card/40">
         <CardHeader>
-          <CardTitle className="text-base">Cohérence du chapitre</CardTitle>
+          <CardTitle className="text-base">Contexte de la scène</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Décris le cadre de ton chapitre. Ces informations alimentent directement les décors et le monde visuel.
+          </p>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="space-y-2">
               <div className="flex items-center gap-1">
-                <Label>Décor principal</Label>
+                <Label>Où se passe l&apos;action ?</Label>
                 <FieldTooltip
-                  text="Le lieu dominant de la scène. Utilisé pour les backgrounds."
+                  text="Le lieu principal de la scène. Utilisé pour les backgrounds et le monde visuel."
                   example="Ruines d'une tour — nuit / Marché couvert"
                 />
               </div>
@@ -526,16 +529,16 @@ export function ChapterCastCanonStep({
             </div>
             <div className="space-y-2">
               <div className="flex items-center gap-1">
-                <Label>Continuité essentielle</Label>
+                <Label>Ce que l&apos;IA ne doit pas inventer</Label>
                 <FieldTooltip
-                  text="Notes essentielles de continuité avec les chapitres précédents."
-                  example="Ryuu porte son katana brisé"
+                  text="Éléments importants de continuité ou interdictions pour l'IA."
+                  example="Pas de combat, le héros porte son katana brisé"
                 />
               </div>
               <TagInput
                 values={draft.chapterCanon?.continuityNotes ?? []}
                 onChange={(v) => updateCanon({ continuityNotes: v })}
-                placeholder="Ex : Ryuu porte son katana brisé"
+                placeholder="Ex : Pas de combat dans ce chapitre"
                 dataStudioField="studio-continuity-notes"
               />
             </div>

@@ -172,6 +172,34 @@ function getTemplateForIntent(intent: ResolvedIntent): {
   }
 }
 
+/**
+ * P1.12 — Mapping storyFunction → allowed shot types and camera angles.
+ * Used for QA validation and downstream enforcers.
+ */
+export const STORY_FUNCTION_ALLOWED_SHOTS: Record<StoryFunction, readonly ShotType[]> = {
+  setup:             ["establishing", "wide", "medium"],
+  discovery:         ["medium", "closeup", "extreme_closeup"],
+  dialogue_tension:  ["over_shoulder", "closeup", "medium"],
+  investigation:     ["medium", "closeup", "over_shoulder"],
+  movement:          ["wide", "medium", "closeup", "extreme_closeup"],
+  revelation:        ["closeup", "extreme_closeup", "wide"],
+  aftermath:         ["wide", "medium", "closeup"],
+  decision:          ["closeup", "medium"],
+  transition:        ["wide", "establishing", "medium"],
+};
+
+export const STORY_FUNCTION_ALLOWED_ANGLES: Record<StoryFunction, readonly CameraAngle[]> = {
+  setup:             ["birds_eye", "high", "eye_level"],
+  discovery:         ["eye_level", "low", "dutch"],
+  dialogue_tension:  ["eye_level", "low", "dutch"],
+  investigation:     ["eye_level", "high"],
+  movement:          ["eye_level", "low", "high"],
+  revelation:        ["dutch", "low", "eye_level"],
+  aftermath:         ["eye_level", "high", "birds_eye"],
+  decision:          ["eye_level", "low"],
+  transition:        ["eye_level", "high", "birds_eye"],
+};
+
 function pickAngleForIntent(
   shotType: ShotType,
   intent: ResolvedIntent,

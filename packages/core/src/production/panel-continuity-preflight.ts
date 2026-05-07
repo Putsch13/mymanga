@@ -180,6 +180,37 @@ export function computePanelContinuityPreflights(
   });
 }
 
+export type CharacterCanonPackCheck = {
+  characterId: string;
+  roleType?: string | null;
+  hasCanonPack: boolean;
+  canonPackCompleteness: number;
+};
+
+/**
+ * Premium: verify that hero / deuteragonist characters have a complete CanonPack.
+ * Returns blocking reasons for each character below the threshold.
+ */
+export function canonPackPreflightBlockingReasons(
+  characters: CharacterCanonPackCheck[],
+  options?: { minCompleteness?: number },
+): string[] {
+  const threshold = options?.minCompleteness ?? 0.5;
+  const heroRoles = new Set(["hero", "protagonist", "main_character", "deuteragonist", "héros", "protagoniste"]);
+  const blockers: string[] = [];
+
+  for (const c of characters) {
+    const role = (c.roleType ?? "").toLowerCase();
+    const isMainCast = heroRoles.has(role);
+    if (!isMainCast) continue;
+    if (!c.hasCanonPack || c.canonPackCompleteness < threshold) {
+      blockers.push(`canon_pack_incomplete:${c.characterId}`);
+    }
+  }
+
+  return blockers;
+}
+
 export function continuityPreflightBlockingReasons(
   preflights: PanelContinuityPreflight[],
 ): string[] {

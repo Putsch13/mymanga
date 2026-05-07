@@ -199,6 +199,18 @@ export function mergeRawBlueprintsWithCanonicalRhythm(
 
   const lastConsumedByBeat = new Map<string, PanelBlueprintPremium>();
 
+  const MAX_CANONICAL_INFLATION_RATIO = 1.2;
+  const nativeCount = rawBlueprints.length;
+  const canonicalCount = canonicalPlan.panels.length;
+  const inflationRatio = nativeCount > 0 ? canonicalCount / nativeCount : 1;
+  if (inflationRatio > MAX_CANONICAL_INFLATION_RATIO) {
+    console.warn(
+      `[merge-canonical] inflation_warning native=${nativeCount} canonical=${canonicalCount} ` +
+      `ratio=${inflationRatio.toFixed(2)} max_allowed=${MAX_CANONICAL_INFLATION_RATIO} — ` +
+      `${canonicalCount - Math.ceil(nativeCount * MAX_CANONICAL_INFLATION_RATIO)} panels are pure padding`,
+    );
+  }
+
   return canonicalPlan.panels.map((cp) => {
     const canonical = canonicalByPanelId.get(cp.panelId);
     if (!canonical) {

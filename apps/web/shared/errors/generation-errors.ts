@@ -28,6 +28,10 @@ export const PREMIUM_GENERATION_ERROR_CODES = [
   "CREATURE_COVERAGE_MISSING",
   "PROP_COVERAGE_MISSING",
   "LEGACY_FALLBACK_FORBIDDEN",
+  "CANON_PACK_INCOMPLETE",
+  "INTENT_CONTRACT_REQUIRED",
+  "REQUIRED_DIALOGUE_MISSING",
+  "PREMIUM_OUTLINE_CONTRACT_INVALID",
 ] as const;
 
 export type PremiumGenerationErrorCode = (typeof PREMIUM_GENERATION_ERROR_CODES)[number];
@@ -98,6 +102,26 @@ export function generationErrorFromCode(
       severity: "blocked",
       userMessage: "Le mode premium n’accepte pas le repli sur des chemins legacy.",
       fixLabel: "Voir la checklist premium",
+    },
+    CANON_PACK_INCOMPLETE: {
+      severity: "blocked",
+      userMessage: "La fiche personnage est incomplète — l’apparence risque de changer entre les pages.",
+      fixLabel: "Compléter la fiche",
+    },
+    INTENT_CONTRACT_REQUIRED: {
+      severity: "blocked",
+      userMessage: "Ton histoire n’a pas encore été analysée par le studio.",
+      fixLabel: "Analyser l’histoire",
+    },
+    REQUIRED_DIALOGUE_MISSING: {
+      severity: "blocked",
+      userMessage: "Un dialogue important pour l’histoire n’a pas pu être généré.",
+      fixLabel: "Réparer les dialogues",
+    },
+    PREMIUM_OUTLINE_CONTRACT_INVALID: {
+      severity: "blocked",
+      userMessage: "Le plan du chapitre n’a pas pu être validé — l’IA a produit un format incomplet.",
+      fixLabel: "Réparer le plan",
     },
   };
 

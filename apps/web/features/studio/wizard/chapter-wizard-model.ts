@@ -92,6 +92,92 @@ export const WIZARD_STEP_LABELS: Record<ChapterWizardStepId, string> = {
   generation: "Génération",
 };
 
+// ─── Wizard 5 étapes utilisateur (P2.14) ─────────────────────────────────────
+
+export type UserWizardPhaseId =
+  | "story"
+  | "characters"
+  | "world"
+  | "plan_dialogues"
+  | "generation";
+
+export interface UserWizardPhase {
+  id: UserWizardPhaseId;
+  label: string;
+  number: number;
+  internalSteps: readonly ChapterWizardStepId[];
+}
+
+export const USER_WIZARD_PHASES: readonly UserWizardPhase[] = [
+  {
+    id: "story",
+    label: "Histoire",
+    number: 1,
+    internalSteps: ["intent"],
+  },
+  {
+    id: "characters",
+    label: "Personnages",
+    number: 2,
+    internalSteps: ["hero", "cast"],
+  },
+  {
+    id: "world",
+    label: "Décors & Monde",
+    number: 3,
+    internalSteps: ["decor", "living_world", "style"],
+  },
+  {
+    id: "plan_dialogues",
+    label: "Plan & Dialogues",
+    number: 4,
+    internalSteps: ["plan", "dialogues"],
+  },
+  {
+    id: "generation",
+    label: "Génération",
+    number: 5,
+    internalSteps: ["readiness", "generation"],
+  },
+] as const;
+
+export const HUMAN_TERM_MAP: Record<string, string> = {
+  CanonPack: "Fiche personnage complète",
+  stableVisualDNA: "Apparence fixée",
+  "Canon Bible": "Bible du projet",
+  VisualWorldContract: "Décors et monde visuel",
+  IntentNarrativeContract: "Analyse de l'histoire",
+  DialogueActs: "Dialogues obligatoires",
+  canonPackScore: "Complétude du personnage",
+  continuityPreflight: "Vérification de cohérence",
+};
+
+/**
+ * Derive the current user phase number (1-5) from the internal wizard step.
+ */
+export function currentUserPhaseNumber(currentStep: ChapterWizardStepId): number {
+  const phase = USER_WIZARD_PHASES.find((p) =>
+    (p.internalSteps as readonly string[]).includes(currentStep),
+  );
+  return phase?.number ?? 1;
+}
+
+/**
+ * Derive phase status from the worst status of its internal steps.
+ */
+export function derivePhaseStatus(
+  phaseId: UserWizardPhaseId,
+  stepStatuses: Record<ChapterWizardStepId, WizardStepUiStatus>,
+): WizardStepUiStatus {
+  const phase = USER_WIZARD_PHASES.find((p) => p.id === phaseId);
+  if (!phase) return "pending";
+  const statuses = phase.internalSteps.map((id) => stepStatuses[id]);
+  if (statuses.some((s) => s === "blocked")) return "blocked";
+  if (statuses.some((s) => s === "warning")) return "warning";
+  if (statuses.every((s) => s === "ready")) return "ready";
+  return "pending";
+}
+
 /** Cible de navigation wizard → flow studio + scroll optionnel (`data-studio-field`). */
 export type WizardStepNavTarget = {
   flowStep: ChapterFlowStepId;

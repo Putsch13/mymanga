@@ -9,6 +9,7 @@ export * from "./chapter-runtime";
 export * from "./outline-ghost-repair";
 export * from "./shot-diversity-enforcer";
 export * from "./logger";
+export * from "./logger-narrative";
 export * from "./generation";
 export * from "./ai-readiness";
 export * from "./utils/zod-llm";
@@ -27,6 +28,7 @@ export * from "./characters";
 export * from "./helpers/speaker-panel-detection";
 export * from "./dialogue";
 export * from "./runtime/premium-mode";
+export * from "./story/story-event-graph";
 export type { CoverageMetrics, ShotValidationResult } from "./shot-diversity-enforcer";
 export {
   computePlannedCoverage,

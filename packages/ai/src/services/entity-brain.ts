@@ -1,6 +1,7 @@
 export type EntityKind =
   | "human"
   | "named_npc"
+  | "npc_group"
   | "animal"
   | "creature"
   | "monster"
@@ -8,7 +9,7 @@ export type EntityKind =
   | "construct";
 
 export type DialogueMode = "spoken" | "limited" | "mute" | "telepathic" | "sfx_only";
-export type RecurrencePolicy = "disposable" | "recurring" | "story_locked";
+export type RecurrencePolicy = "disposable" | "recurring" | "story_locked" | "background";
 
 export interface IntentEntityHint {
   name: string;
@@ -43,6 +44,48 @@ const NON_HUMAN_KEYWORDS: Array<{
   { keyword: "créature", entityKind: "creature", dialogueMode: "limited", speciesLabel: "creature" },
   { keyword: "creature", entityKind: "creature", dialogueMode: "limited", speciesLabel: "creature" },
 ];
+
+export interface GroupNpcKeyword {
+  keyword: string;
+  label: string;
+  domain: string;
+  dialogueMode: DialogueMode;
+  recurrencePolicy: RecurrencePolicy;
+}
+
+const GROUP_NPC_KEYWORDS: GroupNpcKeyword[] = [
+  // Maritime
+  { keyword: "pêcheurs", label: "Groupe de pêcheurs", domain: "maritime", dialogueMode: "spoken", recurrencePolicy: "story_locked" },
+  { keyword: "marins", label: "Groupe de marins", domain: "maritime", dialogueMode: "spoken", recurrencePolicy: "story_locked" },
+  { keyword: "pirates", label: "Groupe de pirates", domain: "maritime", dialogueMode: "spoken", recurrencePolicy: "recurring" },
+  // Authority
+  { keyword: "gardes", label: "Garde", domain: "authority", dialogueMode: "spoken", recurrencePolicy: "recurring" },
+  { keyword: "soldats", label: "Soldat", domain: "military", dialogueMode: "spoken", recurrencePolicy: "recurring" },
+  { keyword: "policiers", label: "Policier", domain: "authority", dialogueMode: "spoken", recurrencePolicy: "recurring" },
+  { keyword: "chevaliers", label: "Chevalier", domain: "military", dialogueMode: "spoken", recurrencePolicy: "recurring" },
+  // Civilian
+  { keyword: "marchands", label: "Marchand", domain: "civilian", dialogueMode: "spoken", recurrencePolicy: "disposable" },
+  { keyword: "villageois", label: "Villageois", domain: "civilian", dialogueMode: "spoken", recurrencePolicy: "background" },
+  { keyword: "passants", label: "Passant", domain: "civilian", dialogueMode: "spoken", recurrencePolicy: "background" },
+  { keyword: "habitants", label: "Habitant", domain: "civilian", dialogueMode: "spoken", recurrencePolicy: "background" },
+  { keyword: "paysans", label: "Paysan", domain: "civilian", dialogueMode: "spoken", recurrencePolicy: "background" },
+  // Medical
+  { keyword: "médecins", label: "Médecin", domain: "medical", dialogueMode: "spoken", recurrencePolicy: "story_locked" },
+  { keyword: "soigneurs", label: "Soigneur", domain: "medical", dialogueMode: "spoken", recurrencePolicy: "story_locked" },
+  // Hostile
+  { keyword: "bandits", label: "Bandit", domain: "hostile", dialogueMode: "spoken", recurrencePolicy: "recurring" },
+  { keyword: "ennemis", label: "Ennemi", domain: "hostile", dialogueMode: "spoken", recurrencePolicy: "recurring" },
+  { keyword: "mercenaires", label: "Mercenaire", domain: "hostile", dialogueMode: "spoken", recurrencePolicy: "recurring" },
+  { keyword: "voleurs", label: "Voleur", domain: "hostile", dialogueMode: "spoken", recurrencePolicy: "recurring" },
+  // Spiritual / religious
+  { keyword: "moines", label: "Moine", domain: "spiritual", dialogueMode: "spoken", recurrencePolicy: "story_locked" },
+  { keyword: "prêtres", label: "Prêtre", domain: "spiritual", dialogueMode: "spoken", recurrencePolicy: "story_locked" },
+  // Academic / guild
+  { keyword: "étudiants", label: "Étudiant", domain: "academic", dialogueMode: "spoken", recurrencePolicy: "background" },
+  { keyword: "apprentis", label: "Apprenti", domain: "academic", dialogueMode: "spoken", recurrencePolicy: "recurring" },
+];
+
+const WARNING_VERBS_RE = /\b(prévient|préviennent|met en garde|alerte|alertent|crie|crient|explique|expliquent|avertit|avertissent|informe|informent|annonce|annoncent|raconte|racontent|révèle|révèlent)\b/i;
 
 export function parseIntentEntities(userIntent: string, knownNames: string[]): IntentEntityHint[] {
   const lowered = userIntent.toLowerCase();
@@ -88,6 +131,28 @@ export function parseIntentEntities(userIntent: string, knownNames: string[]): I
         speciesLabel: keyword.speciesLabel ?? null,
       });
     }
+  }
+
+  // Pass C — NPC groups (plural social nouns)
+  for (const group of GROUP_NPC_KEYWORDS) {
+    if (!lowered.includes(group.keyword)) continue;
+    const key = `group:${group.keyword}`;
+    if (hints.has(key)) continue;
+
+    const hasWarningVerb = WARNING_VERBS_RE.test(userIntent);
+    const requiredDialogue = hasWarningVerb;
+    const policy: RecurrencePolicy = hasWarningVerb ? "story_locked" : group.recurrencePolicy;
+
+    hints.set(key, {
+      name: group.label,
+      entityKind: "npc_group",
+      dialogueMode: group.dialogueMode,
+      recurrencePolicy: policy,
+      roleHint: requiredDialogue
+        ? `groupe PNJ avec dialogue requis (${group.domain})`
+        : `groupe PNJ (${group.domain})`,
+      speciesLabel: null,
+    });
   }
 
   return [...hints.values()];

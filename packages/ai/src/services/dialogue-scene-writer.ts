@@ -46,6 +46,8 @@ export interface EnrichPremiumBlueprintsSceneDialogueInput {
    * produit une entrée dans `blockingErrors` (le pipeline peut faire échouer le job).
    */
   rejectUnresolvedSpeakers?: boolean;
+  /** Beat IDs that have required DialogueActs — skip without targets is a blocking error. */
+  requiredDialogueActBeatIds?: string[];
 }
 
 export interface EnrichPremiumBlueprintsSceneDialogueResult {
@@ -111,7 +113,15 @@ export async function enrichPremiumBlueprintsSceneDialogue(
     const targets = panels.filter(
       (p) => isSpeakerish(p) && blueprintPrimaryDialogueLineCount(p) === 0,
     );
-    if (targets.length === 0) continue;
+    if (targets.length === 0) {
+      warnings.push(`scene_dialogue_skipped_no_targets beat=${beatId} panels=${panels.length}`);
+      console.warn(`[dialogue-scene-writer] skipped beat=${beatId} reason=no_speakerish_targets panels=${panels.length}`);
+      const requiredActBeats = input.requiredDialogueActBeatIds ?? [];
+      if (requiredActBeats.includes(beatId)) {
+        blockingErrors.push(`required_dialogue_act_no_panel_target:${beatId}`);
+      }
+      continue;
+    }
 
     const beatCtx = beatText(input.productionOutline ?? null, beatId);
     const panelSpecs = targets.map((p) => ({
