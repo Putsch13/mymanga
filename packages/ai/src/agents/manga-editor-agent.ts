@@ -39,17 +39,7 @@ import { isPanelPurpose } from "../contracts/storyboard-plan";
  *   - webtoon : 3 panels / page (flow vertical à respirations
  *     dramatiques), layouts verticaux dominants
  */
-/**
- * Formats supportés par le pipeline visuel.
- *
- * - `manga`   : grille classique 4-6 panels/page, N&B + screentone.
- * - `webtoon` : flux vertical 3-4 panels/page, couleur, manhwa.
- * - `simple`  : storyboard rapide, 1 panel/page, style sketch/aquarelle
- *               minimaliste, pas de bulles in-panel (sous-titres en bas).
- *               Cas d'usage : draft / brainstorm rapide, mood board.
- *               (ARCH-3 — implémenté en Phase 3)
- */
-export type ProjectFormat = "manga" | "webtoon" | "simple";
+export type ProjectFormat = "manga" | "webtoon";
 
 export interface MangaEditorInput {
   storyArc: StoryArc;

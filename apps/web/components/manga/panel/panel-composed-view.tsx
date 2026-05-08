@@ -32,7 +32,6 @@ import { PanelEditControls } from "./panel-edit-controls";
 import { PanelImage } from "./panel-image";
 import { PanelSfxOverlay } from "./panel-sfx-overlay";
 import { composePanelTextPresentation } from "./panel-text-compositor";
-import { getMangaTypography, tokenToStyle } from "@/lib/manga/manga-tokens";
 
 /** `layoutMeta.targetAspectRatio` sémantique (PATCH 8) ou legacy `2:3`. */
 function layoutTargetAspectToCssAspectRatio(raw: string | undefined | null): string {
@@ -254,10 +253,6 @@ function FallbackTextStrip({
   isWebtoon: boolean;
 }) {
   const hasDialogue = dialogues.length > 0;
-  const typography = getMangaTypography(isWebtoon ? "webtoon" : "manga");
-  const fallbackNarrationStyle = tokenToStyle(typography.fallback.narration);
-  const fallbackSpeakerStyle = tokenToStyle(typography.fallback.speakerLabel);
-  const fallbackDialogueStyle = tokenToStyle(typography.fallback.dialogue);
   return (
     <div
       className={`z-10 shrink-0 overflow-y-auto border-t border-stone-800 bg-stone-950/98 ${
@@ -270,7 +265,7 @@ function FallbackTextStrip({
             isWebtoon ? "px-3 py-2" : "px-1.5 py-0.5"
           }`}
         >
-          <p className="italic text-stone-200" style={fallbackNarrationStyle}>{narration}</p>
+          <p className="text-[11px] italic leading-snug text-stone-200">{narration}</p>
         </div>
       )}
 
@@ -284,11 +279,11 @@ function FallbackTextStrip({
               }`}
             >
               {d.speaker && (
-                <p className="font-bold uppercase tracking-wide text-stone-600" style={fallbackSpeakerStyle}>
+                <p className="text-[8px] font-bold uppercase tracking-wide text-stone-600">
                   {d.speaker}
                 </p>
               )}
-              <p className="font-medium text-stone-900" style={fallbackDialogueStyle}>{d.text}</p>
+              <p className="text-[10px] font-medium leading-snug text-stone-900">{d.text}</p>
             </div>
           ))}
         </div>

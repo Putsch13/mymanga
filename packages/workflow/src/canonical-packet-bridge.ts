@@ -60,7 +60,7 @@ export interface CanonicalPacketBridgeInput {
   styleRefAssets: FalPromptPayloadInput["styleRefAssets"];
   sceneRefAssets: FalPromptPayloadInput["sceneRefAssets"];
   /** Format projet (manga vs webtoon). Pilote l'en-tête médium du prompt FAL. */
-  format?: "manga" | "webtoon" | "simple";
+  format?: "manga" | "webtoon";
 }
 
 export interface CanonicalPacketBridgeResult {

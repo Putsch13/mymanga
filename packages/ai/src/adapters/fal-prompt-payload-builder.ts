@@ -37,7 +37,7 @@ export interface FalPromptPayloadInput {
   seed?: number | null;
   extra?: Record<string, unknown>;
   /** Format projet : pilote l'en-tête médium dans le prompt FAL. */
-  format?: "manga" | "webtoon" | "simple";
+  format?: "manga" | "webtoon";
 }
 
 export interface FalPromptPayloadResult {

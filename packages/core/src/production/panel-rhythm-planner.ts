@@ -249,14 +249,8 @@ export function determinePanelRole(
     return "cutaway";
   }
 
-  // TEST-1 fix — un beat avec `opponent` (adversaire désigné par le narratif)
-  // doit toujours produire un focus enemy au premier panel actor-driven, même
-  // sans combat formel : la simple apparition / révélation suffit. Sinon les
-  // chapitres de pure tension ("Adversary appears", "Initial clash"…) restent
-  // sans focus enemy et bloquent le QA contractuel (missing_enemy_focus).
-  if (beat.opponent && panelIndexInBeat === 0) return "enemy";
-
   if (beat.hasCombat) {
+    if (beat.opponent && panelIndexInBeat === 0) return "enemy";
     if (panelIndexInBeat % 2 === 0) return "action";
     return "reaction";
   }

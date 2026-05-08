@@ -61,50 +61,5 @@ describe("IntentNarrativeContract", () => {
       expect(result.requiredLocations).toContain("Port de Kaze");
       expect(result.requiredLocations).not.toContain("Forêt sombre");
     });
-
-    // ARCH-4 — Visual World anchoring
-    it("anchors required locations to VisualWorld ids when provided", () => {
-      const result = buildIntentNarrativeContract({
-        chapterId: "ch1",
-        userIntent: "Marius part en mer depuis le Port de Kaze",
-        knownLocationNames: ["Port de Kaze"],
-        visualWorldLocations: [
-          { id: "loc_port_kaze", canonicalName: "Port de Kaze" },
-          { id: "loc_open_sea", canonicalName: "Pleine mer" },
-        ],
-      });
-      // The plain-name list still contains the human label
-      expect(result.requiredLocations).toContain("Port de Kaze");
-      // The new ARCH-4 ids list contains the matched VW id
-      expect(result.requiredLocationIds).toContain("loc_port_kaze");
-      expect(result.requiredLocationIds).not.toContain("loc_open_sea");
-    });
-
-    it("anchors required NPC groups to VisualWorld ids when provided", () => {
-      const result = buildIntentNarrativeContract({
-        chapterId: "ch1",
-        userIntent: "Les pêcheurs préviennent Marius du danger",
-        visualWorldNpcGroups: [
-          { id: "npc_grp_pecheurs_kaze", label: "Pêcheurs", role: "population" },
-        ],
-      });
-      const fishGroup = result.requiredNpcGroups.find((g) =>
-        g.label.toLowerCase().includes("pêcheur"),
-      );
-      expect(fishGroup).toBeDefined();
-      expect(fishGroup?.vwNpcGroupId).toBe("npc_grp_pecheurs_kaze");
-    });
-
-    it("populates locationHint on events when a VW location is mentioned in the sentence", () => {
-      const result = buildIntentNarrativeContract({
-        chapterId: "ch1",
-        userIntent: "Marius arrive au Port de Kaze. Il rencontre Maya plus loin.",
-        visualWorldLocations: [{ id: "loc_port_kaze", canonicalName: "Port de Kaze" }],
-      });
-      const firstEvt = result.requiredEvents[0];
-      expect(firstEvt?.locationHint).toBe("loc_port_kaze");
-      const secondEvt = result.requiredEvents[1];
-      expect(secondEvt?.locationHint).toBeNull();
-    });
   });
 });

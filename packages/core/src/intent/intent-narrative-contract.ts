@@ -28,12 +28,6 @@ export const npcGroupRequirementSchema = z.object({
   role: z.string().min(1),
   requiredDialogue: z.boolean().default(false),
   mustMention: z.array(z.string()).default([]),
-  /**
-   * ARCH-4 — VisualWorld NPC group id when a match was found at build time.
-   * Lets downstream stages cross-reference this requirement with the
-   * VisualWorldContract.npcGroups[*] without relying on label heuristics.
-   */
-  vwNpcGroupId: z.string().optional(),
 });
 
 export type NpcGroupRequirement = z.infer<typeof npcGroupRequirementSchema>;
@@ -45,13 +39,6 @@ export const intentNarrativeContractSchema = z.object({
   requiredCharacters: z.array(z.string()).default([]),
   requiredNpcGroups: z.array(npcGroupRequirementSchema).default([]),
   requiredLocations: z.array(z.string()).default([]),
-  /**
-   * ARCH-4 — IDs of VisualWorld locations matched in the user intent.
-   * Populated only when the builder receives `visualWorldLocations` and a
-   * substring match is found; allows the QA / launch pipeline to verify that
-   * the production plan visits the exact VW locations the user mentioned.
-   */
-  requiredLocationIds: z.array(z.string()).default([]),
   requiredEvents: z.array(requiredEventSchema).default([]),
   forbiddenInventions: z.array(z.string()).default([]),
 });
@@ -73,19 +60,6 @@ export type BuildIntentNarrativeInput = {
   knownCharacterNames?: string[];
   knownLocationNames?: string[];
   knownNpcGroupLabels?: string[];
-  /**
-   * ARCH-4 — VisualWorld entities (id + name) to anchor `requiredLocations`
-   * and `requiredNpcGroups` to *real* IDs that exist in the VisualWorldContract.
-   *
-   * When provided:
-   *  - `requiredLocations[i]` becomes the VisualWorld location id (resp. label)
-   *    when a match is found in the user intent, allowing downstream QA to
-   *    cross-reference plan beats with VW locations.
-   *  - `requiredNpcGroups[i].id` becomes the VisualWorld NPC group id when a
-   *    match is found, instead of a synthetic `npc_group_<keyword>` id.
-   */
-  visualWorldLocations?: ReadonlyArray<{ id: string; canonicalName?: string | null; name?: string | null }>;
-  visualWorldNpcGroups?: ReadonlyArray<{ id: string; label?: string | null; role?: string | null }>;
 };
 
 /**
@@ -112,48 +86,10 @@ export function buildIntentNarrativeContract(
     lowerIntent.includes(name.toLowerCase()),
   );
 
-  // ARCH-4 — VisualWorld lookup tables (location & NPC by lower-cased name).
-  // We use these to (a) elect the *canonical id* for required entities,
-  // (b) resolve `locationHint` on each requiredEvent.
-  const vwLocationByName = new Map<string, { id: string; name: string }>();
-  for (const loc of input.visualWorldLocations ?? []) {
-    const candidates = [loc.canonicalName, loc.name].filter((n): n is string => Boolean(n));
-    for (const candidate of candidates) {
-      vwLocationByName.set(candidate.toLowerCase(), { id: loc.id, name: candidate });
-    }
-  }
-  const vwNpcByLabel = new Map<string, { id: string; label: string; role: string }>();
-  for (const npc of input.visualWorldNpcGroups ?? []) {
-    if (!npc.label) continue;
-    vwNpcByLabel.set(npc.label.toLowerCase(), {
-      id: npc.id,
-      label: npc.label,
-      role: npc.role ?? "population",
-    });
-  }
-  function fuzzyVwNpcMatch(label: string): { id: string; label: string; role: string } | null {
-    const target = label.toLowerCase();
-    const exact = vwNpcByLabel.get(target);
-    if (exact) return exact;
-    // Fuzzy : `Pêcheurs` ↔ `Groupe de pêcheurs` ↔ `Pêcheurs du port`.
-    for (const [vwLabel, entry] of vwNpcByLabel.entries()) {
-      if (vwLabel.includes(target) || target.includes(vwLabel)) return entry;
-    }
-    return null;
-  }
-
   const sentences = userIntent
     .split(/[.!?;\n]+/)
     .map((s) => s.trim())
     .filter((s) => s.length > 5);
-
-  function resolveLocationHintForSentence(sentence: string): string | null {
-    const lower = sentence.toLowerCase();
-    for (const [name, entry] of vwLocationByName.entries()) {
-      if (lower.includes(name)) return entry.id;
-    }
-    return null;
-  }
 
   const events: RequiredEvent[] = sentences.map((s, i) => {
     const hasDialogueHint = /\b(dit|parle|crie|murmure|explique|avoue|demande|prévient|avertit|confie|révèle)\b/i.test(s);
@@ -163,7 +99,7 @@ export function buildIntentNarrativeContract(
       label: s.slice(0, 120),
       type,
       actors: [],
-      locationHint: resolveLocationHintForSentence(s),
+      locationHint: null,
       requiredDialogue: hasDialogueHint,
       mustAppearInBeat: true,
     };
@@ -210,54 +146,29 @@ export function buildIntentNarrativeContract(
   const dialogueVerbsRe = /\b(prévient|met en garde|alerte|crie|explique|avertit|menace|informe|annonce|raconte|révèle)\b/i;
   const hasDialogueVerb = dialogueVerbsRe.test(userIntent);
   const requiredNpcGroups: NpcGroupRequirement[] = [];
-
-  // ARCH-4 — Pour chaque groupe extrait par keyword, on essaie de trouver
-  // un match dans le VisualWorld (par label ou alias). Le `id` reste celui
-  // du builder (synthétique ou label) afin que les contrats existants ne
-  // changent pas, mais on stocke la correspondance VW dans `vwNpcGroupId`.
-  function adoptVwOrSynthetic(
-    syntheticId: string,
-    label: string,
-    role: string,
-  ): NpcGroupRequirement {
-    const vwMatch = fuzzyVwNpcMatch(label);
-    return {
-      id: syntheticId,
-      label: vwMatch?.label ?? label,
-      role: vwMatch?.role ?? role,
-      requiredDialogue: hasDialogueVerb,
-      mustMention: [],
-      vwNpcGroupId: vwMatch?.id,
-    };
-  }
-
   for (const g of GROUP_KEYWORDS) {
     if (!lowerIntent.includes(g.keyword)) continue;
-    requiredNpcGroups.push(adoptVwOrSynthetic(`npc_group_${g.keyword}`, g.label, g.role));
+    requiredNpcGroups.push({
+      id: `npc_group_${g.keyword}`,
+      label: g.label,
+      role: g.role,
+      requiredDialogue: hasDialogueVerb,
+      mustMention: [],
+    });
   }
-  // Also include known NPC group labels (passed by caller).
+  // Also include known NPC group labels
   for (const label of input.knownNpcGroupLabels ?? []) {
     if (lowerIntent.includes(label.toLowerCase())) {
       const alreadyAdded = requiredNpcGroups.some((g) => g.label.toLowerCase() === label.toLowerCase());
       if (!alreadyAdded) {
-        requiredNpcGroups.push(
-          adoptVwOrSynthetic(
-            `npc_group_known_${label.toLowerCase().replace(/\s+/g, "_")}`,
-            label,
-            "population",
-          ),
-        );
+        requiredNpcGroups.push({
+          id: `npc_group_known_${label.toLowerCase().replace(/\s+/g, "_")}`,
+          label,
+          role: "population",
+          requiredDialogue: hasDialogueVerb,
+          mustMention: [],
+        });
       }
-    }
-  }
-
-  // ARCH-4 — `requiredLocationIds` est rempli en parallèle de `requiredLocations`
-  // (qui reste en noms libres pour la rétro-compat avec `runIntentCoverageQa`).
-  const requiredLocationIds: string[] = [];
-  for (const name of extractedLocations) {
-    const vwHit = vwLocationByName.get(name.toLowerCase());
-    if (vwHit && !requiredLocationIds.includes(vwHit.id)) {
-      requiredLocationIds.push(vwHit.id);
     }
   }
 
@@ -268,7 +179,6 @@ export function buildIntentNarrativeContract(
     requiredCharacters,
     requiredNpcGroups,
     requiredLocations: [...extractedLocations],
-    requiredLocationIds,
     requiredEvents: events,
     forbiddenInventions: [],
   };

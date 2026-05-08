@@ -35,7 +35,7 @@ function assertFinalStructuralQaAfterMerge(input: {
   projectId: string;
   chapterNumber: number;
   chapterTitle: string;
-  format: "manga" | "webtoon" | "simple";
+  format: "manga" | "webtoon";
   productionOutline: unknown;
   blueprints: PanelBlueprintPremium[];
   knownNpcGroups?: readonly { id: string; label?: string | null }[];
@@ -81,7 +81,7 @@ export interface BuildPremiumChapterContractInput {
   projectId?: string;
   chapterNumber?: number;
   chapterTitle?: string | null;
-  projectFormat?: "manga" | "webtoon" | "simple";
+  projectFormat?: "manga" | "webtoon";
   /** Hydratation `characterVisualDna` après merge (personnages projet + canons studio). */
   characterDnaHydration?: {
     characters: Array<{
