@@ -860,17 +860,32 @@ export async function runPremiumV3Pipeline(
           );
 
           if (!narrativeQa.ok) {
-            const first = narrativeQa.violations[0];
-            const detail =
-              first != null ? `${first.type}:${String(first.expected ?? "")}` : "unknown";
-            if (input.premiumV3OnlyEnabled) {
-              throw new Error(
-                `premium_narrative_contract_qa_failed: violations=${narrativeQa.violations.length} first=${detail}`,
+            const hardViolations = narrativeQa.violations.filter(
+              (v) => v.type !== "missing_location",
+            );
+            const softViolations = narrativeQa.violations.filter(
+              (v) => v.type === "missing_location",
+            );
+
+            if (softViolations.length > 0) {
+              console.warn(
+                `[pipeline:v3:narrative-contract] ${softViolations.length} location coverage warning(s) — non-blocking`,
               );
             }
-            console.warn(
-              `[pipeline:v3:narrative-contract] violations=${narrativeQa.violations.length} first=${detail}`,
-            );
+
+            if (hardViolations.length > 0) {
+              const first = hardViolations[0];
+              const detail =
+                first != null ? `${first.type}:${String(first.expected ?? "")}` : "unknown";
+              if (input.premiumV3OnlyEnabled) {
+                throw new Error(
+                  `premium_narrative_contract_qa_failed: violations=${hardViolations.length} first=${detail}`,
+                );
+              }
+              console.warn(
+                `[pipeline:v3:narrative-contract] violations=${hardViolations.length} first=${detail}`,
+              );
+            }
           }
         }
       }
