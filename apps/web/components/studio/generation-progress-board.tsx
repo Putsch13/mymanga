@@ -345,6 +345,43 @@ export function GenerationProgressBoard({
   const mins = Math.floor(elapsed / 60);
   const secs = elapsed % 60;
 
+  // ARCH-6 — ETA dérivé du % de progression et du temps écoulé.
+  // On attend au moins 8s + 5% de progression pour éviter les estimations
+  // explosives au démarrage. Plafonné à 30 min pour rester crédible.
+  const etaSeconds = useMemo(() => {
+    if (!isWorking) return null;
+    if (elapsed < 8) return null;
+    if (progressPct <= 5) return null;
+    if (progressPct >= 100) return 0;
+    const ratio = progressPct / 100;
+    const totalEstimate = elapsed / ratio;
+    const remaining = totalEstimate - elapsed;
+    if (!Number.isFinite(remaining) || remaining < 0) return null;
+    return Math.min(Math.round(remaining), 30 * 60);
+  }, [isWorking, elapsed, progressPct]);
+
+  const etaLabel = useMemo(() => {
+    if (etaSeconds == null) return null;
+    if (etaSeconds < 30) return "moins de 30 s";
+    if (etaSeconds < 90) return "~1 min";
+    const m = Math.round(etaSeconds / 60);
+    return `~${m} min`;
+  }, [etaSeconds]);
+
+  // ARCH-6 — Dernier panel "vivant" : prend en priorité le dernier
+  // `generating` (pour montrer ce qui se prépare), sinon le dernier
+  // `completed` (avec image stable).
+  const focusPanel = useMemo(() => {
+    const generating = [...panels].reverse().find((p) => p.status === "generating");
+    if (generating) return generating;
+    const completed = [...panels].reverse().find(
+      (p) => p.status === "completed" && getStableImageUrl(p),
+    );
+    return completed ?? null;
+  }, [panels]);
+
+  const focusPanelImage = focusPanel ? getStableImageUrl(focusPanel) : null;
+
   const steps = job?.output?.steps ?? [];
   const pipelineWarnings = useMemo(() => extractJobPipelineUserWarnings(job?.output ?? null), [job?.output]);
 
@@ -397,11 +434,22 @@ export function GenerationProgressBoard({
                       : "Prêt"}
             </span>
           </div>
-          {elapsed > 0 && (
-            <span className="font-mono text-xs text-muted-foreground">
-              {mins}:{secs.toString().padStart(2, "0")}
-            </span>
-          )}
+          <div className="flex items-center gap-3 text-xs">
+            {elapsed > 0 && (
+              <span className="font-mono text-muted-foreground" data-testid="generation-elapsed">
+                {mins}:{secs.toString().padStart(2, "0")}
+              </span>
+            )}
+            {etaLabel ? (
+              <span
+                className="rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 font-medium text-accent"
+                data-testid="generation-eta"
+                title="Temps restant estimé d’après l’avancement actuel"
+              >
+                ETA {etaLabel}
+              </span>
+            ) : null}
+          </div>
         </div>
 
         {(jobErrorMessage || job?.error) && (
@@ -483,6 +531,8 @@ export function GenerationProgressBoard({
                 const st = s.status ?? "queued";
                 const ok = st === "completed";
                 const bad = st === "failed";
+                const isImageStep = s.key === "generate_images";
+                const isImageStepRunning = isImageStep && st === "running";
                 return (
                   <li key={`${s.key}-${idx}`} className="flex items-start gap-2">
                     {bad ? (
@@ -492,10 +542,25 @@ export function GenerationProgressBoard({
                     ) : (
                       <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-accent" />
                     )}
-                    <span>
+                    <span className="flex-1">
                       <span className="text-muted-foreground">{phaseLabelForStepKey(s.key)}</span>
                       {s.label ? <span className="text-foreground/80"> — {s.label}</span> : null}
                       {s.detail ? <span className="block text-[11px] text-muted-foreground">{s.detail}</span> : null}
+                      {/* ARCH-6 — % par étape pour la passe images. */}
+                      {isImageStepRunning && effectiveTotal > 0 ? (
+                        <span className="mt-1 block">
+                          <span className="mb-0.5 flex items-center justify-between text-[10px] text-muted-foreground">
+                            <span>{statsCompleted}/{effectiveTotal} panels rendus</span>
+                            <span className="font-medium text-accent">{progressPct}%</span>
+                          </span>
+                          <span className="block h-1 w-full overflow-hidden rounded-full bg-border/50">
+                            <span
+                              className="block h-full rounded-full bg-gradient-to-r from-violet-500 to-rose-500 transition-all duration-500"
+                              style={{ width: `${Math.min(100, progressPct)}%` }}
+                            />
+                          </span>
+                        </span>
+                      ) : null}
                     </span>
                   </li>
                 );
@@ -563,6 +628,45 @@ export function GenerationProgressBoard({
         )}
 
       </div>
+
+      {/* ARCH-6 — Preview du dernier panel "vivant" pendant la génération. */}
+      {isWorking && focusPanel ? (
+        <div
+          className="rounded-2xl border border-border/60 bg-card/40 p-4"
+          data-testid="generation-focus-panel"
+        >
+          <div className="mb-3 flex items-center justify-between gap-2 text-xs">
+            <span className="flex items-center gap-2 font-medium text-muted-foreground">
+              <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent" />
+              {focusPanel.status === "generating"
+                ? "En cours de rendu"
+                : "Dernier panel généré"}
+            </span>
+            <span className="font-mono text-[10px] text-muted-foreground">
+              scène {focusPanel.sceneNumber} · panel {focusPanel.panelNumber}
+            </span>
+          </div>
+          <div className="relative mx-auto aspect-[3/4] w-full max-w-sm overflow-hidden rounded-xl border border-border/60 bg-background/40">
+            {focusPanelImage ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={focusPanelImage}
+                alt={`Aperçu panel ${focusPanel.panelNumber}`}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <div className="panel-pulse flex h-full items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-accent" />
+              </div>
+            )}
+            {focusPanel.status === "generating" ? (
+              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 py-2 text-center text-[11px] font-medium text-white">
+                Le moteur peint cette case…
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       {panels.length > 0 && (
         <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 lg:grid-cols-8">
