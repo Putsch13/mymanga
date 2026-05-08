@@ -85,7 +85,7 @@ function buildPanels(spec: {
       enemyLeft--;
     } else if (npcLeft > 0) {
       overrides.subjectFocus = "group";
-      overrides.cutawayType = "npc_panel";
+      overrides.cutawayType = "npc_group";
       npcLeft--;
     } else if (reactionLeft > 0) {
       overrides.subjectFocus = "reaction";

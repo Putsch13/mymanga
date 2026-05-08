@@ -7,7 +7,6 @@
     ".": "./src/index.ts",
     "./routing": "./src/image-routing-service.ts",
     "./chapter/shared-types": "./src/chapter/shared-types.ts",
-    "./chapter/shared-utils": "./src/chapter/shared-utils.ts",
     "./prompt-composer": "./src/manga-prompt-composer.ts",
     "./contracts": "./src/contracts/index.ts"
   },

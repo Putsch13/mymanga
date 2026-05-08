@@ -17,7 +17,6 @@ import type { StoryboardPlan, StoryboardPanel } from "../contracts/storyboard-pl
 
 function makePanel(overrides: Partial<StoryboardPanel> & { panelId: string }): StoryboardPanel {
   return {
-    panelId: overrides.panelId,
     pageNumber: 1,
     panelNumberInPage: 1,
     globalPanelIndex: 0,
@@ -56,9 +55,9 @@ const baseCoverage: Omit<RequiredVisualCoverage, "tokensHint"> = {
   entityType: "prop",
   sourceBeatId: "b1",
   requiresDedicatedPanel: true,
-  acceptedRenderModes: ["object_insert"],
+  acceptedRenderModes: ["insert_object"],
   acceptedSubjectFocuses: ["prop"],
-  contractKind: "narrative_required",
+  fulfilledByPanelIds: [],
 };
 
 describe("validateVisualCoverage", () => {
@@ -67,7 +66,7 @@ describe("validateVisualCoverage", () => {
     const plan = asPlan([
       makePanel({
         panelId: "p1",
-        renderMode: "object_insert",
+        renderMode: "insert_object",
         subjectFocus: "prop",
       }),
     ]);
@@ -80,7 +79,7 @@ describe("validateVisualCoverage", () => {
   it("ok=false (gap) quand renderMode et subjectFocus ne matchent pas", () => {
     const cov: RequiredVisualCoverage = { ...baseCoverage, tokensHint: [] };
     const plan = asPlan([
-      makePanel({ panelId: "p1", renderMode: "wide_establishing", subjectFocus: "environment" }),
+      makePanel({ panelId: "p1", renderMode: "establishing_environment", subjectFocus: "environment" }),
     ]);
     const result = validateVisualCoverage([cov], plan);
     expect(result.ok).toBe(false);
@@ -94,13 +93,13 @@ describe("validateVisualCoverage", () => {
     };
     const matchingPanel = makePanel({
       panelId: "p1",
-      renderMode: "object_insert",
+      renderMode: "insert_object",
       subjectFocus: "prop",
       mustShow: ["ancient sword on table"],
     });
     const nonMatchingPanel = makePanel({
       panelId: "p2",
-      renderMode: "object_insert",
+      renderMode: "insert_object",
       subjectFocus: "prop",
       mustShow: ["random necklace"],
     });
@@ -175,7 +174,7 @@ describe("validateVisualCoverage", () => {
       tokensHint: [],
     };
     const plan = asPlan([
-      makePanel({ panelId: "p1", renderMode: "object_insert", subjectFocus: "prop" }),
+      makePanel({ panelId: "p1", renderMode: "insert_object", subjectFocus: "prop" }),
     ]);
     const result = validateVisualCoverage([cov1, cov2], plan);
     expect(result.ok).toBe(false);
