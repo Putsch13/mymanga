@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   mapLaunchError,
   type LaunchErrorPayload,
-} from "@/app/(app)/projects/[id]/pipeline/_components/map-launch-error";
+} from "@/lib/launch/map-launch-error";
 
 /**
  * P0.6 — l'UI pipeline doit traduire les codes d'erreur backend
