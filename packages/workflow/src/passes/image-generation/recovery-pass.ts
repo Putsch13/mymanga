@@ -20,7 +20,11 @@ import { runRoutedImageGeneration, type StoryboardPanel } from "@manga-ai-studio
 import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { persistImageIfNeeded } from "../../pipeline-image-persistence";
 import { setJobProgress } from "../../pipeline-job";
-import { type StableImageReference, stripLegacyPanelTextFieldsWhenContractPresent } from "@manga-ai-studio/core";
+import {
+  SCENE_IMAGE_STATUS,
+  type StableImageReference,
+  stripLegacyPanelTextFieldsWhenContractPresent,
+} from "@manga-ai-studio/core";
 import { logPipelineInfo, logPipelineWarn } from "../../lib/pipeline-logger";
 import { buildStableImageReference, resolveStableImageReferences } from "../../stable-image-refs";
 
@@ -174,7 +178,7 @@ export async function runRecoveryPass(params: RecoveryParams): Promise<RecoveryR
         await prisma.sceneImage.update({
           where: { id: failedShot.id },
           data: {
-            status: "completed",
+            status: SCENE_IMAGE_STATUS.COMPLETED,
             imageUrl: persisted.url,
             persistedUrl: persisted.persisted ? persisted.url : null,
             provider: recoveryResult.result.provider,

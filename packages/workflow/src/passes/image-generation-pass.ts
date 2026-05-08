@@ -20,6 +20,7 @@ import {
   validateShotCompliance,
   isHeroRole,
   PREMIUM_PANEL_RANGE,
+  SCENE_IMAGE_STATUS,
   stripLegacyPanelTextFieldsWhenContractPresent,
   type StableImageReference,
   type PanelBlueprintPremium,
@@ -711,7 +712,7 @@ export async function runImageGenerationPass(
         await prisma.sceneImage.update({
           where: { id: item.sceneImageId },
           data: {
-            status: "blocked",
+            status: SCENE_IMAGE_STATUS.BLOCKED,
             failureReason: `canonical_prompt_strict_mode:${effectiveSource.blockReason ?? "canonical_packet_missing"}`,
             metadata: stripLegacyPanelTextFieldsWhenContractPresent({
               ...item.baseMetadata,
@@ -830,7 +831,7 @@ export async function runImageGenerationPass(
           await prisma.sceneImage.update({
             where: { id: item.sceneImageId },
             data: {
-              status: "blocked",
+              status: SCENE_IMAGE_STATUS.BLOCKED,
               metadata: stripLegacyPanelTextFieldsWhenContractPresent({
                 ...item.baseMetadata,
                 preflight,
@@ -944,7 +945,7 @@ export async function runImageGenerationPass(
             await prisma.sceneImage.update({
               where: { id: item.sceneImageId },
               data: {
-                status: "completed",
+                status: SCENE_IMAGE_STATUS.COMPLETED,
                 imageUrl: cachedEnvUrl,
                 persistedUrl: cachedEnvUrl,
                 provider: "cache",
@@ -1275,7 +1276,7 @@ export async function runImageGenerationPass(
           await prisma.sceneImage.update({
             where: { id: item.sceneImageId },
             data: {
-              status: "blocked",
+              status: SCENE_IMAGE_STATUS.BLOCKED,
               failureReason: "initial_generation_failed",
               metadata: stripLegacyPanelTextFieldsWhenContractPresent({
                 ...item.baseMetadata,
@@ -1539,7 +1540,7 @@ export async function runImageGenerationPass(
           await prisma.sceneImage.update({
             where: { id: item.sceneImageId },
             data: {
-              status: "failed",
+              status: SCENE_IMAGE_STATUS.FAILED,
               failureReason: `persist_failed: ${persisted.reason}`,
               metadata: stripLegacyPanelTextFieldsWhenContractPresent({
                 ...item.baseMetadata,
@@ -1817,7 +1818,7 @@ export async function runImageGenerationPass(
         await prisma.sceneImage.update({
           where: { id: item.sceneImageId },
           data: {
-            status: "failed",
+            status: SCENE_IMAGE_STATUS.FAILED,
             failureReason: msg,
             retryCount: { increment: 1 },
             metadata: stripLegacyPanelTextFieldsWhenContractPresent({

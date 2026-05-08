@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Circle, Clock, ListChecks, Loader2, Lock, RefreshCw, Sparkles, XCircle } from "lucide-react";
+import type { SceneImageStatus } from "@manga-ai-studio/core";
 import { getStableImageUrl } from "@/lib/images/get-stable-image-url";
 import { extractJobPipelineUserWarnings } from "@/lib/studio/job-output-warnings";
 
@@ -9,7 +10,7 @@ type PanelStatus = {
   id: string;
   panelNumber: number;
   sceneNumber: number;
-  status: "pending" | "generating" | "completed" | "failed" | string;
+  status: SceneImageStatus | string;
   imageUrl?: string | null;
   persistedUrl?: string | null;
 };

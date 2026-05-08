@@ -42,6 +42,7 @@ import type {
 import { persistImageIfNeeded, type PersistedImageResult } from "../pipeline-image-persistence";
 import { buildVisualQaInputFromRenderSpec, runVisualPanelQaWithOptionalVision } from "@manga-ai-studio/ai";
 import type { VisualQaResult } from "@manga-ai-studio/ai";
+import { SCENE_IMAGE_STATUS, type SceneImageStatus } from "@manga-ai-studio/core";
 
 export type PanelFinalStatus =
   | "passed"
@@ -105,7 +106,7 @@ interface PreparedPanelData {
   panelNumber: number;
   durableImageUrl: string | null;
   storageMeta: { bucket: string | null; storageKey: string | null; mimeType: string | null };
-  status: "completed" | "failed" | "pending";
+  status: Extract<SceneImageStatus, "completed" | "failed" | "pending">;
   metadata: Prisma.InputJsonValue;
   routingDecision: Prisma.InputJsonValue;
   externalPanelId: string;
@@ -180,11 +181,12 @@ async function preparePanelData(
     panelIds: page.panels.map((pagePanel) => pagePanel.panelId),
   });
   const panelSlot = pageSlots.find((slot) => slot.panelId === panel.panelId) ?? null;
-  const status = record.error || visualQaBlocksDeliverable
-    ? "failed"
-    : hasImage
-      ? "completed"
-      : "pending";
+  const status: Extract<SceneImageStatus, "completed" | "failed" | "pending"> =
+    record.error || visualQaBlocksDeliverable
+      ? SCENE_IMAGE_STATUS.FAILED
+      : hasImage
+        ? SCENE_IMAGE_STATUS.COMPLETED
+        : SCENE_IMAGE_STATUS.PENDING;
 
   const panelTextBundle =
     typeof (panel as { panelTextBundle?: unknown }).panelTextBundle === "object"
@@ -291,7 +293,7 @@ async function preparePanelData(
       seed: record.seed ?? null,
     },
     result: {
-      status: status as "completed" | "failed" | "pending",
+      status,
       imageUrl: durableImageUrl,
       providerImageUrl,
       storageBucket: storageMeta.bucket,
@@ -600,7 +602,7 @@ export async function persistV3RenderedPanels(
           panelNumber: panel.panelNumberInPage,
           durableImageUrl: null,
           storageMeta: { bucket: null, storageKey: null, mimeType: null },
-          status: "pending",
+          status: SCENE_IMAGE_STATUS.PENDING,
           metadata: {} as Prisma.InputJsonValue,
           routingDecision: {} as Prisma.InputJsonValue,
           externalPanelId: panel.panelId,

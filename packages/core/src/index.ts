@@ -11,6 +11,7 @@ export * from "./shot-diversity-enforcer";
 export * from "./logger";
 export * from "./logger-narrative";
 export * from "./config/app-config";
+export * from "./types/scene-image-status";
 export * from "./generation";
 export * from "./ai-readiness";
 export * from "./utils/zod-llm";
