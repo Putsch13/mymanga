@@ -8,7 +8,7 @@ import {
   resolvePremiumImageSize,
   detectVisualDrift,
 } from "@manga-ai-studio/ai";
-import { readShotPlanEnumsFromJson, stripLegacyPanelTextFieldsWhenContractPresent } from "@manga-ai-studio/core";
+import { readShotPlanEnumsFromJson, SCENE_IMAGE_STATUS, stripLegacyPanelTextFieldsWhenContractPresent } from "@manga-ai-studio/core";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { canAccessMatureContent, canBypassMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
 import { notFound, unauthorized, validationError } from "@/lib/api-response";
@@ -535,7 +535,7 @@ export async function POST(req: Request, ctx: Ctx) {
   await prisma.sceneImage.update({
     where: { id: img.id },
     data: {
-      status: "pending",
+      status: SCENE_IMAGE_STATUS.PENDING,
       metadata: stripLegacyPanelTextFieldsWhenContractPresent({
         ...metadata,
         retryRequestedAt: new Date().toISOString(),

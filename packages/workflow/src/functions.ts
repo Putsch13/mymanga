@@ -1,6 +1,7 @@
 import { inngest } from "./inngest-client";
 import { prisma } from "@manga-ai-studio/db";
 import { trainCharacterLora } from "@manga-ai-studio/ai";
+import { SCENE_IMAGE_STATUS } from "@manga-ai-studio/core";
 import { runFullChapterPipelineFromJob } from "./run-full-chapter-pipeline";
 import { runChapterOutlineFromJob } from "./run-outline-for-chapter";
 
@@ -52,11 +53,11 @@ export const cleanupStaleImages = inngest.createFunction(
       // depuis plus d'un cycle sont considérées stale)
       const result = await prisma.sceneImage.updateMany({
         where: {
-          status: "pending",
+          status: SCENE_IMAGE_STATUS.PENDING,
           failureReason: null,
         },
         data: {
-          status: "failed",
+          status: SCENE_IMAGE_STATUS.FAILED,
           failureReason: "stale_timeout: pending without completion at cron cycle",
         },
       });

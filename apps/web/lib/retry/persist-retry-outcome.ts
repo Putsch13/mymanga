@@ -15,7 +15,7 @@
  */
 
 import type { Prisma, PrismaClient } from "@manga-ai-studio/db";
-import { stripLegacyPanelTextFieldsWhenContractPresent } from "@manga-ai-studio/core";
+import { SCENE_IMAGE_STATUS, stripLegacyPanelTextFieldsWhenContractPresent } from "@manga-ai-studio/core";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -43,7 +43,7 @@ export async function persistRetryBlocked(params: {
   await prisma.sceneImage.update({
     where: { id: panelId },
     data: {
-      status: "blocked",
+      status: SCENE_IMAGE_STATUS.BLOCKED,
       metadata: stripLegacyPanelTextFieldsWhenContractPresent({
         ...baseMetadata,
         blockedReason: params.reason,
@@ -74,7 +74,7 @@ export async function persistRetryPersistFailed(params: {
   await prisma.sceneImage.update({
     where: { id: panelId },
     data: {
-      status: "failed",
+      status: SCENE_IMAGE_STATUS.FAILED,
       metadata: stripLegacyPanelTextFieldsWhenContractPresent({
         ...baseMetadata,
         error: params.error,
@@ -104,7 +104,7 @@ export async function persistRetryException(params: {
   await prisma.sceneImage.update({
     where: { id: panelId },
     data: {
-      status: "failed",
+      status: SCENE_IMAGE_STATUS.FAILED,
       metadata: stripLegacyPanelTextFieldsWhenContractPresent({
         ...baseMetadata,
         error: params.errorMessage,
@@ -192,7 +192,7 @@ export async function persistRetrySuccess(input: PersistRetrySuccessInput): Prom
   await prisma.sceneImage.update({
     where: { id: panelId },
     data: {
-      status: shouldBlockForReview === true ? "blocked" : "completed",
+      status: shouldBlockForReview === true ? SCENE_IMAGE_STATUS.BLOCKED : SCENE_IMAGE_STATUS.COMPLETED,
       // P0.3 : `persistedUrl` est la vraie URL stable canonique post-reroll.
       // `imageUrl` reste synchronisé pour compat legacy (lecteurs, UI review).
       persistedUrl,

@@ -16,7 +16,7 @@
  */
 
 import { prisma, type Prisma } from "@manga-ai-studio/db";
-import { stripLegacyPanelTextFieldsWhenContractPresent } from "@manga-ai-studio/core";
+import { SCENE_IMAGE_STATUS, stripLegacyPanelTextFieldsWhenContractPresent } from "@manga-ai-studio/core";
 import type { getPremiumImageSize } from "@manga-ai-studio/ai";
 import type {
   LegacyPendingImageWrite,
@@ -59,7 +59,7 @@ export async function persistPlannedImages(
             sceneKeyframeId: pi.sceneKeyframeId,
             prompt: pi.composedPositive,
             negativePrompt: pi.composedNegative,
-            status: "planned",
+            status: SCENE_IMAGE_STATUS.PLANNED,
             width: panelDraftSize.width,
             height: panelDraftSize.height,
             referenceImageIds: pi.panelCanonRefs as unknown as Prisma.InputJsonValue,
