@@ -37,17 +37,14 @@ import { MangaCanvasRenderer } from "./manga-canvas-renderer";
 // P5.2 — extractions pour alléger ce composant monolithique. Les shapes
 // sont strictement identiques à celles précédemment inline : la typo a été
 // déplacée, pas modifiée.
-import type {
-  CanonStateData,
-  ChapterPayload,
-  ReaderResponse,
-} from "./reader/reader-types";
 import { buildPagesFromChapter, flattenPagesToPanels } from "./reader/build-reader-pages";
 import { computeCanvasPanelsFromReaderPage } from "./reader/page-template-registry";
 import { READER_QUICK_TAGS, READER_SUGGESTIONS } from "./reader/reader-constants";
 import { computeReaderDegradedWarning } from "./reader/compute-degraded-warning";
 import { useReaderTts } from "./reader/use-reader-tts";
 import { useReaderNavigation } from "./reader/use-reader-navigation";
+import { useReaderData } from "./reader/use-reader-data";
+import { ReaderInspectDrawer } from "./reader/reader-inspect-drawer";
 import { PREMIUM_PANEL_RANGE } from "@manga-ai-studio/core";
 
 type Props = {
@@ -74,13 +71,6 @@ export function MangaBookReader({
   exitHref,
   targetImages = PREMIUM_PANEL_RANGE.target,
 }: Props) {
-  const [chapter, setChapter] = useState<ChapterPayload | null>(null);
-  const [memorySummary, setMemorySummary] = useState<string | null>(null);
-  const [imageStats, setImageStats] = useState<ReaderResponse["imageStats"]>(null);
-  const [activeJob, setActiveJob] = useState<ReaderResponse["activeJob"]>(null);
-  const [generationDiagnostics, setGenerationDiagnostics] = useState<ReaderResponse["generationDiagnostics"]>(null);
-  const [canonState, setCanonState] = useState<CanonStateData | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
   const [showTextOnly, setShowTextOnly] = useState(false);
   const [showEnd, setShowEnd] = useState(false);
@@ -96,73 +86,39 @@ export function MangaBookReader({
   const [continuing, setContinuing] = useState(false);
   const [continueMsg, setContinueMsg] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  const [retryingPanel, setRetryingPanel] = useState<string | null>(null);
   const [transitioning, setTransitioning] = useState(false);
   const [showSwipeHint, setShowSwipeHint] = useState(true);
   const { playingTtsId, playDialogue } = useReaderTts();
-  const degradedReaderWarning = computeReaderDegradedWarning(generationDiagnostics);
 
-  const load = useCallback(async (options?: { preserveIndex?: boolean; skipModeInit?: boolean }) => {
-    setLoadError(null);
-    const res = await fetch(`/api/projects/${projectId}/chapters/${chapterId}`);
-    if (!res.ok) {
-      setLoadError("Chapitre introuvable");
-      return;
-    }
-    const j = (await res.json()) as ReaderResponse;
-    setChapter(j.chapter);
-    setMemorySummary(j.memorySnapshot?.narrativeSummary ?? null);
-    setImageStats(j.imageStats ?? null);
-    setActiveJob(j.activeJob ?? null);
-    setGenerationDiagnostics(j.generationDiagnostics ?? null);
-    if (!options?.preserveIndex) {
+  const handleChapterLoaded = useCallback(({ preserveIndex }: { preserveIndex: boolean }) => {
+    if (!preserveIndex) {
       setPageIndex(0);
       setShowEnd(false);
     }
-    // PHASE 5: Initialiser le mode lecteur basé sur le format du projet
-    if (!options?.skipModeInit && j.projectFormat) {
-      setReaderMode(j.projectFormat);
-      console.info("[reader] projectFormat", j.projectFormat, "initialMode", j.projectFormat);
-    }
-    // Charger le canon state
-    fetch(`/api/projects/${projectId}/chapters/${chapterId}/canon-state`)
-      .then((res) => res.ok ? res.json() : null)
-      .then((data) => setCanonState(data as CanonStateData))
-      .catch(() => setCanonState(null));
-  }, [projectId, chapterId]);
+  }, []);
+  const handleProjectFormatDetected = useCallback((format: "manga" | "webtoon") => {
+    setReaderMode(format);
+  }, []);
 
-  const retryPanel = useCallback(async (panelId: string, mode: "environment" | "character" | "composition") => {
-    setRetryingPanel(`${panelId}:${mode}`);
-    try {
-      // BUG-READER-C : on passe désormais `mode` en body JSON plutôt qu'en
-      // query string. Le endpoint /retry supporte les deux pendant la
-      // transition mais le body est la voie officielle (BUG-13/BUG-14).
-      const res = await fetch(`/api/scene-images/${panelId}/retry`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode }),
-      });
-      if (res.ok) {
-        await load({ preserveIndex: true, skipModeInit: true });
-      }
-    } finally {
-      setRetryingPanel(null);
-    }
-  }, [load]);
+  const {
+    chapter,
+    memorySummary,
+    imageStats,
+    activeJob,
+    generationDiagnostics,
+    canonState,
+    loadError,
+    retryingPanel,
+    load,
+    retryPanel,
+  } = useReaderData({
+    projectId,
+    chapterId,
+    onChapterLoaded: handleChapterLoaded,
+    onProjectFormatDetected: handleProjectFormatDetected,
+  });
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  // Auto-refresh pendant une génération d'images / pipeline pour éviter le besoin de refresh manuel.
-  useEffect(() => {
-    if (!activeJob) return;
-    if (!["queued", "running", "waiting_external"].includes(activeJob.status)) return;
-    const interval = window.setInterval(() => {
-      void load({ preserveIndex: true, skipModeInit: true });
-    }, 2500);
-    return () => window.clearInterval(interval);
-  }, [activeJob, load]);
+  const degradedReaderWarning = computeReaderDegradedWarning(generationDiagnostics);
 
   // Responsive: double page uniquement sur écrans larges
   useEffect(() => {
@@ -874,246 +830,19 @@ export function MangaBookReader({
     </Card>
   ) : null;
 
-  // READ-PREMIUM : slide-panel "Inspecter" regroupant mémoire/canon/debug
   const inspectPanel = (
-    <div
-      className={cn(
-        "pointer-events-none fixed inset-0 z-[70] transition-opacity duration-200",
-        inspectOpen ? "opacity-100" : "opacity-0",
-      )}
-      aria-hidden={!inspectOpen}
-    >
-      <div
-        className={cn(
-          "absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-200",
-          inspectOpen ? "pointer-events-auto opacity-100" : "opacity-0",
-        )}
-        onClick={() => setInspectOpen(false)}
-      />
-      <aside
-        className={cn(
-          "absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto border-l border-border/60 bg-card shadow-2xl transition-transform duration-300 ease-out",
-          inspectOpen ? "pointer-events-auto translate-x-0" : "translate-x-full",
-        )}
-        role="dialog"
-        aria-label="Inspecter le chapitre"
-      >
-        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border/60 bg-card/95 px-4 py-3 backdrop-blur">
-          <div className="flex items-center gap-2">
-            <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
-            <p className="text-sm font-semibold">Inspecter le chapitre</p>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 w-8 p-0"
-            onClick={() => setInspectOpen(false)}
-            aria-label="Fermer"
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-
-        <div className="space-y-4 p-4">
-          <Card className="border-border/60 bg-card/40">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Mémoire & statut</CardTitle>
-              <CardDescription className="text-xs">Ce qui nourrit les chapitres suivants.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 text-xs text-muted-foreground">
-              <p>{memorySummary ?? "Aucun résumé mémoire disponible pour l'instant."}</p>
-              {degradedReaderWarning ? (
-                <div className="rounded-lg border border-amber-500/30 bg-amber-950/20 px-3 py-2 text-amber-200">
-                  {degradedReaderWarning}
-                </div>
-              ) : null}
-              {imageStats ? (
-                <div className="flex flex-wrap gap-2">
-                  <span>{imageStats.completed}/{imageStats.total} images prêtes</span>
-                  {imageStats.pending ? <span>· {imageStats.pending} en attente</span> : null}
-                  {imageStats.failed ? <span>· {imageStats.failed} en échec</span> : null}
-                </div>
-              ) : null}
-              <p>Job actif : {activeJob ? activeJob.status : "aucun"}</p>
-              {generationDiagnostics?.creativityControls ? (
-                <p>
-                  Contrôles : N {generationDiagnostics.creativityControls.noveltyLevel ?? "?"}
-                  {" · "}W {generationDiagnostics.creativityControls.worldStrictness ?? "?"}
-                  {" · "}X {generationDiagnostics.creativityControls.visualExoticism ?? "?"}
-                  {" · "}PNJ {generationDiagnostics.creativityControls.npcVariety ?? "?"}
-                  {" · "}Env {generationDiagnostics.creativityControls.environmentRichness ?? "?"}
-                </p>
-              ) : null}
-              {generationDiagnostics?.qualityReport ? (
-                <div className="rounded-lg border border-cyan-500/20 bg-cyan-950/10 px-3 py-2 text-cyan-100">
-                  Release {(Number(generationDiagnostics.qualityReport.averageReleaseScore ?? 0) * 100).toFixed(0)}/100
-                  {" · "}Seuil {(Number(generationDiagnostics.qualityReport.releaseThreshold ?? 0) * 100).toFixed(0)}/100
-                  {" · "}{generationDiagnostics.qualityReport.premiumReleaseAccepted ? "Premium OK" : "Release dégradée"}
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          {generationDiagnostics?.panelDebug && generationDiagnostics.panelDebug.length > 0 ? (
-            <Card className="border-border/60 bg-card/40">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Debug rendu</CardTitle>
-                <CardDescription className="text-xs">
-                  Diagnostic de tous les panels ({generationDiagnostics.panelDebug.length}).
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="max-h-96 space-y-2 overflow-y-auto">
-                {generationDiagnostics.panelDebug.map((panel) => (
-                  <div key={panel.panelId} className="rounded border border-stone-800/80 bg-black/20 p-2 text-[11px]">
-                    <p className="font-medium text-stone-100">
-                      Panel {panel.panelNumber} · {panel.status ?? "?"} · {panel.provider ?? "?"}
-                    </p>
-                    <p className="text-muted-foreground">
-                      R {(panel.releaseScore ?? 0).toFixed(2)} · F {(panel.backgroundPresenceScore ?? 0).toFixed(2)} · I {(panel.interactionScore ?? 0).toFixed(2)} · S {(panel.styleConsistencyScore ?? 0).toFixed(2)} · V {panel.visionEnabled ? (panel.visionScore ?? 0).toFixed(2) : "off"} · rerolls {panel.rerollCount}
-                    </p>
-                    {panel.promptDebug?.promptWarnings?.length ? (
-                      <p className="text-[10px] text-amber-500">
-                        warnings : {panel.promptDebug.promptWarnings.join(", ")}
-                      </p>
-                    ) : null}
-                    {panel.issues.length > 0 ? (
-                      <p className="mt-1 text-[10px] text-amber-300/80">
-                        {panel.issues.slice(0, 2).map((issue) => issue.message ?? issue.type ?? "issue").join(" | ")}
-                      </p>
-                    ) : null}
-                    {panel.visionEnabled && panel.visionFindings.length > 0 ? (
-                      <p className="mt-1 text-[10px] text-cyan-300/80">
-                        Vision : {panel.visionFindings.slice(0, 2).join(" | ")}
-                      </p>
-                    ) : null}
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-[10px]"
-                        disabled={retryingPanel !== null}
-                        onClick={() => void retryPanel(panel.panelId, "environment")}
-                      >
-                        {retryingPanel === `${panel.panelId}:environment` ? "…" : "Décor"}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-[10px]"
-                        disabled={retryingPanel !== null}
-                        onClick={() => void retryPanel(panel.panelId, "character")}
-                      >
-                        {retryingPanel === `${panel.panelId}:character` ? "…" : "Personnage"}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-[10px]"
-                        disabled={retryingPanel !== null}
-                        onClick={() => void retryPanel(panel.panelId, "composition")}
-                      >
-                        {retryingPanel === `${panel.panelId}:composition` ? "…" : "Composition"}
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          ) : null}
-
-          {canonState?.hasCanonState ? (
-            <Card className="border-violet-500/30">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">État canonique</CardTitle>
-                <CardDescription className="text-xs">Monde et personnages à la fin du chapitre.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3 text-xs">
-                {canonState.worldState ? (
-                  <div>
-                    <h4 className="mb-1 text-xs font-semibold text-violet-400">Monde</h4>
-                    {canonState.worldState.activeLocations.length > 0 ? (
-                      <p className="text-xs text-muted-foreground">
-                        Lieux : {canonState.worldState.activeLocations.join(", ")}
-                      </p>
-                    ) : null}
-                    {canonState.worldState.activeThreats.length > 0 ? (
-                      <p className="text-xs text-orange-400/80">
-                        Menaces : {canonState.worldState.activeThreats.join(", ")}
-                      </p>
-                    ) : null}
-                    {canonState.worldState.activeMysteries.length > 0 ? (
-                      <p className="text-xs text-purple-400/80">
-                        Mystères : {canonState.worldState.activeMysteries.join(", ")}
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
-                {canonState.characterStates && canonState.characterStates.length > 0 ? (
-                  <div>
-                    <h4 className="mb-1 text-xs font-semibold text-violet-400">Personnages</h4>
-                    <div className="space-y-2">
-                      {canonState.characterStates.slice(0, 5).map((cs, idx) => (
-                        <div key={idx} className="rounded border border-stone-800 bg-stone-950/30 p-2">
-                          <p className="text-xs font-medium">{cs.characterName}</p>
-                          {cs.currentState.location ? (
-                            <p className="text-[10px] text-muted-foreground">Lieu : {cs.currentState.location}</p>
-                          ) : null}
-                          {cs.currentState.emotion ? (
-                            <p className="text-[10px] text-blue-400/80">État : {cs.currentState.emotion}</p>
-                          ) : null}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-                {canonState.continuityWarnings && canonState.continuityWarnings.length > 0 ? (
-                  <div>
-                    <h4 className="mb-1 text-xs font-semibold text-red-400">Alertes cohérence</h4>
-                    <ul className="list-inside list-disc space-y-1 text-[10px] text-red-300/80">
-                      {canonState.continuityWarnings.slice(0, 10).map((warning, idx) => (
-                        <li key={idx}>{warning}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
-          ) : null}
-
-          {canonState?.hasCanonState && canonState.openThreads && canonState.openThreads.length > 0 ? (
-            <Card className="border-amber-500/30">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Fils narratifs ouverts</CardTitle>
-                <CardDescription className="text-xs">Intrigues à résoudre.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {canonState.openThreads.slice(0, 8).map((thread, idx) => (
-                  <div key={idx} className="rounded border border-amber-800/50 bg-amber-950/20 p-2">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-medium">{thread.label}</p>
-                      <span
-                        className={cn(
-                          "text-[9px] font-bold uppercase",
-                          thread.priority === "high"
-                            ? "text-red-400"
-                            : thread.priority === "medium"
-                              ? "text-amber-400"
-                              : "text-muted-foreground",
-                        )}
-                      >
-                        {thread.priority}
-                      </span>
-                    </div>
-                    <p className="mt-0.5 text-[10px] text-muted-foreground">{thread.description}</p>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          ) : null}
-        </div>
-      </aside>
-    </div>
+    <ReaderInspectDrawer
+      open={inspectOpen}
+      onClose={() => setInspectOpen(false)}
+      memorySummary={memorySummary}
+      degradedReaderWarning={degradedReaderWarning}
+      imageStats={imageStats}
+      activeJob={activeJob}
+      generationDiagnostics={generationDiagnostics}
+      canonState={canonState}
+      retryingPanel={retryingPanel}
+      onRetryPanel={(panelId, mode) => void retryPanel(panelId, mode)}
+    />
   );
 
   if (fullscreen) {
