@@ -1,18 +1,13 @@
 import { NextResponse } from "next/server";
 import {
-  buildCanonicalProductionPlanFromPremiumBlueprints,
   buildChapterReadinessReport,
   buildPanelTraceabilityReport,
   computeNarrativeMemoryDigestFromOutline,
   computePanelContinuityPreflights,
   continuityPreflightBlockingReasons,
   canonPackPreflightBlockingReasons,
-  buildIntentNarrativeContract,
-  runIntentCoverageQa,
   logPreflight,
   logNarrative,
-  logIntentContract,
-  logOutlineCoverage,
   getPremiumReadinessLaunchMinScore,
   hydratePanelProvenanceOnBlueprints,
   isPipelineV3PremiumOnlyEnabled,
@@ -33,12 +28,8 @@ import {
 } from "@manga-ai-studio/core";
 import { computeShotVarietyBudget, computePremiumReadinessScore, runPremiumPlanContractQa, type PremiumReadinessCastContext } from "@manga-ai-studio/ai";
 import { repairProductionPlanContractualFocus, type FocusViolation } from "@manga-ai-studio/core";
-import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
-import { isUnlimitedAdminEmail } from "@/lib/auth/get-app-user";
 import { prisma } from "@manga-ai-studio/db";
 import {
-  runFullChapterPipelineFromJob,
-  sendChapterGenerateRequested,
   isPipelineV3StoryboardEnabled,
 } from "@manga-ai-studio/workflow";
 import { getAppUser } from "@/lib/auth/get-app-user";
@@ -50,11 +41,11 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { buildChapterStructuredRuntimePrismaFields, readChapterStudioSnapshotFromOutline } from "@/lib/chapter-studio";
 import {
   assertPremiumContract,
-  buildGenerationJobInputFromSnapshot,
-  InvalidBlueprintsError,
-  IncompletePlanError,
   resolveApprovedOutlineFromSnapshot,
 } from "@/lib/premium-chapter-contract";
+import { buildAndDispatchLaunchJob } from "./_helpers/dispatch-launch-job";
+import { runStructuralQa } from "./_helpers/run-structural-qa";
+import { runIntentCoverageQaForLaunch } from "./_helpers/run-intent-coverage-qa";
 import { assertChapterCanonReadiness } from "@/lib/canon/assert-chapter-canon-readiness";
 import { canonViolationsToPremiumErrors } from "@/shared/errors/generation-errors";
 import { buildPremiumReadinessDashboard } from "@/lib/readiness/build-premium-readiness-dashboard";
@@ -77,10 +68,6 @@ function logLaunchBlock(
   extra?: Record<string, unknown>,
 ) {
   console.warn("[launch:block]", { projectId, chapterId, code, reason, ...extra });
-}
-
-function logLaunchJobDispatched(projectId: string, chapterId: string, jobId: string, viaInngest: boolean) {
-  console.info("[launch] job_dispatched", { projectId, chapterId, jobId, viaInngest });
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -505,89 +492,18 @@ export async function POST(_req: Request, ctx: Ctx) {
     );
   }
 
-  // QA structurelle canonique en premier (même entrée que /estimate). C'est la barre « fidèle »
-  // sur le plan ; le score heuristique `computePremiumReadinessScore` pénalise souvent des champs
-  // peu remplis après merge canonique (lieux unknown, dialogueCarrier) sans invalider cette QA.
-  const outlineForStructuralQa =
-    snapshot.data.productionOutline && typeof snapshot.data.productionOutline === "object"
-      ? snapshot.data.productionOutline
-      : {
-          source: "approved_fallback",
-          chapterGoal: typeof approvedOutline.summary === "string" ? approvedOutline.summary : "",
-          cliffhanger: typeof approvedOutline.cliffhanger === "string" ? approvedOutline.cliffhanger : "",
-          beats: approvedOutline.beats,
-        };
-  const bpStructural = snapshot.data.productionPlan?.panelBlueprints;
-  let structuralCanonicalQaPassed = false;
-  if (Array.isArray(bpStructural) && bpStructural.length > 0) {
-    const fmt = chapter.project.format === "webtoon" ? "webtoon" : "manga";
-
-    // P0 fix : fournir NPC groups (DB + VW snapshot) et catalogue personnages
-    // pour re-résoudre les unresolvedCharacterRefs qui étaient figées dans le
-    // snapshot estimate. Sans ça, "Groupe de pêcheurs" etc. restent unresolved
-    // et la QA bloque le launch à tort.
-    const npcGroupRefMap = new Map<string, { id: string; label: string }>();
-    const vwNpcGroups = (snapshot.data.visualWorldContract as { npcGroups?: { id: string; label: string }[] } | null)?.npcGroups;
-    if (Array.isArray(vwNpcGroups)) {
-      for (const g of vwNpcGroups) {
-        if (typeof g.id === "string" && g.id.length > 0) {
-          npcGroupRefMap.set(g.id, { id: g.id, label: g.label ?? "" });
-        }
-      }
-    }
-    const projectNpcGroupsForQa = await prisma.npcGroup.findMany({
-      where: { projectId },
-      select: { id: true, label: true },
-    });
-    for (const g of projectNpcGroupsForQa) {
-      if (!npcGroupRefMap.has(g.id)) {
-        npcGroupRefMap.set(g.id, { id: g.id, label: g.label });
-      }
-    }
-    const npcGroupRefsForStructuralQa = [...npcGroupRefMap.values()];
-
-    const structuralPlan = buildCanonicalProductionPlanFromPremiumBlueprints({
-      chapterId,
-      projectId,
-      chapterNumber: chapter.chapterNumber,
-      chapterTitle: chapter.title ?? "",
-      format: fmt,
-      productionOutline: outlineForStructuralQa,
-      blueprints: bpStructural as PanelBlueprintPremium[],
-      knownNpcGroups: npcGroupRefsForStructuralQa,
-      knownCharacters: charRefsForLabels,
-    });
-    if (!structuralPlan.qa.valid) {
-      // Ne bloquer que sur les erreurs non-rythmiques.
-      // Le repair peut transformer des panels en cutaways (prop/npc) et dépasser
-      // temporairement la limite de cutaways consécutifs : c'est une violation de
-      // rythme esthétique, pas un blocage de contenu.
-      const allErrors = Array.isArray(structuralPlan.qa.errors) ? structuralPlan.qa.errors : [];
-      const criticalErrors = allErrors.filter((e) => {
-        const s = String(e ?? "").toLowerCase();
-        return !s.includes("consecutive cutaway") && !s.includes("cutaway") && !s.includes("rhythm");
-      });
-
-      if (criticalErrors.length > 0) {
-        console.error(
-          `[launch] production_plan_structural_qa_failed chapterId=${chapterId} errors=${JSON.stringify(criticalErrors)}`,
-        );
-        return NextResponse.json(
-          {
-            error: "plan_structural_qa_failed",
-            code: "PRODUCTION_PLAN_STRUCTURAL_QA_FAILED",
-            errors: criticalErrors,
-          },
-          { status: 422 },
-        );
-      }
-
-      console.warn(
-        `[launch] production_plan_structural_qa_rhythm_warning chapterId=${chapterId} errors=${JSON.stringify(allErrors)}`,
-      );
-    }
-    structuralCanonicalQaPassed = true;
-  }
+  const structuralQaResult = await runStructuralQa({
+    chapterId,
+    projectId,
+    chapter,
+    snapshot,
+    approvedOutline,
+    charRefsForLabels,
+  });
+  if (!structuralQaResult.ok) return structuralQaResult.response;
+  const structuralCanonicalQaPassed = structuralQaResult.structuralCanonicalQaPassed;
+  const bpStructural = structuralQaResult.bpStructural;
+  const outlineForStructuralQa = structuralQaResult.outlineForStructuralQa;
 
   const bpForContinuityRaw = snapshot.data.productionPlan?.panelBlueprints;
   let bpForContinuity = bpForContinuityRaw;
@@ -674,115 +590,15 @@ export async function POST(_req: Request, ctx: Ctx) {
     }
   }
 
-  // Intent Coverage QA — premium only, blocking when score < 60
-  if (strictPremiumContinuity && chapter.userIntent && chapter.userIntent.length > 8) {
-    try {
-      // P0 fix : les knownLocationNames doivent être des LIEUX (VW + DB),
-      // pas les canonicalName des character canons.
-      const visualWorldForLocs = snapshot.data.visualWorldContract as
-        | { locations?: Array<{ canonicalName?: string }>; npcGroups?: Array<{ label?: string }> }
-        | undefined;
-      const locationNamesFromVw = (visualWorldForLocs?.locations ?? [])
-        .map((l) => l.canonicalName)
-        .filter((n): n is string => Boolean(n));
-      const dbLocations = await prisma.location.findMany({
-        where: { projectId },
-        select: { name: true },
-      });
-      const allLocationNames = [
-        ...new Set([
-          ...locationNamesFromVw,
-          ...dbLocations.map((l) => l.name).filter(Boolean),
-        ]),
-      ];
-
-      const knownCharNames = charRefsForLabels.map((c) => c.name).filter((n): n is string => Boolean(n));
-      const vwNpcGroupsForIntent = (visualWorldForLocs as { npcGroups?: Array<{ label?: string }> } | undefined)?.npcGroups ?? [];
-      const dbNpcGroupsForIntent = await prisma.npcGroup.findMany({
-        where: { projectId },
-        select: { label: true },
-      });
-      const knownNpcLabels = [
-        ...new Set([
-          ...vwNpcGroupsForIntent.map((g) => g.label).filter((l): l is string => Boolean(l)),
-          ...dbNpcGroupsForIntent.map((g) => g.label).filter(Boolean),
-        ]),
-      ];
-      const intentNarrative = buildIntentNarrativeContract({
-        chapterId,
-        userIntent: chapter.userIntent,
-        knownLocationNames: allLocationNames,
-        knownCharacterNames: knownCharNames,
-        knownCharacterIds: charRefsForLabels.map((c) => c.id),
-        knownNpcGroupLabels: knownNpcLabels,
-      });
-      logIntentContract({
-        requiredEvents: intentNarrative.requiredEvents.length,
-        requiredNpcGroups: intentNarrative.requiredNpcGroups.length,
-        requiredLocations: intentNarrative.requiredLocations.length,
-      });
-
-      const productionPlan = snapshot.data.productionPlan as { panelBlueprints?: Array<{ purpose?: string; beatId?: string }> } | undefined;
-      const beatSummariesSet = new Set<string>();
-      for (const bp of productionPlan?.panelBlueprints ?? []) {
-        if (typeof bp.purpose === "string") beatSummariesSet.add(bp.purpose);
-      }
-      // Also include beat summaries from the production outline for better coverage matching
-      const outlineBeatsForCoverage = (snapshot.data.productionOutline as { beats?: Array<{ summary?: string }> } | undefined)?.beats;
-      if (Array.isArray(outlineBeatsForCoverage)) {
-        for (const b of outlineBeatsForCoverage) {
-          if (typeof b.summary === "string") beatSummariesSet.add(b.summary);
-        }
-      }
-      const vwLocs = locationNamesFromVw;
-      const vwNpcs = (visualWorldForLocs?.npcGroups ?? [])
-        .map((g) => g.label)
-        .filter((n): n is string => Boolean(n));
-
-      const coverage = runIntentCoverageQa({
-        intentContract: intentNarrative,
-        beatSummaries: [...beatSummariesSet],
-        visualWorldLocationNames: vwLocs,
-        visualWorldNpcGroupLabels: vwNpcs,
-        strict: false,
-      });
-
-      logOutlineCoverage({
-        covered: coverage.requiredEventsCovered,
-        total: coverage.requiredEventsTotal,
-        missingEventIds: coverage.missingEvents,
-      });
-
-      // Threshold lowered to 30 — heuristic word-overlap between user-intent
-      // sentences and beat summaries is too fragile for a hard block at 60%.
-      // The structural QA + confidence score already guard quality.
-      const INTENT_COVERAGE_BLOCK_THRESHOLD = 30;
-      if (coverage.intentCoverageScore < INTENT_COVERAGE_BLOCK_THRESHOLD && intentNarrative.requiredEvents.length > 0) {
-        logLaunchBlock(
-          projectId,
-          chapterId,
-          "INTENT_COVERAGE_TOO_LOW",
-          `Intent coverage score=${coverage.intentCoverageScore} below threshold=${INTENT_COVERAGE_BLOCK_THRESHOLD}`,
-          { missingEvents: coverage.missingEvents, issues: coverage.issues.slice(0, 5) },
-        );
-        return NextResponse.json(
-          {
-            error: "intent_coverage_too_low",
-            code: "INTENT_COVERAGE_TOO_LOW",
-            message:
-              `Le plan ne couvre que ${coverage.intentCoverageScore}% de ton intention narrative. ` +
-              "Régénère le plan ou vérifie l'intention dans le wizard.",
-            intentCoverageScore: coverage.intentCoverageScore,
-            missingEvents: coverage.missingEvents,
-            coverageIssues: coverage.issues.slice(0, 10),
-          },
-          { status: 422 },
-        );
-      }
-    } catch (err) {
-      console.warn("[launch] intent_coverage_qa_failed", err);
-    }
-  }
+  const intentCoverageResult = await runIntentCoverageQaForLaunch({
+    projectId,
+    chapterId,
+    chapter,
+    snapshot,
+    charRefsForLabels,
+    strictPremiumContinuity,
+  });
+  if (!intentCoverageResult.ok) return intentCoverageResult.response;
 
   if (Array.isArray(bpForContinuity) && bpForContinuity.length > 0 && strictPremiumContinuity) {
     // Only enforce strict environment DNA check if the VisualWorldContract
@@ -1226,151 +1042,21 @@ export async function POST(_req: Request, ctx: Ctx) {
     },
   });
 
-  // Construire le job input premium — même helper que /pipeline
-  let jobInput: Record<string, unknown>;
-  try {
-    jobInput = buildGenerationJobInputFromSnapshot({
-      chapterId,
-      source: "chapter_studio_launch",
-      snapshot: nextSnapshot,
-      approvedOutline,
-      selectedPlotLabel: nextSnapshot.data.selectedPlotLabel ?? "bold",
-      creativityControls:
-        nextSnapshot.data.creativityControls == null ? null : asRecord(nextSnapshot.data.creativityControls),
-      heroCharacterId,
-      secondaryHeroCharacterId,
-      focusCharacterIds,
-      activeNpcIds,
-      activeCreatureIds,
-      locationIds,
-      estimateContext: estimateContext
-        ? {
-            targetChapterId: estimateContext.targetChapterId ?? null,
-            targetChapterNumber: estimateContext.targetChapterNumber ?? null,
-            estimateSource: estimateContext.estimateSource,
-            estimatedAt: estimateContext.estimatedAt,
-            divergenceDetected: !!(estimateContext.targetChapterId && estimateContext.targetChapterId !== chapterId),
-          }
-        : null,
-    });
-  } catch (err) {
-    // P1-3 : blueprints invalides = refus propre du lancement.
-    if (err instanceof InvalidBlueprintsError) {
-      console.warn(
-        `[launch] invalid_blueprints chapterId=${chapterId} total=${err.totalInvalid} sample=${JSON.stringify(err.invalidBlueprints.slice(0, 3))}`,
-      );
-      return NextResponse.json(
-        {
-          error: "invalid_blueprints",
-          code: err.code,
-          totalInvalid: err.totalInvalid,
-          invalidBlueprints: err.invalidBlueprints,
-          message: err.message,
-        },
-        { status: 422 },
-      );
-    }
-    // P0.6 : plan incomplet = refus propre, pas d'expansion silencieuse.
-    if (err instanceof IncompletePlanError) {
-      // P1.2 — observabilité structurée. On cherche combien de chapitres
-      // sortent incomplets en prod, avec quel gap et sous quelle source de
-      // contrat (premium vs legacy_adapted).
-      const productionPlanRec = asRecord(studioSnapshotForLaunch.data.productionPlan ?? undefined);
-      const productionPlanSource =
-        typeof productionPlanRec.source === "string" ? productionPlanRec.source : "unknown";
-      const productionOutlineRec = asRecord(snapshot.data.productionOutline ?? undefined);
-      const productionOutlineSource =
-        typeof productionOutlineRec.source === "string" ? productionOutlineRec.source : "unknown";
-      console.warn(
-        `[launch] incomplete_plan userId=${user.id} projectId=${projectId} chapterId=${chapterId} ` +
-        `blueprints=${err.panelBlueprintCount} minimum=${err.minimumImages} ` +
-        `gap=${err.minimumImages - err.panelBlueprintCount} ` +
-        `productionPlanSource=${productionPlanSource} ` +
-        `productionOutlineSource=${productionOutlineSource} ` +
-        `contractStatus=${snapshot.data.readinessReport?.contractStatus ?? "n/a"} ` +
-        `readinessLaunchBlocked=${snapshot.data.readinessReport?.launchBlocked ?? "n/a"}`,
-      );
-      return NextResponse.json(
-        {
-          error: "incomplete_plan",
-          code: err.code,
-          panelBlueprintCount: err.panelBlueprintCount,
-          minimumImages: err.minimumImages,
-          message: err.message,
-        },
-        { status: 422 },
-      );
-    }
-    throw err;
-  }
-
-  const estimatedCost = await estimateChapterTextTokensFromRules();
-
-  // F1 : Vérification du solde wallet avant lancement (non-bloquant pour les admins)
-  if (!isUnlimitedAdminEmail(user.email)) {
-    const wallet = await prisma.wallet.findUnique({ where: { userId: user.id } });
-    if (wallet && wallet.balance < estimatedCost) {
-      console.warn(
-        `[launch] insufficient_balance userId=${user.id} required=${estimatedCost} available=${wallet.balance} shortfall=${estimatedCost - wallet.balance}`,
-      );
-      return NextResponse.json(
-        {
-          error: "Solde insuffisant pour lancer la génération.",
-          code: "INSUFFICIENT_BALANCE",
-          required: estimatedCost,
-          available: wallet.balance,
-          shortfall: estimatedCost - wallet.balance,
-        },
-        { status: 402 },
-      );
-    }
-  }
-
-  const job = await prisma.job.create({
-    data: {
-      userId: user.id,
-      projectId,
-      chapterId,
-      type: "GENERATE_CHAPTER_SCRIPT",
-      status: "queued",
-      estimatedTokenCost: estimatedCost,
-      input: toPrismaInputJson(jobInput),
-      output: {
-        currentStep: "queued",
-        steps: [],
-        operationalStatus: stack.operationalStatus,
-        degradedModes: stack.degradedModes,
-        stackWarnings: stack.warnings,
-        focusCharacterIds,
-      },
-    },
-  });
-
-  const sent = await sendChapterGenerateRequested({
-    jobId: job.id,
+  return buildAndDispatchLaunchJob({
+    user,
     projectId,
     chapterId,
-    userId: user.id,
-  });
-
-  if (!sent.ok) {
-    const run = await runFullChapterPipelineFromJob(job.id);
-    logLaunchJobDispatched(projectId, chapterId, job.id, false);
-    return NextResponse.json({
-      ok: run.ok,
-      jobId: job.id,
-      message: run.ok ? "Pipeline exécuté immédiatement." : `Échec pipeline : ${run.error ?? "inconnu"}`,
-      operationalStatus: stack.operationalStatus,
-      degradedModes: stack.degradedModes,
-    });
-  }
-
-  logLaunchJobDispatched(projectId, chapterId, job.id, true);
-  return NextResponse.json({
-    ok: true,
-    jobId: job.id,
-    operationalStatus: stack.operationalStatus,
-    degradedModes: stack.degradedModes,
-    message: "Génération lancée depuis le Chapter Studio.",
+    snapshot,
+    nextSnapshot,
+    studioSnapshotForLaunch,
+    approvedOutline,
+    heroCharacterId,
+    secondaryHeroCharacterId,
+    focusCharacterIds,
+    activeNpcIds,
+    activeCreatureIds,
+    locationIds,
+    estimateContext,
+    stack,
   });
 }
