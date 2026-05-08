@@ -3,7 +3,7 @@ import { GOLDEN_FIXTURES } from "./fixtures";
 import { buildCanonicalChapterProductionPlan } from "../../build-canonical-production-plan";
 import { canonicalPlanToPanelBlueprints } from "../../canonical-to-premium-blueprints";
 import { allocateContractualVisualSlots } from "../../allocate-contractual-visual-slots";
-import type { PanelBlueprintPremium } from "../../canonical-to-premium-blueprints";
+import type { PanelBlueprintPremium } from "../../../types/narrative-facts";
 
 function inlineContractualCheck(blueprints: PanelBlueprintPremium[]) {
   let envPanels = 0;
@@ -20,7 +20,7 @@ function inlineContractualCheck(blueprints: PanelBlueprintPremium[]) {
   }
 
   const hasEnemyObligation = blueprints.some(
-    (bp) => (bp as Record<string, unknown>).mustShowEnemy === true,
+    (bp) => (bp as unknown as Record<string, unknown>).mustShowEnemy === true,
   );
   const hasMandatoryProp = blueprints.some(
     (bp) => Array.isArray(bp.requiredProps) && bp.requiredProps.some((p: { mustBeVisible?: boolean }) => p.mustBeVisible),

@@ -9,7 +9,7 @@ import type {
   StructuredLocationDelta,
   StructuredSceneEvent,
 } from "@manga-ai-studio/core";
-import { buildPanelTextContractFromFragments, isPipelineV3PremiumOnlyEnabled } from "@manga-ai-studio/core";
+import { buildPanelTextContractFromFragments, getAppConfig, isPipelineV3PremiumOnlyEnabled } from "@manga-ai-studio/core";
 import type { GenerationOperationalStatus } from "../generation-status";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -517,7 +517,7 @@ IMPORTANT:
 
   try {
     const response = await openai.chat.completions.create({
-      model: process.env.OPENAI_DIALOGUE_MODEL ?? "gpt-4o-mini",
+      model: getAppConfig().OPENAI_DIALOGUE_MODEL,
       messages: [
         {
           role: "system",

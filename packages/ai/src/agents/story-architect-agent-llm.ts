@@ -39,7 +39,7 @@ import {
   type StoryArchitectInput,
   type StoryArchitectOutput,
 } from "./story-architect-agent";
-import { assertNotPremiumSilentFallback } from "@manga-ai-studio/core";
+import { assertNotPremiumSilentFallback, getAppConfig } from "@manga-ai-studio/core";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -353,7 +353,7 @@ export async function runStoryArchitectAgentLlm(
   const continuityBefore = input.continuityBefore ?? createEmptyContinuityState();
 
   try {
-    const model = process.env.STORY_ARCHITECT_MODEL ?? "gpt-4o-mini";
+    const model = getAppConfig().STORY_ARCHITECT_MODEL;
     const completion = await openai.chat.completions.create({
       model,
       messages: [

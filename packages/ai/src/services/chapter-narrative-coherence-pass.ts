@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { getAppConfig } from "@manga-ai-studio/core";
 import type { GeneratedChapterBundle, ProjectContextForChapter } from "../chapter/shared-types";
 import { buildBundleDigestForNarrative, buildContextDigest } from "./chapter-pass-digests";
 import { buildStorySpine, type ChapterDramaticSpine } from "./story-spine";
@@ -199,7 +200,8 @@ export async function runChapterNarrativeCoherencePass(input: {
     };
   }
 
-  const model = process.env.OPENAI_NARRATIVE_MODEL?.trim() || process.env.OPENAI_CONTINUITY_MODEL?.trim() || process.env.OPENAI_DIALOGUE_MODEL || "gpt-4o-mini";
+  const cfg = getAppConfig();
+  const model = cfg.OPENAI_NARRATIVE_MODEL?.trim() || cfg.OPENAI_CONTINUITY_MODEL?.trim() || cfg.OPENAI_DIALOGUE_MODEL;
 
   const prompt = {
     chapterGoal: input.chapterGoal,

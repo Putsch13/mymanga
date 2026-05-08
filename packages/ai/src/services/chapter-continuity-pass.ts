@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { getAppConfig } from "@manga-ai-studio/core";
 import type { GeneratedChapterBundle, ProjectContextForChapter, StoryboardPanel, StoryboardPage } from "../chapter/shared-types";
 import { buildBundleDigest, buildContextDigest } from "./chapter-pass-digests";
 
@@ -99,7 +100,8 @@ export async function runChapterContinuityPass(input: {
     return { bundle: input.bundle, notes: [...baseNotes, "OpenAI absent: pass non exécuté."], usedOpenAI: false };
   }
 
-  const model = process.env.OPENAI_CONTINUITY_MODEL?.trim() || process.env.OPENAI_DIALOGUE_MODEL || "gpt-4o-mini";
+  const cfg = getAppConfig();
+  const model = cfg.OPENAI_CONTINUITY_MODEL?.trim() || cfg.OPENAI_DIALOGUE_MODEL;
   const prompt = {
     chapterGoal: input.chapterGoal,
     selectedPlotLabel: input.selectedPlotLabel ?? "bold",

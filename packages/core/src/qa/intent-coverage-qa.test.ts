@@ -10,6 +10,7 @@ function minimalContract(overrides: Partial<IntentNarrativeContract> = {}): Inte
     requiredCharacters: [],
     requiredNpcGroups: [],
     requiredLocations: [],
+    requiredLocationIds: [],
     requiredEvents: [],
     forbiddenInventions: [],
     ...overrides,

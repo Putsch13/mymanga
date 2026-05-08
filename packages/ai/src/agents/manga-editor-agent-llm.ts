@@ -17,6 +17,7 @@
  */
 
 import OpenAI from "openai";
+import { getAppConfig } from "@manga-ai-studio/core";
 import type { StoryArc } from "../contracts/story-arc";
 import type {
   StoryboardLayoutTemplate,
@@ -431,7 +432,7 @@ export async function runMangaEditorAgentLlm(
   const warnings: string[] = [];
   try {
     const response = await openai.chat.completions.create({
-      model: process.env.OPENAI_MANGA_EDITOR_MODEL ?? "gpt-4o-mini",
+      model: getAppConfig().OPENAI_MANGA_EDITOR_MODEL,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: buildUserPrompt(input) },

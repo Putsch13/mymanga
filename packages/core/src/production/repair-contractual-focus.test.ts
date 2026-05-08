@@ -65,7 +65,7 @@ describe("repairProductionPlanContractualFocus", () => {
 
   it("traite missing_weapon_insert comme un alias de missing_prop_insert", () => {
     const blueprints = [
-      makeBp("p_npc_0", { subjectFocus: "npc", cutawayType: "npc_panel" }),
+      makeBp("p_npc_0", { subjectFocus: "npc", cutawayType: "npc_group" }),
       makeBp("p_cutaway_1", { cutawayType: "environment" }),
     ];
     const result = repairProductionPlanContractualFocus(blueprints, [
@@ -106,7 +106,7 @@ describe("repairProductionPlanContractualFocus", () => {
     // Tous les panels sont déjà prop/enemy/group/npc → exclus de findFirstGenericCutaway
     const blueprints = [
       makeBp("p_prop_0", { cutawayType: "prop_insert", subjectFocus: "prop" }),
-      makeBp("p_npc_1", { cutawayType: "npc_panel", subjectFocus: "npc" }),
+      makeBp("p_npc_1", { cutawayType: "npc_group", subjectFocus: "npc" }),
       makeBp("p_enemy_2", { cutawayType: "none", subjectFocus: "enemy" }),
     ];
     const result = repairProductionPlanContractualFocus(blueprints, [

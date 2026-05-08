@@ -4,6 +4,7 @@ import type {
   ChapterStudioData,
   AutofillMeta,
 } from "@manga-ai-studio/core";
+import { getAppConfig } from "@manga-ai-studio/core";
 import { inferGenreMode, buildGenreDirectorPromptHints, getGenreDirectorConfig } from "./genre-director";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -348,7 +349,7 @@ export async function runChapterAutofill(input: AutofillInput): Promise<Autofill
 
   try {
     const response = await openai.chat.completions.create({
-      model: process.env.OPENAI_AUTOFILL_MODEL ?? process.env.OPENAI_NARRATIVE_MODEL ?? "gpt-4o-mini",
+      model: getAppConfig().OPENAI_AUTOFILL_MODEL ?? getAppConfig().OPENAI_NARRATIVE_MODEL,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0.7,
@@ -627,7 +628,7 @@ Réponds UNIQUEMENT en JSON valide :
 
   try {
     const response = await openai.chat.completions.create({
-      model: process.env.OPENAI_AUTOFILL_MODEL ?? process.env.OPENAI_NARRATIVE_MODEL ?? "gpt-4o-mini",
+      model: getAppConfig().OPENAI_AUTOFILL_MODEL ?? getAppConfig().OPENAI_NARRATIVE_MODEL,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0.75,
