@@ -10,6 +10,7 @@
 import { runRoutedImageGeneration } from "@manga-ai-studio/ai";
 import { prisma } from "@manga-ai-studio/db";
 import { persistImageIfNeeded } from "../../pipeline-image-persistence";
+import { logPipelineWarn } from "../../lib/pipeline-logger";
 
 type RawCharacter = {
   name: string;
@@ -117,8 +118,10 @@ export async function generateChapterCover(
         sceneImageId: `cover_${chapterId}`,
       });
       if (!persisted.ok) {
-        console.warn(
-          `[pipeline:cover] persist failed chapter=${chapterId} reason=${persisted.reason} — skipping cover`,
+        logPipelineWarn(
+          "cover.persist_failed",
+          { reason: persisted.reason },
+          { ns: "pipeline:cover", chapterId, projectId },
         );
         return null;
       }
@@ -133,7 +136,11 @@ export async function generateChapterCover(
     }
     return null;
   } catch (e) {
-    console.warn("[pipeline] cover generation skipped:", e instanceof Error ? e.message : e);
+    logPipelineWarn(
+      "cover.generation_skipped",
+      { error: e instanceof Error ? e.message : String(e) },
+      { ns: "pipeline:cover", chapterId, projectId },
+    );
     return null;
   }
 }

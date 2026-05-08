@@ -12,6 +12,7 @@ import {
   computeCoverageGaps,
   type PanelBlueprintPremium,
 } from "@manga-ai-studio/core";
+import { logPipelineInfo, logPipelineWarn } from "../../lib/pipeline-logger";
 
 type PlannedImageLike = {
   baseMetadata: Record<string, unknown>;
@@ -45,17 +46,26 @@ export function reportRenderedCoverage(params: {
   const criticalGaps = coverageGaps.filter((g) => g.severity === "critical");
 
   if (criticalGaps.length > 0) {
-    console.warn(
-      `[pipeline:coverage-gaps] ${criticalGaps
-        .map(
-          (g) =>
-            `${g.metric}: planned=${(g.planned * 100).toFixed(0)}% rendered=${(g.rendered * 100).toFixed(0)}%`,
-        )
-        .join(" | ")}`,
+    logPipelineWarn(
+      "coverage.critical_gaps",
+      {
+        gaps: criticalGaps.map((g) => ({
+          metric: g.metric,
+          plannedPct: Math.round(g.planned * 100),
+          renderedPct: Math.round(g.rendered * 100),
+        })),
+      },
+      { ns: "pipeline:coverage-gaps" },
     );
   } else {
-    console.log(
-      `[pipeline:coverage] OK enemy=${(renderedCoverage.enemyCoverage * 100).toFixed(0)}% npc=${(renderedCoverage.npcCoverage * 100).toFixed(0)}% cutaway=${(renderedCoverage.cutawayCoverage * 100).toFixed(0)}%`,
+    logPipelineInfo(
+      "coverage.ok",
+      {
+        enemyPct: Math.round(renderedCoverage.enemyCoverage * 100),
+        npcPct: Math.round(renderedCoverage.npcCoverage * 100),
+        cutawayPct: Math.round(renderedCoverage.cutawayCoverage * 100),
+      },
+      { ns: "pipeline:coverage" },
     );
   }
 

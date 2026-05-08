@@ -16,6 +16,7 @@
  * c'était la cause principale des `imageUrl` FAL/BFL expirées stockées en base.
  */
 import { createClient } from "@supabase/supabase-js";
+import { logPipelineError, logPipelineInfo, logPipelineWarn } from "./lib/pipeline-logger";
 import {
   isHttpImageUrl,
   isAlreadyStableStorageUrl,
@@ -126,8 +127,15 @@ export async function persistImageIfNeeded(
   }
 
   if (!client) {
-    const msg = `no Supabase client (NEXT_PUBLIC_SUPABASE_URL=${!!process.env.NEXT_PUBLIC_SUPABASE_URL} SERVICE_ROLE=${!!process.env.SUPABASE_SERVICE_ROLE_KEY}) – refusing temporary URL for ${contextLabel}`;
-    console.warn(`[pipeline:persist] ${msg}`);
+    logPipelineWarn(
+      "persist.no_supabase_client",
+      {
+        hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+        hasServiceRole: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+        context: contextLabel,
+      },
+      { ns: "pipeline:persist" },
+    );
     return {
       ok: false,
       persisted: false,
@@ -201,7 +209,11 @@ export async function persistImageIfNeeded(
     });
 
     if (up.error) {
-      console.warn(`[pipeline:persist] bucket=${bucket} failed: ${up.error.message}`);
+      logPipelineWarn(
+        "persist.bucket_upload_failed",
+        { bucket, message: up.error.message },
+        { ns: "pipeline:persist" },
+      );
       continue;
     }
 
@@ -209,12 +221,18 @@ export async function persistImageIfNeeded(
     try {
       assertStableImageUrl(publicUrl, "pipeline:persist");
     } catch (err) {
-      console.error(
-        `[pipeline:persist] bucket=${bucket} produced a non-stable URL — refusing to persist (${err instanceof Error ? err.message : String(err)})`,
+      logPipelineError(
+        "persist.bucket_unstable_url",
+        { bucket, error: err instanceof Error ? err.message : String(err) },
+        { ns: "pipeline:persist" },
       );
       continue;
     }
-    console.log(`[pipeline:persist] OK bucket=${bucket} storageKey=${filePath} → ${publicUrl.slice(0, 80)}`);
+    logPipelineInfo(
+      "persist.ok",
+      { bucket, storageKey: filePath, urlPreview: publicUrl.slice(0, 80) },
+      { ns: "pipeline:persist" },
+    );
     return {
       ok: true,
       persisted: true,
@@ -226,7 +244,11 @@ export async function persistImageIfNeeded(
     };
   }
 
-  console.error(`[pipeline:persist] All buckets failed for ${contextLabel} – refusing to persist temporary URL`);
+  logPipelineError(
+    "persist.all_buckets_failed",
+    { context: contextLabel, attemptedBuckets: uniqueBuckets },
+    { ns: "pipeline:persist" },
+  );
   return {
     ok: false,
     persisted: false,

@@ -6,6 +6,7 @@
 
 import type { StoryboardPlan } from "@manga-ai-studio/ai/contracts";
 import { resolvePanelTextContractFromStoryboardPanelLike } from "@manga-ai-studio/core";
+import { logPipelineInfo, logPipelineWarn } from "../lib/pipeline-logger";
 import { getPanelPromptFingerprint } from "./panel-prompt-fingerprint";
 import { repairStoryboardPlanRepeatedPromptFingerprints } from "./repair-repeated-prompt-fingerprints";
 
@@ -231,17 +232,18 @@ export function runPreRenderPremiumQaOrThrow(input: PreRenderPremiumQaInput): Pr
   let result = runPreRenderPremiumQa(input);
 
   if (!result.ok && result.stats.repeatedPromptCount > 0) {
-    console.warn("[pipeline:v3:pre-render-qa] repeated_prompts detected; attempting fingerprint repair", {
-      repeatedPromptCount: result.stats.repeatedPromptCount,
-      issues: result.issues,
-    });
+    logPipelineWarn(
+      "pre_render_qa.repeated_prompts_detected",
+      { repeatedPromptCount: result.stats.repeatedPromptCount, issues: result.issues },
+      { ns: "pipeline:v3:pre-render-qa" },
+    );
     repairStoryboardPlanRepeatedPromptFingerprints(input.storyboardPlan);
     result = runPreRenderPremiumQa(input);
-    console.log("[pipeline:v3:pre-render-qa] after repair", {
-      repeatedPromptCount: result.stats.repeatedPromptCount,
-      ok: result.ok,
-      issues: result.issues,
-    });
+    logPipelineInfo(
+      "pre_render_qa.after_repair",
+      { repeatedPromptCount: result.stats.repeatedPromptCount, ok: result.ok, issues: result.issues },
+      { ns: "pipeline:v3:pre-render-qa" },
+    );
   }
 
   const premiumOnly = process.env.PIPELINE_V3_PREMIUM_ONLY === "true";
@@ -250,11 +252,20 @@ export function runPreRenderPremiumQaOrThrow(input: PreRenderPremiumQaInput): Pr
     const otherIssues = result.issues.filter((i) => !i.startsWith("repeated_prompts="));
     const repeatedOnly = otherIssues.length === 0 && result.stats.repeatedPromptCount <= 5;
     if (repeatedOnly && !premiumOnly) {
-      console.warn("[pipeline:v3:pre-render-qa] tolerating repeated_prompts<=5 after repair (warning only)", {
-        repeatedPromptCount: result.stats.repeatedPromptCount,
-      });
-      console.info(
-        `[pipeline:v3:pre-render-premium-qa] ok=true (tolerated_repeated) panels=${result.stats.totalPanels} closeups=${result.stats.closeupCount}/${result.stats.totalPanels} genericActions=${result.stats.genericActionCount} repeatedPrompts=${result.stats.repeatedPromptCount}`,
+      logPipelineWarn(
+        "pre_render_qa.tolerating_repeated_prompts",
+        { repeatedPromptCount: result.stats.repeatedPromptCount, threshold: 5 },
+        { ns: "pipeline:v3:pre-render-qa" },
+      );
+      logPipelineInfo(
+        "pre_render_qa.ok_tolerated_repeated",
+        {
+          panels: result.stats.totalPanels,
+          closeups: result.stats.closeupCount,
+          genericActions: result.stats.genericActionCount,
+          repeatedPrompts: result.stats.repeatedPromptCount,
+        },
+        { ns: "pipeline:v3:pre-render-premium-qa" },
       );
       return {
         ...result,
@@ -265,8 +276,15 @@ export function runPreRenderPremiumQaOrThrow(input: PreRenderPremiumQaInput): Pr
     throw new PreRenderPremiumQaError(result.issues, result.stats);
   }
 
-  console.info(
-    `[pipeline:v3:pre-render-premium-qa] ok=true panels=${result.stats.totalPanels} closeups=${result.stats.closeupCount}/${result.stats.totalPanels} genericActions=${result.stats.genericActionCount} repeatedPrompts=${result.stats.repeatedPromptCount}`,
+  logPipelineInfo(
+    "pre_render_qa.ok",
+    {
+      panels: result.stats.totalPanels,
+      closeups: result.stats.closeupCount,
+      genericActions: result.stats.genericActionCount,
+      repeatedPrompts: result.stats.repeatedPromptCount,
+    },
+    { ns: "pipeline:v3:pre-render-premium-qa" },
   );
 
   return result;

@@ -23,7 +23,7 @@ describe("chapter recovery pass — contract tests", () => {
   });
 
   it("has a recovery pass that retries failed shots", () => {
-    expect(combinedSource).toContain("[pipeline:recovery]");
+    expect(combinedSource).toContain("pipeline:recovery");
     expect(combinedSource).toContain("recovery_pass");
     expect(combinedSource).toMatch(/recoveredCount/);
   });

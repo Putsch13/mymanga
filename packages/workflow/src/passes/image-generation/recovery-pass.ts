@@ -21,6 +21,7 @@ import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { persistImageIfNeeded } from "../../pipeline-image-persistence";
 import { setJobProgress } from "../../pipeline-job";
 import { type StableImageReference, stripLegacyPanelTextFieldsWhenContractPresent } from "@manga-ai-studio/core";
+import { logPipelineInfo, logPipelineWarn } from "../../lib/pipeline-logger";
 import { buildStableImageReference, resolveStableImageReferences } from "../../stable-image-refs";
 
 type PlannedImage = {
@@ -55,8 +56,10 @@ export async function runRecoveryPass(params: RecoveryParams): Promise<RecoveryR
   }
 
   const attempted = Math.min(missingCount, failedShots.length);
-  console.log(
-    `[pipeline:recovery] ${missingCount} images manquantes — relance de ${attempted} shots en mode dégradé`,
+  logPipelineInfo(
+    "recovery.start",
+    { missingCount, attempted, failedShotsTotal: failedShots.length },
+    { ns: "pipeline:recovery", jobId, projectId, chapterId },
   );
   await setJobProgress(
     jobId,
@@ -160,8 +163,10 @@ export async function runRecoveryPass(params: RecoveryParams): Promise<RecoveryR
           sceneImageId: failedShot.id,
         });
         if (!persisted.ok) {
-          console.warn(
-            `[pipeline:recovery] persist failed shot=${failedShot.id} reason=${persisted.reason} — keeping failed status`,
+          logPipelineWarn(
+            "recovery.persist_failed",
+            { sceneImageId: failedShot.id, reason: persisted.reason },
+            { ns: "pipeline:recovery", jobId, projectId, chapterId },
           );
           continue;
         }
@@ -190,13 +195,19 @@ export async function runRecoveryPass(params: RecoveryParams): Promise<RecoveryR
           },
         });
       }
-    } catch {
-      console.warn(`[pipeline:recovery] shot recovery failed for ${failedShot.id}`);
+    } catch (err) {
+      logPipelineWarn(
+        "recovery.shot_failed",
+        { sceneImageId: failedShot.id, error: err instanceof Error ? err.message : String(err) },
+        { ns: "pipeline:recovery", jobId, projectId, chapterId },
+      );
     }
   }
 
-  console.log(
-    `[pipeline:recovery] recovered=${recoveredCount}/${missingCount} failedShots=${failedShots.length}`,
+  logPipelineInfo(
+    "recovery.done",
+    { recoveredCount, missingCount, failedShotsTotal: failedShots.length },
+    { ns: "pipeline:recovery", jobId, projectId, chapterId },
   );
   await setJobProgress(
     jobId,
