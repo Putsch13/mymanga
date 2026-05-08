@@ -78,13 +78,15 @@ function minimalBp(): PanelBlueprintPremium {
 }
 
 describe("hydrateBlueprintsWithPropDna", () => {
-  it("strict : id prop inconnu sur le binding → throw", () => {
-    expect(() =>
-      hydrateBlueprintsWithPropDna({
-        blueprints: [minimalBp()],
-        visualWorld: minimalVw(),
-        strict: true,
-      }),
-    ).toThrow(/premium_visual_world_unknown_prop:bad-id/);
+  it("strict : id prop inconnu sur le binding → skip graceful (pas de throw), props valides conservés", () => {
+    const result = hydrateBlueprintsWithPropDna({
+      blueprints: [minimalBp()],
+      visualWorld: minimalVw(),
+      strict: true,
+    });
+    expect(result).toHaveLength(1);
+    const validPropIds = result[0]!.requiredProps.map((p) => p.id);
+    expect(validPropIds).not.toContain("bad-id");
+    expect(validPropIds).toContain("p1");
   });
 });

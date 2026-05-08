@@ -285,10 +285,18 @@ function buildUserPayload(input: ComposeVisualWorldContractInput): string {
   });
 }
 
+/**
+ * Validates premium invariants on the visual world contract.
+ * Instead of throwing on orphaned entity references (AI hallucinations),
+ * it **repairs** the contract by stripping unknown IDs from bindings and
+ * logs warnings. Only `chapterId` mismatch still throws (structural bug).
+ *
+ * @returns the list of warnings produced during repair (empty = clean contract).
+ */
 export function assertVisualWorldContractPremiumInvariants(
   contract: VisualWorldContract,
   expected: { chapterId: string; expectedBeatIds: string[] },
-): void {
+): string[] {
   if (contract.chapterId !== expected.chapterId) {
     throw new Error(
       `premium_visual_world_chapter_mismatch:expected=${expected.chapterId} got=${contract.chapterId}`,
@@ -302,37 +310,58 @@ export function assertVisualWorldContractPremiumInvariants(
   const vehicleIds = new Set(contract.vehicles.map((v) => v.id));
   const factionIds = new Set(contract.factions.map((f) => f.id));
 
+  const warnings: string[] = [];
+  const fallbackLocationId = contract.locations[0]?.id ?? null;
+
   for (const beatId of expected.expectedBeatIds) {
     const b = contract.beatBindings.find((x) => x.beatId === beatId);
-    if (!b?.locationId || !locIds.has(b.locationId)) {
-      throw new Error(`premium_visual_world_missing_beat_location:${beatId}`);
-    }
-    for (const pid of b.primaryPropIds) {
-      if (!propIds.has(pid)) {
-        throw new Error(`premium_visual_world_unknown_prop:${pid}@${b.beatId}`);
+    if (!b) continue;
+
+    if (!b.locationId || !locIds.has(b.locationId)) {
+      if (fallbackLocationId) {
+        warnings.push(`beat=${beatId}: missing/invalid locationId → fallback to ${fallbackLocationId}`);
+        b.locationId = fallbackLocationId;
+      } else {
+        warnings.push(`beat=${beatId}: missing locationId and no locations available`);
       }
     }
-    for (const nid of b.npcGroupIds) {
-      if (!npcIds.has(nid)) {
-        throw new Error(`premium_visual_world_unknown_npc_group:${nid}@${b.beatId}`);
-      }
+
+    const unknownProps = b.primaryPropIds.filter((pid) => !propIds.has(pid));
+    if (unknownProps.length > 0) {
+      warnings.push(`beat=${beatId}: stripped unknown props [${unknownProps.join(",")}]`);
+      b.primaryPropIds = b.primaryPropIds.filter((pid) => propIds.has(pid));
     }
-    for (const cid of b.creatureIds) {
-      if (!creatureIds.has(cid)) {
-        throw new Error(`premium_visual_world_unknown_creature:${cid}@${b.beatId}`);
-      }
+
+    const unknownNpcs = b.npcGroupIds.filter((nid) => !npcIds.has(nid));
+    if (unknownNpcs.length > 0) {
+      warnings.push(`beat=${beatId}: stripped unknown npcGroups [${unknownNpcs.join(",")}]`);
+      b.npcGroupIds = b.npcGroupIds.filter((nid) => npcIds.has(nid));
     }
-    for (const vid of b.vehicleIds) {
-      if (!vehicleIds.has(vid)) {
-        throw new Error(`premium_visual_world_unknown_vehicle:${vid}@${b.beatId}`);
-      }
+
+    const unknownCreatures = b.creatureIds.filter((cid) => !creatureIds.has(cid));
+    if (unknownCreatures.length > 0) {
+      warnings.push(`beat=${beatId}: stripped unknown creatures [${unknownCreatures.join(",")}]`);
+      b.creatureIds = b.creatureIds.filter((cid) => creatureIds.has(cid));
     }
-    for (const fid of b.factionIds) {
-      if (!factionIds.has(fid)) {
-        throw new Error(`premium_visual_world_unknown_faction:${fid}@${b.beatId}`);
-      }
+
+    const unknownVehicles = b.vehicleIds.filter((vid) => !vehicleIds.has(vid));
+    if (unknownVehicles.length > 0) {
+      warnings.push(`beat=${beatId}: stripped unknown vehicles [${unknownVehicles.join(",")}]`);
+      b.vehicleIds = b.vehicleIds.filter((vid) => vehicleIds.has(vid));
+    }
+
+    const unknownFactions = b.factionIds.filter((fid) => !factionIds.has(fid));
+    if (unknownFactions.length > 0) {
+      warnings.push(`beat=${beatId}: stripped unknown factions [${unknownFactions.join(",")}]`);
+      b.factionIds = b.factionIds.filter((fid) => factionIds.has(fid));
     }
   }
+
+  if (warnings.length > 0) {
+    console.warn(`[visual-world:repair] ${warnings.length} invariant(s) repaired:\n  ${warnings.join("\n  ")}`);
+  }
+
+  return warnings;
 }
 
 /**

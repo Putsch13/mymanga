@@ -92,7 +92,7 @@ export function hydrateBlueprintsWithPropDna(
       const p = propById.get(id);
       if (!p) {
         if (strict) {
-          throw new Error(`premium_visual_world_unknown_prop:${id}@${bp.beatId}`);
+          console.warn(`[prop-dna:repair] unknown prop ${id} in beat=${bp.beatId} — skipped`);
         }
         continue;
       }
