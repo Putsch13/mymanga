@@ -9,6 +9,7 @@
  *   log.warn("drift detected", { characterId, severity });
  *   log.error("fal submit failed", { status, requestId });
  */
+import { getAppConfig } from "./config/app-config";
 
 type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -21,7 +22,7 @@ export interface StructuredLogger {
 }
 
 function shouldLog(level: LogLevel): boolean {
-  const min = (process.env.LOG_LEVEL ?? "info").toLowerCase() as LogLevel;
+  const min = (getAppConfig().LOG_LEVEL ?? "info").toLowerCase() as LogLevel;
   const order: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40 };
   return order[level] >= (order[min] ?? 20);
 }
@@ -35,7 +36,7 @@ function emit(scope: string, level: LogLevel, message: string, fields?: Record<s
     msg: message,
     ...(fields ?? {}),
   };
-  const json = process.env.LOG_FORMAT === "json";
+  const json = getAppConfig().LOG_FORMAT === "json";
   const sink = level === "error" ? console.error : level === "warn" ? console.warn : console.log;
   if (json) {
     sink(JSON.stringify(payload));

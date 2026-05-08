@@ -1,7 +1,15 @@
 /**
  * Résolution unique des variables Supabase côté serveur (worker / render),
  * avec alias d'env courants (NEXT_PUBLIC_*, noms alternatifs).
+ *
+ * Lecture cohérente via getAppConfig() pour les vars couvertes par le
+ * schéma zod (NEXT_PUBLIC_SUPABASE_URL, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+ * STORAGE_BUCKET, SUPABASE_STORAGE_BUCKET). Les autres alias (SUPABASE_BUCKET,
+ * SUPABASE_SERVICE_ROLE, SUPABASE_SERVICE_KEY, SUPABASE_ANON_KEY,
+ * NEXT_PUBLIC_SUPABASE_ANON_KEY) restent lus depuis process.env pour
+ * préserver la rétrocompatibilité.
  */
+import { getAppConfig } from "@manga-ai-studio/core";
 
 export interface ResolvedSupabaseServerConfig {
   url: string;
@@ -12,21 +20,19 @@ export interface ResolvedSupabaseServerConfig {
 }
 
 export function resolveSupabaseServerConfig(): ResolvedSupabaseServerConfig | null {
-  const url =
-    process.env.SUPABASE_URL?.trim()
-    || process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
-    || "";
+  const cfg = getAppConfig();
+  const url = cfg.SUPABASE_URL?.trim() || cfg.NEXT_PUBLIC_SUPABASE_URL?.trim() || "";
 
   const serviceRoleKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
+    cfg.SUPABASE_SERVICE_ROLE_KEY?.trim()
     || process.env.SUPABASE_SERVICE_ROLE?.trim()
     || process.env.SUPABASE_SERVICE_KEY?.trim()
     || "";
 
   const bucket =
-    process.env.SUPABASE_STORAGE_BUCKET?.trim()
+    cfg.SUPABASE_STORAGE_BUCKET?.trim()
     || process.env.SUPABASE_BUCKET?.trim()
-    || process.env.STORAGE_BUCKET?.trim()
+    || cfg.STORAGE_BUCKET.trim()
     || "MyManga";
 
   const anonKey =
