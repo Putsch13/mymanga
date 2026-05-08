@@ -42,8 +42,6 @@ import {
   type ChapterLookProfile,
   buildApprovedChapterOutlineReplayFromOutlineBeats,
   type VisualWorldContract,
-  legacyDialogueLinesFromStoryboardPanelLike,
-  legacyDialogueLinesFromBlueprintPremium,
   resolvePanelTextContractFromStoryboardPanelLike,
   type PanelBlueprintPremium,
   isPremiumStrictMode,
@@ -105,6 +103,7 @@ import {
 } from "./narrative/chapter-context-document";
 import { loadPreviousCanonStateAndKernel } from "./narrative/canon-state-loader";
 import { resolveStudioBundle } from "./narrative/studio-bundle-resolver";
+import { legacyScenePanelUnifiedDialogue } from "./narrative/legacy-scene-panel-dialogue";
 import {
   extractSceneFactions,
   inferSceneWeather,
@@ -132,62 +131,6 @@ import type { PipelineContext } from "../pipeline-types";
  */
 const STD_NEGATIVE = LEGACY_STD_NEGATIVE;
 const PANEL_DRAFT_SIZE = getPremiumImageSize("PANEL_DRAFT");
-
-/**
- * Dialogue scène legacy + blueprint premium — **PR9** : même chemin que storyboard / render-spec
- * (`legacyDialogueLinesFromStoryboardPanelLike` → `PanelTextContract`).
- */
-function legacyScenePanelUnifiedDialogue(
-  panel: Record<string, any>,
-  blueprint: Record<string, unknown> | undefined,
-): Array<{ speaker: string; text: string }> {
-  const bp = blueprint ?? {};
-  const pid = String(panel.panelId ?? panel.panelNumber ?? "panel");
-  const normalizedDialogueLines = Array.isArray(bp.dialogueLines)
-    ? (bp.dialogueLines as Array<{ speaker?: string; text: string }>).map((l) => ({
-        speaker: typeof l.speaker === "string" && l.speaker.trim().length > 0 ? l.speaker.trim() : "unknown",
-        text: typeof l.text === "string" ? l.text : "",
-      }))
-    : undefined;
-  const fromBpLines = legacyDialogueLinesFromBlueprintPremium({
-    panelId: typeof bp.panelId === "string" ? bp.panelId : pid,
-    dialogueLines: normalizedDialogueLines,
-    textContract: bp.textContract as PanelBlueprintPremium["textContract"],
-    panelTextBundle:
-      typeof bp.panelTextBundle === "object" && bp.panelTextBundle !== null && !Array.isArray(bp.panelTextBundle)
-        ? (bp.panelTextBundle as PanelBlueprintPremium["panelTextBundle"])
-        : null,
-    narrationText: typeof bp.narrationText === "string" ? bp.narrationText : null,
-    sfxCues: Array.isArray(bp.sfxCues) ? (bp.sfxCues as string[]) : undefined,
-  });
-  const fromPanel =
-    Array.isArray(panel.dialogues) && panel.dialogues.length > 0
-      ? (panel.dialogues as Array<{ speaker?: string; text?: string }>)
-      : panel.dialogue && typeof panel.dialogue === "object"
-        ? [panel.dialogue as { speaker?: string; text?: string }]
-        : null;
-  const dialogueLines = fromBpLines.length > 0 ? fromBpLines : fromPanel;
-  const dialogueForContract = dialogueLines?.length
-    ? dialogueLines
-        .map((row) => ({
-          speaker: row.speaker,
-          text: String(row.text ?? "").trim(),
-        }))
-        .filter((row) => row.text.length > 0)
-    : null;
-  const sfxRaw = panel.sfx;
-  const sfx = Array.isArray(sfxRaw) ? sfxRaw : sfxRaw != null && sfxRaw !== "" ? [String(sfxRaw)] : null;
-  const bundle =
-    (typeof bp.panelTextBundle === "object" && bp.panelTextBundle !== null ? bp.panelTextBundle : null)
-    ?? (typeof panel.panelTextBundle === "object" && panel.panelTextBundle !== null ? panel.panelTextBundle : null);
-  return legacyDialogueLinesFromStoryboardPanelLike({
-    panelId: String(panel.panelId ?? panel.panelNumber ?? "panel"),
-    dialogue: dialogueForContract?.length ? dialogueForContract : null,
-    narration: typeof panel.narration === "string" ? panel.narration : null,
-    sfx,
-    panelTextBundle: bundle as never,
-  });
-}
 
 /**
  * Alias local du type extrait. On garde le nom historique `PlannedImage`
