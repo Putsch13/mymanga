@@ -219,6 +219,22 @@ function buildPanelPlan(
 
   const isActorDriven = !isCutaway && ["hero", "duo", "enemy", "reaction", "action", "speaker", "listener", "group"].includes(role);
 
+  // ARCH-1 fix — le `subjectFocus` doit refléter le `role` calculé par
+  // `determinePanelRole`. Avant ce fix, on prenait systématiquement le
+  // premier character, ce qui rendait `mustShowEnemy=true` non-honoré
+  // (panel attendu en focus enemy mais focus character → blocking
+  // missing_enemy_focus en QA).
+  const subjectFocusFromRole: string | null =
+    role === "enemy"
+      ? "enemy"
+      : role === "environment"
+        ? "environment"
+        : role === "prop"
+          ? "prop"
+          : role === "group"
+            ? "group"
+            : null;
+
   return {
     panelId,
     beatId: beat.beatId,
@@ -231,7 +247,7 @@ function buildPanelPlan(
     purpose: beat.summary,
     shotType: isCutaway ? "wide" : "medium",
     cameraAngle: "eye_level",
-    subjectFocus: beat.involvedCharacters[0] ?? "scene",
+    subjectFocus: subjectFocusFromRole ?? beat.involvedCharacters[0] ?? "scene",
     secondaryFocus: beat.involvedCharacters[1],
     requiredCharacterIds: beat.involvedCharacters,
     mustShowCharacterIds: isCutaway ? [] : beat.involvedCharacters.slice(0, 2),
@@ -387,7 +403,11 @@ export function buildCanonicalChapterProductionPlan(
   let globalPanelIndex = 0;
   let currentPage = 1;
   let panelInCurrentPage = 0;
-  const panelsPerPage = input.format === "webtoon" ? 75 : 6;
+  // ARCH-3 — format "simple" : 1 panel / page (storyboard rapide).
+  // Webtoon : 75 panels / page (flux vertical continu).
+  // Manga : 6 panels / page (grille classique).
+  const panelsPerPage =
+    input.format === "webtoon" ? 75 : input.format === "simple" ? 1 : 6;
 
   for (const beat of normalizedOutline.beats) {
     const distribution = rhythmPlan.beatDistributions.find((d) => d.beatId === beat.beatId);

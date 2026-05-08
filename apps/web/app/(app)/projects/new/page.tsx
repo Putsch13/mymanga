@@ -57,13 +57,21 @@ const VISUAL_PRESETS = [
   "horreur sombre, Junji Ito",
   "trait épuré, minimaliste",
 ];
-// Sprint 1 — Reader refacto : on ne garde que les 2 formats officiellement
+// Sprint 1 — Reader refacto : on ne garde que les formats officiellement
 // supportés par le reader. "roman graphique" était proposé mais sans aucun
 // chemin de lecture dédié (tombait en manga par défaut). Pour éviter la
 // confusion produit, on le retire du preset. Les projets existants avec
 // `format="roman graphique"` en DB continuent de fonctionner (le reader
 // les lit comme du manga) mais on ne l'expose plus à la création.
-const FORMAT_PRESETS = ["manga", "webtoon"] as const;
+//
+// ARCH-3 — Le format "simple" (storyboard rapide, 1 panel/page, style
+// sketch/aquarelle) est désormais supporté nativement par le pipeline.
+const FORMAT_PRESETS = ["manga", "webtoon", "simple"] as const;
+const FORMAT_LABELS: Record<(typeof FORMAT_PRESETS)[number], string> = {
+  manga: "manga",
+  webtoon: "webtoon",
+  simple: "simple (storyboard)",
+};
 const RATING_PRESETS = ["GENERAL", "TEEN", "MATURE", "ADULT_RESTRICTED"] as const;
 const INTENSITY_PRESETS = [
   { key: "GENERAL_SAFE", label: "Tout public" },
@@ -76,6 +84,16 @@ const INTENSITY_PRESETS = [
 type IntensityKey = (typeof INTENSITY_PRESETS)[number]["key"];
 type RatingKey = (typeof RATING_PRESETS)[number];
 
+/**
+ * ARCH-5 — Wizard 5 étapes (UX premium).
+ * 1. Concept     : titre + pitch + genre
+ * 2. Personnages : héros (obligatoire) + secondaire (optionnel)
+ * 3. Univers     : époque + thème + lieux clés
+ * 4. Style       : tone + format + style visuel + rating + intensity (+ réglages fins)
+ * 5. Confirmation : récapitulatif visuel + lancement chapitre 1
+ */
+const TOTAL_STEPS = 5;
+
 export default function NewProjectPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
@@ -87,14 +105,28 @@ export default function NewProjectPage() {
   const [primaryGenre, setPrimaryGenre] = useState("");
   const [subGenres, setSubGenres] = useState<string[]>([]);
 
-  // Étape 2 — Style & ton
+  // Étape 2 — Personnages (ARCH-5)
+  const [heroName, setHeroName] = useState("");
+  const [heroRole, setHeroRole] = useState("");
+  const [heroBrief, setHeroBrief] = useState("");
+  const [secondaryName, setSecondaryName] = useState("");
+  const [secondaryRole, setSecondaryRole] = useState("");
+  const [secondaryBrief, setSecondaryBrief] = useState("");
+
+  // Étape 3 — Univers (ARCH-5)
+  const [era, setEra] = useState("");
+  const [theme, setTheme] = useState("");
+  const [keyLocations, setKeyLocations] = useState("");
+
+  // Étape 4 — Style & ton
   const [tone, setTone] = useState("");
   const [format, setFormat] = useState("manga");
   const [visualStyle, setVisualStyle] = useState("");
   const [contentRating, setContentRating] = useState<RatingKey>("TEEN");
   const [intensityLayer, setIntensityLayer] = useState<IntensityKey>("TEEN");
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
 
-  // Étape 3 — Réglages fins (optionnels)
+  // Étape 4 (avancé, repliable) — Réglages fins
   const [violenceLevel, setViolenceLevel] = useState(45);
   const [romanceLevel, setRomanceLevel] = useState(20);
   const [sensualityLevel, setSensualityLevel] = useState(10);
@@ -122,6 +154,60 @@ export default function NewProjectPage() {
     setSubGenres((prev) => (prev.includes(genre) ? prev.filter((g) => g !== genre) : [...prev, genre]));
   }
 
+  // ARCH-5 — la `description` envoyée au project agrège l'univers (époque /
+  // thème / lieux). Le pitch + character context partent dans `userIntent` du
+  // chapitre 1 pour guider la pipeline narrative dès le premier launch.
+  function buildEnrichedDescription(): string {
+    const parts: string[] = [];
+    if (description.trim()) parts.push(description.trim());
+    if (era.trim()) parts.push(`Époque : ${era.trim()}.`);
+    if (theme.trim()) parts.push(`Thème central : ${theme.trim()}.`);
+    if (keyLocations.trim()) parts.push(`Lieux clés : ${keyLocations.trim()}.`);
+    return parts.join("\n");
+  }
+
+  function buildEnrichedUserIntent(): string {
+    const parts: string[] = [];
+    if (pitch.trim()) parts.push(pitch.trim());
+    if (heroName.trim()) {
+      const heroDesc = [heroName.trim(), heroRole.trim() && `(${heroRole.trim()})`, heroBrief.trim()]
+        .filter(Boolean)
+        .join(" ");
+      parts.push(`Héros : ${heroDesc}.`);
+    }
+    if (secondaryName.trim()) {
+      const secDesc = [secondaryName.trim(), secondaryRole.trim() && `(${secondaryRole.trim()})`, secondaryBrief.trim()]
+        .filter(Boolean)
+        .join(" ");
+      parts.push(`Personnage secondaire : ${secDesc}.`);
+    }
+    if (era.trim() || theme.trim()) {
+      const ctx = [era.trim() && `dans ${era.trim()}`, theme.trim() && `autour du thème "${theme.trim()}"`]
+        .filter(Boolean)
+        .join(", ");
+      if (ctx) parts.push(`Cadre : ${ctx}.`);
+    }
+    if (keyLocations.trim()) parts.push(`Lieux : ${keyLocations.trim()}.`);
+    return parts.join(" ");
+  }
+
+  async function createCharacter(projectId: string, name: string, role: string, brief: string) {
+    if (!name.trim()) return;
+    try {
+      await fetch(`/api/projects/${projectId}/characters`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          roleType: role.trim() || null,
+          biography: brief.trim() || null,
+        }),
+      });
+    } catch (err) {
+      console.warn("[wizard] character_create_failed", err);
+    }
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -132,7 +218,7 @@ export default function NewProjectPage() {
       body: JSON.stringify({
         title,
         pitch,
-        description,
+        description: buildEnrichedDescription(),
         primaryGenre: primaryGenre || undefined,
         subGenres,
         tone,
@@ -147,13 +233,21 @@ export default function NewProjectPage() {
     const data = await res.json();
     const projectId = data.project.id as string;
 
+    // ARCH-5 — Créer héros + secondaire en parallèle, sans bloquer si l'un échoue.
+    await Promise.all([
+      createCharacter(projectId, heroName, heroRole || "héros", heroBrief),
+      createCharacter(projectId, secondaryName, secondaryRole, secondaryBrief),
+    ]);
+
+    const enrichedIntent = buildEnrichedUserIntent();
+
     // Créer automatiquement le chapitre 1 et rediriger vers le studio
     const chapterRes = await fetch(`/api/projects/${projectId}/chapters`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title: "Chapitre 1",
-        userIntent: pitch || undefined,
+        userIntent: enrichedIntent || undefined,
         studioDraft: {
           intent: {
             chapterNumber: 1,
@@ -170,7 +264,6 @@ export default function NewProjectPage() {
     });
     setLoading(false);
     if (!chapterRes.ok) {
-      // Si la création du chapitre échoue, rediriger quand même vers le projet
       router.push(`/projects/${projectId}`);
       return;
     }
@@ -179,7 +272,22 @@ export default function NewProjectPage() {
     router.push(`/projects/${projectId}/chapters/${chapterId}/edit?onboarding=1&firstChapter=1`);
   }
 
-  const canContinue = title.trim().length > 0;
+  const pitchWordCount = pitch.trim() ? pitch.trim().split(/\s+/).length : 0;
+  const canContinueStep1 = title.trim().length > 0 && pitchWordCount >= 10;
+  const canContinueStep2 = heroName.trim().length > 0;
+  const canContinueStep3 = true;
+  const canContinueStep4 = true;
+  const canContinue =
+    step === 1
+      ? canContinueStep1
+      : step === 2
+        ? canContinueStep2
+        : step === 3
+          ? canContinueStep3
+          : step === 4
+            ? canContinueStep4
+            : true;
+  const canSubmit = title.trim().length > 0 && heroName.trim().length > 0;
 
   return (
     <div className="mx-auto max-w-2xl space-y-8">
@@ -188,10 +296,11 @@ export default function NewProjectPage() {
       <div className="rounded-[2rem] border border-border/60 bg-black/20 px-6 py-6">
         <p className="text-sm font-medium text-accent">Créer un manga</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-          Concept → Style → Génération
+          Concept → Personnages → Univers → Style → Lancement
         </h1>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Trois étapes courtes. Pose le concept, choisis le style, lance le chapitre 1.
+          Cinq étapes courtes. Pose les fondations narratives et visuelles, on
+          enchaîne directement sur la génération du chapitre 1.
         </p>
       </div>
 
@@ -199,10 +308,18 @@ export default function NewProjectPage() {
         <CardHeader>
           <CardTitle className="text-xl">Nouveau manga</CardTitle>
           <CardDescription>
-            {step === 1 ? "Étape 1/3 — Ton concept & genre" : step === 2 ? "Étape 2/3 — Style visuel & ton" : "Étape 3/3 — Réglages fins (optionnel)"}
+            {step === 1
+              ? `Étape 1/${TOTAL_STEPS} — Concept (titre, pitch, genre)`
+              : step === 2
+                ? `Étape 2/${TOTAL_STEPS} — Personnages principaux`
+                : step === 3
+                  ? `Étape 3/${TOTAL_STEPS} — Univers (époque, thème, lieux)`
+                  : step === 4
+                    ? `Étape 4/${TOTAL_STEPS} — Style visuel & ton`
+                    : `Étape 5/${TOTAL_STEPS} — Confirmation`}
           </CardDescription>
           <div className="flex gap-2 pt-1">
-            {[1, 2, 3].map((n) => (
+            {[1, 2, 3, 4, 5].map((n) => (
               <div
                 key={n}
                 className={`h-1.5 flex-1 rounded-full transition-colors ${n <= step ? "bg-primary" : "bg-border/40"}`}
@@ -314,11 +431,151 @@ export default function NewProjectPage() {
                     </div>
                   )}
                 </div>
+
+                <div className="rounded-lg border border-border/40 bg-background/30 px-3 py-2 text-xs text-muted-foreground">
+                  Pitch : {pitchWordCount} mot{pitchWordCount > 1 ? "s" : ""}
+                  {pitchWordCount < 10 ? (
+                    <span className="ml-2 text-amber-300">— minimum 10 mots requis pour passer à l&apos;étape suivante</span>
+                  ) : (
+                    <span className="ml-2 text-emerald-300">— ✓ ok</span>
+                  )}
+                </div>
               </>
             )}
 
-            {/* ── ÉTAPE 2 : Style & ton ─────────────────────────────────────── */}
+            {/* ── ÉTAPE 2 : Personnages principaux (ARCH-5) ─────────────────── */}
             {step === 2 && (
+              <>
+                <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary">
+                  Définis le héros (obligatoire) et un personnage secondaire
+                  pour ancrer le casting principal de ta série dès la création.
+                </div>
+
+                <div className="space-y-3 rounded-xl border border-border/60 bg-background/30 p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium">Héros principal *</p>
+                    <span className="text-[10px] uppercase tracking-wider text-primary">obligatoire</span>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Nom</Label>
+                    <Input value={heroName} onChange={(e) => setHeroName(e.target.value)} placeholder="Ex : Akira Tanaka" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Rôle / archétype</Label>
+                    <Input value={heroRole} onChange={(e) => setHeroRole(e.target.value)} placeholder="Ex : étudiant rebelle, dernier gardien" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Brève description (3-4 lignes)</Label>
+                    <Textarea
+                      value={heroBrief}
+                      onChange={(e) => setHeroBrief(e.target.value)}
+                      rows={3}
+                      placeholder="Apparence, motivation, ce qui le rend unique…"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-3 rounded-xl border border-border/40 bg-background/20 p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium">Personnage secondaire</p>
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">optionnel</span>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Nom</Label>
+                    <Input value={secondaryName} onChange={(e) => setSecondaryName(e.target.value)} placeholder="Ex : Yuki Hoshino" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Rôle</Label>
+                    <Input value={secondaryRole} onChange={(e) => setSecondaryRole(e.target.value)} placeholder="Ex : mentor, allié, rival" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Brève description</Label>
+                    <Textarea
+                      value={secondaryBrief}
+                      onChange={(e) => setSecondaryBrief(e.target.value)}
+                      rows={3}
+                      placeholder="Lien avec le héros, dynamique, conflit…"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* ── ÉTAPE 3 : Univers (ARCH-5) ────────────────────────────────── */}
+            {step === 3 && (
+              <>
+                <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary">
+                  Cadre dans lequel se déroule l&apos;histoire. Ces infos
+                  alimentent l&apos;univers généré par l&apos;IA et les premiers lieux.
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Époque / setting</Label>
+                  <Input
+                    value={era}
+                    onChange={(e) => setEra(e.target.value)}
+                    placeholder="Ex : Japon Edo · cyberpunk 2099 · monde médiéval-fantastique"
+                  />
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {["Japon contemporain", "Monde médiéval-fantastique", "Cyberpunk", "Post-apocalyptique", "Edo / samouraï", "Espace lointain"].map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setEra(t)}
+                        className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                          era === t
+                            ? "border-primary bg-primary/20 text-primary"
+                            : "border-border/60 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Thème central</Label>
+                  <Input
+                    value={theme}
+                    onChange={(e) => setTheme(e.target.value)}
+                    placeholder="Ex : la liberté, la rédemption, le sacrifice"
+                  />
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {["Vengeance", "Rédemption", "Liberté", "Loyauté", "Sacrifice", "Passage à l'âge adulte", "Pouvoir corrompt"].map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setTheme(t.toLowerCase())}
+                        className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                          theme === t.toLowerCase()
+                            ? "border-primary bg-primary/20 text-primary"
+                            : "border-border/60 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Lieux clés (1 par ligne)</Label>
+                  <Textarea
+                    value={keyLocations}
+                    onChange={(e) => setKeyLocations(e.target.value)}
+                    rows={4}
+                    placeholder={"Ex :\nPort de Kaze\nDojo abandonné\nCité flottante de Lyra"}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Ces noms seront proposés à l&apos;IA pour ancrer les premiers panneaux.
+                  </p>
+                </div>
+              </>
+            )}
+
+            {/* ── ÉTAPE 4 : Style & ton (anciennement étape 2) ─────────────── */}
+            {step === 4 && (
               <>
                 <div className="space-y-2">
                   <div className="flex items-center gap-1">
@@ -345,19 +602,24 @@ export default function NewProjectPage() {
                   <Label>Format</Label>
                   <div className="flex flex-wrap gap-2">
                     {FORMAT_PRESETS.map((f) => (
-                      <Button key={f} type="button" variant={format === f ? "default" : "outline"} size="sm" onClick={() => setFormat(f)}>{f}</Button>
+                      <Button
+                        key={f}
+                        type="button"
+                        variant={format === f ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setFormat(f)}
+                      >
+                        {FORMAT_LABELS[f]}
+                      </Button>
                     ))}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled
-                      title="Disponible bientôt"
-                      className="cursor-not-allowed opacity-60"
-                    >
-                      simple — bientôt disponible
-                    </Button>
                   </div>
+                  {format === "simple" ? (
+                    <p className="text-xs text-muted-foreground">
+                      Mode storyboard rapide : 1 case par page, style sketch
+                      à l’aquarelle, sous-titres sous l’image. Idéal pour
+                      brainstormer avant la version finale.
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="space-y-2">
@@ -405,47 +667,99 @@ export default function NewProjectPage() {
                     Contenu adulte : réservé aux utilisateurs vérifiés 18+. Reste cohérent avec les règles de modération.
                   </div>
                 )}
+
+                {/* Réglages avancés repliés (anciennement étape 3) */}
+                <div className="rounded-xl border border-border/40 bg-background/30 p-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowAdvancedSettings((v) => !v)}
+                    className="flex w-full items-center justify-between text-sm font-medium text-muted-foreground hover:text-foreground"
+                  >
+                    <span>Réglages avancés (curseurs de tonalité)</span>
+                    <span className="text-xs">{showAdvancedSettings ? "▼" : "▶"}</span>
+                  </button>
+                  {showAdvancedSettings ? (
+                    <div className="mt-4 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">
+                          Ajuste le ton de ton manga. Les valeurs par défaut conviennent dans la plupart des cas.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setViolenceLevel(45);
+                            setRomanceLevel(20);
+                            setSensualityLevel(10);
+                            setDarknessLevel(55);
+                            setMysteryLevel(50);
+                            setDialogueDensity(55);
+                            setCanonStrictness(85);
+                          }}
+                          className="ml-4 shrink-0 rounded-lg border border-border/50 bg-background/40 px-3 py-1 text-xs text-muted-foreground hover:border-border hover:text-foreground transition-colors"
+                        >
+                          Réinitialiser
+                        </button>
+                      </div>
+                      <SliderField label="Violence" value={violenceLevel} onChange={setViolenceLevel} />
+                      <SliderField label="Romance" value={romanceLevel} onChange={setRomanceLevel} />
+                      <SliderField label="Sensualité" value={sensualityLevel} onChange={setSensualityLevel} />
+                      <SliderField label="Noirceur" value={darknessLevel} onChange={setDarknessLevel} />
+                      <SliderField label="Mystère" value={mysteryLevel} onChange={setMysteryLevel} />
+                      <SliderField label="Densité dialogues" value={dialogueDensity} onChange={setDialogueDensity} />
+                      <SliderField label="Fidélité à l'histoire" value={canonStrictness} onChange={setCanonStrictness} />
+                    </div>
+                  ) : null}
+                </div>
               </>
             )}
 
-            {/* ── ÉTAPE 3 : Réglages fins ───────────────────────────────────── */}
-            {step === 3 && (
+            {/* ── ÉTAPE 5 : Confirmation (ARCH-5) ───────────────────────────── */}
+            {step === 5 && (
               <div className="space-y-5">
-                {/* Récap du projet */}
-                <div className="rounded-xl border border-border/50 bg-card/30 p-4 space-y-1.5">
-                  <p className="text-sm font-medium">{title || "Sans titre"}</p>
-                  {primaryGenre && <p className="text-xs text-muted-foreground">Genre : {primaryGenre}{subGenres.length > 0 ? ` + ${subGenres.join(", ")}` : ""}</p>}
-                  {tone && <p className="text-xs text-muted-foreground">Ton : {tone}</p>}
-                  {format && <p className="text-xs text-muted-foreground">Format : {format}</p>}
-                  {pitch && <p className="text-xs text-muted-foreground line-clamp-2 italic">&ldquo;{pitch}&rdquo;</p>}
+                <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-2">
+                  <p className="text-sm font-semibold text-primary">{title || "Sans titre"}</p>
+                  {pitch ? (
+                    <p className="text-xs italic text-muted-foreground line-clamp-3">&ldquo;{pitch}&rdquo;</p>
+                  ) : null}
                 </div>
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-muted-foreground">
-                    Ces curseurs ajustent le ton de ton manga. Les valeurs par défaut conviennent dans la plupart des cas.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setViolenceLevel(45);
-                      setRomanceLevel(20);
-                      setSensualityLevel(10);
-                      setDarknessLevel(55);
-                      setMysteryLevel(50);
-                      setDialogueDensity(55);
-                      setCanonStrictness(85);
-                    }}
-                    className="ml-4 shrink-0 rounded-lg border border-border/50 bg-background/40 px-3 py-1 text-xs text-muted-foreground hover:border-border hover:text-foreground transition-colors"
-                  >
-                    Réinitialiser
-                  </button>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="rounded-lg border border-border/60 bg-background/30 p-3 text-xs">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Concept</p>
+                    {primaryGenre ? <p className="mt-1">{primaryGenre}</p> : null}
+                    {subGenres.length > 0 ? <p className="text-muted-foreground">+ {subGenres.join(", ")}</p> : null}
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-background/30 p-3 text-xs">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Style</p>
+                    <p className="mt-1">{FORMAT_LABELS[format as keyof typeof FORMAT_LABELS] ?? format} · {tone || "ton libre"}</p>
+                    {visualStyle ? <p className="text-muted-foreground line-clamp-2">{visualStyle}</p> : null}
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-background/30 p-3 text-xs">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Personnages</p>
+                    {heroName ? (
+                      <p className="mt-1">★ {heroName} {heroRole ? <span className="text-muted-foreground">({heroRole})</span> : null}</p>
+                    ) : (
+                      <p className="mt-1 text-amber-300">Héros manquant !</p>
+                    )}
+                    {secondaryName ? (
+                      <p className="text-muted-foreground">+ {secondaryName} {secondaryRole ? `(${secondaryRole})` : null}</p>
+                    ) : null}
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-background/30 p-3 text-xs">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Univers</p>
+                    {era ? <p className="mt-1">{era}</p> : <p className="mt-1 text-muted-foreground italic">époque libre</p>}
+                    {theme ? <p className="text-muted-foreground">Thème : {theme}</p> : null}
+                    {keyLocations ? (
+                      <p className="text-muted-foreground line-clamp-2">Lieux : {keyLocations.split(/\n/).filter(Boolean).join(", ")}</p>
+                    ) : null}
+                  </div>
                 </div>
-                <SliderField label="Violence" value={violenceLevel} onChange={setViolenceLevel} />
-                <SliderField label="Romance" value={romanceLevel} onChange={setRomanceLevel} />
-                <SliderField label="Sensualité" value={sensualityLevel} onChange={setSensualityLevel} />
-                <SliderField label="Noirceur" value={darknessLevel} onChange={setDarknessLevel} />
-                <SliderField label="Mystère" value={mysteryLevel} onChange={setMysteryLevel} />
-                <SliderField label="Densité dialogues" value={dialogueDensity} onChange={setDialogueDensity} />
-                <SliderField label="Fidélité à l'histoire" value={canonStrictness} onChange={setCanonStrictness} />
+
+                <div className="rounded-xl border border-border/40 bg-background/20 p-3 text-xs text-muted-foreground">
+                  Au lancement : on crée le projet, on génère le chapitre 1
+                  avec ton héros et l&apos;univers défini, puis on t&apos;ouvre
+                  l&apos;éditeur premium. Tu peux toujours raffiner avant la génération d&apos;images.
+                </div>
               </div>
             )}
 
@@ -458,26 +772,26 @@ export default function NewProjectPage() {
                   Retour
                 </Button>
               )}
-              {step < 3 ? (
+              {step < TOTAL_STEPS ? (
                 <Button type="button" className="w-full" disabled={!canContinue || loading}
-                  onClick={() => setStep((s) => Math.min(3, s + 1))}>
+                  onClick={() => setStep((s) => Math.min(TOTAL_STEPS, s + 1))}>
                   Continuer
                 </Button>
               ) : (
-                <Button type="submit" className="w-full" disabled={!canContinue || loading}>
+                <Button type="submit" className="w-full" disabled={!canSubmit || loading}>
                   {loading ? "Création…" : "Créer et lancer le chapitre 1"}
                 </Button>
               )}
             </div>
 
-            {step === 2 && (
+            {step === 4 && (
               <button
                 type="button"
-                onClick={onSubmit as unknown as React.MouseEventHandler}
-                disabled={!canContinue || loading}
+                onClick={() => setStep(5)}
+                disabled={!canSubmit || loading}
                 className="w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors py-1 disabled:opacity-40"
               >
-                Passer les réglages avancés et créer directement →
+                Aller directement à la confirmation →
               </button>
             )}
           </form>

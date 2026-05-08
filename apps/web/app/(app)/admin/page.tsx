@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@manga-ai-studio/db";
 import { getCurrentUser } from "@/lib/auth/get-app-user";
@@ -58,9 +59,19 @@ export default async function AdminPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-3xl font-semibold">Admin backoffice</h1>
-        <p className="mt-2 text-sm text-muted-foreground">Vue admin V5 : stack, qualité premium, fallbacks visibles, jobs, modération et activité produit.</p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-semibold">Admin backoffice</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Vue admin V5 : stack, qualité premium, fallbacks visibles, jobs, modération et activité produit.</p>
+        </div>
+        <div className="flex flex-wrap gap-2 text-sm">
+          <Link
+            href="/admin/premium-audit"
+            className="rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-primary hover:bg-primary/20"
+          >
+            Premium plan audit →
+          </Link>
+        </div>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
