@@ -100,11 +100,19 @@ export const PRODUCTION_RULES = {
       panelsPerPageRange: [70, 75] as const,
       readingDirection: "vertical" as const,
     },
+    // ARCH-3 — format simple : 1 panel par page (storyboard rapide / draft).
+    // Le reader affiche chaque case comme une page autonome ; le rythme est
+    // identique au manga, seule la mise en page diffère.
+    simple: {
+      pagesTarget: 24,
+      panelsPerPageRange: [1, 1] as const,
+      readingDirection: "ltr" as const,
+    },
   },
 } as const;
 
 export type ProductionRules = typeof PRODUCTION_RULES;
-export type ChapterFormat = "manga" | "webtoon";
+export type ChapterFormat = "manga" | "webtoon" | "simple";
 export type RetryStrategy = (typeof PRODUCTION_RULES.retry.retryStrategies)[number];
 export type CutawayInsertionPolicy = "distributed" | "clustered" | "end_weighted";
 

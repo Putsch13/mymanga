@@ -32,8 +32,8 @@ export interface FlattenOptions {
   maxLength?: number;
   /** Séparateur entre fragments. Default ", ". */
   separator?: string;
-  /** Format projet pour adapter l'en-tête (manga vs webtoon). Default "manga". */
-  format?: "manga" | "webtoon";
+  /** Format projet pour adapter l'en-tête (manga / webtoon / simple). Default "manga". */
+  format?: "manga" | "webtoon" | "simple";
 }
 
 /**
@@ -123,11 +123,19 @@ function extractVisualContent(section: PromptSection): string {
 function buildHeader(
   _mediumSection: PromptSection | undefined,
   styleSection: PromptSection | undefined,
-  format: "manga" | "webtoon" = "manga",
+  format: "manga" | "webtoon" | "simple" = "manga",
 ): string {
-  const medium = format === "webtoon"
-    ? "webtoon panel, full color webtoon art, vertical scroll composition, korean manhwa style, clean digital coloring, soft cell-shading"
-    : "manga panel, manga linework, screentone shading, manga composition, black and white";
+  let medium: string;
+  if (format === "webtoon") {
+    medium = "webtoon panel, full color webtoon art, vertical scroll composition, korean manhwa style, clean digital coloring, soft cell-shading";
+  } else if (format === "simple") {
+    // ARCH-3 — format simple : storyboard rapide, esquisse à l'aquarelle minimaliste,
+    // peu de détails, centré sur la composition. Pas de bulles in-panel — le texte
+    // est rendu en sous-titre dans le strip de fallback.
+    medium = "loose storyboard sketch, single-panel composition, minimal watercolor wash, soft pencil linework, sparse detail, focus on silhouette and gesture, mood-board aesthetic";
+  } else {
+    medium = "manga panel, manga linework, screentone shading, manga composition, black and white";
+  }
 
   if (!styleSection) return medium;
 
@@ -135,8 +143,10 @@ function buildHeader(
   const tail = raw
     .replace(/manga reference style:\s*/i, "")
     .replace(/webtoon reference style:\s*/i, "")
+    .replace(/simple reference style:\s*/i, "")
     .replace(/\bmanga\b/gi, "")
     .replace(/\bwebtoon\b/gi, "")
+    .replace(/\bsimple\b/gi, "")
     .replace(/,\s*,/g, ",")
     .replace(/^,\s*/, "")
     .trim();

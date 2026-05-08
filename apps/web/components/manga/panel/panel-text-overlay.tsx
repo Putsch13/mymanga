@@ -6,9 +6,12 @@ import type { CSSProperties } from "react";
  * PATCH 10 — Overlay texte in-panel (cartouche / bandeau / embedded / narration).
  * Remplace progressivement {@link PanelBubbleOverlay} + partie caption,
  * sans ellipses ni queues « bulle FAL ».
+ *
+ * ARCH-7 — typographie pilotée par les design tokens manga-tokens.ts.
  */
 
 import type { PanelTextLayoutBox } from "./bubble-compositor";
+import { getMangaTypography, tokenToStyle } from "@/lib/manga/manga-tokens";
 
 export interface PanelTextOverlayProps {
   dialogueBoxes: ReadonlyArray<PanelTextLayoutBox>;
@@ -30,12 +33,10 @@ export function PanelTextOverlay({
   const all = [...narrationBoxes, ...captionBoxes, ...dialogueBoxes];
   if (hidden || all.length === 0) return null;
 
-  // Tailles relatives au panel via clamp() + container queries (cqw) :
-  // grandit avec le panel, reste lisible sur petit écran.
-  const baseTextStyle: CSSProperties = {
-    fontSize: isWebtoon ? "clamp(11px, 1.6cqw, 18px)" : "clamp(10px, 1.4cqw, 16px)",
-    lineHeight: 1.25,
-  };
+  const typography = getMangaTypography(isWebtoon ? "webtoon" : "manga");
+  const dialogueStyle = tokenToStyle(typography.dialogue);
+  const narrationStyle = tokenToStyle(typography.narration);
+  const speakerStyle = tokenToStyle(typography.speakerLabel);
 
   return (
     <div
@@ -44,13 +45,29 @@ export function PanelTextOverlay({
       aria-hidden={false}
     >
       {all.map((box, idx) => (
-        <TextBlockDiv key={`${box.kind}-${idx}-${box.text.slice(0, 12)}`} box={box} baseTextStyle={baseTextStyle} />
+        <TextBlockDiv
+          key={`${box.kind}-${idx}-${box.text.slice(0, 12)}`}
+          box={box}
+          dialogueStyle={dialogueStyle}
+          narrationStyle={narrationStyle}
+          speakerStyle={speakerStyle}
+        />
       ))}
     </div>
   );
 }
 
-function TextBlockDiv({ box, baseTextStyle }: { box: PanelTextLayoutBox; baseTextStyle: CSSProperties }) {
+function TextBlockDiv({
+  box,
+  dialogueStyle,
+  narrationStyle,
+  speakerStyle,
+}: {
+  box: PanelTextLayoutBox;
+  dialogueStyle: CSSProperties;
+  narrationStyle: CSSProperties;
+  speakerStyle: CSSProperties;
+}) {
   const { x, y, width, height, visualVariant, text, speaker, kind } = box;
   const style: CSSProperties = {
     left: `${x}%`,
@@ -70,6 +87,8 @@ function TextBlockDiv({ box, baseTextStyle }: { box: PanelTextLayoutBox; baseTex
 
   const pad = visualVariant === "bandeau" ? "px-1 py-0.5" : "px-1.5 py-1";
 
+  const bodyStyle = kind === "narration" || kind === "caption" ? narrationStyle : dialogueStyle;
+
   return (
     <div
       className={`absolute flex flex-col overflow-hidden ${shell} ${pad}`}
@@ -80,12 +99,12 @@ function TextBlockDiv({ box, baseTextStyle }: { box: PanelTextLayoutBox; baseTex
       {speaker && kind === "dialogue" ? (
         <span
           className={`mb-0.5 font-bold uppercase tracking-wide text-stone-500 ${visualVariant === "embedded" ? "text-stone-400" : ""}`}
-          style={{ fontSize: "clamp(8px, 1.1cqw, 12px)", lineHeight: 1.1 }}
+          style={speakerStyle}
         >
           {speaker}
         </span>
       ) : null}
-      <p className="min-h-0 flex-1 font-medium leading-snug" style={baseTextStyle}>
+      <p className="min-h-0 flex-1 font-medium leading-snug" style={bodyStyle}>
         {text}
       </p>
     </div>

@@ -80,7 +80,7 @@ export interface BuildPremiumContractInput {
   /** Pour aligner le plan canonique avec le chapitre / projet persistés. */
   chapterId?: string;
   projectId?: string;
-  projectFormat?: "manga" | "webtoon" | null;
+  projectFormat?: "manga" | "webtoon" | "simple" | null;
   projectGenre?: string | null;
   projectTone?: string | null;
   chapterNumber?: number | null;

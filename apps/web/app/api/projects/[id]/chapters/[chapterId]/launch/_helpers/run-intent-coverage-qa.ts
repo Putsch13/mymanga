@@ -60,8 +60,8 @@ export async function runIntentCoverageQaForLaunch(
     // pas les canonicalName des character canons.
     const visualWorldForLocs = snapshot.data.visualWorldContract as
       | {
-          locations?: Array<{ canonicalName?: string }>;
-          npcGroups?: Array<{ label?: string }>;
+          locations?: Array<{ id?: string; canonicalName?: string }>;
+          npcGroups?: Array<{ id?: string; label?: string; role?: string }>;
         }
       | undefined;
     const locationNamesFromVw = (visualWorldForLocs?.locations ?? [])
@@ -81,8 +81,7 @@ export async function runIntentCoverageQaForLaunch(
     const knownCharNames = charRefsForLabels
       .map((c) => c.name)
       .filter((n): n is string => Boolean(n));
-    const vwNpcGroupsForIntent =
-      (visualWorldForLocs as { npcGroups?: Array<{ label?: string }> } | undefined)?.npcGroups ?? [];
+    const vwNpcGroupsForIntent = visualWorldForLocs?.npcGroups ?? [];
     const dbNpcGroupsForIntent = await prisma.npcGroup.findMany({
       where: { projectId },
       select: { label: true },
@@ -94,6 +93,18 @@ export async function runIntentCoverageQaForLaunch(
       ]),
     ];
 
+    // ARCH-4 — On passe les entités VW (id + name/label) afin que le
+    // contract narratif soit ancré aux IDs réels du VisualWorldContract,
+    // et non plus à des labels heuristiques. Cela permet à un futur QA
+    // d'utiliser `requiredLocationIds` / `requiredNpcGroups[i].vwNpcGroupId`
+    // pour vérifier que le plan visite les *mêmes* entités.
+    const visualWorldLocationsForIntent = (visualWorldForLocs?.locations ?? [])
+      .filter((l): l is { id: string; canonicalName?: string } => Boolean(l.id))
+      .map((l) => ({ id: l.id, canonicalName: l.canonicalName ?? null }));
+    const visualWorldNpcGroupsForIntent = vwNpcGroupsForIntent
+      .filter((g): g is { id: string; label?: string; role?: string } => Boolean(g.id))
+      .map((g) => ({ id: g.id, label: g.label ?? null, role: g.role ?? null }));
+
     const intentNarrative = buildIntentNarrativeContract({
       chapterId,
       userIntent: chapter.userIntent,
@@ -101,6 +112,8 @@ export async function runIntentCoverageQaForLaunch(
       knownCharacterNames: knownCharNames,
       knownCharacterIds: charRefsForLabels.map((c) => c.id),
       knownNpcGroupLabels: knownNpcLabels,
+      visualWorldLocations: visualWorldLocationsForIntent,
+      visualWorldNpcGroups: visualWorldNpcGroupsForIntent,
     });
     logIntentContract({
       requiredEvents: intentNarrative.requiredEvents.length,

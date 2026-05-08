@@ -57,13 +57,21 @@ const VISUAL_PRESETS = [
   "horreur sombre, Junji Ito",
   "trait épuré, minimaliste",
 ];
-// Sprint 1 — Reader refacto : on ne garde que les 2 formats officiellement
+// Sprint 1 — Reader refacto : on ne garde que les formats officiellement
 // supportés par le reader. "roman graphique" était proposé mais sans aucun
 // chemin de lecture dédié (tombait en manga par défaut). Pour éviter la
 // confusion produit, on le retire du preset. Les projets existants avec
 // `format="roman graphique"` en DB continuent de fonctionner (le reader
 // les lit comme du manga) mais on ne l'expose plus à la création.
-const FORMAT_PRESETS = ["manga", "webtoon"] as const;
+//
+// ARCH-3 — Le format "simple" (storyboard rapide, 1 panel/page, style
+// sketch/aquarelle) est désormais supporté nativement par le pipeline.
+const FORMAT_PRESETS = ["manga", "webtoon", "simple"] as const;
+const FORMAT_LABELS: Record<(typeof FORMAT_PRESETS)[number], string> = {
+  manga: "manga",
+  webtoon: "webtoon",
+  simple: "simple (storyboard)",
+};
 const RATING_PRESETS = ["GENERAL", "TEEN", "MATURE", "ADULT_RESTRICTED"] as const;
 const INTENSITY_PRESETS = [
   { key: "GENERAL_SAFE", label: "Tout public" },
@@ -345,19 +353,24 @@ export default function NewProjectPage() {
                   <Label>Format</Label>
                   <div className="flex flex-wrap gap-2">
                     {FORMAT_PRESETS.map((f) => (
-                      <Button key={f} type="button" variant={format === f ? "default" : "outline"} size="sm" onClick={() => setFormat(f)}>{f}</Button>
+                      <Button
+                        key={f}
+                        type="button"
+                        variant={format === f ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setFormat(f)}
+                      >
+                        {FORMAT_LABELS[f]}
+                      </Button>
                     ))}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled
-                      title="Disponible bientôt"
-                      className="cursor-not-allowed opacity-60"
-                    >
-                      simple — bientôt disponible
-                    </Button>
                   </div>
+                  {format === "simple" ? (
+                    <p className="text-xs text-muted-foreground">
+                      Mode storyboard rapide : 1 case par page, style sketch
+                      à l’aquarelle, sous-titres sous l’image. Idéal pour
+                      brainstormer avant la version finale.
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="space-y-2">

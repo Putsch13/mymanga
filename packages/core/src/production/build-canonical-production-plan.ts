@@ -387,7 +387,11 @@ export function buildCanonicalChapterProductionPlan(
   let globalPanelIndex = 0;
   let currentPage = 1;
   let panelInCurrentPage = 0;
-  const panelsPerPage = input.format === "webtoon" ? 75 : 6;
+  // ARCH-3 — format "simple" : 1 panel / page (storyboard rapide).
+  // Webtoon : 75 panels / page (flux vertical continu).
+  // Manga : 6 panels / page (grille classique).
+  const panelsPerPage =
+    input.format === "webtoon" ? 75 : input.format === "simple" ? 1 : 6;
 
   for (const beat of normalizedOutline.beats) {
     const distribution = rhythmPlan.beatDistributions.find((d) => d.beatId === beat.beatId);
