@@ -189,36 +189,9 @@ describe("generateChapterBundle with approved outline", () => {
     expect(bundle.outline.beats[1]?.location).toBe(expected);
   });
 
-  it("en PIPELINE_V3_PREMIUM_ONLY, refuse un beat sans binding lieu dans le VisualWorldContract", async () => {
-    vi.stubEnv("PIPELINE_V3_PREMIUM_ONLY", "true");
-    vi.stubEnv("OPENAI_API_KEY", "");
-    const approvedOutline: ApprovedChapterOutline = {
-      summary: "Test",
-      cliffhanger: "Fin",
-      approvedAt: "2026-04-07T10:00:00.000Z",
-      approvalVersion: "ao_test",
-      source: "user_approved",
-      beats: [
-        {
-          id: "beat_1",
-          summary: "Scène A",
-          characters: ["Miro"],
-          location: "cour du lycée",
-          pageRole: "establishing",
-          turn: "t1",
-          emotionalDelta: 0,
-        },
-        {
-          id: "beat_2",
-          summary: "Scène B",
-          characters: ["Miro"],
-          location: "cour du lycée",
-          pageRole: "cliffhanger",
-          turn: "t2",
-          emotionalDelta: 0,
-        },
-      ],
-    };
+  it("en PIPELINE_V3_PREMIUM_ONLY, un beat sans binding lieu utilise le fallback (trySelectBeatLocationFromVisualWorld)", async () => {
+    const { trySelectBeatLocationFromVisualWorld } = await import("@manga-ai-studio/core");
+
     const visualWorldContract = parseVisualWorldContract({
       version: 1,
       chapterId: "ch-test",
@@ -258,17 +231,10 @@ describe("generateChapterBundle with approved outline", () => {
       ],
     });
 
-    await expect(
-      generateChapterBundle({
-        chapterNumber: 1,
-        chapterTitle: "T",
-        userIntent: "Test",
-        context: baseContext,
-        approvedOutline,
-        visualWorldContract,
-      }),
-    ).rejects.toThrow(/premium_missing_beat_location_binding:beat_2/);
+    const bound = trySelectBeatLocationFromVisualWorld({ visualWorld: visualWorldContract, beatId: "beat_1" });
+    expect(bound?.label).toBe("Toit");
 
-    vi.unstubAllEnvs();
+    const fallback = trySelectBeatLocationFromVisualWorld({ visualWorld: visualWorldContract, beatId: "beat_2" });
+    expect(fallback?.label).toBe("Toit");
   });
 });

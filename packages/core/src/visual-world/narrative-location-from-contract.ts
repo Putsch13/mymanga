@@ -18,6 +18,19 @@ export function requireVisualWorldLocationForBeat(
   return loc;
 }
 
+/**
+ * Version non-throwing : retourne `null` si le beat n'a pas de locationId ou
+ * si le lieu référencé n'existe pas dans le contrat.
+ */
+export function tryRequireVisualWorldLocationForBeat(
+  visualWorld: VisualWorldContract,
+  beatId: string,
+): VisualWorldLocation | null {
+  const binding = visualWorld.beatBindings.find((b) => b.beatId === beatId);
+  if (!binding?.locationId) return null;
+  return visualWorld.locations.find((l) => l.id === binding.locationId) ?? null;
+}
+
 /** Chaîne de décor / lieu pour le bundle chapitre (outline, scènes legacy). */
 export function sceneStringFromVisualWorldLocation(loc: VisualWorldLocation): string {
   const label = loc.label.trim();

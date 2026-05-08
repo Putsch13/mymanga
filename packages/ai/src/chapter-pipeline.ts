@@ -15,7 +15,7 @@ import {
   isHeroRole,
   resolveCanonicalLocation,
   sceneStringFromVisualWorldLocation,
-  selectBeatLocationFromVisualWorld,
+  trySelectBeatLocationFromVisualWorld,
   isPipelineV3PremiumOnlyEnabled,
   type VisualWorldContract,
 } from "@manga-ai-studio/core";
@@ -684,8 +684,8 @@ export async function generateChapterBundle(input: {
       location: (() => {
         if (hasVwLocations && vw) {
           if (premium && !input.allowLegacyLocationInference) {
-            const loc = selectBeatLocationFromVisualWorld({ visualWorld: vw, beatId: beatKeyForVw });
-            return sceneStringFromVisualWorldLocation(loc);
+            const loc = trySelectBeatLocationFromVisualWorld({ visualWorld: vw, beatId: beatKeyForVw });
+            if (loc) return sceneStringFromVisualWorldLocation(loc);
           }
           const scene = beatLocationSceneStringFromVisualWorld(vw, beatKeyForVw);
           if (scene) return scene;

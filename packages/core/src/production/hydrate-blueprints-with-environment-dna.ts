@@ -7,7 +7,7 @@ import type { EnvironmentVisualDna } from "../types/generation-debug-snapshot";
 import type { LocationCanon } from "../types/chapter-studio";
 import type { PanelBlueprintPremium } from "../types/narrative-facts";
 import type { VisualWorldContract, VisualWorldLocation } from "../visual-world/visual-world-contract";
-import { selectBeatLocationFromVisualWorld } from "../visual-world/select-beat-location";
+import { trySelectBeatLocationFromVisualWorld } from "../visual-world/select-beat-location";
 import { bindingForBeat } from "./visual-world-beat-bindings";
 
 export class MissingVisualWorldError extends Error {
@@ -109,7 +109,8 @@ export function hydrateBlueprintsWithEnvironmentDna(
   const vw = input.visualWorld;
 
   return input.blueprints.map((bp) => {
-    const loc = selectBeatLocationFromVisualWorld({ beatId: bp.beatId, visualWorld: vw });
+    const loc = trySelectBeatLocationFromVisualWorld({ beatId: bp.beatId, visualWorld: vw });
+    if (!loc) return bp;
     const bb = bindingForBeat(vw, bp.beatId);
     const next = visualWorldLocationToEnvironmentDna(loc);
     const prev = bp.environmentVisualDna;

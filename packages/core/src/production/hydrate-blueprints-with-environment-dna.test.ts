@@ -212,4 +212,57 @@ describe("hydrateBlueprintsWithEnvironmentDna", () => {
 
     expect(out.environmentVisualDna?.locationName).toBe("Arène");
   });
+
+  it("T4: beat sans locationId bindé → fallback première location du contrat", () => {
+    const vw = minimalVw({
+      beatBindings: [
+        {
+          beatId: "b1",
+          primaryPropIds: [],
+          npcGroupIds: [],
+          creatureIds: [],
+          vehicleIds: [],
+          factionIds: [],
+          continuityObjectIds: [],
+        },
+      ],
+    });
+    const bp: PanelBlueprintPremium = {
+      ...bareBlueprint,
+      beatId: "b1",
+    };
+    const [out] = hydrateBlueprintsWithEnvironmentDna({
+      blueprints: [bp],
+      visualWorld: vw,
+      strict: true,
+    });
+    expect(out.environmentVisualDna?.locationName).toBe("Port");
+    expect(out.environmentVisualDna?.locationId).toBe("loc-1");
+  });
+
+  it("T5: beat absent des beatBindings → fallback première location du contrat", () => {
+    const vw = minimalVw();
+    const bp: PanelBlueprintPremium = {
+      ...bareBlueprint,
+      beatId: "b_unknown",
+    };
+    const [out] = hydrateBlueprintsWithEnvironmentDna({
+      blueprints: [bp],
+      visualWorld: vw,
+    });
+    expect(out.environmentVisualDna?.locationName).toBe("Port");
+  });
+
+  it("T6: beat absent + contrat sans locations → blueprint inchangé", () => {
+    const vw = minimalVw({ locations: [], beatBindings: [] });
+    const bp: PanelBlueprintPremium = {
+      ...bareBlueprint,
+      beatId: "b_unknown",
+    };
+    const [out] = hydrateBlueprintsWithEnvironmentDna({
+      blueprints: [bp],
+      visualWorld: vw,
+    });
+    expect(out.environmentVisualDna).toBeUndefined();
+  });
 });
