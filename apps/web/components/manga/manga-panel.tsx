@@ -8,7 +8,7 @@
  *   - image + retry UI → `panel/panel-image.tsx`
  *   - narration → `panel/panel-caption-overlay.tsx`
  *   - SFX → `panel/panel-sfx-overlay.tsx`
- *   - bulles → `panel/panel-bubble-overlay.tsx` (alimentées par `bubble-compositor`)
+ *   - bulles & narration en overlay → `panel/panel-text-overlay.tsx` (alimentées par `bubble-compositor`)
  *   - edit controls → `panel/panel-edit-controls.tsx`
  *   - orchestration → `panel/panel-composed-view.tsx`
  *

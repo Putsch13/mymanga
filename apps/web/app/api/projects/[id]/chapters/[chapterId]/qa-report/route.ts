@@ -4,6 +4,7 @@ import { prisma } from "@manga-ai-studio/db";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
 import { readChapterStudioSnapshotFromOutline } from "@/lib/chapter-studio";
+import { sceneImageIncludedInCurrentRunReport } from "@/lib/chapter-studio/scene-image-filter";
 import { PREMIUM_BREACH_TYPES as CENTRAL_PREMIUM_BREACH_TYPES } from "@/lib/retry/classify-premium-repair";
 
 type Ctx = { params: Promise<{ id: string; chapterId: string }> };
@@ -12,16 +13,6 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-/** P1.14 — Exclure l’historique hors run courant (sauf panels déjà validés utilisateur). */
-function sceneImageIncludedInCurrentRunReport(
-  image: { generationRunId: string | null; userValidatedAt: Date | null },
-  chapter: { currentGenerationRunId: string | null },
-): boolean {
-  if (!chapter.currentGenerationRunId) return true;
-  if (image.userValidatedAt) return true;
-  return image.generationRunId === chapter.currentGenerationRunId;
 }
 
 export async function GET(_req: Request, ctx: Ctx) {

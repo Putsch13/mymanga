@@ -7,6 +7,7 @@ import { notFound, unauthorized, validationError } from "@/lib/api-response";
 import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
 import { toProxiedServerUrl } from "@/lib/images/proxy-url.server";
 import { patchChapterStudioSnapshot } from "@/lib/chapter-studio";
+import { sceneImageIncludedInCurrentRunReport } from "@/lib/chapter-studio/scene-image-filter";
 import { extractChapterVisualContractFromOutline } from "@manga-ai-studio/workflow";
 import { toPrismaInputJson } from "@/lib/to-prisma-input-json";
 
@@ -22,16 +23,6 @@ const patchSchema = z.object({
   outline: z.unknown().optional(),
   status: z.string().optional(),
 });
-
-/** P1.14 — Exclure l'historique hors run courant (sauf panels déjà validés utilisateur). */
-function sceneImageIncludedInCurrentRunReport(
-  image: { generationRunId?: string | null; userValidatedAt?: Date | null },
-  chapter: { currentGenerationRunId?: string | null },
-): boolean {
-  if (!chapter.currentGenerationRunId) return true;
-  if (image.userValidatedAt) return true;
-  return image.generationRunId === chapter.currentGenerationRunId;
-}
 
 export async function GET(_req: Request, ctx: Ctx) {
   const user = await getAppUser();
