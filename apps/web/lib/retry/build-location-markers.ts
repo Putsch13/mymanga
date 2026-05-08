@@ -22,7 +22,7 @@ import {
   summarizeLocationCanonForPrompt,
   type LocationCanonInput,
   type ResolvedLocationVisualCanon,
-} from "@/lib/canon/resolve-location-visual-canon";
+} from "@manga-ai-studio/core";
 
 /**
  * P1.4 — Pur formatage du canon → ligne textuelle. Séparé de l'accès Prisma

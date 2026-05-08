@@ -21,7 +21,7 @@ import {
 import {
   resolveLocationVisualCanon,
   summarizeLocationCanonForPrompt,
-} from "@/lib/canon/resolve-location-visual-canon";
+} from "@manga-ai-studio/core";
 
 describe("formatLocationCanonMarkersLine (P1.4)", () => {
   it("inclut nom, type, brief, architecture, props, palette, lighting, views", () => {

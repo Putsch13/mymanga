@@ -11,7 +11,7 @@ import {
   encodeLegacyLoraBindingString,
   mergeCharacterFingerprint,
   resolveActiveCharacterLoraBinding,
-} from "@/lib/canon/character-canon-helpers";
+} from "@manga-ai-studio/core";
 
 describe("collectCharacterReferenceAssets", () => {
   it("priorise les refs du lock puis les visualRefs, sans doublons", () => {

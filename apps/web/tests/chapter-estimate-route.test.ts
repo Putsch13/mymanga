@@ -161,6 +161,12 @@ vi.mock("@manga-ai-studio/ai", () => ({
     beatsWithoutCutaway: [],
     warnings: [],
   }),
+  runPremiumPlanContractQa: vi.fn().mockReturnValue({
+    ok: true,
+    metrics: {},
+    violations: [],
+    warnings: [],
+  }),
 }));
 
 const ctx = { params: Promise.resolve({ id: "project-1" }) };

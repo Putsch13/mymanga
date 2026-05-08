@@ -25,7 +25,7 @@ import {
   extractStabilitySignals,
   type CanonStabilityLevel,
 } from "@/lib/canon/compute-canon-stability-score";
-import { resolveLocationVisualCanon } from "@/lib/canon/resolve-location-visual-canon";
+import { resolveLocationVisualCanon } from "@manga-ai-studio/core";
 import { isStableImageUrl } from "@/lib/images/assert-stable-image-url";
 
 type Ctx = { params: Promise<{ id: string }> };

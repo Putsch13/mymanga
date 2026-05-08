@@ -23,7 +23,7 @@ import {
   type ChapterStudioSnapshot,
   type LocationCanon,
 } from "@manga-ai-studio/core";
-import { resolveLocationVisualCanon, type LocationCanonInput } from "@/lib/canon/resolve-location-visual-canon";
+import { resolveLocationVisualCanon, type LocationCanonInput } from "@manga-ai-studio/core";
 import { asRecord, asStringArray, safeString } from "./utils";
 
 export function buildLocationCanonFromLocation(location: LocationCanonInput & {

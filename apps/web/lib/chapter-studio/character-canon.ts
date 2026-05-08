@@ -19,7 +19,7 @@ import {
   encodeLegacyLoraBindingString,
   mergeCharacterFingerprint,
   resolveActiveCharacterLoraBinding,
-} from "@/lib/canon/character-canon-helpers";
+} from "@manga-ai-studio/core";
 import { computeCanonPackScore } from "@/lib/characters/compute-canon-pack-score";
 
 export function buildCharacterCanonFromCharacter(character: {

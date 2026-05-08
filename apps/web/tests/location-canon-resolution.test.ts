@@ -3,7 +3,7 @@ import {
   resolveLocationVisualCanon,
   isLocationCanonical,
   locationRequiresVisualContinuity,
-} from "@/lib/canon/resolve-location-visual-canon";
+} from "@manga-ai-studio/core";
 
 describe("resolveLocationVisualCanon (P3.1/P3.4)", () => {
   it("source = empty quand aucune donnée", () => {
