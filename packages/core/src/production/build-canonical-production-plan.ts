@@ -480,7 +480,19 @@ export function buildCanonicalChapterProductionPlan(
       cutawayInsertionPolicy: PRODUCTION_RULES.rhythm.cutawayInsertionPolicy,
     },
     metrics: computeCanonicalProductionMetrics(panelsDistributed),
-    qa: { valid: false, warnings: [], errors: [], details: {} as any },
+    qa: {
+      valid: false,
+      warnings: [],
+      errors: [],
+      details: {
+        cutawayRatioOk: false,
+        actorDrivenRatioOk: false,
+        consecutiveCutawaysOk: false,
+        beatCoverageOk: false,
+        dialogueCoverageOk: false,
+        panelCountOk: false,
+      },
+    },
     createdAt: new Date().toISOString(),
     version: "1.0.0",
   };

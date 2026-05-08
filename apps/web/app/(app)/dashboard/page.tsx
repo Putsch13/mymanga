@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Coins, LibraryBig, Plus, Sparkles, UserRound, Wand2 } from "lucide-react";
-import { prisma } from "@manga-ai-studio/db";
+import { prisma, type Prisma } from "@manga-ai-studio/db";
 import { getCurrentUser, isUnlimitedAdminEmail } from "@/lib/auth/get-app-user";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,12 +20,28 @@ function getCoverUrl(project: {
   return firstImage?.persistedUrl ?? firstImage?.imageUrl ?? null;
 }
 
+type DashboardProject = Prisma.ProjectGetPayload<{
+  include: {
+    stylePacks: true;
+    settings: true;
+    chapters: {
+      include: {
+        scenes: {
+          include: {
+            images: { select: { persistedUrl: true; imageUrl: true } };
+          };
+        };
+      };
+    };
+    _count: { select: { characters: true; chapters: true } };
+  };
+}>;
+
 export default async function DashboardPage() {
   const user = await getCurrentUser();
   const unlimitedAdmin = isUnlimitedAdminEmail(user.email);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let projects: any[] = [];
+  let projects: DashboardProject[] = [];
   let wallet: { balance: number } | null = null;
 
   try {
@@ -195,8 +211,7 @@ export default async function DashboardPage() {
                   contentRating: p.contentRating,
                   status: p.status,
                   _count: p._count,
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  chapters: p.chapters.map((ch: any) => ({
+                  chapters: p.chapters.map((ch) => ({
                     id: ch.id,
                     chapterNumber: ch.chapterNumber,
                     status: ch.status,

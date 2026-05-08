@@ -13,6 +13,17 @@ import type { PipelineContext, PipelineMemoryResult } from "../pipeline-types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+type CharacterStateLike = {
+  characterId: string;
+  currentState: { outfit?: unknown };
+  physicalCanon: { allowedOutfitVariations?: unknown };
+};
+
+type ContinuityIssueLike = {
+  message: string;
+  severity: "critical" | "major" | "minor" | string;
+};
+
 export async function runMemoryPass(
   ctx: PipelineContext,
   input: {
@@ -86,7 +97,7 @@ export async function runMemoryPass(
     timelineEvents: revisedBundle.memory.timelineEvents as any,
     openLoops: revisedBundle.memory.openLoops as any,
     characterSnapshots: continuityKernel.characterStates as unknown as Prisma.InputJsonValue,
-    wardrobeSnapshots: continuityKernel.characterStates.map((state: any) => ({
+    wardrobeSnapshots: (continuityKernel.characterStates as CharacterStateLike[]).map((state) => ({
       characterId: state.characterId,
       outfit: state.currentState.outfit,
       allowedOutfitVariations: state.physicalCanon.allowedOutfitVariations,
@@ -126,7 +137,7 @@ export async function runMemoryPass(
   const materializedCanonState = materializeCanonStateFromChapterSnapshot(canonStateData, chapterSnapshot);
   materializedCanonState.continuityWarnings = uniq([
     ...materializedCanonState.continuityWarnings,
-    ...continuityReport.issues.map((issue: any) => issue.message),
+    ...(continuityReport.issues as ContinuityIssueLike[]).map((issue) => issue.message),
   ]);
 
   await persistChapterCanonState(prisma, {
@@ -181,8 +192,8 @@ export async function runMemoryPass(
         continuityReport: {
           score: continuityReport.score,
           issuesCount: continuityReport.issues.length,
-          criticalIssues: continuityReport.issues.filter((i: any) => i.severity === "critical").length,
-          majorIssues: continuityReport.issues.filter((i: any) => i.severity === "major").length,
+          criticalIssues: (continuityReport.issues as ContinuityIssueLike[]).filter((i) => i.severity === "critical").length,
+          majorIssues: (continuityReport.issues as ContinuityIssueLike[]).filter((i) => i.severity === "major").length,
           suggestedRepairs: continuityReport.suggestedRepairs,
         },
         generationRunSummary,
