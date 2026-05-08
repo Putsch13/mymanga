@@ -80,7 +80,7 @@ import {
 } from "./passes/environment-anchor-pass";
 import { runRenderModeNormalizer } from "./passes/render-mode-normalizer";
 import { runCharacterIdentityFallback } from "./passes/character-identity-fallback";
-import { runNarrativeContractQa } from "./passes/beat-narrative-contract";
+import { runNarrativeContractQa } from "./passes/validate-beat-narrative-contract";
 import { repairStoryboardVisualCoverage } from "./passes/repair-storyboard-visual-coverage";
 import {
   assertPremiumVisualQaConfig,

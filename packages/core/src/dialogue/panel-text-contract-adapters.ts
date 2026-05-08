@@ -11,7 +11,7 @@ import {
   isPersistedPanelTextContract,
   synthesizePanelTextContractFromLooseMetadata,
 } from "../generation/reader-panel-metadata-text";
-import type { ScriptCaptionLine, ScriptDialogueLine, ScriptNarrationLine, ScriptPanelTextContract, ScriptSfxLine } from "./panel-text-contract";
+import type { ScriptCaptionLine, ScriptDialogueLine, ScriptNarrationLine, ScriptPanelTextContract, ScriptSfxLine } from "./panel-script-view";
 
 let scriptLineIdSeq = 0;
 function nextScriptId(prefix: string): string {
