@@ -1815,14 +1815,19 @@ export async function runPremiumV3Pipeline(
       const qualityAcceptable =
         renderPassResult.summary.v3RenderQualityStatus === "passed" || deferredReviewFromConfig;
 
+      // Une image visual_qa_failed ou manual_review reste persistée en DB et
+      // affichable dans le reader. On ne marque le pipeline FAILED que si une
+      // image n'a pas été persistée du tout (failedCount > 0 ou trous dans le
+      // total). Les images en review tomberont dans un workflow QA séparé.
+      const persistedImagesCount = renderedCount + visualQaFailedCount + manualReviewRequiredCount;
+      const allImagesPersisted = persistedImagesCount === renderPassResult.summary.totalPanels;
+
       v3RenderSucceeded =
         renderPassResult.summary.failedCount === 0 &&
-        visualQaFailedCount === 0 &&
-        manualReviewRequiredCount === 0 &&
         qualityAcceptable &&
         renderPassResult.specs.length === renderPassResult.summary.totalPanels &&
         renderPassResult.summary.totalPanels > 0 &&
-        renderedCount > 0 &&
+        allImagesPersisted &&
         skippedCount === 0;
       if (!v3RenderSucceeded) {
         console.warn(

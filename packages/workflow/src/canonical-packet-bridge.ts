@@ -59,6 +59,8 @@ export interface CanonicalPacketBridgeInput {
   characterRefAssets: FalPromptPayloadInput["characterRefAssets"];
   styleRefAssets: FalPromptPayloadInput["styleRefAssets"];
   sceneRefAssets: FalPromptPayloadInput["sceneRefAssets"];
+  /** Format projet (manga vs webtoon). Pilote l'en-tête médium du prompt FAL. */
+  format?: "manga" | "webtoon";
 }
 
 export interface CanonicalPacketBridgeResult {
@@ -353,6 +355,7 @@ export function buildCanonicalPacketForPlannedImage(
     characterRefAssets: input.characterRefAssets,
     styleRefAssets: input.styleRefAssets,
     sceneRefAssets: input.sceneRefAssets,
+    format: input.format ?? "manga",
   });
 
   const packetWithPayload: CanonicalImagePromptPacket = {

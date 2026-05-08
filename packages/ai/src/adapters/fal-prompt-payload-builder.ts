@@ -36,6 +36,8 @@ export interface FalPromptPayloadInput {
   guidanceScale?: number;
   seed?: number | null;
   extra?: Record<string, unknown>;
+  /** Format projet : pilote l'en-tête médium dans le prompt FAL. */
+  format?: "manga" | "webtoon";
 }
 
 export interface FalPromptPayloadResult {
@@ -357,7 +359,7 @@ export function buildFalPromptPayload(input: FalPromptPayloadInput): FalPromptPa
   // mais la diffusion reçoit un prompt dense manga-first.
   const flattenedPrompt = flattenStructuredPromptForFal(
     packet.finalEnglishStructuredPrompt,
-    { maxLength: 1200 },
+    { maxLength: 1200, format: input.format ?? "manga" },
   );
   const promptAuditIssues = auditFalPrompt(flattenedPrompt);
 

@@ -194,7 +194,15 @@ export function PanelComposedView(props: PanelComposedViewProps) {
           </>
         )}
 
-        {(status || provider || model) && (
+        {/*
+          On masque le badge "failed · provider" quand l'image existe : un panel
+          rendu correctement ne doit pas afficher un statut d'échec hérité d'une
+          tentative précédente. Le badge reste visible pour les statuts utiles
+          (pending, planned, blocked sans image, …) et pour les variantes hors
+          failed quand on veut afficher provider/model.
+        */}
+        {(status || provider || model) &&
+         !(hasImage && (status === "failed" || status === "blocked")) && (
           <div className="pointer-events-none absolute right-1 top-1 z-20 max-w-[min(100%,11rem)] truncate rounded border border-white/10 bg-black/55 px-1 py-0.5 text-[8px] leading-tight text-stone-300 opacity-70 transition-opacity group-hover/panel:opacity-100">
             <span className="font-medium">{status ?? "?"}</span>
             {provider ? <span className="opacity-80"> · {provider}</span> : null}

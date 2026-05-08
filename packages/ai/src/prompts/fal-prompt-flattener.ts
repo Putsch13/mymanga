@@ -32,6 +32,8 @@ export interface FlattenOptions {
   maxLength?: number;
   /** Séparateur entre fragments. Default ", ". */
   separator?: string;
+  /** Format projet pour adapter l'en-tête (manga vs webtoon). Default "manga". */
+  format?: "manga" | "webtoon";
 }
 
 /**
@@ -115,28 +117,31 @@ function extractVisualContent(section: PromptSection): string {
 }
 
 /**
- * Fragment compact pour l'en-tête manga. On remplace la phrase verbeuse
- * `Manga panel, manga visual language, consistent manga linework, manga
- * composition and readability, same manga style as chapter canon.` par
- * une version dense qui garde les tokens clés sans sur-répétition.
+ * Fragment compact pour l'en-tête médium. Selon `format`, génère
+ * un en-tête manga (N&B, screentone) ou webtoon (couleur, vertical scroll).
  */
-function buildMangaHeader(mediumSection: PromptSection | undefined, styleSection: PromptSection | undefined): string {
-  // MANGA_MEDIUM compact : on veut "manga panel" en tête absolue.
-  const medium = "manga panel, manga linework, screentone shading, manga composition";
+function buildHeader(
+  _mediumSection: PromptSection | undefined,
+  styleSection: PromptSection | undefined,
+  format: "manga" | "webtoon" = "manga",
+): string {
+  const medium = format === "webtoon"
+    ? "webtoon panel, full color webtoon art, vertical scroll composition, korean manhwa style, clean digital coloring, soft cell-shading"
+    : "manga panel, manga linework, screentone shading, manga composition, black and white";
 
   if (!styleSection) return medium;
 
-  // Extrait juste les tokens de style utiles (styleName, inking, shading, composition)
   const raw = extractVisualContent(styleSection);
-  // On dédoublonne "manga" qui peut réapparaître dans le style
-  const styleCompact = raw
+  const tail = raw
     .replace(/manga reference style:\s*/i, "")
-    .replace(/\bmanga\b/gi, "") // dédoublonne, "manga panel" est déjà en tête
+    .replace(/webtoon reference style:\s*/i, "")
+    .replace(/\bmanga\b/gi, "")
+    .replace(/\bwebtoon\b/gi, "")
     .replace(/,\s*,/g, ",")
     .replace(/^,\s*/, "")
     .trim();
 
-  return styleCompact ? `${medium}, ${styleCompact}` : medium;
+  return tail ? `${medium}, ${tail}` : medium;
 }
 
 /**
@@ -160,8 +165,8 @@ export function flattenSectionsForFal(
 
   const fragments: string[] = [];
 
-  // 1. En-tête manga (toujours en premier)
-  fragments.push(buildMangaHeader(byTag.get("MANGA_MEDIUM"), byTag.get("VISUAL_STYLE")));
+  // 1. En-tête médium (manga vs webtoon, toujours en premier)
+  fragments.push(buildHeader(byTag.get("MANGA_MEDIUM"), byTag.get("VISUAL_STYLE"), options.format ?? "manga"));
 
   // 2. Sections visuelles dans l'ordre
   for (const tag of VISUAL_TAG_ORDER) {

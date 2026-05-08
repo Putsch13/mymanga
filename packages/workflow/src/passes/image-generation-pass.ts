@@ -653,6 +653,7 @@ export async function runImageGenerationPass(
               sceneRefAssets: sceneKeyframeUrl
                 ? [{ assetId: "scene_keyframe", url: sceneKeyframeUrl }]
                 : [],
+              format: (project as { format?: string } | null | undefined)?.format === "webtoon" ? "webtoon" : "manga",
             });
             canonicalPacket = bridge.packet;
             canonicalPacketValidation = bridge.payload.validation;

@@ -583,7 +583,10 @@ export function MangaBookReader({
                   // 1. Image composite (Sharp, panels assemblés + bulles + SFX) si sceneId disponible
                   // 2. MangaCanvasRenderer (canvas client) si panels complétés
                   // 3. MangaPageGrid (CSS grid fallback)
-                  leftPage.id && leftPage.panels.some((p) => p.imageUrl && p.status === "completed")
+                  // FIX-7 : un panel avec imageUrl est affichable, même si le
+                  // status est "blocked"/"failed" (l'image existe en DB mais
+                  // un check post-render a marqué le job en review).
+                  leftPage.id && leftPage.panels.some((p) => p.imageUrl)
                     ? <div className="relative h-full w-full">
                         {/* Intentionnel : image composite servie par notre route, on garde <img> (pas d'optimisation Next/Image ici). */}
                         {/* eslint-disable-next-line @next/next/no-img-element */}

@@ -347,6 +347,16 @@ export default function NewProjectPage() {
                     {FORMAT_PRESETS.map((f) => (
                       <Button key={f} type="button" variant={format === f ? "default" : "outline"} size="sm" onClick={() => setFormat(f)}>{f}</Button>
                     ))}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled
+                      title="Disponible bientôt"
+                      className="cursor-not-allowed opacity-60"
+                    >
+                      simple — bientôt disponible
+                    </Button>
                   </div>
                 </div>
 

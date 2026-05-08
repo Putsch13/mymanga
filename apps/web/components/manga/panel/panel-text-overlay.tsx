@@ -30,21 +30,27 @@ export function PanelTextOverlay({
   const all = [...narrationBoxes, ...captionBoxes, ...dialogueBoxes];
   if (hidden || all.length === 0) return null;
 
-  const baseText = isWebtoon ? "text-[2.8px]" : "text-[2.5px]";
+  // Tailles relatives au panel via clamp() + container queries (cqw) :
+  // grandit avec le panel, reste lisible sur petit écran.
+  const baseTextStyle: CSSProperties = {
+    fontSize: isWebtoon ? "clamp(11px, 1.6cqw, 18px)" : "clamp(10px, 1.4cqw, 16px)",
+    lineHeight: 1.25,
+  };
 
   return (
     <div
       className={`pointer-events-none absolute inset-0 z-10 ${className ?? ""}`}
+      style={{ containerType: "inline-size" }}
       aria-hidden={false}
     >
       {all.map((box, idx) => (
-        <TextBlockDiv key={`${box.kind}-${idx}-${box.text.slice(0, 12)}`} box={box} baseTextClass={baseText} />
+        <TextBlockDiv key={`${box.kind}-${idx}-${box.text.slice(0, 12)}`} box={box} baseTextStyle={baseTextStyle} />
       ))}
     </div>
   );
 }
 
-function TextBlockDiv({ box, baseTextClass }: { box: PanelTextLayoutBox; baseTextClass: string }) {
+function TextBlockDiv({ box, baseTextStyle }: { box: PanelTextLayoutBox; baseTextStyle: CSSProperties }) {
   const { x, y, width, height, visualVariant, text, speaker, kind } = box;
   const style: CSSProperties = {
     left: `${x}%`,
@@ -74,12 +80,14 @@ function TextBlockDiv({ box, baseTextClass }: { box: PanelTextLayoutBox; baseTex
       {speaker && kind === "dialogue" ? (
         <span
           className={`mb-0.5 font-bold uppercase tracking-wide text-stone-500 ${visualVariant === "embedded" ? "text-stone-400" : ""}`}
-          style={{ fontSize: "2.2px", lineHeight: 1.1 }}
+          style={{ fontSize: "clamp(8px, 1.1cqw, 12px)", lineHeight: 1.1 }}
         >
           {speaker}
         </span>
       ) : null}
-      <p className={`min-h-0 flex-1 font-medium leading-snug ${baseTextClass}`}>{text}</p>
+      <p className="min-h-0 flex-1 font-medium leading-snug" style={baseTextStyle}>
+        {text}
+      </p>
     </div>
   );
 }

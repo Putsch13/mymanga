@@ -86,13 +86,17 @@ export async function persistTemporaryImageForQa(
       lastError = uploadError.message;
       continue;
     }
-    const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(storageKey);
-    if (!publicUrlData?.publicUrl) {
-      lastError = `public_url_empty:${bucket}`;
+    // OPTION B : URL signée 1h au lieu d'URL publique sur bucket privé.
+    // Évite le 400 Bad Request quand le bucket est privé.
+    const { data: signedUrlData, error: signedError } = await supabase.storage
+      .from(bucket)
+      .createSignedUrl(storageKey, 3600);
+    if (signedError || !signedUrlData?.signedUrl) {
+      lastError = `signed_url_failed:${bucket}:${signedError?.message ?? "empty"}`;
       continue;
     }
     return {
-      stableUrl: publicUrlData.publicUrl,
+      stableUrl: signedUrlData.signedUrl,
       storageKey,
       byteSize: uint8Array.length,
       mimeType,
