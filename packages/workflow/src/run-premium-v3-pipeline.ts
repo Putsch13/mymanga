@@ -111,6 +111,16 @@ import {
   assertStoryArchitectResultNotFallback,
   assertMangaEditorResultNotFallback,
 } from "./passes/assert-premium-ai-engines-ready";
+import {
+  assertPremiumOnlyV3Config,
+  dedupePipelineWarnings as dedupeWarningsHelper,
+  extractNpcGroupsFromBlueprints,
+  hasApprovedPlanDrivenInput as hasApprovedPlanDrivenInputHelper,
+  mergeDiscoveryContractNpcGroupsIntoMap,
+  npcGroupsFromVisualWorldForCast,
+  resolveLocationsForStoryPass,
+  resolveProjectFormat,
+} from "./passes/_pipeline-v3-helpers/pipeline-input-helpers";
 
 export type { PremiumV3PipelineLocation } from "./load-locations-for-v3-story-pass";
 
@@ -206,163 +216,14 @@ export interface RunPremiumV3PipelineResult {
   pipelineUserWarnings?: string[];
 }
 
-function assertPremiumOnlyV3Config(input: Pick<RunPremiumV3PipelineInput, "pipelineV3Enabled" | "premiumV3OnlyEnabled">) {
-  if (input.premiumV3OnlyEnabled && !input.pipelineV3Enabled) {
-    throw new Error(
-      "premium_v3_only_misconfigured: PIPELINE_V3_PREMIUM_ONLY=true mais PIPELINE_V3_STORYBOARD=false. " +
-        "Le premium-only interdit toute exécution legacy : active la v3 ou désactive PREMIUM_ONLY.",
-    );
-  }
-  if (input.premiumV3OnlyEnabled && !isPipelineV3RenderFalEnabled()) {
-    throw new Error(
-      "premium_v3_only_misconfigured: PIPELINE_V3_PREMIUM_ONLY=true impose PIPELINE_V3_RENDER_FAL=true. " +
-        "Le render-pass v3 doit générer et persister les images ; aucun fallback legacy n'est autorisé.",
-    );
-  }
-}
-
 /**
- * P1.9 — Extrait les groupes NPC depuis les blueprints premium.
- * Identifie les panels de foule et les PNJ nommés.
+ * Vrai dès qu'un `productionPlan` non vide avec ≥ 1 panelBlueprint est
+ * fourni — déclenche le mode "approved plan driven" (skip de tout le
+ * re-build de plan). Réexporté ici pour préserver l'API publique du
+ * module ; l'implémentation vit dans `passes/_pipeline-v3-helpers/`.
  */
-function extractNpcGroupsFromBlueprints(
-  blueprints: PanelBlueprintPremium[] | null | undefined,
-): Array<{ id: string; label: string; visualDescription?: string; requiredInBeatIds?: string[] }> {
-  if (!blueprints || blueprints.length === 0) return [];
-
-  const groups = new Map<
-    string,
-    { id: string; label: string; visualDescription: string; requiredInBeatIds: Set<string> }
-  >();
-
-  for (const bp of blueprints) {
-    if (bp.cutawayType === "crowd" || bp.cutawayType === "npc_group") {
-      const groupId = "crowd_" + (bp.sceneContextLabel?.toLowerCase().replace(/\s+/g, "_") ?? "generic");
-      if (!groups.has(groupId)) {
-        groups.set(groupId, {
-          id: groupId,
-          label: bp.sceneContextLabel ?? "foule d'ambiance",
-          visualDescription: "",
-          requiredInBeatIds: new Set(),
-        });
-      }
-      if (bp.beatId) {
-        groups.get(groupId)!.requiredInBeatIds.add(bp.beatId);
-      }
-    }
-
-    if (bp.npcVisualDna && Array.isArray(bp.npcVisualDna)) {
-      for (const npc of bp.npcVisualDna) {
-        const npcId = npc.continuityId ?? `npc_${npc.displayName?.toLowerCase().replace(/\s+/g, "_") ?? "anon"}`;
-        if (!groups.has(npcId)) {
-          groups.set(npcId, {
-            id: npcId,
-            label: npc.displayName ?? "PNJ anonyme",
-            visualDescription: npc.visualMarkers?.join(", ") ?? "",
-            requiredInBeatIds: new Set(),
-          });
-        }
-        if (bp.beatId) {
-          groups.get(npcId)!.requiredInBeatIds.add(bp.beatId);
-        }
-      }
-    }
-  }
-
-  return Array.from(groups.values()).map((g) => ({
-    id: g.id,
-    label: g.label,
-    visualDescription: g.visualDescription || undefined,
-    requiredInBeatIds: g.requiredInBeatIds.size > 0 ? Array.from(g.requiredInBeatIds) : undefined,
-  }));
-}
-
-function npcGroupsFromVisualWorldForCast(vw: VisualWorldContract): LegacyNpcGroupForCast[] {
-  return vw.npcGroups.map((g) => ({
-    id: g.id,
-    label: g.label,
-    visualDescription: [g.visualProfile, g.outfit ? `tenue: ${g.outfit}` : "", g.silhouette ? `silhouette: ${g.silhouette}` : ""]
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .join(" — ") || undefined,
-    requiredInBeatIds: g.requiredBeatIds.length > 0 ? [...g.requiredBeatIds] : undefined,
-  }));
-}
-
-/** Fusionne les PNJ du contrat discovery (legacy ou dérivé du monde IA) avant cast + story. */
-function mergeDiscoveryContractNpcGroupsIntoMap(
-  map: Map<string, LegacyNpcGroupForCast>,
-  contract: VisualWorldDiscoveryPassResult["contract"],
-): void {
-  for (const npcGroup of contract.npcGroups) {
-    const key = npcGroup.label.toLowerCase();
-    if (map.has(key)) continue;
-    const id =
-      typeof npcGroup.id === "string" && npcGroup.id.trim().length > 0
-        ? npcGroup.id
-        : `auto_${key.replace(/\s+/g, "_")}`;
-    map.set(key, {
-      id,
-      label: npcGroup.label,
-      visualDescription: npcGroup.visualDescription || undefined,
-      requiredInBeatIds: npcGroup.requiredBeats.length > 0 ? [...npcGroup.requiredBeats] : undefined,
-    });
-  }
-}
-
-function resolveProjectFormat(project: Record<string, unknown> | null, projectId: string): "manga" | "webtoon" {
-  const projectFormatRaw = typeof project?.format === "string" ? project.format : null;
-  const projectFormat: "manga" | "webtoon" = projectFormatRaw === "webtoon" ? "webtoon" : "manga";
-  if (projectFormatRaw !== "manga" && projectFormatRaw !== "webtoon") {
-    console.warn(
-      `[pipeline:v3:storyboard] project_format_fallback raw=${projectFormatRaw ?? "null"} → manga (projectId=${projectId})`,
-    );
-  }
-  return projectFormat;
-}
-
-async function resolveLocationsForStoryPass(
-  input: RunPremiumV3PipelineInput,
-): Promise<PremiumV3PipelineLocation[]> {
-  let resolved = Array.isArray(input.locations) && input.locations.length > 0 ? [...input.locations] : [];
-  if (resolved.length === 0 && Array.isArray(input.locationIds) && input.locationIds.length > 0) {
-    resolved = await loadLocationsForV3StoryPass({
-      projectId: input.projectId,
-      locationIds: input.locationIds,
-    });
-  }
-  if (
-    resolved.length === 0
-    && typeof input.chapterLocationName === "string"
-    && input.chapterLocationName.trim().length > 0
-  ) {
-    resolved = [
-      {
-        id: `chapter-primary:${input.chapterId}`,
-        name: input.chapterLocationName.trim(),
-        visualDNA: { source: "chapter_location_field" },
-      },
-    ];
-  }
-  if (resolved.length > 0) {
-    const locationSource =
-      input.locations?.length ? "input"
-      : input.locationIds?.length ? "locationIds"
-      : "chapterLocationName";
-    console.info(
-      `[pipeline:v3:locations] chapterId=${input.chapterId} count=${resolved.length} source=${locationSource}`,
-    );
-  }
-  return resolved;
-}
-
 export function hasApprovedPlanDrivenInput(input: RunPremiumV3PipelineInput): boolean {
-  const plan = input.productionPlan as Record<string, unknown> | null | undefined;
-  return Boolean(
-    plan
-    && Array.isArray(plan.panelBlueprints)
-    && plan.panelBlueprints.length > 0,
-  );
+  return hasApprovedPlanDrivenInputHelper(input);
 }
 
 export async function runPremiumV3Pipeline(
@@ -409,17 +270,8 @@ export async function runPremiumV3Pipeline(
   const timings: Record<string, number> = {};
   const pipelineUserWarnings: string[] = [];
 
-  function dedupePipelineWarnings(): string[] | undefined {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const raw of pipelineUserWarnings) {
-      const s = typeof raw === "string" ? raw.trim() : "";
-      if (!s || seen.has(s)) continue;
-      seen.add(s);
-      out.push(s);
-    }
-    return out.length > 0 ? out : undefined;
-  }
+  const dedupePipelineWarnings = (): string[] | undefined =>
+    dedupeWarningsHelper(pipelineUserWarnings);
 
   try {
     if (visualQaProductionConfigSkipped) {
