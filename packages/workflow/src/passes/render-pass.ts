@@ -540,9 +540,16 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
     );
   }
 
-  // PHASE A.2 — Check preflight : si queue incomplète, fail AVANT FAL
+  // PHASE A.2 — Check preflight : si queue incomplète au-delà du seuil, fail AVANT FAL
   if (preflightErrors.length > 0 && input.generatePanelImage) {
-    throw new RenderQueueIncompleteError(allPanels.length, preflightQueue.length, preflightErrors);
+    const errorRatio = preflightErrors.length / allPanels.length;
+    const MAX_PREFLIGHT_ERROR_RATIO = 0.05;
+    if (errorRatio > MAX_PREFLIGHT_ERROR_RATIO) {
+      throw new RenderQueueIncompleteError(allPanels.length, preflightQueue.length, preflightErrors);
+    }
+    console.warn(
+      `[pipeline:v3:render-preflight] ${preflightErrors.length}/${allPanels.length} panel(s) skipped (${(errorRatio * 100).toFixed(1)}% ≤ ${(MAX_PREFLIGHT_ERROR_RATIO * 100).toFixed(0)}% threshold) — rendering ${preflightQueue.length} panels`,
+    );
   }
 
   // PHASE B — Render : appeler FAL seulement si preflight OK
