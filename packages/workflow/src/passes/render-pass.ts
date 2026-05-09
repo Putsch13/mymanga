@@ -1017,23 +1017,43 @@ export async function runRenderPass(input: RunRenderPassInput): Promise<RunRende
 
     // Vérification stricte : tous les panels attendus doivent être persistés
     // P0.6 — Inclure aussi imagesStorageFailed (upload Supabase échoué)
-    if (persistResult.imagesSkipped > 0 || persistResult.imagesStorageFailed > 0) {
-      const missingPanels = persistResult.warnings
-        .filter((w) => w.startsWith("panel_not_rendered") || w.startsWith("storage_failed"))
-        .map((w) => w.match(/panelId=([^\s]+)/)?.[1] ?? "unknown");
+    //
+    // Les panels skippés au preflight (contradictory_prompt, etc.) ne sont pas
+    // des erreurs de persistance : on ne les a jamais envoyés à FAL.
+    const preflightSkippedIds = new Set(preflightErrors.map((e) => e.panelId));
 
+    const storageMissing = persistResult.warnings
+      .filter((w) => w.startsWith("storage_failed"))
+      .map((w) => w.match(/panelId=([^\s]+)/)?.[1] ?? "unknown");
+
+    const unexpectedSkips = persistResult.warnings
+      .filter((w) => w.startsWith("panel_not_rendered"))
+      .map((w) => w.match(/panelId=([^\s]+)/)?.[1] ?? "unknown")
+      .filter((id) => !preflightSkippedIds.has(id));
+
+    const realMissing = [...storageMissing, ...unexpectedSkips];
+
+    if (realMissing.length > 0 || persistResult.imagesStorageFailed > 0) {
       console.error(
         `[render-pass:persist] incomplete chapterId=${input.chapterId} ` +
           `expected=${expectedPanelIds.length} persisted=${persistResult.imagesUpserted} ` +
-          `skipped=${persistResult.imagesSkipped} storageFailed=${persistResult.imagesStorageFailed}`,
+          `skipped=${persistResult.imagesSkipped} storageFailed=${persistResult.imagesStorageFailed} ` +
+          `preflightSkipped=${preflightSkippedIds.size} unexpectedSkips=${unexpectedSkips.length}`,
       );
 
       throw new V3ImagePersistenceError({
         chapterId: input.chapterId,
         expectedPanels: expectedPanelIds.length,
         persistedPanels: persistResult.imagesUpserted,
-        missingPanels: missingPanels.length > 0 ? missingPanels : expectedPanelIds,
+        missingPanels: realMissing,
       });
+    }
+
+    if (persistResult.imagesSkipped > 0) {
+      console.warn(
+        `[render-pass:persist] chapterId=${input.chapterId} ` +
+          `${persistResult.imagesSkipped} panel(s) skipped (all from preflight) — non-blocking`,
+      );
     }
 
     if (persistResult.warnings.length > 0) {
