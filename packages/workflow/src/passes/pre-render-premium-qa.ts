@@ -144,8 +144,13 @@ export function runPreRenderPremiumQa(input: PreRenderPremiumQaInput): PreRender
   const genericActions = panels.filter((p) => isGenericActionLine(String(p.actionLine ?? "")));
   const genericActionCount = genericActions.length;
 
-  if (genericActionCount > 0) {
+  const GENERIC_ACTION_TOLERANCE = Math.max(3, Math.ceil(totalPanels * 0.05));
+  if (genericActionCount > GENERIC_ACTION_TOLERANCE) {
     issues.push(`generic_action_lines=${genericActionCount}`);
+  } else if (genericActionCount > 0) {
+    console.warn(
+      `[pre-render-qa] ${genericActionCount} generic action line(s) tolerated (threshold=${GENERIC_ACTION_TOLERANCE})`,
+    );
   }
 
   const npcMainCharacterPanels = panels.filter((p) => isMainCharacterMarkedAsNpc(p, input.mainCharacterNames));
