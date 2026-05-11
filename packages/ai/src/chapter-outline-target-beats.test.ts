@@ -8,10 +8,12 @@ describe("chapter-outline targetBeats contract", () => {
   }, 20_000);
 
   it("prompt template includes targetBeats constraint", async () => {
-    // Read the source to verify the prompt contains targetBeats
     const fs = await import("fs");
     const source = fs.readFileSync(
-      new URL("./chapter-outline.ts", import.meta.url).pathname.replace("chapter-outline-target-beats.test.ts", "chapter-outline.ts"),
+      new URL("./_chapter-outline/prompt.ts", import.meta.url).pathname.replace(
+        "chapter-outline-target-beats.test.ts",
+        "_chapter-outline/prompt.ts",
+      ),
       "utf-8",
     );
     expect(source).toContain("targetBeats");
@@ -22,7 +24,10 @@ describe("chapter-outline targetBeats contract", () => {
   it("prompt explicitly forbids abstract filler beats", async () => {
     const fs = await import("fs");
     const source = fs.readFileSync(
-      new URL("./chapter-outline.ts", import.meta.url).pathname.replace("chapter-outline-target-beats.test.ts", "chapter-outline.ts"),
+      new URL("./_chapter-outline/prompt.ts", import.meta.url).pathname.replace(
+        "chapter-outline-target-beats.test.ts",
+        "_chapter-outline/prompt.ts",
+      ),
       "utf-8",
     );
     expect(source).toContain("tension monte");

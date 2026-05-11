@@ -10,6 +10,7 @@ import {
   type ChapterIntentContract,
   buildIntentNarrativeContract,
   type IntentNarrativeContract,
+  type KnownCharacterRef,
   logIntentContract,
 } from "@manga-ai-studio/core";
 import {
@@ -29,7 +30,19 @@ export type CompileChapterIntentUsecaseInput = {
   dialogueLevel?: "low" | "medium" | "high";
   endingType?: string;
   chapterId?: string;
+  /** @deprecated Use `knownCharacters` instead (FIX-12). */
   knownCharacterNames?: string[];
+  /**
+   * FIX-12 — Cast projet (id + name + roleType) pour la résolution de
+   * pronoms ("lui", "elle", "son frère"…). Préféré aux arrays parallèles
+   * legacy qui posaient des risques de désync d'index.
+   */
+  knownCharacters?: ReadonlyArray<KnownCharacterRef>;
+  /**
+   * FIX-12 — IDs des personnages explicitement sélectionnés pour CE
+   * chapitre. Scope la résolution de pronoms à ce sous-ensemble.
+   */
+  selectedCharacterIds?: ReadonlyArray<string>;
   knownLocationNames?: string[];
 };
 
@@ -97,8 +110,12 @@ export const compileChapterIntentUsecase: Usecase<
         narrativeContract = buildIntentNarrativeContract({
           chapterId: input.chapterId,
           userIntent: rawUserIntent,
+          // FIX-12 — On privilégie le format unifié `knownCharacters`
+          // mais on reste compatible avec l'ancien `knownCharacterNames`.
+          knownCharacters: input.knownCharacters ?? [],
           knownCharacterNames: input.knownCharacterNames ?? [],
           knownLocationNames: input.knownLocationNames ?? [],
+          selectedCharacterIds: input.selectedCharacterIds ?? [],
         });
         logIntentContract({
           requiredEvents: narrativeContract.requiredEvents.length,

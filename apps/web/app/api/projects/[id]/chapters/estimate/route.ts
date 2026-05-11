@@ -1,22 +1,23 @@
+/**
+ * POST /api/projects/[id]/chapters/estimate
+ *
+ * Génère un "estimate" complet pour un nouveau chapitre ou un chapitre existant
+ * (preview + production plan). Façade qui orchestre :
+ *   1. Auth + project ownership + body schema.
+ *   2. Résolution du chapitre cible et du `targetChapterNumber`.
+ *   3. `prepareEstimateBundle` : bundle initial + ré-alignement Visual World.
+ *   4. `enrichEstimateBeats` : faits narratifs, props requis, blueprints panneaux.
+ *   5. `buildCanonicalChapterProductionPlan` + merge canon vs raw.
+ *   6. `loadEstimateCastContext` (héros / co-protag / canon map).
+ *   7. `hydrateEstimateBlueprints` : DNA + provenance.
+ *   8. Structural QA + classification panel count.
+ *   9. `buildEstimateProductionPlan`.
+ *   10. Continuity preflight + premium plan contract QA + planReady.
+ *   11. `buildEstimateResponse`.
+ */
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  generateChapterBundle,
-  composeVisualWorldContract,
-  toComposeVisualWorldKnownLocation,
-  inferNarrativeFactsFromBeat,
-  inferRequiredPropsFromBeat,
-  indexVisualWorldPropsByBeat,
-  buildPanelBlueprintsFromBeat,
-  computeChapterFocusBudget,
-  computePremiumReadinessScore,
-  runPremiumPlanContractQa,
-  enrichNarrativeFactsWithLLM,
-  mergeNarrativeFacts,
-  buildChapterShotPlan,
-  runCutawayQa,
-  type PremiumReadinessCastContext,
-} from "@manga-ai-studio/ai";
+import { runPremiumPlanContractQa } from "@manga-ai-studio/ai";
 import {
   PREMIUM_PANEL_RANGE,
   buildCanonicalChapterProductionPlan,
@@ -24,20 +25,10 @@ import {
   computeNarrativeMemoryDigestFromOutline,
   computePanelContinuityPreflights,
   continuityPreflightBlockingReasons,
-  hydrateBlueprintsWithCharacterDna,
-  hydrateBlueprintsWithEnvironmentDna,
-  hydrateBlueprintsWithNpcDna,
-  hydrateBlueprintsWithPropDna,
-  hydratePanelProvenanceOnBlueprints,
-  isHeroRole,
   isPipelineV3PremiumOnlyEnabled,
   isPremiumStrictMode,
   mergeRawBlueprintsWithCanonicalRhythm,
-  resolveCharacterRefsToIds,
   runStructuralQaOnPremiumBlueprints,
-  buildApprovedChapterOutlineReplayFromOutlineBeats,
-  buildApprovedOutlineVersion,
-  buildProductionPlanFromOutline,
 } from "@manga-ai-studio/core";
 import { estimateChapterTextTokensFromRules } from "@manga-ai-studio/billing";
 import { prisma } from "@manga-ai-studio/db";
@@ -47,19 +38,19 @@ import { notFound, unauthorized } from "@/lib/api-response";
 import { getOwnedProject } from "@/lib/ownership";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { computePremiumAiReadiness } from "@/lib/compute-premium-ai-readiness";
-import { readChapterStudioSnapshotFromOutline } from "@/lib/chapter-studio";
-import { premiumCharacterStudioSelect, toCharacterRowsForDnaHydration } from "@/lib/premium-character-studio-select";
+import { premiumCharacterStudioSelect } from "@/lib/premium-character-studio-select";
 import {
   validateNarrativeProgression,
-  selectEditorialPreviewBeats,
   type ProductionBeatLike,
 } from "@/lib/outline-dedup";
-
-function countProductionPlanPages(plan: unknown): number {
-  if (plan == null || typeof plan !== "object") return 0;
-  const pages = Reflect.get(plan, "pages");
-  return Array.isArray(pages) ? pages.length : 0;
-}
+import { buildEditorialPreview } from "./_helpers/build-editorial-preview";
+import { buildEnrichmentContexts } from "./_helpers/build-enrichment-contexts";
+import { buildEstimateProductionPlan } from "./_helpers/build-estimate-production-plan";
+import { buildEstimateResponse } from "./_helpers/build-estimate-response";
+import { enrichEstimateBeats } from "./_helpers/enrich-estimate-beats";
+import { hydrateEstimateBlueprints } from "./_helpers/hydrate-estimate-blueprints";
+import { loadEstimateCastContext } from "./_helpers/load-estimate-cast-context";
+import { prepareEstimateBundle } from "./_helpers/prepare-estimate-bundle";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -87,37 +78,40 @@ export async function POST(req: Request, ctx: Ctx) {
 
   const body = schema.parse(await req.json());
   const estimatedTokens = await estimateChapterTextTokensFromRules();
+
+  // 1. Résolution du chapitre cible.
   const targetChapter = body.chapterId
     ? await prisma.chapter.findFirst({
-        where: { id: body.chapterId, projectId },
-        select: {
-          id: true,
-          chapterNumber: true,
-          title: true,
-          status: true,
-          // P2.1bis — on a besoin du minimum du chapitre pour garantir que
-          // le contrat sort avec panelBlueprints.length >= minimumImages.
-          // Sans ça, la régénération produit ~30-55 panels alors que le
-          // chapitre en demande 75+ et le studio bloque immédiatement.
-          minimumImages: true,
-        },
-      })
+      where: { id: body.chapterId, projectId },
+      select: {
+        id: true,
+        chapterNumber: true,
+        title: true,
+        status: true,
+        // P2.1bis — on a besoin du minimum du chapitre pour garantir que le
+        // contrat sort avec panelBlueprints.length >= minimumImages.
+        minimumImages: true,
+      },
+    })
     : null;
   if (body.chapterId && !targetChapter) return notFound();
 
   const nextChapter = !targetChapter
     ? await prisma.chapter.findFirst({
-        where: { projectId },
-        orderBy: { chapterNumber: "desc" },
-        select: { chapterNumber: true },
-      })
+      where: { projectId },
+      orderBy: { chapterNumber: "desc" },
+      select: { chapterNumber: true },
+    })
     : null;
   const targetChapterNumber = targetChapter?.chapterNumber ?? ((nextChapter?.chapterNumber ?? 0) + 1);
-  const estimateMode = targetChapter ? "existing_chapter" : "new_chapter";
+  const estimateMode: "existing_chapter" | "new_chapter" = targetChapter ? "existing_chapter" : "new_chapter";
+
   console.log(
-    `[estimate] estimate_started projectId=${projectId} chapterId=${targetChapter?.id ?? "new"} ` +
-    `chapterNumber=${targetChapterNumber} estimateMode=${estimateMode}`,
+    `[estimate] estimate_started projectId=${projectId} chapterId=${targetChapter?.id ?? "new"} `
+    + `chapterNumber=${targetChapterNumber} estimateMode=${estimateMode}`,
   );
+
+  // 2. Project context (memory) + bundle premium aligné VW.
   const context = await buildProjectContext(prisma, projectId, body.userIntent, {
     focusCharacterIds: body.focusCharacterIds,
     targetChapterId: targetChapter?.id ?? null,
@@ -128,219 +122,38 @@ export async function POST(req: Request, ctx: Ctx) {
   const estimateChapterId = targetChapter?.id ?? `estimate-${projectId}-ch${targetChapterNumber}`;
   const estimateChapterTitle = targetChapter?.title ?? `Chapitre ${targetChapterNumber}`;
 
-  let bundle = await generateChapterBundle({
-    chapterId: targetChapter?.id,
-    chapterNumber: targetChapterNumber,
-    chapterTitle: targetChapter?.title ?? null,
+  const bundle = await prepareEstimateBundle({
+    projectId,
+    estimateChapterId,
+    targetChapter: targetChapter ? { id: targetChapter.id, title: targetChapter.title } : null,
+    targetChapterNumber,
     userIntent: body.userIntent,
     selectedPlotLabel: body.selectedPlotLabel,
     creativityControls: body.creativityControls,
     context,
-    // Premium, avant `composeVisualWorldContract` : pas encore de VW → autoriser le pool legacy
-    // explicitement pour ce seul appel (sinon `premium_requires_visual_world_locations`).
-    allowLegacyLocationInference: isPipelineV3PremiumOnlyEnabled() ? true : undefined,
   });
 
-  if (process.env.OPENAI_API_KEY && isPipelineV3PremiumOnlyEnabled()) {
-    try {
-      const [charactersForWorld, locationsForWorld, knownNpcGroupsForWorld, knownPropsForWorld] = await Promise.all([
-        prisma.character.findMany({
-          where: { projectId },
-          select: { id: true, name: true, roleType: true, appearance: true },
-        }),
-        prisma.location.findMany({
-          where: { projectId },
-          select: {
-            id: true,
-            name: true,
-            type: true,
-            description: true,
-            visualBrief: true,
-            establishedVisualBrief: true,
-            canonImageUrl: true,
-            canonLocked: true,
-            metadata: true,
-            visualRefs: true,
-          },
-        }),
-        // P0 USER-WINS : passer les NPC groups projet déjà détectés/édités au LLM
-        // pour qu'il réutilise leurs id/label au lieu d'en réinventer.
-        prisma.npcGroup.findMany({
-          where: { projectId },
-          select: {
-            id: true,
-            label: true,
-            description: true,
-            visualProfile: true,
-            outfit: true,
-            silhouette: true,
-            userEdited: true,
-          },
-        }),
-        prisma.worldProp.findMany({
-          where: { projectId },
-          select: {
-            id: true,
-            label: true,
-            visualDescription: true,
-            userEdited: true,
-          },
-        }),
-      ]);
-      const nameToId = new Map(
-        charactersForWorld.map((c) => [c.name.trim().toLowerCase(), c.id] as const),
-      );
-      const vw = await composeVisualWorldContract({
-        chapterId: estimateChapterId,
-        chapterSummary: bundle.outline.chapter_goal,
-        chapterUserIntent: body.userIntent,
-        projectGenre: context.project.primaryGenre ?? null,
-        projectTone: context.project.tone ?? null,
-        styleBibleJson: null,
-        beats: bundle.outline.beats.map((b) => ({
-          beatId: b.id,
-          summary: b.summary,
-          whyThisBeatExists: b.pageRole ?? null,
-          dramaticChange: b.turn ?? b.purpose,
-          involvedCharacterIds: (b.characters ?? [])
-            .map((name) => nameToId.get(String(name).trim().toLowerCase()))
-            .filter((x): x is string => Boolean(x)),
-        })),
-        knownCharacters: charactersForWorld.map((c) => ({
-          id: c.id,
-          name: c.name,
-          roleType: c.roleType ?? null,
-          description: c.appearance ?? null,
-        })),
-        knownLocations: locationsForWorld.map((loc) => toComposeVisualWorldKnownLocation(loc)),
-        knownNpcGroups: knownNpcGroupsForWorld.map((g) => ({
-          id: g.id,
-          label: g.label,
-          description: g.description ?? null,
-          visualProfile: g.visualProfile ?? null,
-          outfit: g.outfit ?? null,
-          silhouette: g.silhouette ?? null,
-          userEdited: g.userEdited,
-        })),
-        knownWorldProps: knownPropsForWorld.map((p) => ({
-          id: p.id,
-          label: p.label,
-          visualDescription: p.visualDescription ?? null,
-          userEdited: p.userEdited,
-        })),
-      });
-      const approvedReplay = buildApprovedChapterOutlineReplayFromOutlineBeats({
-        summary: bundle.outline.chapter_goal,
-        cliffhanger: bundle.outline.cliffhanger,
-        source: "estimate_preview",
-        beats: bundle.outline.beats.map((beat) => ({
-          id: beat.id,
-          summary: beat.summary,
-          characters: beat.characters,
-          location: beat.location,
-          pageRole: beat.pageRole ?? "escalation",
-          turn: beat.turn ?? beat.purpose,
-          emotionalDelta: beat.emotionalDelta ?? 0,
-          structuredBeat: beat.structuredBeat ?? null,
-        })),
-      });
-      bundle = await generateChapterBundle({
-        chapterId: targetChapter?.id,
-        chapterNumber: targetChapterNumber,
-        chapterTitle: targetChapter?.title ?? null,
-        userIntent: body.userIntent,
-        selectedPlotLabel: body.selectedPlotLabel,
-        creativityControls: body.creativityControls,
-        context,
-        approvedOutline: approvedReplay,
-        visualWorldContract: vw,
-        // VW présent : en premium, liaisons beat→lieu strictes (voir `chapter-pipeline`).
-        allowLegacyLocationInference: isPipelineV3PremiumOnlyEnabled() ? false : undefined,
-      });
-    } catch (vwAlignErr) {
-      console.warn("[estimate] visual_world_bundle_realign_failed", vwAlignErr);
-    }
-  }
-  // Sélectionner les 5 tournants narratifs représentatifs (pas slice(0,5))
-  const allBundleBeats = bundle.outline.beats.map((beat) => ({
-    id: beat.id,
-    summary: beat.summary,
-    characters: beat.characters,
-    location: beat.location,
-    pageRole: beat.pageRole ?? "escalation",
-    turn: beat.turn ?? beat.purpose,
-    emotionalDelta: beat.emotionalDelta ?? 0,
-    structuredBeat: beat.structuredBeat ?? null,
-  }));
-  const editorialPreviewBeats = selectEditorialPreviewBeats(
-    allBundleBeats as ProductionBeatLike[],
-  );
-  const previewBeats = editorialPreviewBeats.map((b) => ({
-    id: (b as typeof allBundleBeats[number]).id,
-    summary: b.summary,
-    characters: (b as typeof allBundleBeats[number]).characters,
-    location: (b as typeof allBundleBeats[number]).location,
-    pageRole: (b as typeof allBundleBeats[number]).pageRole,
-    turn: (b as typeof allBundleBeats[number]).turn,
-    emotionalDelta: (b as typeof allBundleBeats[number]).emotionalDelta,
-    structuredBeat: (b as typeof allBundleBeats[number]).structuredBeat,
-  }));
-  const previewVersion = buildApprovedOutlineVersion({
-    summary: bundle.outline.chapter_goal,
-    cliffhanger: bundle.outline.cliffhanger,
-    beats: bundle.outline.beats.map((beat) => ({
-      id: beat.id,
-      summary: beat.summary,
-      characters: beat.characters,
-      location: beat.location,
-      pageRole: beat.pageRole ?? "escalation",
-      turn: beat.turn ?? beat.purpose,
-      emotionalDelta: beat.emotionalDelta ?? 0,
-      structuredBeat: beat.structuredBeat ?? null,
-    })),
-    source: "estimate_preview",
+  // 3. Editorial preview beats (5 tournants narratifs représentatifs).
+  const { previewBeats, previewVersion } = buildEditorialPreview({
+    bundleOutline: bundle.outline,
   });
-  const heroCharacterId = context.characters?.find((c) => isHeroRole(c.roleType))?.id ?? null;
-  const visualWorldPropsForBeat = indexVisualWorldPropsByBeat(bundle.visualWorldContract ?? undefined);
-  const visualWorldContractActive = bundle.visualWorldContract != null;
-  const universeContext = {
-    projectGenre: context.project.primaryGenre ?? null,
-    projectTone: context.project.tone ?? null,
+
+  // 4. Cast / world contexts pour enrichissement.
+  const {
     heroCharacterId,
-    premiumStrictChapterSourcing: isPipelineV3PremiumOnlyEnabled(),
-    suppressUniverseTemplateProps: isPipelineV3PremiumOnlyEnabled(),
-    visualWorldContractActive,
-    premiumOnly: isPipelineV3PremiumOnlyEnabled(),
+    universeContext,
+    narrativeContext,
+    characterCatalogForResolution,
+  } = buildEnrichmentContexts({
+    project: context.project,
+    characters: context.characters,
+    recentContinuityEvents: context.recentContinuityEvents,
     visualWorldContract: bundle.visualWorldContract ?? null,
-    ...(visualWorldPropsForBeat ? { visualWorldPropsForBeat } : {}),
-  };
-  const narrativeContext = {
-    projectGenre: context.project.primaryGenre ?? null,
-    projectTone: context.project.tone ?? null,
-    heroCharacterId,
-    recentContinuityEvents: context.recentContinuityEvents?.map((e) => ({
-      eventType: e.eventType,
-      summary: e.summary,
-      entities: (e.entities && typeof e.entities === "object" && !Array.isArray(e.entities))
-        ? (e.entities as { objectsGained?: string[]; objectsLost?: string[]; locationChange?: string })
-        : undefined,
-    })),
-  };
-
-  const characterCatalogForResolution = (context.characters ?? []).map((c) => ({
-    id: c.id,
-    name: c.name,
-    displayName: null as string | null,
-    roleType: c.roleType,
-  }));
+  });
 
   // P0 fix : NPC groups détectés dans le VisualWorld doivent être considérés
-  // comme des refs valides (sinon "Groupe de pêcheurs" remonte unresolved).
-  // On fusionne 2 sources : (1) le VisualWorldContract du chapitre courant si
-  // déjà composé, (2) la table projet `NpcGroup` (auto-détectés par
-  // `extractWorldEntitiesFromIntent` lors du compile intent), pour que même
-  // un premier `/estimate` (avant `composeVisualWorldContract`) résolve
-  // correctement les libellés "Groupe de pêcheurs" etc.
+  // comme des refs valides. On fusionne (1) le VW courant si déjà composé,
+  // (2) la table projet `NpcGroup` (auto-détectés à compile intent).
   const projectNpcGroups = await prisma.npcGroup.findMany({
     where: { projectId },
     select: { id: true, label: true },
@@ -358,89 +171,28 @@ export async function POST(req: Request, ctx: Ctx) {
   }
   const npcGroupRefsForResolution = [...npcGroupRefMap.values()];
 
-  // Build production beats with narrative intelligence (3-layer pipeline)
-  const enrichedBeats = await Promise.all(bundle.outline.beats.map(async (beat) => {
-    const charLabels = Array.isArray(beat.characters) ? beat.characters : [];
-    const resolved = resolveCharacterRefsToIds(
-      charLabels,
-      characterCatalogForResolution,
-      npcGroupRefsForResolution,
-    );
-    if (resolved.unresolved.length > 0) {
-      console.warn(
-        `[estimate] character_ref_unresolved beatId=${beat.id} labels=${JSON.stringify(resolved.unresolved)}`,
-      );
-    }
-    if (resolved.npcGroupIds && resolved.npcGroupIds.length > 0) {
-      console.info(
-        `[estimate] character_ref_npc_group_resolved beatId=${beat.id} groupIds=${JSON.stringify(resolved.npcGroupIds)}`,
-      );
-    }
-    const productionBeat = {
-      beatId: beat.id,
-      summary: beat.summary,
-      narrativeFunction: beat.pageRole ?? beat.purpose,
-      whyThisBeatExists: beat.summary,
-      dramaticChange: beat.turn ?? beat.purpose,
-      involvedCharacters: resolved.ids,
-      involvedCharacterLabels: charLabels,
-      unresolvedCharacterRefs: resolved.unresolved,
-      activeCanonConstraints: [] as string[],
-      environmentContext: [beat.location],
-      visualPriority: "high" as const,
-      estimatedPanels: 4,
-      criticality: (beat.pageRole === "cliffhanger" || beat.pageRole === "revelation" ? "critical" : "medium") as
-        | "critical"
-        | "medium",
-      continuityDependencies: [] as string[],
-      infoGained: null,
-      emotionProduced: null,
-      indispensabilityScore: 72,
-      redundancyRisk: 18,
-    };
-
-    // Couche 1+2 : heuristiques + analyse sémantique (synchrone)
-    const heuristicFacts = inferNarrativeFactsFromBeat(productionBeat, narrativeContext);
-
-    // Couche 3 : enrichissement LLM async (si OPENAI_API_KEY disponible)
-    // Enrichit les faits manqués par les patterns (formes passives, idiomes, etc.)
-    const llmFacts = await enrichNarrativeFactsWithLLM(productionBeat, heuristicFacts, narrativeContext);
-    const narrativeFacts = mergeNarrativeFacts(heuristicFacts, llmFacts);
-
-    const requiredProps = inferRequiredPropsFromBeat(productionBeat, narrativeFacts, universeContext);
-
-    // Build panel blueprints to get real panel count
-    const blueprints = buildPanelBlueprintsFromBeat(productionBeat, narrativeFacts, requiredProps, {
-      heroCharacterId,
-      projectGenre: context.project.primaryGenre ?? null,
-      projectTone: context.project.tone ?? null,
-    });
-
-    return {
-      ...productionBeat,
-      estimatedPanels: blueprints.length > 0 ? blueprints.length : 4,
-      narrativeFacts,
-      requiredProps,
-      _blueprints: blueprints,
-    };
-  }));
-
-  const rawBlueprints = enrichedBeats.flatMap((b) => b._blueprints);
-
-  const rawProductionBeats = enrichedBeats.map((b) => {
-    const { _blueprints, ...beat } = b;
-    void _blueprints;
-    return beat;
+  // 5. Beat enrichment (faits + props + blueprints natifs).
+  const { rawBlueprints, rawProductionBeats, enrichedBeats } = await enrichEstimateBeats({
+    bundle,
+    characterCatalogForResolution,
+    npcGroupRefsForResolution,
+    narrativeContext,
+    universeContext,
+    heroCharacterId,
+    projectGenre: context.project.primaryGenre ?? null,
+    projectTone: context.project.tone ?? null,
   });
 
-  const characterRefsUnresolved = [...new Set(rawProductionBeats.flatMap((b) => b.unresolvedCharacterRefs ?? []))];
+  const characterRefsUnresolved = [
+    ...new Set(rawProductionBeats.flatMap((b) => b.unresolvedCharacterRefs ?? [])),
+  ];
   const characterRefResolutionOk = characterRefsUnresolved.length === 0;
 
   const progressionCheck = validateNarrativeProgression(rawProductionBeats as ProductionBeatLike[]);
   if (!progressionCheck.ok) {
     console.warn(
-      `[estimate] plan_dedup_applied chapterId=${targetChapter?.id ?? "new"} ` +
-      `issues=${progressionCheck.issues.length} score=${progressionCheck.progressionScore.toFixed(2)}`,
+      `[estimate] plan_dedup_applied chapterId=${targetChapter?.id ?? "new"} `
+      + `issues=${progressionCheck.issues.length} score=${progressionCheck.progressionScore.toFixed(2)}`,
     );
   }
 
@@ -451,8 +203,7 @@ export async function POST(req: Request, ctx: Ctx) {
     beats: rawProductionBeats,
   };
 
-  // Phase 3 — source de vérité : outline → plan canonique → blueprints premium.
-  // Les blueprints « natifs » (rawBlueprints) servent de diagnostic éditorial uniquement.
+  // 6. Plan canonique (source de vérité éditoriale) + merge avec rythme natif.
   const projectFormat = context.project.format === "webtoon" ? "webtoon" : "manga";
   const canonicalPlan = buildCanonicalChapterProductionPlan({
     chapterId: estimateChapterId,
@@ -467,96 +218,36 @@ export async function POST(req: Request, ctx: Ctx) {
   });
   const mergedBlueprints = mergeRawBlueprintsWithCanonicalRhythm(rawBlueprints, canonicalPlan);
   const narrativeDigest = computeNarrativeMemoryDigestFromOutline(productionOutline);
-  let allBlueprints = mergedBlueprints;
 
-  let premiumReadinessCast: PremiumReadinessCastContext | undefined;
-  let characterCanonsById: Record<string, import("@manga-ai-studio/core").CharacterCanon> | undefined;
-  let coProtagonistCharacterIdsForHydration: readonly string[] | undefined;
+  // 7. Cast premium context + DNA hydration.
   const characterRowsForHydration = await prisma.character.findMany({
     where: { projectId },
     select: premiumCharacterStudioSelect,
   });
-  if (targetChapter?.id) {
-    const chRec = await prisma.chapter.findFirst({
-      where: { id: targetChapter.id, projectId },
-      select: { outline: true },
-    });
-    if (chRec?.outline) {
-      const snap = readChapterStudioSnapshotFromOutline({
-        outline: chRec.outline,
-        chapterNumber: targetChapterNumber,
-        chapterTitle: estimateChapterTitle,
-      });
-      const list = snap.data.characterCanons ?? [];
-      if (list.length > 0) {
-        characterCanonsById = {};
-        for (const c of list) {
-          characterCanonsById[c.characterId] = c;
+  const cast = await loadEstimateCastContext({
+    projectId,
+    targetChapter: targetChapter
+      ? {
+          id: targetChapter.id,
+          chapterNumber: targetChapter.chapterNumber,
+          title: targetChapter.title,
         }
-      }
-      const sel = snap.data.characterSelection;
-      const secHydrate = sel?.secondaryHeroCharacterId;
-      const deutHydrate = sel?.deuteragonistCharacterId;
-      const coList = [
-        typeof secHydrate === "string" && secHydrate.trim() ? secHydrate.trim() : null,
-        typeof deutHydrate === "string" && deutHydrate.trim() ? deutHydrate.trim() : null,
-      ].filter((x): x is string => x != null);
-      const uniqueCo = [...new Set(coList)];
-      if (uniqueCo.length > 0) {
-        coProtagonistCharacterIdsForHydration = uniqueCo;
-      }
-      premiumReadinessCast = {
-        heroCharacterId: sel?.heroCharacterId?.trim() || heroCharacterId,
-        secondaryHeroCharacterId:
-          typeof secHydrate === "string" && secHydrate.trim().length > 0 ? secHydrate.trim() : null,
-        deuteragonistCharacterId:
-          typeof deutHydrate === "string" && deutHydrate.trim().length > 0 ? deutHydrate.trim() : null,
-      };
-    }
-  }
-
-  allBlueprints = hydrateBlueprintsWithCharacterDna({
-    blueprints: allBlueprints,
-    characters: toCharacterRowsForDnaHydration(characterRowsForHydration),
-    characterCanonsById: characterCanonsById ?? null,
-    strict: isPipelineV3PremiumOnlyEnabled(),
-    ...(coProtagonistCharacterIdsForHydration
-      ? { coProtagonistCharacterIds: coProtagonistCharacterIdsForHydration }
-      : {}),
+      : null,
+    targetChapterNumber,
+    estimateChapterTitle,
+    fallbackHeroCharacterId: heroCharacterId,
   });
 
-  allBlueprints = hydrateBlueprintsWithEnvironmentDna({
-    blueprints: allBlueprints,
-    visualWorld: bundle.visualWorldContract ?? null,
-    strict: false,
-  });
-  if (bundle.visualWorldContract) {
-    const strictVw = isPipelineV3PremiumOnlyEnabled();
-    allBlueprints = hydrateBlueprintsWithPropDna({
-      blueprints: allBlueprints,
-      visualWorld: bundle.visualWorldContract,
-      strict: strictVw,
-    });
-    allBlueprints = hydrateBlueprintsWithNpcDna({
-      blueprints: allBlueprints,
-      visualWorld: bundle.visualWorldContract,
-      strict: strictVw,
-    });
-  }
-
-  allBlueprints = hydratePanelProvenanceOnBlueprints(allBlueprints, {
+  const allBlueprints = hydrateEstimateBlueprints({
+    blueprints: mergedBlueprints,
+    characterRowsForHydration,
+    characterCanonsById: cast.characterCanonsById,
+    coProtagonistCharacterIdsForHydration: cast.coProtagonistCharacterIdsForHydration,
+    visualWorldContract: bundle.visualWorldContract ?? null,
     narrativeMemoryDigest: narrativeDigest,
   });
 
-  for (const bp of allBlueprints) {
-    if (bp.requiredProps.length > 0 && !bp.propVisualDna) {
-      console.warn(`[estimate] blueprint_not_fully_hydrated panelId=${bp.panelId} requiredProps=${bp.requiredProps.length} propVisualDna=missing`);
-    }
-    if (bp.requiredNpcCount > 0 && (!bp.npcVisualDna || bp.npcVisualDna.length === 0)) {
-      console.warn(`[estimate] blueprint_not_fully_hydrated panelId=${bp.panelId} requiredNpcCount=${bp.requiredNpcCount} npcVisualDna=missing`);
-    }
-  }
-
+  // 8. Structural QA finale (sur les blueprints persistés).
   const structuralFromPersistedBlueprints = runStructuralQaOnPremiumBlueprints({
     chapterId: estimateChapterId,
     projectId,
@@ -571,13 +262,10 @@ export async function POST(req: Request, ctx: Ctx) {
   const finalStructuralQa = structuralFromPersistedBlueprints.qa;
   if (!finalStructuralQa.valid) {
     console.error(
-      `[estimate] final_structural_qa_failed chapterId=${targetChapter?.id ?? "new"} ` +
-        `errors=${JSON.stringify(finalStructuralQa.errors)}`,
+      `[estimate] final_structural_qa_failed chapterId=${targetChapter?.id ?? "new"} `
+      + `errors=${JSON.stringify(finalStructuralQa.errors)}`,
     );
   }
-
-  const enrichmentCount = 0;
-  const enrichmentApplied = enrichmentCount > 0;
 
   const panelCountStatus = classifyPremiumPanelCount(allBlueprints.length);
   const chapterMinimumImages =
@@ -585,23 +273,19 @@ export async function POST(req: Request, ctx: Ctx) {
       ? targetChapter.minimumImages
       : PREMIUM_PANEL_RANGE.min;
   const isEmptyPlan = allBlueprints.length === 0 || productionOutline.beats.length === 0;
-  const isBelowTargetRange = panelCountStatus === "under_min";
-  const isOverTargetRange = panelCountStatus === "over_max";
-
   const rawNativeStatus = classifyPremiumPanelCount(rawBlueprints.length);
   if (rawNativeStatus === "under_min") {
     console.warn(
-      `[estimate] native_blueprints_below_range raw=${rawBlueprints.length} ` +
-      `contract=${allBlueprints.length} chapterId=${targetChapter?.id ?? "new"} — le contrat premium suit le plan canonique`,
+      `[estimate] native_blueprints_below_range raw=${rawBlueprints.length} `
+      + `contract=${allBlueprints.length} chapterId=${targetChapter?.id ?? "new"} — le contrat premium suit le plan canonique`,
     );
   }
-
-  if (isBelowTargetRange) {
+  if (panelCountStatus === "under_min") {
     console.error(
       `[estimate] below_target_range contract=${allBlueprints.length} required_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${targetChapter?.id ?? "new"} — BLOQUÉ`,
     );
   }
-  if (isOverTargetRange) {
+  if (panelCountStatus === "over_max") {
     console.error(
       `[estimate] over_target_range contract=${allBlueprints.length} required_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} chapterId=${targetChapter?.id ?? "new"} — BLOQUÉ`,
     );
@@ -613,85 +297,30 @@ export async function POST(req: Request, ctx: Ctx) {
   }
 
   console.log(
-    `[estimate] blueprint_quality chapterId=${targetChapter?.id ?? "new"} ` +
-    `raw_native=${rawBlueprints.length} contract_canonical=${allBlueprints.length} ` +
-    `target_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} ` +
-    `status=${panelCountStatus}`,
+    `[estimate] blueprint_quality chapterId=${targetChapter?.id ?? "new"} `
+    + `raw_native=${rawBlueprints.length} contract_canonical=${allBlueprints.length} `
+    + `target_range=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} status=${panelCountStatus}`,
   );
-  const focusBudget = computeChapterFocusBudget(allBlueprints);
-  const premiumReadinessScore = computePremiumReadinessScore(allBlueprints, premiumReadinessCast);
 
-  const productionPlan = {
-    // P2.1bis — on propage le `minimumImages` du chapitre dans le productionPlan
-    // construit, sinon `buildProductionPlanFromOutline` retombe sur son défaut
-    // interne (75) et le snapshot peut diverger de la colonne Chapter.minimumImages.
-    ...buildProductionPlanFromOutline(productionOutline, { minimumImages: chapterMinimumImages }),
-    panelBlueprints: allBlueprints,
-    focusDistribution: focusBudget.focusDistribution,
-    shotDistribution: focusBudget.shotDistribution,
-    propCoverage: {
-      covered: allBlueprints.flatMap((bp) => bp.requiredProps.map((p) => p.canonicalName)),
-      missing: focusBudget.violations
-        .filter((v) => v.type === "missing_prop_insert")
-        .map((v) => v.message),
-    },
-    enemyCoverage: {
-      panelCount: focusBudget.enemyFocusPanels,
-      beatsCovered: enrichedBeats
-        .filter((b) => b.narrativeFacts?.some((f) => f.type === "enemy_presence"))
-        .map((b) => b.beatId),
-    },
-    npcCoverage: {
-      panelCount: focusBudget.npcPanels,
-      avgNpcCount:
-        allBlueprints.length > 0
-          ? allBlueprints.reduce((sum, bp) => sum + bp.requiredNpcCount, 0) / allBlueprints.length
-          : 0,
-    },
-    cutawayCoverage: {
-      count: focusBudget.cutawayCount,
-      ratio: focusBudget.cutawayRatio,
-    },
-    dialogueAnchorCoverage: {
-      anchored: allBlueprints.filter(
-        (bp) => bp.dialogueCarrier === "speaker_visible" && bp.speakerAnchorCharacterId
-      ).length,
-      floating: allBlueprints.filter(
-        (bp) => bp.dialogueCarrier === "speaker_visible" && !bp.speakerAnchorCharacterId
-      ).length,
-    },
-    heroCenterRatio: focusBudget.heroCenterRatio,
-    premiumReadinessScore,
-    // P1.1 : on persiste l'intégralité du focusBudget (compteurs + violations)
-    // pour que launch/route.ts puisse bloquer les chapitres trop héros-centrés
-    // ou sans plan de coupe contractuel.
-    focusBudget,
-    // Sprint B — Shot plan narratif lisible avant génération. Contient
-    // entries (1 ligne par panel), distribution (ratios, unique shots, cutaways),
-    // reliability (launchAllowed, blockers, warnings) et humanReadable (texte UI).
-    shotPlan: buildChapterShotPlan({
-      projectTitle: context.project.title ?? null,
-      chapterTitle: targetChapter?.title ?? null,
-      blueprints: allBlueprints,
-    }),
-    cutawayQa: runCutawayQa(allBlueprints),
-  };
+  // 9. Production plan final (focus budget + couvertures + shotPlan + cutaway QA).
+  const productionPlan = buildEstimateProductionPlan({
+    productionOutline,
+    allBlueprints,
+    enrichedBeats,
+    chapterMinimumImages,
+    premiumReadinessCast: cast.premiumReadinessCast,
+    projectTitle: context.project.title ?? null,
+    chapterTitle: targetChapter?.title ?? null,
+  });
 
-  const contextDigest = [
-    context.project.title,
-    `ch${targetChapterNumber}`,
-    context.recentChapters?.length ?? 0,
-    context.characters?.length ?? 0,
-  ].join("|");
-
-  const strictPremiumContinuity =
-    isPipelineV3PremiumOnlyEnabled() || isPremiumStrictMode();
+  // 10. Continuity preflight + plan contract QA + planReady.
+  const strictPremiumContinuity = isPipelineV3PremiumOnlyEnabled() || isPremiumStrictMode();
   const continuityPreflights = strictPremiumContinuity
     ? computePanelContinuityPreflights(allBlueprints, {
-        strictEnvironmentLocationBinding: true,
-        strictCharacterDnaBinding: true,
-        strictPropVisualBinding: true,
-      })
+      strictEnvironmentLocationBinding: true,
+      strictCharacterDnaBinding: true,
+      strictPropVisualBinding: true,
+    })
     : [];
   const continuityBlockers = strictPremiumContinuity
     ? continuityPreflightBlockingReasons(continuityPreflights)
@@ -699,17 +328,16 @@ export async function POST(req: Request, ctx: Ctx) {
   const continuityPreflightOk = !strictPremiumContinuity || continuityBlockers.length === 0;
   if (!continuityPreflightOk) {
     console.error(
-      `[estimate] continuity_preflight_failed chapterId=${targetChapter?.id ?? "new"} ` +
-        `blockers=${JSON.stringify(continuityBlockers)}`,
+      `[estimate] continuity_preflight_failed chapterId=${targetChapter?.id ?? "new"} `
+      + `blockers=${JSON.stringify(continuityBlockers)}`,
     );
   }
 
   const contractQa = runPremiumPlanContractQa({ blueprints: allBlueprints });
-  const contractQaOk = contractQa.ok;
-  if (!contractQaOk) {
+  if (!contractQa.ok) {
     console.warn(
-      `[estimate] contract_qa_failed chapterId=${targetChapter?.id ?? "new"} ` +
-      `blocking=${JSON.stringify(contractQa.blocking)} metrics=${JSON.stringify(contractQa.metrics)}`,
+      `[estimate] contract_qa_failed chapterId=${targetChapter?.id ?? "new"} `
+      + `blocking=${JSON.stringify(contractQa.blocking)} metrics=${JSON.stringify(contractQa.metrics)}`,
     );
   }
 
@@ -719,131 +347,108 @@ export async function POST(req: Request, ctx: Ctx) {
     && finalStructuralQa.valid
     && characterRefResolutionOk
     && continuityPreflightOk
-    && contractQaOk;
+    && contractQa.ok;
 
+  const productionPlanPagesCount = (() => {
+    const pages = (productionPlan as { pages?: unknown }).pages;
+    return Array.isArray(pages) ? pages.length : 0;
+  })();
   console.log(
-    `[estimate] estimate_generated projectId=${projectId} chapterId=${targetChapter?.id ?? "new"} ` +
-    `chapterNumber=${targetChapterNumber} estimateMode=${estimateMode} ` +
-    `beatsCount=${productionOutline.beats.length} ` +
-    `productionPlanPages=${countProductionPlanPages(productionPlan)} ` +
-    `rawBlueprints=${rawBlueprints.length} blueprints=${allBlueprints.length} canonical_qa_valid=${canonicalPlan.qa.valid} final_structural_qa_valid=${finalStructuralQa.valid} character_ref_resolution_ok=${characterRefResolutionOk} continuity_preflight_ok=${continuityPreflightOk} enrichmentApplied=${enrichmentApplied} targetRange=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} planStatus=${panelCountStatus} ` +
-    `progressionOk=${progressionCheck.ok} progressionScore=${progressionCheck.progressionScore.toFixed(2)} ready=${planReady}`,
+    `[estimate] estimate_generated projectId=${projectId} chapterId=${targetChapter?.id ?? "new"} `
+    + `chapterNumber=${targetChapterNumber} estimateMode=${estimateMode} `
+    + `beatsCount=${productionOutline.beats.length} productionPlanPages=${productionPlanPagesCount} `
+    + `rawBlueprints=${rawBlueprints.length} blueprints=${allBlueprints.length} `
+    + `canonical_qa_valid=${canonicalPlan.qa.valid} final_structural_qa_valid=${finalStructuralQa.valid} `
+    + `character_ref_resolution_ok=${characterRefResolutionOk} continuity_preflight_ok=${continuityPreflightOk} `
+    + `enrichmentApplied=false targetRange=${PREMIUM_PANEL_RANGE.min}-${PREMIUM_PANEL_RANGE.max} planStatus=${panelCountStatus} `
+    + `progressionOk=${progressionCheck.ok} progressionScore=${progressionCheck.progressionScore.toFixed(2)} ready=${planReady}`,
   );
 
+  // 11. Réponse finale.
   const stack = getGenerationStackStatus();
   const premiumOnly = isPipelineV3PremiumOnlyEnabled();
   const { aiReadiness, premiumBlockingReasons } = computePremiumAiReadiness({ stack, premiumOnly });
 
-  return NextResponse.json({
-    estimateMode,
-    targetChapter: {
-      id: targetChapter?.id ?? null,
-      chapterNumber: targetChapterNumber,
-      requestedChapterNumber: body.chapterNumber ?? null,
-      status: targetChapter?.status ?? null,
-    },
-    estimatedTokens,
-    creativityControls: body.creativityControls ?? null,
-    estimateContext: {
-      targetChapterId: targetChapter?.id ?? null,
+  const contextDigest = [
+    context.project.title,
+    `ch${targetChapterNumber}`,
+    context.recentChapters?.length ?? 0,
+    context.characters?.length ?? 0,
+  ].join("|");
+
+  return NextResponse.json(
+    buildEstimateResponse({
+      estimateMode,
+      targetChapter: targetChapter
+        ? { id: targetChapter.id, status: targetChapter.status ?? null }
+        : null,
       targetChapterNumber,
-      contextDigest,
-      creativityControlsUsed: body.creativityControls ?? null,
-      estimateSource: estimateMode,
-      estimatedAt: new Date().toISOString(),
-      canonicalProductionPlan: {
-        format: canonicalPlan.format,
-        beatCount: canonicalPlan.beatCount,
-        panelCount: canonicalPlan.metrics.totalPanels,
-        metrics: canonicalPlan.metrics,
-        rhythm: canonicalPlan.rhythm,
-        qa: canonicalPlan.qa,
+      requestedChapterNumber: body.chapterNumber ?? null,
+      estimatedTokens,
+      creativityControls: body.creativityControls,
+      estimateContextExtras: {
+        contextDigest,
+        aiReadiness,
+        premiumBlockingReasons,
+        canonicalPlan: {
+          format: canonicalPlan.format,
+          beatCount: canonicalPlan.beatCount,
+          metrics: canonicalPlan.metrics,
+          rhythm: canonicalPlan.rhythm,
+          qa: canonicalPlan.qa,
+        },
+        continuityPreflight: {
+          ok: continuityPreflightOk,
+          blockers: continuityBlockers,
+          panelCount: continuityPreflights.length,
+        },
+        characterRefResolutionOk,
+        finalStructuralQaValid: finalStructuralQa.valid,
+        planReady,
       },
-      aiReadiness,
-      premiumBlockingReasons,
-      launchAlignedReady: planReady,
-      planStatus: planReady ? "ready" : "incomplete",
-      continuityPreflight: {
-        ok: continuityPreflightOk,
-        valid: continuityBlockers.length === 0,
-        blockers: continuityBlockers,
-        panelCount: continuityPreflights.length,
+      contextPreview: {
+        recentChapters: context.recentChapters,
+        retrievedDocs: context.retrievedDocs,
+        arcs: context.arcs,
+        characters: context.characters,
       },
-      characterRefResolutionOk,
-      finalStructuralQaValid: finalStructuralQa.valid,
-    },
-    contextPreview: {
-      recentChapters: context.recentChapters,
-      retrievedDocs: context.retrievedDocs,
-      arcs: context.arcs,
-      characters: context.characters,
-    },
-    plotOptions: bundle.plotOptions,
-    creativeDirection: bundle.creativeDirection,
-    outlinePreview: {
-      summary: bundle.outline.chapter_goal,
-      cliffhanger: bundle.outline.cliffhanger,
-      approvalVersion: previewVersion,
-      beats: previewBeats,
-    },
-    editorialOutline: {
-      summary: bundle.outline.chapter_goal,
-      validationNotes: [],
-      beats: previewBeats.map((beat, index) => ({
-        beatId: beat.id,
-        label: `Bloc ${index + 1}`,
-        summary: beat.summary,
-        narrativePurpose: beat.pageRole,
-        dramaticShift: beat.turn,
-        involvedCharacters: beat.characters,
-      })),
-    },
-    productionOutline,
-    productionPlan,
-    // P8 — planStatus STRICT : tout ce qui n'est pas dans la range premium
-    // 70-75 (PREMIUM_PANEL_RANGE) est marqué `incomplete` et bloque le launch.
-    planStatus: planReady ? "ready" : "incomplete",
-    rawBlueprintCount: rawBlueprints.length,
-    enrichedBlueprintCount: allBlueprints.length,
-    enrichmentApplied,
-    enrichmentAddedCount: enrichmentCount,
-    minimumImages: chapterMinimumImages,
-    premiumPanelRange: PREMIUM_PANEL_RANGE,
-    panelCountStatus,
-    planPresentation: {
-      editorialLabel: "Résumé du chapitre (5 grands temps)",
-      productionLabel: "Découpage détaillé pour la génération",
-      editorialBeatCount: previewBeats.length,
-      productionBeatCount: productionOutline.beats.length,
-      explanation: "Le résumé macro sert à valider l'histoire. Le découpage détaillé sert à générer les panels.",
-    },
-    planWarnings: progressionCheck.ok ? [] : progressionCheck.issues,
-    repairApplied: !progressionCheck.ok,
-    repairReasons: progressionCheck.ok ? [] : progressionCheck.issues,
-    progressionScore: progressionCheck.progressionScore,
-    characterRefResolution: {
-      ok: characterRefResolutionOk,
-      unresolved: characterRefsUnresolved,
-    },
-    finalStructuralQa: {
-      valid: finalStructuralQa.valid,
-      errors: finalStructuralQa.errors,
-      warnings: finalStructuralQa.warnings,
-      metrics: structuralFromPersistedBlueprints.plan.metrics,
-      details: finalStructuralQa.details,
-    },
-    continuityPreflight: {
-      ok: continuityPreflightOk,
-      valid: continuityBlockers.length === 0,
-      blockers: continuityBlockers,
-      panelCount: continuityPreflights.length,
-    },
-    contractQa: {
-      ok: contractQa.ok,
-      blocking: contractQa.blocking,
-      warnings: contractQa.warnings,
-      repairable: contractQa.repairable,
-      metrics: contractQa.metrics,
-    },
-  });
+      bundle: {
+        plotOptions: bundle.plotOptions,
+        creativeDirection: bundle.creativeDirection,
+        outline: { chapter_goal: bundle.outline.chapter_goal, cliffhanger: bundle.outline.cliffhanger },
+      },
+      previewVersion,
+      previewBeats,
+      productionOutline,
+      productionPlan,
+      rawBlueprintCount: rawBlueprints.length,
+      enrichedBlueprintCount: allBlueprints.length,
+      enrichmentApplied: false,
+      enrichmentAddedCount: 0,
+      chapterMinimumImages,
+      panelCountStatus,
+      progressionCheck: {
+        ok: progressionCheck.ok,
+        issues: progressionCheck.issues,
+        progressionScore: progressionCheck.progressionScore,
+      },
+      characterRefsUnresolved,
+      finalStructuralQa: {
+        valid: finalStructuralQa.valid,
+        errors: finalStructuralQa.errors,
+        warnings: finalStructuralQa.warnings,
+        details: finalStructuralQa.details,
+      },
+      finalStructuralQaMetrics: structuralFromPersistedBlueprints.plan.metrics,
+      continuityBlockers,
+      continuityPanelCount: continuityPreflights.length,
+      contractQa: {
+        ok: contractQa.ok,
+        blocking: contractQa.blocking,
+        warnings: contractQa.warnings,
+        repairable: contractQa.repairable,
+        metrics: contractQa.metrics,
+      },
+    }),
+  );
 }

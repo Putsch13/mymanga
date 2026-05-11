@@ -90,18 +90,67 @@ const FALLBACK_NPC_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /villageois|habitants?/gi, label: "Villageois" },
 ];
 
+// FIX-28 (MOD) — Avant ce TODO, le fallback heuristique ne sortait
+// JAMAIS de worldProps : si OpenAI était down ou non configuré, les
+// artefacts / armes / talismans cités dans l'intention disparaissaient,
+// ce qui faisait planter la couverture intent et privait les panels
+// d'objets clés (ex. "le médaillon de Lux"). On ajoute une regex
+// best-effort pour récupérer au moins les props "manga" classiques.
+const FALLBACK_PROP_PATTERNS: Array<{
+  pattern: RegExp;
+  label: string;
+  kind: ExtractedWorldProp["kind"];
+  narrativeWeight: ExtractedWorldProp["narrativeWeight"];
+}> = [
+  { pattern: /\b[ée]p[ée]es?\b/gi, label: "Épée", kind: "weapon", narrativeWeight: "recurring" },
+  { pattern: /\bdague?s?\b/gi, label: "Dague", kind: "weapon", narrativeWeight: "recurring" },
+  { pattern: /\barcs?\b/gi, label: "Arc", kind: "weapon", narrativeWeight: "recurring" },
+  { pattern: /\btalismans?\b/gi, label: "Talisman", kind: "artefact", narrativeWeight: "key" },
+  { pattern: /\bamulettes?\b/gi, label: "Amulette", kind: "artefact", narrativeWeight: "key" },
+  { pattern: /\bartefacts?\b/gi, label: "Artefact", kind: "artefact", narrativeWeight: "key" },
+  { pattern: /\bm[ée]daillons?\b/gi, label: "Médaillon", kind: "artefact", narrativeWeight: "key" },
+  { pattern: /\bsymboles?\b/gi, label: "Symbole", kind: "artefact", narrativeWeight: "recurring" },
+  { pattern: /\breliques?\b/gi, label: "Relique", kind: "artefact", narrativeWeight: "key" },
+  { pattern: /\borbes?\b/gi, label: "Orbe", kind: "artefact", narrativeWeight: "key" },
+  { pattern: /\bcristaux?\b|\bcristal\b/gi, label: "Cristal", kind: "artefact", narrativeWeight: "key" },
+  { pattern: /\bparchemins?\b/gi, label: "Parchemin", kind: "artefact", narrativeWeight: "recurring" },
+  { pattern: /\banneaux?\b/gi, label: "Anneau", kind: "artefact", narrativeWeight: "key" },
+  { pattern: /\bcl[ée]s?\b/gi, label: "Clé", kind: "artefact", narrativeWeight: "recurring" },
+  { pattern: /\bcartes?\b/gi, label: "Carte", kind: "tool", narrativeWeight: "recurring" },
+  { pattern: /\bbateaux?\b|\bvaisseaux?\b/gi, label: "Bateau", kind: "vehicle", narrativeWeight: "recurring" },
+  { pattern: /\bradios?\b/gi, label: "Radio", kind: "tool", narrativeWeight: "recurring" },
+  { pattern: /\bboussoles?\b/gi, label: "Boussole", kind: "tool", narrativeWeight: "recurring" },
+  { pattern: /\blivres?\b|\bgrimoire\b/gi, label: "Livre", kind: "artefact", narrativeWeight: "recurring" },
+];
+
 function heuristicExtract(text: string): ExtractWorldEntitiesFromIntentResult {
-  const seen = new Set<string>();
+  const seenNpc = new Set<string>();
   const npcGroups: ExtractedNpcGroup[] = [];
   for (const { pattern, label } of FALLBACK_NPC_PATTERNS) {
-    if (pattern.test(text) && !seen.has(label)) {
-      seen.add(label);
+    if (pattern.test(text) && !seenNpc.has(label)) {
+      seenNpc.add(label);
       npcGroups.push({ label, description: null, visualProfile: null, outfit: null, silhouette: null });
     }
   }
+
+  const seenProps = new Set<string>();
+  const worldProps: ExtractedWorldProp[] = [];
+  for (const { pattern, label, kind, narrativeWeight } of FALLBACK_PROP_PATTERNS) {
+    if (pattern.test(text) && !seenProps.has(label)) {
+      seenProps.add(label);
+      worldProps.push({
+        label,
+        description: null,
+        visualDescription: null,
+        kind,
+        narrativeWeight,
+      });
+    }
+  }
+
   return {
     npcGroups,
-    worldProps: [],
+    worldProps,
     source: "heuristic_fallback",
     warnings: ["openai_unavailable_fallback_heuristic"],
   };

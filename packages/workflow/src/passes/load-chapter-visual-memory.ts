@@ -57,6 +57,10 @@ export interface LoadChapterVisualMemoryResult {
     charactersMissingFaceRef: number;
     environmentsLoaded: number;
     styleRefsLoaded: number;
+    /** SPRINT 3 — nombre de NpcVisualProfile injectés en mémoire visuelle. */
+    npcsLoaded: number;
+    /** SPRINT 3 — NpcVisualProfile sans ref image canonique (description seule). */
+    npcsMissingCanonRef: number;
   };
 }
 
@@ -107,7 +111,7 @@ export async function loadChapterVisualMemory(
   const activeIds = new Set(input.mainCharacterIds);
   const heroId = input.heroCharacterId ?? null;
 
-  const [characters, locations, stylePacks] = await Promise.all([
+  const [characters, locations, stylePacks, npcProfiles] = await Promise.all([
     prisma.character.findMany({
       where: { projectId: input.projectId },
       select: {
@@ -140,6 +144,23 @@ export async function loadChapterVisualMemory(
       where: { projectId: input.projectId },
       orderBy: { createdAt: "desc" },
       take: 1,
+    }),
+    // SPRINT 3 — chargement des NpcVisualProfile + leur asset canonique.
+    // Avant ce sprint, la doc en tête de fichier promettait ce chargement
+    // mais le code ne le faisait pas → les PNJ récurrents n'avaient JAMAIS
+    // de ref visuelle persistée et changeaient d'apparence d'un panel à l'autre.
+    prisma.npcVisualProfile.findMany({
+      where: { projectId: input.projectId },
+      select: {
+        id: true,
+        stableNpcId: true,
+        role: true,
+        shortVisualCore: true,
+        outfitSignature: true,
+        silhouetteSignature: true,
+        importanceLevel: true,
+        canonicalRefAsset: { select: { publicUrl: true } },
+      },
     }),
   ]);
 
@@ -245,6 +266,32 @@ export async function loadChapterVisualMemory(
     memory.styleRefs.push({ refUrl: stylePack.styleRefImageUrl, defaultWeight: 0.5 });
   }
 
+  // SPRINT 3 — injecter les NpcVisualProfile dans la mémoire visuelle comme
+  // "characters" avec role="npc". On évite les collisions d'id en utilisant
+  // `npc:<stableNpcId>` comme characterId, ce qui n'écrase jamais un héros.
+  // Un PNJ avec `canonicalRefAsset.publicUrl` voit ses panels suivants utiliser
+  // cette image comme face ref → cohérence renforcée d'un panel à l'autre.
+  let npcsLoaded = 0;
+  let npcsMissingCanonRef = 0;
+  for (const npc of npcProfiles) {
+    const refUrl = npc.canonicalRefAsset?.publicUrl ?? null;
+    const memoryId = `npc:${npc.stableNpcId}`;
+    if (!refUrl) npcsMissingCanonRef += 1;
+    addCharacterEntry(memory, {
+      characterId: memoryId,
+      name: npc.role || npc.stableNpcId,
+      role: "npc",
+      faceRefUrl: refUrl,
+      silhouetteRefUrl: refUrl,
+      outfitRefUrl: refUrl,
+      defaultWeight:
+        npc.importanceLevel === "important" ? 0.75
+        : npc.importanceLevel === "recurring" ? 0.65
+        : 0.55,
+    });
+    npcsLoaded += 1;
+  }
+
   return {
     memory,
     warnings,
@@ -253,6 +300,8 @@ export async function loadChapterVisualMemory(
       charactersMissingFaceRef,
       environmentsLoaded,
       styleRefsLoaded: memory.styleRefs.length,
+      npcsLoaded,
+      npcsMissingCanonRef,
     },
   };
 }

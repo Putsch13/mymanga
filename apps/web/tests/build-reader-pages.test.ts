@@ -127,6 +127,37 @@ describe("buildPagesFromChapter (Sprint 1 — nouveau paginator)", () => {
     expect(pages[0]!.panelSlots?.map((slot) => slot.area)).toEqual(["b", "a", "d", "c"]);
   });
 
+  // TODO-31 — Le reader ne doit JAMAIS rendre une scène-image FAILED ou
+  // BLOCKED (sauf override utilisateur via userValidatedAt). Avant ce
+  // TODO ces panels apparaissaient comme cases vides dans le lecteur
+  // final.
+  it("TODO-31: les panels FAILED ne sont PAS rendus dans le reader", () => {
+    const okImg = makeImage(1, "s1");
+    const failedImg = makeImage(2, "s1");
+    failedImg.status = "failed";
+    const blockedImg = makeImage(3, "s1");
+    blockedImg.status = "blocked";
+    const chapter = makeChapter([
+      makeScene("s1", 0, { images: [okImg, failedImg, blockedImg] }),
+    ]);
+    const pages = buildPagesFromChapter(chapter);
+    const allPanels = pages.flatMap((p) => p.panels);
+    expect(allPanels.length).toBe(1);
+    expect(allPanels[0]!.id).toBe("s1-img-1");
+  });
+
+  it("TODO-31: un panel FAILED reste rendu si l'utilisateur l'a explicitement validé", () => {
+    const failedButValidated = makeImage(1, "s1");
+    failedButValidated.status = "failed";
+    failedButValidated.userValidatedAt = new Date();
+    const chapter = makeChapter([
+      makeScene("s1", 0, { images: [failedButValidated] }),
+    ]);
+    const pages = buildPagesFromChapter(chapter);
+    const allPanels = pages.flatMap((p) => p.panels);
+    expect(allPanels.length).toBe(1);
+  });
+
   it("legacy pagination : metadata dialogueLines prime sur dialogues[] (sceneImage)", () => {
     const img = makeImage(1, "s1");
     img.metadata = {

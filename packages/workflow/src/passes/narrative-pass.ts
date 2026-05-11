@@ -28,7 +28,6 @@ import {
   directCombatPanel,
   inferGenreMode,
   getGenreDirectorConfig,
-  directRomanceDramaScene,
   type StoryboardPanel,
   type ProjectContextForChapter,
 } from "@manga-ai-studio/ai";
@@ -59,15 +58,6 @@ import {
   loadProjectRecurringNpcs,
   replaceRagDocument,
 } from "@manga-ai-studio/memory";
-import {
-  buildSceneSnapshot,
-  buildSceneState,
-  deriveSceneEvents,
-  persistSceneState,
-  persistValidatedSceneContinuity,
-  validateSceneSnapshotAgainstKernel,
-  applySceneEventsToKernel,
-} from "@manga-ai-studio/continuity";
 import { buildSceneBlueprint } from "@manga-ai-studio/world/legacy/scene-blueprint";
 import type { SceneBlueprint } from "@manga-ai-studio/world";
 import { buildPanelContract } from "../build-panel-contract";
@@ -82,21 +72,19 @@ import { buildCanonAndLoraIndex } from "./narrative/canon-and-lora-index";
 import { buildSceneAnchorsByIndex } from "./narrative/scene-anchor-builder";
 import { normalizeLocationName } from "./narrative/location-matcher";
 import { LEGACY_STD_NEGATIVE } from "./narrative/panel-prompt-constants";
+import { generateDynamicPanelBlueprints } from "./narrative/dynamic-blueprint-generator";
+import { generateChapterShotPlan } from "./narrative/shot-plan-generator";
+import { buildRomanceDirectionByScene } from "./narrative/romance-director-setup";
+import { runSceneContinuityEngine } from "./narrative/scene-continuity-engine";
+import { runNpcPromotion } from "./narrative/npc-promotion-runner";
 import type {
   LegacyPendingImageWrite,
   LegacyPlannedImage,
 } from "./narrative/planned-image-types";
 import { persistPlannedImages } from "./narrative/persist-planned-images";
 import { logPipelineInfo, logPipelineWarn, logPipelineError } from "../lib/pipeline-logger";
-import { parseEntityRegistry } from "../schemas/pipeline-contracts";
 import { applyShotPlanToContract } from "./narrative/apply-shot-plan-to-contract";
 import { isPipelineV3PremiumOnlyEnabled } from "../pipeline-feature-flags";
-import {
-  partitionNpcsByPolicy,
-  computeDefaultForbiddenDrift,
-  mapEntityKindToRoleType,
-  slugifyNpcName,
-} from "./narrative/npc-auto-promotion";
 import {
   buildChapterContextDocument,
   buildNpcMemoryContext,
@@ -543,154 +531,12 @@ export async function runNarrativePass(
       );
     }
 
-    const knownCharNames = new Set(rawCharacters.map((c) => c.name.toLowerCase()));
-    const bundleCharNames = new Set<string>();
-    for (const page of revisedBundle.storyboard.pages) {
-      for (const panel of page.panels) {
-        for (const name of panel.characters ?? []) {
-          if (name && !knownCharNames.has(name.toLowerCase())) {
-            bundleCharNames.add(name);
-          }
-        }
-      }
-    }
-    for (const scene of revisedBundle.script.scenes) {
-      for (const name of scene.characters ?? []) {
-        if (name && !knownCharNames.has(name.toLowerCase())) {
-          bundleCharNames.add(name);
-        }
-      }
-    }
-
-    // P4.2 : validation Zod tolérante à la frontière — si le registry est
-    // malformé, on dégrade gracefully (null) + log warn, plutôt que d'accepter
-    // silencieusement un blob corrompu qui contaminerait la logique promotion.
-    const entityRegistry = parseEntityRegistry(studioSnapshot?.data?.entityRegistry ?? null);
-    const promotedNames = new Set<string>(
-      (entityRegistry?.namedEntities ?? [])
-        .filter((e) => e.promotionStatus === "promoted" || e.allowedRecurrence === "story_locked")
-        .map((e) => e.name.toLowerCase()),
-    );
-    const temporaryNames = new Set<string>(
-      [
-        ...(entityRegistry?.temporaryEntities ?? []),
-        ...(entityRegistry?.backgroundExtras ?? []),
-      ].map((e) => e.name.toLowerCase()),
-    );
-
-    if (bundleCharNames.size > 0) {
-      // P3.1 (partiel) : helper pur extrait dans narrative/npc-auto-promotion.ts
-      const { toPromote, toSkip } = partitionNpcsByPolicy({
-        bundleCharNames,
-        promotedNames,
-        temporaryNames,
-        hasEntityRegistry: Boolean(entityRegistry),
-      });
-
-      if (toSkip.length > 0) {
-        logPipelineInfo("npc_discipline_skip", { count: toSkip.length, names: toSkip });
-      }
-      if (toPromote.length > 0) {
-        logPipelineInfo("npc_promotion_create", { count: toPromote.length, names: toPromote });
-      }
-
-      // C04: hoist storyBible query outside the NPC loop
-      const { resolveEntity } = await import("@manga-ai-studio/ai");
-      const storyBibleForGlossary = await prisma.storyBible.findUnique({ where: { projectId } }).catch(() => null);
-      const glossaryForEntities = Array.isArray(storyBibleForGlossary?.glossary)
-        ? storyBibleForGlossary.glossary as { term: string; description?: string; visualCore?: string; entityKind?: string }[]
-        : [];
-      for (const pnjName of toPromote) {
-        try {
-          // P3.1 (partiel) : slug, roleType et forbiddenDrift via helpers purs.
-          const slug = slugifyNpcName(pnjName);
-          const scenesWithPnj = revisedBundle.script.scenes.filter((s: any) => (s.characters ?? []).includes(pnjName));
-          const contextHint = scenesWithPnj[0]?.summary?.slice(0, 200) ?? "";
-          const entityProfile = await resolveEntity({
-            name: pnjName,
-            contextText: contextHint,
-            projectId,
-            glossary: glossaryForEntities,
-            projectBible: storyBibleForGlossary?.summary ?? null,
-          });
-
-          const entityRoleType = mapEntityKindToRoleType(entityProfile.entityKind);
-          const defaultForbiddenDrift = computeDefaultForbiddenDrift(entityProfile.entityKind);
-
-          const charData = {
-              name: pnjName,
-              roleType: entityRoleType,
-              status: "alive",
-              autoGenerated: true,
-              forbiddenVisualDrift: defaultForbiddenDrift,
-              appearance: [
-                entityProfile.speciesLabel ? `${entityProfile.speciesLabel}` : null,
-                entityProfile.typicalAppearance || null,
-                entityProfile.canonicalVisualCore || null,
-                scenesWithPnj[0]?.location ? `lié à ${scenesWithPnj[0].location}` : null,
-              ].filter(Boolean).join(", ") || null,
-              continuityProfile: {
-                entityKind: entityProfile.entityKind,
-                speciesLabel: entityProfile.speciesLabel,
-                dialogueMode: entityProfile.dialogueMode,
-                recurrencePolicy: entityProfile.recurrencePolicy,
-                canonicalVisualCore: entityProfile.canonicalVisualCore,
-                source: entityProfile.source,
-                confidence: entityProfile.confidence,
-              },
-          };
-          const newChar = await prisma.character.upsert({
-            where: { projectId_slug: { projectId, slug } },
-            create: { projectId, slug, ...charData },
-            update: { autoGenerated: true, updatedAt: new Date() },
-          });
-
-          rawCharacters.push({
-            id: newChar.id,
-            name: pnjName,
-            roleType: newChar.roleType ?? "pnj",
-            objective: scenesWithPnj[0]?.summary?.slice(0, 160) ?? null,
-            fear: null as string | null,
-            biography: contextHint ? `PNJ introduit dans le contexte suivant : ${contextHint}` : null,
-            traits: [entityProfile.typicalAppearance || "pnj récurrent"].filter(Boolean) as string[],
-            flaws: [] as string[],
-            gender: null as string | null,
-            appearance: (newChar.appearance as string | null) ?? null,
-            hairColor: null as string | null,
-            eyeColor: null as string | null,
-            outfitDefault: null as string | null,
-            canonicalImageUrl: null as string | null,
-            canonSignatureText: null as string | null,
-            forbiddenVisualDrift: defaultForbiddenDrift as unknown,
-            bodyDetails: null as string | null,
-            wardrobeDetails: null as string | null,
-            visualProfile: {} as Record<string, unknown>,
-            bodyState: {} as Record<string, unknown>,
-            wardrobeProfile: {} as Record<string, unknown>,
-            speechProfile: {} as Record<string, unknown>,
-            continuityProfile: {
-              entityKind: entityProfile.entityKind,
-              speciesLabel: entityProfile.speciesLabel,
-              dialogueMode: entityProfile.dialogueMode,
-              recurrencePolicy: entityProfile.recurrencePolicy,
-              canonicalVisualCore: entityProfile.canonicalVisualCore,
-              source: entityProfile.source,
-              confidence: entityProfile.confidence,
-              introLocation: scenesWithPnj[0]?.location ?? null,
-            } as Record<string, unknown>,
-            characterFingerprint: null as Record<string, unknown> | null,
-            visualRefUrls: [] as string[],
-            entityKind: entityProfile.entityKind,
-            speciesLabel: entityProfile.speciesLabel ?? null,
-            dialogueMode: entityProfile.dialogueMode,
-            recurrencePolicy: entityProfile.recurrencePolicy,
-          } as (typeof rawCharacters)[number]);
-          knownCharNames.add(pnjName.toLowerCase());
-        } catch (e) {
-          console.warn(`[pipeline] PNJ creation failed for "${pnjName}":`, e instanceof Error ? e.message : e);
-        }
-      }
-    }
+    await runNpcPromotion({
+      projectId,
+      revisedBundle,
+      studioSnapshot,
+      rawCharacters,
+    });
 
     if (integrity.notes.length > 0) {
       console.warn(`[pipeline] bundle integrity fixes: ${integrity.notes.join(" | ")}`);
@@ -788,19 +634,10 @@ export async function runNarrativePass(
     });
 
     // ── Romance director : pré-calculer la direction pour les scènes émotionnelles ──
-    const romanceDirectionByScene = new Map<number, ReturnType<typeof directRomanceDramaScene>>();
-    if (chapterGenreMode === "romance_shojo" || chapterGenreMode === "quiet_aftermath") {
-      for (let idx = 0; idx < revisedBundle.script.scenes.length; idx++) {
-        const scene = revisedBundle.script.scenes[idx];
-        if (!scene) continue;
-        const romanceDirection = directRomanceDramaScene({
-          sceneText: scene.summary,
-          involvedCharacters: scene.characters.slice(0, 3),
-          currentTensionLevel: 40 + idx * 8,
-        });
-        romanceDirectionByScene.set(idx, romanceDirection);
-      }
-    }
+    const romanceDirectionByScene = buildRomanceDirectionByScene(
+      revisedBundle.script.scenes,
+      chapterGenreMode,
+    );
 
     console.log(
       `[pipeline] genre_director mode=${chapterGenreMode} rhythm=${chapterGenreConfig.beatRhythm} panelDensity=${chapterGenreConfig.panelDensity} romance_scenes=${romanceDirectionByScene.size}`,
@@ -808,220 +645,26 @@ export async function runNarrativePass(
 
     let finalPanelBlueprints = effectivePanelBlueprints;
     /** Rempli par le chemin blueprints dynamiques : noms de props inférés (VW + faits) par `beat.id`. */
-    const beatInferredPropNamesByBeatId = new Map<string, string[]>();
+    let beatInferredPropNamesByBeatId = new Map<string, string[]>();
 
     if (finalPanelBlueprints.length === 0 && revisedBundle.outline.beats.length > 0) {
-      console.log(`[pipeline] b3-1 generating panel blueprints dynamically for ${revisedBundle.outline.beats.length} beats`);
-      const { buildPanelBlueprintsFromBeat, inferNarrativeFactsFromBeat, inferRequiredPropsFromBeat, indexVisualWorldPropsByBeat } = await import("@manga-ai-studio/ai");
-      const heroCharacterId = rawCharacters.find((c) => isHeroRole(c.roleType))?.id ?? null;
-      const knownUniverseTypes = ["ninja","cyberpunk","post_apo","school_life","mecha","fantasy","military","medical","urban","generic"] as const;
-      type UniverseType = (typeof knownUniverseTypes)[number];
-      const rawGenre = context.project.primaryGenre ?? "";
-      const universeType: UniverseType | undefined = (knownUniverseTypes as readonly string[]).includes(rawGenre)
-        ? (rawGenre as UniverseType)
-        : undefined;
-      const blueprintContext = {
-        // BUG-06 fix : heroCharacterId est réintroduit dans le blueprintContext.
-        // L'intention I05 originelle (« builder must not know the hero ») tombait en
-        // contradiction silencieuse : le fallback mayShowCharacterIds pushait quand
-        // même le héros via beat.involvedCharacters[0]. On le passe explicitement,
-        // charge au builder de ne PAS le "must-show" en dehors du focus === "hero".
-        heroCharacterId,
+      const dynamic = await generateDynamicPanelBlueprints({
         chapterNumber,
-        projectGenre: context.project.primaryGenre ?? undefined,
-        projectTone: context.project.tone ?? undefined,
-        antagonistNames: rawCharacters
-          .filter((c) => c.roleType === "antagonist" || c.roleType === "villain" || c.roleType === "rival")
-          .map((c) => c.name),
-        antagonistIds: rawCharacters
-          .filter((c) => c.roleType === "antagonist" || c.roleType === "villain" || c.roleType === "rival")
-          .map((c) => c.id),
-      };
-      const narrativeCtx = {
-        projectGenre: context.project.primaryGenre ?? null,
-        projectTone: context.project.tone ?? null,
-        heroCharacterId,
-        universeType,
-        antagonistIds: rawCharacters
-          .filter((c) => c.roleType === "antagonist" || c.roleType === "villain" || c.roleType === "rival")
-          .map((c) => c.id),
-        antagonistNames: rawCharacters
-          .filter((c) => c.roleType === "antagonist" || c.roleType === "villain" || c.roleType === "rival")
-          .map((c) => c.name),
-      };
-      let pageCounter = 1;
-      let panelCounter = 1;
-      let usedLlmEnrichment = false;
-      const allDynamicBlueprints: typeof finalPanelBlueprints = [];
-      const visualWorldPropsForBeat = indexVisualWorldPropsByBeat(composedVisualWorldContract ?? undefined);
-
-      for (const beat of revisedBundle.outline.beats) {
-        try {
-          const productionBeat = {
-            beatId: beat.id,
-            summary: beat.summary,
-            narrativeFunction: beat.pageRole ?? beat.purpose,
-            whyThisBeatExists: beat.summary,
-            dramaticChange: beat.turn ?? beat.purpose,
-            involvedCharacters: beat.characters,
-            activeCanonConstraints: [] as string[],
-            environmentContext: [beat.location],
-            visualPriority: "high" as const,
-            estimatedPanels: 4,
-            criticality: (beat.pageRole === "cliffhanger" || beat.pageRole === "revelation" ? "critical" : "medium") as "critical" | "medium",
-            continuityDependencies: [] as string[],
-            infoGained: null,
-            emotionProduced: null,
-            indispensabilityScore: 72,
-            redundancyRisk: 18,
-          };
-
-          // Step 1: heuristic facts
-          const facts = inferNarrativeFactsFromBeat(productionBeat, narrativeCtx);
-
-          // Step 2: semantic enrichment
-          const { inferAdditionalFactsFromSemantics, mergeNarrativeFacts } = await import("@manga-ai-studio/ai");
-          const semanticFacts = inferAdditionalFactsFromSemantics(productionBeat, facts);
-          const factsWithSemantics = semanticFacts.length > 0
-            ? mergeNarrativeFacts(facts, semanticFacts)
-            : facts;
-
-          if (semanticFacts.length > 0) {
-            console.log(`[pipeline:semantic-facts] beat=${productionBeat.beatId} +${semanticFacts.length} facts from semantics`);
-          }
-
-          // Step 3: LLM enrichment — systématique, pas conditionnel
-          let finalFacts = factsWithSemantics;
-          try {
-            const { enrichNarrativeFactsWithLLM } = await import("@manga-ai-studio/ai");
-            const llmFacts = await enrichNarrativeFactsWithLLM(
-              productionBeat,
-              factsWithSemantics,
-              { ...narrativeCtx, universeType },
-            );
-            if (llmFacts && llmFacts.length > 0) {
-              finalFacts = mergeNarrativeFacts(factsWithSemantics, llmFacts);
-              usedLlmEnrichment = true;
-              console.log(`[pipeline:llm-facts] beat=${productionBeat.beatId} +${llmFacts.length} facts from LLM`);
-            }
-          } catch {
-            console.warn(`[pipeline:llm-facts] LLM enrichment failed for beat=${productionBeat.beatId}, using heuristic facts`);
-          }
-
-          // Step 4: props — aligné estimate / premium-contract-builder : VisualWorldContract + strict sourcing.
-          const props = inferRequiredPropsFromBeat(productionBeat, finalFacts, {
-            universeType,
-            projectGenre: context.project.primaryGenre ?? undefined,
-            projectTone: context.project.tone ?? undefined,
-            suppressUniverseTemplateProps: isPipelineV3PremiumOnlyEnabled(),
-            visualWorldContractActive: Boolean(composedVisualWorldContract),
-            premiumStrictChapterSourcing: isPipelineV3PremiumOnlyEnabled(),
-            premiumOnly: isPipelineV3PremiumOnlyEnabled(),
-            visualWorldContract: composedVisualWorldContract,
-            ...(visualWorldPropsForBeat ? { visualWorldPropsForBeat, heroCharacterId } : {}),
-          });
-          beatInferredPropNamesByBeatId.set(
-            beat.id,
-            [...new Set(props.map((p: { canonicalName: string }) => p.canonicalName))].slice(0, 16),
-          );
-
-          // Step 5: blueprints
-          const beatBlueprints = buildPanelBlueprintsFromBeat(
-            productionBeat,
-            finalFacts,
-            props,
-            blueprintContext,
-            pageCounter,
-            panelCounter,
-          );
-          allDynamicBlueprints.push(...beatBlueprints);
-          pageCounter += Math.ceil(beatBlueprints.length / 3);
-          panelCounter += beatBlueprints.length;
-
-          // Step 6: persist props
-          const propsToSave = props.filter((p: { mustBeVisible?: boolean; narrativeRole?: string | null }) =>
-            p.mustBeVisible !== false &&
-            (p.narrativeRole === "action_tool" || p.narrativeRole === "payoff" || p.narrativeRole === "threat"),
-          );
-          if (propsToSave.length > 0) {
-            const firstInvolved = productionBeat.involvedCharacters?.[0];
-            const carrierCharId = firstInvolved
-              ? rawCharacters.find((rc: any) => rc.name === firstInvolved)?.id ?? null
-              : null;
-            if (!carrierCharId && firstInvolved) {
-              console.warn(`[pipeline] prop carrier "${firstInvolved}" not found in rawCharacters — props not persisted`);
-            }
-            if (carrierCharId) {
-              await Promise.allSettled(
-                propsToSave.map((prop: { canonicalName: string; category?: string; narrativeRole?: string | null }) =>
-                  prisma.characterPropInventory.upsert({
-                    where: {
-                      characterId_propCanonicalName: {
-                        characterId: carrierCharId,
-                        propCanonicalName: prop.canonicalName,
-                      },
-                    },
-                    create: {
-                      characterId: carrierCharId,
-                      projectId,
-                      propCanonicalName: prop.canonicalName,
-                      propCategory: prop.category ?? "unknown",
-                      propNarrativeRole: prop.narrativeRole ?? null,
-                      acquiredAtChapterId: chapterId,
-                      isActive: true,
-                    },
-                    update: { isActive: true },
-                  }),
-                ),
-              );
-            }
-          }
-        } catch (beatErr) {
-          const msg = beatErr instanceof Error ? beatErr.message : "beat_blueprint_error";
-          console.warn(`[pipeline] blueprint generation failed for beat=${beat.id}: ${msg}`);
-          orphanedBeatIds.push(beat.id);
-        }
-      }
-
-      if (allDynamicBlueprints.length > 0) {
-        // P1 — plus d'expansion legacy dans le narrative-pass. Le render
-        // premium v3 prend désormais la main sur les panels. On conserve
-        // uniquement le compte natif pour que les reducers aval ne voient
-        // aucun padding silencieux.
-        // Note : l'ancien chemin (MANGA_ALLOW_BLUEPRINT_EXPANSION_LEGACY)
-        // reste accessible pour debug via le module blueprint-enrichment.
-        const expanded = allDynamicBlueprints;
-        blueprintSource = usedLlmEnrichment ? "dynamic_llm" : "dynamic_heuristic";
-
-        // BUG-05 fix (affiné) : renumérotation groupée par beatId.
-        // Avant : pageCounter dérivait en +Math.ceil(n/3) → pages 1,3,6,9… et
-        //         findPanelBlueprint strat 1 (pageNumber === sceneIndex+1) échouait.
-        // Tentative initiale : pageNumber = idx+1 global → cassait aussi strat 1
-        //         (une scène a N panels, pas 1).
-        // Correct : pageNumber = index du beat (1..K), panelNumber = position dans le beat.
-        //         Les panels d'enrichissement (expansion) héritent du beatId via {...seed, ...}
-        //         et s'insèrent donc dans le bon groupe.
-        const orderedBeatIds: string[] = [];
-        const beatPanelCounters = new Map<string, number>();
-        expanded.forEach((bp, idx) => {
-          const key = bp.beatId ?? `__unknown_${idx}`;
-          if (!beatPanelCounters.has(key)) {
-            beatPanelCounters.set(key, 0);
-            orderedBeatIds.push(key);
-          }
-          const nextPanel = (beatPanelCounters.get(key) ?? 0) + 1;
-          beatPanelCounters.set(key, nextPanel);
-          bp.pageNumber = orderedBeatIds.indexOf(key) + 1;
-          bp.panelNumber = nextPanel;
-          bp.panelIndex = idx;
-        });
-
-        finalPanelBlueprints = expanded;
-
-        console.log(`[pipeline] b3-1 generated ${finalPanelBlueprints.length} blueprints dynamically (source=${blueprintSource})`);
-        if (orphanedBeatIds.length > 0) {
-          console.warn(`[pipeline] partial_success: ${orphanedBeatIds.length} beats orphaned: ${orphanedBeatIds.join(", ")}`);
-        }
+        chapterId,
+        projectId,
+        beats: revisedBundle.outline.beats,
+        rawCharacters,
+        composedVisualWorldContract,
+        project: {
+          primaryGenre: context.project.primaryGenre ?? null,
+          tone: context.project.tone ?? null,
+        },
+      });
+      beatInferredPropNamesByBeatId = dynamic.beatInferredPropNamesByBeatId;
+      orphanedBeatIds.push(...dynamic.orphanedBeatIds);
+      if (dynamic.blueprints.length > 0) {
+        finalPanelBlueprints = dynamic.blueprints;
+        blueprintSource = dynamic.blueprintSource ?? blueprintSource;
       }
     }
 
@@ -1051,92 +694,25 @@ export async function runNarrativePass(
     }
 
     // T07: Chapter ShotPlan — plan de coupe bout en bout
-    try {
-      const { directShotPlan } = await import("@manga-ai-studio/ai");
-      const antagonists = rawCharacters
-        .filter((c: any) => /antagonist|villain|rival/i.test(c.roleType ?? ""))
-        .map((c: any) => ({ characterId: c.id, name: c.name, role: "antagonist" as const }));
-      const heroes = rawCharacters
-        .filter((c: any) => isHeroRole(c.roleType))
-        .map((c: any) => ({ characterId: c.id, name: c.name, role: "hero" as const }));
-      // Inclut tous les PNJ importants et récurrents (pas seulement mentor/deuteragonist)
-      // firstAppearanceSceneIndex = index du premier beat où ce personnage est cité (pas l'index tableau)
-      const beats = revisedBundle.outline.beats as Array<{ id: string; characters?: string[] }>;
-      importantNpcs = rawCharacters
-        .filter((c: any) => /mentor|deuteragonist|secondary|important|recurring/i.test(c.roleType ?? ""))
-        .map((c: any) => {
-          const firstName = (c.name as string).toLowerCase().split(/\s/)[0] ?? "";
-          const firstBeatIdx = beats.findIndex((b) =>
-            (b.characters ?? []).some((bc) => bc.toLowerCase().includes(firstName)),
-          );
-          return {
-            characterId: c.id as string,
-            name: c.name as string,
-            role: "important_npc" as const,
-            firstAppearanceSceneIndex: firstBeatIdx >= 0 ? firstBeatIdx : 0,
-          };
-        });
-
-      chapterShotPlan = directShotPlan({
-        beats: revisedBundle.outline.beats.map((b: any) => ({
-          id: b.id,
-          pageRole: b.pageRole ?? b.purpose,
-          characters: b.characters,
-          location: b.location,
-          summary: b.summary,
-        })),
-        genreMode: chapterGenreMode,
-        importantCharacters: [...heroes, ...antagonists, ...importantNpcs],
+    {
+      const shotPlanResult = await generateChapterShotPlan({
+        jobId,
+        chapterId,
+        projectId,
+        beats: revisedBundle.outline.beats as Array<{
+          id: string;
+          characters?: string[];
+          location?: string;
+          summary?: string;
+          pageRole?: string;
+          purpose?: string;
+        }>,
+        rawCharacters,
+        chapterGenreMode,
+        bundleDiagnostics: revisedBundle.generationDiagnostics as Record<string, unknown>,
       });
-      logPipelineInfo("shot_plan_success", {
-        pages: chapterShotPlan.pages.length,
-        rhythm: chapterShotPlan.rhythm,
-        emphasis: chapterShotPlan.emphasis.length,
-      }, { jobId, chapterId, projectId });
-    } catch (shotPlanErr) {
-      logPipelineWarn("shot_plan_primary_failed", {
-        error: shotPlanErr instanceof Error ? shotPlanErr.message : String(shotPlanErr),
-      }, { jobId, chapterId, projectId });
-      try {
-        const { directShotPlan: fallbackShotPlan } = await import("@manga-ai-studio/ai");
-        chapterShotPlan = fallbackShotPlan({
-          beats: revisedBundle.outline.beats.map((b: any) => ({
-            id: b.id,
-            pageRole: b.pageRole ?? "standard",
-            characters: b.characters ?? [],
-            location: b.location,
-            summary: b.summary ?? "",
-          })),
-          genreMode: "standard",
-          importantCharacters: [],
-        });
-        logPipelineInfo("shot_plan_fallback_ok", {
-          pages: chapterShotPlan.pages.length,
-          rhythm: chapterShotPlan.rhythm,
-        }, { jobId, chapterId, projectId });
-      } catch (fallbackErr) {
-        logPipelineError("shot_plan_critical_failure", {
-          error: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
-        }, { jobId, chapterId, projectId });
-      }
-    }
-
-    // P0.16 : fail loud si shot plan toujours manquant après les deux
-    // fallbacks. On ne throw pas (le pipeline peut encore générer sans),
-    // mais on remonte clairement le mode dégradé via jobProgress + les
-    // diagnostics, pour que la QA sache que la cohérence hero/NPC/décor
-    // n'est plus garantie pour ce chapitre.
-    if (!chapterShotPlan) {
-      try {
-        await setJobProgress(jobId, { key: "shot_plan", label: "shot_plan", detail: "failed_both_providers" }, "failed");
-      } catch { /* non-blocking */ }
-      try {
-        const degraded = revisedBundle.generationDiagnostics.degradedModes ?? [];
-        if (!degraded.includes("shot_plan_missing")) degraded.push("shot_plan_missing");
-        (revisedBundle.generationDiagnostics as { degradedModes?: string[] }).degradedModes = degraded;
-        (revisedBundle.generationDiagnostics as { operationalStatus?: string }).operationalStatus =
-          "DEGRADED_SHOT_PLAN_MISSING";
-      } catch { /* shape mismatch non-blocking */ }
+      chapterShotPlan = shotPlanResult.chapterShotPlan;
+      importantNpcs = shotPlanResult.importantNpcs;
     }
 
     const plannedImages: PlannedImage[] = [];
@@ -1619,9 +1195,13 @@ export async function runNarrativePass(
                     }
                   : undefined,
               }, sceneBlueprintBuildOpts);
-              const sceneBlueprints = sceneBlueprintsByScene.get(index) ?? [];
+              // La Map utilise `sceneNumber` (1-based) comme clé pour
+              // matcher la convention DB (`chapterScene.sceneNumber`) et
+              // éviter les off-by-one côté consumers (cf. FIX-2).
+              const sceneNumber = index + 1;
+              const sceneBlueprints = sceneBlueprintsByScene.get(sceneNumber) ?? [];
               sceneBlueprints.push(sceneBlueprint);
-              sceneBlueprintsByScene.set(index, sceneBlueprints);
+              sceneBlueprintsByScene.set(sceneNumber, sceneBlueprints);
               const panelContract = {
                 ...panelContractBase,
                 backgroundExtras: [
@@ -2259,127 +1839,20 @@ export async function runNarrativePass(
     );
 
     // ── Construire et persister les scene states (continuity engine) ───────
-    console.log(`[pipeline] Building scene states for ${revisedBundle.script.scenes.length} scenes`);
-    const validatedSceneSnapshots = [];
-    const kernelValidationWarnings: string[] = [];
-    for (let index = 0; index < revisedBundle.script.scenes.length; index++) {
-      const scene = revisedBundle.script.scenes[index];
-      if (!scene) continue;
-
-      const beat = revisedBundle.outline.beats[index];
-      const sceneDbRecord = await prisma.chapterScene.findFirst({
-        where: { chapterId, sceneNumber: index + 1 },
-      });
-
-      if (sceneDbRecord) {
-        const sceneStateData = await buildSceneState(prisma, {
-          projectId,
-          chapterId,
-          sceneId: sceneDbRecord.id,
-          sceneNumber: index + 1,
-          scene: {
-            title: scene.title,
-            summary: scene.summary,
-            location: scene.location,
-            characters: scene.characters,
-            beat: {
-              location: beat?.location,
-              characters: beat?.characters,
-              turn: (beat as { turn?: string })?.turn,
-            },
-          },
-          characterStatesFromCanon: previousCharacterStates,
-        });
-
-        await persistSceneState(prisma, {
-          projectId,
-          chapterId,
-          sceneId: sceneDbRecord.id,
-          sceneNumber: index + 1,
-          sceneStateData,
-        });
-
-        // F03/F04: Physical events detection & body state persistence
-        try {
-          const { detectPhysicalEvents, applyPhysicalEvents, loadOrCreateBodyState } = await import("@manga-ai-studio/ai");
-          const sceneText = [scene.summary, ...(scene.dialogue ?? []).map((d: any) => d.text ?? d.line ?? "")].filter(Boolean).join(" ");
-          for (const charName of (scene.characters ?? [])) {
-            const charRecord = rawCharacters.find((c: any) => c.name === charName);
-            if (!charRecord) continue;
-            const events = detectPhysicalEvents(sceneText, charName, chapterId, sceneDbRecord.id);
-            if (events.length > 0) {
-              const currentBodyState = loadOrCreateBodyState(charRecord.bodyState);
-              const updatedBodyState = applyPhysicalEvents(currentBodyState, events);
-              await prisma.character.update({
-                where: { id: charRecord.id },
-                data: { bodyState: updatedBodyState as any },
-              });
-              charRecord.bodyState = updatedBodyState as any;
-              console.log(`[pipeline:physical-events] ${charName}: ${events.map(e => `${e.type}(${e.bodyPart})`).join(", ")}`);
-            }
-          }
-        } catch (physErr) {
-          console.warn(`[pipeline:physical-events] detection failed (non-blocking): ${physErr instanceof Error ? physErr.message : physErr}`);
-        }
-
-        const sceneSnapshot = buildSceneSnapshot({
-          kernel: continuityKernel,
-          chapterId,
-          chapterNumber,
-          sceneId: sceneDbRecord.id,
-          sceneNumber: index + 1,
-          title: scene.title,
-          summary: scene.summary,
-          dramaticGoal: sceneStateData.dramaticGoal,
-          location: scene.location,
-          sceneStateData,
-          sceneBlueprints: sceneBlueprintsByScene.get(index) ?? [],
-          continuityPayload: scene.continuityPayload,
-          participantNames: scene.characters,
-        });
-        const continuityValidation = validateSceneSnapshotAgainstKernel({
-          kernel: continuityKernel,
-          sceneSnapshot,
-        });
-        const sceneEvents = continuityValidation.accepted
-          ? deriveSceneEvents({ kernel: continuityKernel, sceneSnapshot })
-          : [];
-        if (continuityValidation.issues.length > 0) {
-          console.warn(
-            `[continuity-kernel] scene=${sceneDbRecord.id} accepted=${continuityValidation.accepted} issues=${continuityValidation.issues.map((issue: any) => issue.message).join(" | ")}`,
-          );
-        }
-        kernelValidationWarnings.push(
-          ...continuityValidation.issues.map((issue: any) => issue.message),
-          ...continuityValidation.warnings,
-        );
-        const sceneMeta = asRecord(sceneDbRecord.metadata);
-        await prisma.chapterScene.update({
-          where: { id: sceneDbRecord.id },
-          data: {
-            metadata: ({
-              ...sceneMeta,
-              sceneSnapshot,
-              continuityValidation,
-            } as unknown) as Prisma.InputJsonValue,
-          },
-        });
-        if (continuityValidation.accepted) {
-          await persistValidatedSceneContinuity(prisma, {
-            projectId,
-            chapterId,
-            chapterNumber,
-            sceneId: sceneDbRecord.id,
-            sceneNumber: index + 1,
-            sceneSnapshot,
-            validation: continuityValidation,
-            events: sceneEvents,
-          });
-          continuityKernel = applySceneEventsToKernel(continuityKernel, sceneSnapshot, sceneEvents);
-        }
-        validatedSceneSnapshots.push(sceneSnapshot);
-      }
-    }
+    const continuityEngineResult = await runSceneContinuityEngine({
+      chapterId,
+      chapterNumber,
+      projectId,
+      scenes: revisedBundle.script.scenes,
+      beats: revisedBundle.outline.beats,
+      previousCharacterStates,
+      continuityKernel,
+      rawCharacters,
+      sceneBlueprintsByScene,
+    });
+    const validatedSceneSnapshots = continuityEngineResult.validatedSceneSnapshots;
+    const kernelValidationWarnings = continuityEngineResult.kernelValidationWarnings;
+    continuityKernel = continuityEngineResult.continuityKernel;
 
     // ── Étape 3b : Index refs canon et LoRA par personnage ────────────────
     // Extrait dans ./narrative/canon-and-lora-index.ts pour lisibilité.

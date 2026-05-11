@@ -65,6 +65,33 @@ export function buildCharacterPromptBundle(
     character.flaws?.length ? `Flaws: ${character.flaws.join(", ")}` : "",
   ].filter(Boolean);
 
+  // ── Pilosité faciale (sprint configurateur) ────────────────────────────────
+  const beardPresent = vp.beardPresent === true;
+  const mustachePresent = vp.mustachePresent === true;
+  const beardSegment = beardPresent
+    ? [
+        safeStr(vp.beardStyle) || "beard",
+        safeStr(vp.beardDensity) ? `${safeStr(vp.beardDensity).toLowerCase()} density` : "",
+        safeStr(vp.beardColor) ? `${safeStr(vp.beardColor)} colored` : "",
+      ]
+        .filter(Boolean)
+        .join(", ")
+    : "";
+  const mustacheSegment = mustachePresent
+    ? `${safeStr(vp.mustacheStyle) || "moustache"}`
+    : "";
+  const sideburnsValue = safeStr(vp.sideburns);
+  const sideburnsSegment = sideburnsValue && sideburnsValue !== "Aucun" ? `${sideburnsValue.toLowerCase()} sideburns` : "";
+
+  // ── Personnalité visuelle (mimiques, posture spontanée) ───────────────────
+  const personalityVisualParts = [
+    safeStr(vp.restingFace) ? `resting face: ${safeStr(vp.restingFace)}` : "",
+    safeStr(vp.typicalGaze) ? `typical gaze: ${safeStr(vp.typicalGaze)}` : "",
+    safeStr(vp.typicalMimic) ? `typical micro-expression: ${safeStr(vp.typicalMimic)}` : "",
+    safeStr(vp.habitualPosture) ? `habitual stance: ${safeStr(vp.habitualPosture)}` : "",
+    safeStr(vp.signatureGesture) ? `signature gesture: ${safeStr(vp.signatureGesture)}` : "",
+  ].filter(Boolean);
+
   // ── Visual prompt ─────────────────────────────────────────────────────────
   const visualParts: string[] = [
     character.appearance ?? "",
@@ -74,6 +101,10 @@ export function buildCharacterPromptBundle(
     safeStr(vp.skinTone) ? `${safeStr(vp.skinTone)} skin` : "",
     safeStr(vp.hairStyle) ? `${safeStr(vp.hairStyle)} hairstyle` : "",
     safeStr(vp.silhouetteType) ? `${safeStr(vp.silhouetteType)} silhouette` : "",
+    beardSegment ? `facial hair: ${beardSegment}` : "",
+    mustacheSegment ? `moustache style: ${mustacheSegment}` : "",
+    sideburnsSegment,
+    !beardPresent && !mustachePresent ? "clean-shaven face" : "",
     safeStr(vp.scars) ? `scars: ${safeStr(vp.scars)}` : "",
     safeStr(vp.tattoos) ? `tattoos: ${safeStr(vp.tattoos)}` : "",
     safeStr(vp.accessories) ? `accessories: ${safeStr(vp.accessories)}` : "",
@@ -84,6 +115,7 @@ export function buildCharacterPromptBundle(
     bs.rightArmPresent === false ? "missing right arm" : "",
     bs.leftEyePresent === false ? "eye patch left eye" : "",
     bs.rightEyePresent === false ? "eye patch right eye" : "",
+    ...personalityVisualParts,
   ].filter(Boolean);
 
   // ── Speech prompt ─────────────────────────────────────────────────────────
@@ -143,6 +175,12 @@ export function buildCharacterPromptBundle(
     ),
     ...lockedVisual.map((t) => `Visual trait locked: ${t}`),
     ...lockedWardrobe.map((t) => `Wardrobe locked: ${t}`),
+    beardPresent
+      ? `Never show ${character.name} clean-shaven — facial hair is canonical${beardSegment ? ` (${beardSegment})` : ""}.`
+      : "",
+    !beardPresent && !mustachePresent
+      ? `Never add a beard or moustache to ${character.name} — clean-shaven is canonical.`
+      : "",
   ].filter(Boolean);
 
   // ── Adult content guard ───────────────────────────────────────────────────

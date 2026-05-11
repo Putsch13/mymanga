@@ -72,6 +72,30 @@ export async function runMemoryPass(
     continuityWarnings: [...canonWarnings, ...kernelValidationWarnings],
   });
 
+  // FIX-10 (MOD) — On lance `runContinuityDiff` AVANT
+  // `persistChapterMemory` afin d'incorporer les warnings de continuité
+  // dans le `memorySnapshot.structuredState`. Avant ce TODO, le diff
+  // était calculé après : ses issues étaient seulement loggées et ne
+  // remontaient ni au snapshot ni à l'output du job — invisibles côté
+  // studio.
+  const continuityReport = await runContinuityDiff(prisma, {
+    projectId,
+    chapterId,
+    chapterNumber,
+    outline: revisedBundle.outline,
+    script: revisedBundle.script,
+    generatedImages: plannedImages.map(img => ({
+      id: img.sceneImageId,
+      sceneId: String(img.sceneIndex),
+      metadata: img.baseMetadata,
+    })),
+  });
+
+  console.log(`[pipeline] Continuity score: ${continuityReport.score.toFixed(2)}`);
+  if (continuityReport.issues.length > 0) {
+    console.warn(`[pipeline] Continuity issues detected:`, continuityReport.issues);
+  }
+
   const snapshot = await persistChapterMemory(prisma, {
     projectId,
     chapterId,
@@ -84,6 +108,13 @@ export async function runMemoryPass(
       continuityNotes: continuity.notes,
       qualityReport: chapterQualityReport,
       chapterSnapshot,
+      // FIX-10 — issues de continuité disponibles immédiatement dans
+      // le snapshot persisté (consulté par le studio / readers).
+      continuityReport: {
+        score: continuityReport.score,
+        issues: continuityReport.issues,
+        suggestedRepairs: continuityReport.suggestedRepairs,
+      },
       continuityKernel: {
         storyBible: continuityKernel.storyBible,
         worldState: continuityKernel.worldState,
@@ -103,28 +134,14 @@ export async function runMemoryPass(
       allowedOutfitVariations: state.physicalCanon.allowedOutfitVariations,
     })) as unknown as Prisma.InputJsonValue,
     relationshipSnapshots: continuityKernel.relationshipGraph as unknown as Prisma.InputJsonValue,
-    visualContinuityWarnings: [...canonWarnings, ...kernelValidationWarnings] as unknown as Prisma.InputJsonValue,
+    visualContinuityWarnings: [
+      ...canonWarnings,
+      ...kernelValidationWarnings,
+      ...(continuityReport.issues as ContinuityIssueLike[]).map((issue) => issue.message),
+    ] as unknown as Prisma.InputJsonValue,
   });
 
   await setJobProgress(jobId, { key: "update_memory", label: "Mémoire et timeline" }, "completed");
-
-  const continuityReport = await runContinuityDiff(prisma, {
-    projectId,
-    chapterId,
-    chapterNumber,
-    outline: revisedBundle.outline,
-    script: revisedBundle.script,
-    generatedImages: plannedImages.map(img => ({
-      id: img.sceneImageId,
-      sceneId: String(img.sceneIndex),
-      metadata: img.baseMetadata,
-    })),
-  });
-
-  console.log(`[pipeline] Continuity score: ${continuityReport.score.toFixed(2)}`);
-  if (continuityReport.issues.length > 0) {
-    console.warn(`[pipeline] Continuity issues detected:`, continuityReport.issues);
-  }
 
   const canonStateData = await buildChapterCanonState(prisma, {
     projectId, chapterId, chapterNumber,

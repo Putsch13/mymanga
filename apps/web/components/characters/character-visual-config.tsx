@@ -9,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 
 interface VisualProfile {
   faceShape?: string;
@@ -29,6 +30,20 @@ interface VisualProfile {
   accessories?: string;
   perceivedAge?: string;
   silhouetteType?: string;
+  // Pilosité faciale (sprint configurateur)
+  beardPresent?: boolean;
+  beardStyle?: string;
+  beardDensity?: string;
+  beardColor?: string;
+  mustachePresent?: boolean;
+  mustacheStyle?: string;
+  sideburns?: string;
+  // Personnalité visuelle (mimiques, posture spontanée)
+  restingFace?: string;
+  typicalMimic?: string;
+  typicalGaze?: string;
+  habitualPosture?: string;
+  signatureGesture?: string;
 }
 
 interface Props {
@@ -167,6 +182,203 @@ export function CharacterVisualConfig({ value, onChange }: Props) {
         <div className="space-y-1.5">
           <Label>Âge perçu</Label>
           <Input value={value.perceivedAge ?? ""} onChange={(e) => set("perceivedAge")(e.target.value)} placeholder="Juvénile, mature, vieilli..." />
+        </div>
+      </div>
+
+      <div className="pt-2">
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+          Pilosité faciale
+        </h3>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="flex items-center justify-between rounded-lg border border-border/40 px-3 py-2">
+            <Label className="text-sm">Barbe</Label>
+            <Switch
+              checked={value.beardPresent === true}
+              onCheckedChange={(v) => onChange({ ...value, beardPresent: v, beardStyle: v ? value.beardStyle : undefined, beardDensity: v ? value.beardDensity : undefined, beardColor: v ? value.beardColor : undefined })}
+            />
+          </div>
+          {value.beardPresent ? (
+            <>
+              <div className="space-y-1.5">
+                <Label>Style de barbe</Label>
+                <Select value={value.beardStyle ?? ""} onValueChange={set("beardStyle")}>
+                  <SelectTrigger><SelectValue placeholder="Choisir..." /></SelectTrigger>
+                  <SelectContent>
+                    {[
+                      "Barbe de 3 jours",
+                      "Barbe courte",
+                      "Barbe pleine",
+                      "Bouc",
+                      "Collier",
+                      "Garibaldi",
+                      "Verdi",
+                      "Vandyke",
+                      "Longue / hirsute",
+                    ].map((v) => (
+                      <SelectItem key={v} value={v}>{v}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Densité</Label>
+                <Select value={value.beardDensity ?? ""} onValueChange={set("beardDensity")}>
+                  <SelectTrigger><SelectValue placeholder="Choisir..." /></SelectTrigger>
+                  <SelectContent>
+                    {["Clairsemée", "Moyenne", "Dense", "Très dense"].map((v) => (
+                      <SelectItem key={v} value={v}>{v}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Couleur barbe</Label>
+                <Input
+                  value={value.beardColor ?? ""}
+                  onChange={(e) => set("beardColor")(e.target.value)}
+                  placeholder="Identique cheveux, plus claire, grise..."
+                />
+              </div>
+            </>
+          ) : null}
+          <div className="flex items-center justify-between rounded-lg border border-border/40 px-3 py-2">
+            <Label className="text-sm">Moustache</Label>
+            <Switch
+              checked={value.mustachePresent === true}
+              onCheckedChange={(v) => onChange({ ...value, mustachePresent: v, mustacheStyle: v ? value.mustacheStyle : undefined })}
+            />
+          </div>
+          {value.mustachePresent ? (
+            <div className="space-y-1.5">
+              <Label>Style de moustache</Label>
+              <Select value={value.mustacheStyle ?? ""} onValueChange={set("mustacheStyle")}>
+                <SelectTrigger><SelectValue placeholder="Choisir..." /></SelectTrigger>
+                <SelectContent>
+                  {[
+                    "Fine / discrète",
+                    "Brosse",
+                    "En guidon",
+                    "Chevron",
+                    "Walrus",
+                    "Imperial",
+                    "Crayon",
+                  ].map((v) => (
+                    <SelectItem key={v} value={v}>{v}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+          <div className="space-y-1.5">
+            <Label>Favoris / pattes</Label>
+            <Select value={value.sideburns ?? ""} onValueChange={set("sideburns")}>
+              <SelectTrigger><SelectValue placeholder="Aucun" /></SelectTrigger>
+              <SelectContent>
+                {[
+                  "Aucun",
+                  "Courts",
+                  "Moyens",
+                  "Longs",
+                  "Mutton chops",
+                  "Reliés à la barbe",
+                ].map((v) => (
+                  <SelectItem key={v} value={v}>{v}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </div>
+
+      <div className="pt-2">
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+          Personnalité visuelle
+        </h3>
+        <p className="text-xs text-muted-foreground mb-3">
+          Comment le personnage se tient et regarde par défaut, sans émotion forte. Sert à le rendre reconnaissable même de loin.
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="space-y-1.5">
+            <Label>Visage au repos</Label>
+            <Select value={value.restingFace ?? ""} onValueChange={set("restingFace")}>
+              <SelectTrigger><SelectValue placeholder="Choisir..." /></SelectTrigger>
+              <SelectContent>
+                {[
+                  "Doux / rêveur",
+                  "Neutre",
+                  "Sérieux",
+                  "Sévère",
+                  "Maussade",
+                  "Endormi",
+                  "Souriant naturel",
+                  "Méprisant",
+                  "Distant / ailleurs",
+                ].map((v) => (
+                  <SelectItem key={v} value={v}>{v}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Mimique typique</Label>
+            <Input
+              value={value.typicalMimic ?? ""}
+              onChange={(e) => set("typicalMimic")(e.target.value)}
+              placeholder="Sourire en coin, lèvre mordue, sourcil levé..."
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Regard typique</Label>
+            <Select value={value.typicalGaze ?? ""} onValueChange={set("typicalGaze")}>
+              <SelectTrigger><SelectValue placeholder="Choisir..." /></SelectTrigger>
+              <SelectContent>
+                {[
+                  "Direct",
+                  "Fuyant",
+                  "Plissé / méfiant",
+                  "Perçant",
+                  "Doux",
+                  "Vide / lointain",
+                  "Joueur",
+                  "Calculateur",
+                ].map((v) => (
+                  <SelectItem key={v} value={v}>{v}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Posture spontanée</Label>
+            <Select value={value.habitualPosture ?? ""} onValueChange={set("habitualPosture")}>
+              <SelectTrigger><SelectValue placeholder="Choisir..." /></SelectTrigger>
+              <SelectContent>
+                {[
+                  "Bras croisés",
+                  "Mains dans les poches",
+                  "Une main dans les cheveux",
+                  "Épaules tombantes",
+                  "Dos droit / fier",
+                  "Une jambe en arrière",
+                  "Penché en avant",
+                  "Adossé nonchalamment",
+                  "Mains derrière le dos",
+                ].map((v) => (
+                  <SelectItem key={v} value={v}>{v}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5 sm:col-span-2 lg:col-span-2">
+            <Label>Geste signature</Label>
+            <Input
+              value={value.signatureGesture ?? ""}
+              onChange={(e) => set("signatureGesture")(e.target.value)}
+              placeholder="Ajuste ses lunettes, claque la langue, fait craquer ses doigts..."
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Le geste répété qui le rend identifiable — utilisé dans les panels d&apos;action et de tension.
+            </p>
+          </div>
         </div>
       </div>
     </div>

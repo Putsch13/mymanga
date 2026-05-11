@@ -164,7 +164,7 @@ export async function analyzePanelWithVision(input: {
           {
             role: "system",
             content:
-              "Tu es un controleur QA manga premium. Tu regardes UNE image et tu rends uniquement un JSON. Donne des scores 0..1 tres stricts pour: characterConsistencyScore, backgroundPresenceScore, environmentReadabilityScore, interactionScore, shotComplianceScore, styleConsistencyScore, releaseScore, confidence, findings[]. Pas de texte hors JSON.",
+              "Tu es un controleur QA manga premium. Tu regardes UNE image et tu rends uniquement un JSON. Donne des scores 0..1 tres stricts pour: characterConsistencyScore, backgroundPresenceScore, environmentReadabilityScore, interactionScore, shotComplianceScore, styleConsistencyScore, releaseScore, confidence, findings[]. Pas de texte hors JSON.\n\nSPRINT 6 — checklist artefacts à détecter SYSTÉMATIQUEMENT (pénaliser releaseScore et lister dans findings) : mains à 6 doigts ou doigts fusionnés, anatomie cassée (membres tordus, proportions absurdes), yeux asymétriques, bouches multiples, doublons de personnage (ex. deux héros identiques côte à côte), texte halluciné dans l'image (lettres, sous-titres, watermark), logo/signature stock, bulles BD parasitaires (le moteur de bulles est externe), compression visible (banding, moiré), clones de visage.",
           },
           {
             role: "user",
@@ -172,7 +172,7 @@ export async function analyzePanelWithVision(input: {
               {
                 type: "text",
                 text:
-                  `Analyse cette image de panel manga.\nContexte JSON:\n${JSON.stringify(context, null, 2)}\nRègles:\n- wide: le décor doit être clairement visible\n- medium: personnage et décor doivent rester lisibles\n- closeup: garder des indices environnementaux\n- sanctionner fond vide, décor générique, interaction faible, drift style/personnage\n- findings = liste courte de constats concrets`,
+                  `Analyse cette image de panel manga.\nContexte JSON:\n${JSON.stringify(context, null, 2)}\nRègles:\n- wide: le décor doit être clairement visible\n- medium: personnage et décor doivent rester lisibles\n- closeup: garder des indices environnementaux\n- sanctionner fond vide, décor générique, interaction faible, drift style/personnage\n- sanctionner aussi les artefacts (anatomie, doublons, texte/logo halluciné) listés en system\n- findings = liste courte de constats concrets, mentionner explicitement chaque artefact détecté`,
               },
               {
                 type: "image_url",

@@ -4,6 +4,7 @@ const prismaMock = vi.hoisted(() => ({
   character: { findMany: vi.fn() },
   location: { findMany: vi.fn() },
   stylePack: { findMany: vi.fn() },
+  npcVisualProfile: { findMany: vi.fn() },
 }));
 
 vi.mock("@manga-ai-studio/db", () => ({ prisma: prismaMock }));
@@ -14,6 +15,11 @@ beforeEach(() => {
   prismaMock.character.findMany.mockReset();
   prismaMock.location.findMany.mockReset();
   prismaMock.stylePack.findMany.mockReset();
+  prismaMock.npcVisualProfile.findMany.mockReset();
+  // SPRINT 3 — par défaut, pas de NpcVisualProfile (les tests historiques
+  // n'en attendent pas). Les nouveaux tests utiliseront un mockResolvedValue
+  // dédié pour valider le branchement.
+  prismaMock.npcVisualProfile.findMany.mockResolvedValue([]);
 });
 
 describe("loadChapterVisualMemory", () => {
@@ -89,6 +95,47 @@ describe("loadChapterVisualMemory", () => {
     expect(res.stats.environmentsLoaded).toBe(1);
     expect(res.memory.environments.get("loc-1")?.refUrl).toBe("https://loc.png");
     expect(res.memory.environments.has("loc-2")).toBe(false);
+  });
+
+  it("sprint 3 — hydrate les NpcVisualProfile avec leur ref canonique", async () => {
+    prismaMock.character.findMany.mockResolvedValue([]);
+    prismaMock.location.findMany.mockResolvedValue([]);
+    prismaMock.stylePack.findMany.mockResolvedValue([]);
+    prismaMock.npcVisualProfile.findMany.mockResolvedValue([
+      {
+        id: "npc-row-1",
+        stableNpcId: "marchand-port",
+        role: "Marchand du port",
+        shortVisualCore: "vieux marchand barbu",
+        outfitSignature: "tablier de cuir",
+        silhouetteSignature: "petit, voûté",
+        importanceLevel: "important",
+        canonicalRefAsset: { publicUrl: "https://npc.png" },
+      },
+      {
+        id: "npc-row-2",
+        stableNpcId: "garde-anonyme",
+        role: "Garde",
+        shortVisualCore: "soldat anonyme",
+        outfitSignature: null,
+        silhouetteSignature: null,
+        importanceLevel: "generic",
+        canonicalRefAsset: null,
+      },
+    ]);
+
+    const res = await loadChapterVisualMemory({
+      chapterId: "ch-1",
+      projectId: "proj-1",
+      mainCharacterIds: [],
+    });
+    expect(res.stats.npcsLoaded).toBe(2);
+    expect(res.stats.npcsMissingCanonRef).toBe(1);
+    const named = res.memory.characters.get("npc:marchand-port");
+    expect(named?.role).toBe("npc");
+    expect(named?.faceRefUrl).toBe("https://npc.png");
+    const generic = res.memory.characters.get("npc:garde-anonyme");
+    expect(generic?.faceRefUrl).toBeNull();
   });
 
   it("hydrate une style ref si le stylePack en fournit une", async () => {

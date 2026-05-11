@@ -28,6 +28,34 @@ export type StoryArchitectLocationInput = {
   aliases?: string[];
 };
 
+/**
+ * FIX-14 (CRITIQUE) — Contrat narratif résolu à injecter dans le prompt
+ * du Story Architect. Permet au LLM de savoir que "lui" = Kai (et non un
+ * personnage inventé), que le temple est requis, etc. Sans ça, le Story
+ * Architect travaillait uniquement sur le `userIntent` brut et ignorait
+ * complètement la résolution de pronoms faite en amont.
+ */
+export interface StoryArchitectNarrativeContract {
+  requiredCharacters: string[];
+  requiredLocations: string[];
+  requiredLocationIds?: string[];
+  requiredEvents: Array<{
+    id: string;
+    label: string;
+    type: string;
+    requiredDialogue?: boolean;
+    locationHint?: string | null;
+  }>;
+  requiredNpcGroups?: Array<{
+    id: string;
+    label: string;
+    role: string;
+    requiredDialogue?: boolean;
+    mustMention?: string[];
+  }>;
+  forbiddenInventions: string[];
+}
+
 export interface StoryArchitectInput {
   chapterId: string;
   chapterNumber: number;
@@ -38,6 +66,13 @@ export interface StoryArchitectInput {
   continuityBefore?: ContinuityState | null;
   mainCharacters?: Array<{ id: string; name: string; roleType?: string | null }>;
   locations?: StoryArchitectLocationInput[];
+  /**
+   * FIX-14 — Contrat narratif pré-résolu (pronoms + lieux + events).
+   * Si fourni, le prompt LLM inclura des CONTRAINTES STRICTES issues du
+   * contrat : personnages requis, lieux requis, events à couvrir,
+   * inventions interdites.
+   */
+  narrativeContract?: StoryArchitectNarrativeContract | null;
   /**
    * Premium : interdit tout fallback stub / dégradation silencieuse dans
    * `runStoryArchitectAgentLlm` (clé API, JSON, nombre de beats, erreurs réseau).

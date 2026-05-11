@@ -7,7 +7,10 @@ import { notFound, unauthorized } from "@/lib/api-response";
 import { getOwnedChapter } from "@/lib/ownership";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { compileChapterIntentUsecase, UsecaseFailure } from "@/server/usecases";
-import { patchChapterStudioSnapshot } from "@/lib/chapter-studio";
+import {
+  patchChapterStudioSnapshot,
+  readChapterStudioSnapshotFromOutline,
+} from "@/lib/chapter-studio";
 import { toPrismaInputJson } from "@/lib/to-prisma-input-json";
 import { upsertWorldEntities } from "@/lib/world-entities/upsert-world-entities";
 
@@ -46,10 +49,35 @@ export async function POST(req: Request, ctx: Ctx) {
     return NextResponse.json({ error: "Corps de requête invalide." }, { status: 400 });
   }
 
+  // FIX-12 (CRITIQUE) — Charger le cast projet + la sélection chapitre pour
+  // permettre la résolution de pronoms ("lui", "elle"…) côté builder.
+  const projectCharacters = await prisma.character.findMany({
+    where: { projectId },
+    select: { id: true, name: true, roleType: true },
+  });
+  const studioSnapshot = readChapterStudioSnapshotFromOutline({
+    outline: chapter.outline,
+    chapterNumber: chapter.chapterNumber,
+    chapterTitle: chapter.title,
+    chapterSummary: chapter.summary,
+    cliffhanger: chapter.cliffhanger,
+    userIntent: chapter.userIntent,
+  });
+  const selectedCharacterIds = [
+    ...new Set([
+      ...(studioSnapshot.data.characterSelection?.activeCharacterIds ?? []),
+      ...(studioSnapshot.data.characterSelection?.coreCastCharacterIds ?? []),
+      studioSnapshot.data.characterSelection?.heroCharacterId ?? null,
+      studioSnapshot.data.characterSelection?.secondaryHeroCharacterId ?? null,
+    ].filter((id): id is string => Boolean(id))),
+  ];
+
   try {
     const { contract, narrativeContract, usedAi } = await compileChapterIntentUsecase.execute({
       ...body,
       chapterId: chapter.id,
+      knownCharacters: projectCharacters,
+      selectedCharacterIds,
     });
 
     // P0 fix : persister le contrat dans le studioDraft pour que le readiness
@@ -62,6 +90,12 @@ export async function POST(req: Request, ctx: Ctx) {
           chapter.outline,
           {
             chapterIntentContract: contract,
+            // FIX-11 (CRITIQUE) — persister AUSSI le narrativeContract
+            // pour que le pipeline (run-full-chapter-pipeline,
+            // intent-coverage-qa, dialogue-scene-writer…) réutilise
+            // exactement le contrat compilé par le studio plutôt que de
+            // le reconstruire avec un contexte heuristique appauvri.
+            intentNarrativeContract: narrativeContract,
           },
           {
             chapterNumber: chapter.chapterNumber,

@@ -1,12 +1,8 @@
 import { NextResponse } from "next/server";
 import {
-  runRoutedImageGeneration,
-  composeCharacterVisualPrompt,
-  resolveAdultEngine,
-  extractCharacterFingerprintFromRefs,
-  buildCharacterPromptBundle,
-  buildCharacterVisualLock,
   getPremiumImageSize,
+  resolveAdultEngine,
+  runRoutedImageGeneration,
 } from "@manga-ai-studio/ai";
 import {
   estimateImageTokensFromRules,
@@ -14,37 +10,36 @@ import {
   reserveTokens,
   settleReservedTokens,
 } from "@manga-ai-studio/billing";
-import { prisma, type Prisma } from "@manga-ai-studio/db";
+import { prisma } from "@manga-ai-studio/db";
+
 import { getAppUser } from "@/lib/auth/get-app-user";
-import { canAccessMatureContent, canBypassMatureContent, getAgeGateMessage, projectRequiresAgeGate } from "@/lib/age-gate";
+import {
+  canAccessMatureContent,
+  canBypassMatureContent,
+  getAgeGateMessage,
+  projectRequiresAgeGate,
+} from "@/lib/age-gate";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { persistGeneratedImageIfNeeded } from "@/lib/images/persist-generated-image";
-import { signSupabaseUrlIfNeeded } from "@/lib/images/sign-supabase-url";
 import { assertStableImageUrl } from "@/lib/images/assert-stable-image-url";
 import { assertStableCanonicalAsset } from "@/lib/images/assert-stable-canonical-asset";
-import { toProxiedServerUrl } from "@/lib/images/proxy-url.server";
 import { logCanonAudit } from "@/lib/canon/canon-audit-log";
-import {
-  resolveCharacterVisualCanon,
-  type CharacterCanonInput,
-  isHeroRole,
-  isSecondaryHeroRole,
-} from "@manga-ai-studio/core";
-import {
-  serializeBodyStateForPrompt,
-  serializeWardrobeProfileForPrompt,
-} from "@/lib/retry/build-character-retry-hints";
-import { notFound, paymentRequired, unauthorized } from "@/lib/api-response";
-import { getOwnedCharacter } from "@/lib/ownership";
-import { sendCharacterLoraTrainingRequested } from "@manga-ai-studio/workflow";
 import {
   isCharacterLockExpected,
   resolveCharacterReferencePolicy,
   shouldRefuseCharacterVisualForMissingRefs,
 } from "@/lib/characters/generate-visual-guards";
-import { createVisualLockWithRetry } from "@/lib/characters/visual-lock-create-with-retry";
-import { generateAndPersistFaceCloseupRef } from "@/lib/characters/face-closeup-generator";
+import { notFound, paymentRequired, unauthorized } from "@/lib/api-response";
+import { getOwnedCharacter } from "@/lib/ownership";
+
+import { buildCharacterPromptPayload } from "./_helpers/build-character-prompt-payload";
+import { buildVisualRefForClient } from "./_helpers/build-visual-ref-response";
+import { extractAndPersistFingerprint } from "./_helpers/extract-fingerprint-step";
+import { generateFaceCloseupStep } from "./_helpers/generate-face-closeup-step";
+import { persistCharacterVisualLock } from "./_helpers/persist-character-visual-lock";
+import { resolveCharacterCanonRefs } from "./_helpers/resolve-character-canon-refs";
+import { triggerLoraTrainingIfKeyCharacter } from "./_helpers/trigger-lora-training-step";
 
 type Ctx = { params: Promise<{ characterId: string }> };
 
@@ -53,12 +48,22 @@ export async function POST(_req: Request, ctx: Ctx) {
   if (!user) return unauthorized();
   const rl = await checkRateLimit(user.id, "generate_visual");
   if (!rl.ok) {
-    return NextResponse.json({ error: rl.message }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSecs) } });
+    return NextResponse.json(
+      { error: rl.message },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rl.retryAfterSecs) },
+      },
+    );
   }
   const stack = getGenerationStackStatus();
   if (!stack.canGenerateImages) {
     return NextResponse.json(
-      { error: "La stack image n'est pas prete pour generer un visuel personnage.", details: stack },
+      {
+        error:
+          "La stack image n'est pas prete pour generer un visuel personnage.",
+        details: stack,
+      },
       { status: 422 },
     );
   }
@@ -71,18 +76,36 @@ export async function POST(_req: Request, ctx: Ctx) {
     include: { user: { include: { preferences: true } } },
   });
   if (!projectForGate) return notFound();
-  if (projectRequiresAgeGate(projectForGate.contentRating, projectForGate.intensityLayer) && !canAccessMatureContent(projectForGate.user, projectForGate.user.preferences)) {
-    return NextResponse.json({ error: getAgeGateMessage(projectForGate.contentRating) }, { status: 403 });
+  if (
+    projectRequiresAgeGate(
+      projectForGate.contentRating,
+      projectForGate.intensityLayer,
+    )
+    && !canAccessMatureContent(
+      projectForGate.user,
+      projectForGate.user.preferences,
+    )
+  ) {
+    return NextResponse.json(
+      { error: getAgeGateMessage(projectForGate.contentRating) },
+      { status: 403 },
+    );
   }
   if (canBypassMatureContent(projectForGate.user.email)) {
-    console.warn(`[adult-bypass] ${projectForGate.user.email} bypassed mature gate on /api/characters/${characterId}/generate-visual (NODE_ENV=${process.env.NODE_ENV})`);
+    console.warn(
+      `[adult-bypass] ${projectForGate.user.email} bypassed mature gate on /api/characters/${characterId}/generate-visual (NODE_ENV=${process.env.NODE_ENV})`,
+    );
   }
 
-  const intensityLayer = (character.project.intensityLayer as string | null) ?? "TEEN";
+  const intensityLayer =
+    (character.project.intensityLayer as string | null) ?? "TEEN";
   const mode = "CHARACTER_SHEET" as const;
   const characterSheetSize = getPremiumImageSize(mode);
 
-  const estimatedTokens = await estimateImageTokensFromRules(mode as never, "fal");
+  const estimatedTokens = await estimateImageTokensFromRules(
+    mode as never,
+    "fal",
+  );
   const reservation = await reserveTokens(prisma, user.id, estimatedTokens, {
     reason: "character_visual_reservation",
     referenceType: "character_visual",
@@ -90,133 +113,44 @@ export async function POST(_req: Request, ctx: Ctx) {
   });
 
   if (!reservation.ok) {
-    return paymentRequired("Tokens insuffisants pour générer un visuel personnage.", {
-      needed: estimatedTokens,
-    });
+    return paymentRequired(
+      "Tokens insuffisants pour générer un visuel personnage.",
+      { needed: estimatedTokens },
+    );
   }
 
   try {
-    // Récupérer les settings du projet séparément
     const projectSettings = await prisma.projectSettings.findUnique({
       where: { projectId: character.project.id },
       select: { sensualityLevel: true },
     });
 
-    // P1.4 : on remplace les String(...) naïfs par des sérialiseurs dédiés
-    // (aucun risque de `[object Object]` dans le prompt si un champ est un
-    // array ou un objet imbriqué). Les records bruts restent exposés pour
-    // les autres consommateurs (promptBundle / metadata) qui attendent un
-    // Record<string, unknown>.
-    const raw = character as unknown as Record<string, unknown>;
-    const bodyState = raw.bodyState && typeof raw.bodyState === "object"
-      ? raw.bodyState as Record<string, unknown>
-      : {};
-    const wardrobeProfile = raw.wardrobeProfile && typeof raw.wardrobeProfile === "object"
-      ? raw.wardrobeProfile as Record<string, unknown>
-      : {};
-    const bodyStateLine = serializeBodyStateForPrompt(bodyState);
-    const wardrobeLine = serializeWardrobeProfileForPrompt(wardrobeProfile);
-
-    const fullAppearance = [
-      typeof raw.appearance === "string" ? raw.appearance : null,
-      bodyStateLine,
-    ].filter(Boolean).join(", ") || null;
-
-    const fullOutfit = [
-      typeof character.outfitDefault === "string" ? character.outfitDefault : null,
-      wardrobeLine,
-    ].filter(Boolean).join(", ") || null;
-
-    const composed = composeCharacterVisualPrompt({
-      name: character.name,
-      gender:
-        typeof raw.gender === "string"
-          ? (raw.gender.trim().toLowerCase() === "male" ? "male" : raw.gender.trim().toLowerCase() === "female" ? "female" : null)
-          : null,
-      appearance: fullAppearance,
-      hairColor: typeof raw.hairColor === "string" ? raw.hairColor : null,
-      eyeColor: typeof raw.eyeColor === "string" ? raw.eyeColor : null,
-      outfitDefault: fullOutfit,
-      traits: Array.isArray(character.traits) ? (character.traits as string[]) : null,
-      roleType: character.roleType,
-      emotionalState: character.emotionalState,
-      projectVisualStyle: character.project.visualStyle,
+    const promptPayload = buildCharacterPromptPayload(character, {
+      intensityLayer,
       sensualityLevel: projectSettings?.sensualityLevel ?? 0,
-      contentIntensityLayer: intensityLayer,
     });
-    const promptBundle = buildCharacterPromptBundle({
-      name: character.name,
-      roleType: character.roleType,
-      biography: character.biography,
-      objective: character.objective,
-      fear: character.fear,
-      appearance: fullAppearance,
-      hairColor: typeof raw.hairColor === "string" ? raw.hairColor : null,
-      eyeColor: typeof raw.eyeColor === "string" ? raw.eyeColor : null,
-      outfitDefault: fullOutfit,
-      visualProfile: raw.visualProfile && typeof raw.visualProfile === "object" ? raw.visualProfile as Record<string, unknown> : {},
-      bodyState,
-      wardrobeProfile,
-      speechProfile: raw.speechProfile && typeof raw.speechProfile === "object" ? raw.speechProfile as Record<string, unknown> : {},
-      continuityProfile: raw.continuityProfile && typeof raw.continuityProfile === "object" ? raw.continuityProfile as Record<string, unknown> : {},
-      traits: Array.isArray(character.traits) ? (character.traits as string[]) : [],
-      flaws: Array.isArray(character.flaws) ? (character.flaws as string[]) : [],
-    });
-    const lockedPositive = [
-      composed.positive,
-      promptBundle.visualPrompt,
-      promptBundle.continuityPrompt,
-      promptBundle.canonConstraintLine,
-      "STRICT: preserve exact character identity, face, hair, body markers, outfit and all permanent traits.",
-    ].filter(Boolean).join(", ");
-    const lockedNegative = [composed.negative, ...promptBundle.forbiddenDriftRules].filter(Boolean).join(", ");
 
     const adultEngine = resolveAdultEngine({
       primaryGenre: character.project.primaryGenre,
-      subGenres: Array.isArray(character.project.subGenres) ? character.project.subGenres as string[] : [],
+      subGenres: Array.isArray(character.project.subGenres)
+        ? (character.project.subGenres as string[])
+        : [],
       visualStyle: character.project.visualStyle,
-      userIntent: fullAppearance ?? character.name,
+      userIntent: promptPayload.fullAppearance ?? character.name,
     });
 
-    // P0.1 + P0.2 : on délègue à `resolveCharacterVisualCanon` la résolution de la
-    // vérité perso. Les refs prioritaires sont (dans cet ordre) :
-    //   1. activeVisualLock.canonicalRefUrls
-    //   2. canonicalImageUrl direct
-    //   3. character.visualRefs stables
+    // P0.1 + P0.2 : refs canon résolues (visual lock > canonicalImageUrl > visualRefs).
     // Toutes les URLs retournées sont garanties stables (isStableImageUrl).
-    const resolvedCanon = resolveCharacterVisualCanon(character as unknown as CharacterCanonInput);
-    const stableRefUrls = Array.from(
-      new Set(resolvedCanon.canonicalRefs.map((ref) => ref.url)),
-    ).slice(0, 4);
-    const signedRefs = await Promise.all(
-      stableRefUrls.map(async (u) => (await signSupabaseUrlIfNeeded(u)) ?? u),
-    );
-    const referenceImageUrls = signedRefs.filter((url): url is string => Boolean(url));
-    console.info(
-      `[generate-visual] canon_resolved characterId=${character.id} ` +
-      `source=${resolvedCanon.source} lockStrength=${resolvedCanon.lockStrength} ` +
-      `canonicalRefs=${stableRefUrls.length} hardTraits=${resolvedCanon.hardTraits.length} ` +
-      `permanentMarkers=${resolvedCanon.bodyMarkers.permanent.length}`,
-    );
-    const activeLoras = character.loraAttachments
-      .map((attachment) => {
-        const weightsMeta = attachment.lora.weightsMeta as Record<string, unknown>;
-        const loraUrl = typeof weightsMeta.loraUrl === "string" ? weightsMeta.loraUrl : null;
-        const triggerWord = typeof weightsMeta.triggerWord === "string" ? weightsMeta.triggerWord : attachment.lora.externalId;
-        return loraUrl
-          ? {
-              url: loraUrl,
-              triggerWord,
-              scale: attachment.weight,
-            }
-          : null;
-      })
-      .filter((item): item is { url: string; triggerWord: string; scale: number } => Boolean(item))
-      .slice(0, 2);
+    const { stableRefUrls, referenceImageUrls, activeLoras } =
+      await resolveCharacterCanonRefs(character);
+
+    const rawCharacter = character as unknown as Record<string, unknown>;
     const existingFingerprint =
-      raw.characterFingerprint && typeof raw.characterFingerprint === "object"
-        ? (raw.characterFingerprint as Record<string, unknown>)
+      rawCharacter.characterFingerprint
+      && typeof rawCharacter.characterFingerprint === "object"
+        ? (rawCharacter.characterFingerprint as Record<string, unknown>)
         : {};
+
     // P2.1 : guard central testable.
     const lockState = {
       visualRefsCount: character.visualRefs.length,
@@ -240,7 +174,10 @@ export async function POST(_req: Request, ctx: Ctx) {
         "character_visual_lock_missing_refs",
       );
       return NextResponse.json(
-        { error: "Character lock requis mais aucune ref canonique ni LoRA active n'est disponible." },
+        {
+          error:
+            "Character lock requis mais aucune ref canonique ni LoRA active n'est disponible.",
+        },
         { status: 422 },
       );
     }
@@ -251,7 +188,8 @@ export async function POST(_req: Request, ctx: Ctx) {
         contentIntensityLayer: intensityLayer,
         adultEngine,
         isNewCharacter: true,
-        hasCanonReferences: referenceImageUrls.length > 0 || activeLoras.length > 0,
+        hasCanonReferences:
+          referenceImageUrls.length > 0 || activeLoras.length > 0,
         characterCountInScene: 1,
         continuityWeight: lockExpected ? 90 : 30,
         needsInpaint: false,
@@ -259,15 +197,17 @@ export async function POST(_req: Request, ctx: Ctx) {
         preferPhotorealCover: false,
         explicitBlocked: intensityLayer === "RESTRICTED_BLOCKED_VISUAL",
         goreStylizedMature:
-          intensityLayer === "MATURE_VISUAL" || intensityLayer === "ADULT_EXPLICIT",
+          intensityLayer === "MATURE_VISUAL"
+          || intensityLayer === "ADULT_EXPLICIT",
       },
       {
         mode: "CHARACTER_SHEET",
-        positivePrompt: lockedPositive,
-        negativePrompt: lockedNegative,
+        positivePrompt: promptPayload.lockedPositive,
+        negativePrompt: promptPayload.lockedNegative,
         width: characterSheetSize.width,
         height: characterSheetSize.height,
-        referenceImageUrls: referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+        referenceImageUrls:
+          referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
         loras: activeLoras.length > 0 ? activeLoras : undefined,
         providerParams: {
           contentIntensityLayer: intensityLayer,
@@ -312,9 +252,9 @@ export async function POST(_req: Request, ctx: Ctx) {
       );
     }
 
-    // P0.1 : double garde (même si `allowTemporary:false`) — si pour une raison
-    // quelconque l'image n'est pas réellement persistée sur un support stable,
-    // on refund et on refuse d'écrire quoi que ce soit en DB canonique.
+    // P0.1 : double garde — si pour une raison quelconque l'image n'est pas
+    // réellement persistée sur un support stable, on refund et on refuse
+    // d'écrire quoi que ce soit en DB canonique.
     if (persisted.persisted !== true) {
       await refundReservation(
         prisma,
@@ -323,141 +263,38 @@ export async function POST(_req: Request, ctx: Ctx) {
         "character_visual_not_persisted",
       );
       return NextResponse.json(
-        { error: "character_visual_not_persisted", detail: "persisted=false (temporary or skip)" },
+        {
+          error: "character_visual_not_persisted",
+          detail: "persisted=false (temporary or skip)",
+        },
         { status: 422 },
       );
     }
 
-    // P0.3 : guard explicite — l'URL publique retournée doit être stable ET
-    // (puisqu'on écrit un mediaAsset Supabase) le storageKey doit exister.
-    // `assertStableCanonicalAsset` remplace le simple check URL en durcissant
-    // le contrat Supabase (pas de mediaAsset.supabase sans storageKey).
+    // P0.3 : durcit le contrat Supabase (pas de mediaAsset.supabase sans storageKey).
     assertStableImageUrl(persisted.url, "generate-visual:persisted.url");
     assertStableCanonicalAsset(
-      { url: persisted.url, storageProvider: "supabase", storageKey: persisted.storageKey },
+      {
+        url: persisted.url,
+        storageProvider: "supabase",
+        storageKey: persisted.storageKey,
+      },
       "generate-visual:mediaAsset",
     );
 
-    const visualRef = await createVisualLockWithRetry({
-      characterId: character.id,
-      run: async (tx, nextVersion) => {
-      // Deactivate every currently-active lock before inserting the new
-      // version. Done inside each retry attempt so a concurrent writer
-      // can't leave two active rows behind.
-      await tx.characterVisualLock.updateMany({
-        where: { characterId: character.id, isActive: true },
-        data: { isActive: false },
-      });
-      const mediaAsset = await tx.mediaAsset.create({
-        data: {
-          projectId: character.project.id,
-          characterId: character.id,
-          type: "character_ref",
-          origin: "generated",
-          ownerType: "character_visual",
-          ownerId: character.id,
-          storageProvider: "supabase",
-          publicUrl: persisted.url,
-          // P0.2 : chemin réellement uploadé (avec extension dérivée du content-type).
-          storageKey: persisted.storageKey,
-          metadata: {
-            provider: output.result.provider,
-            model: output.result.model,
-            requestId: output.result.requestId ?? null,
-            jobId: output.result.jobId ?? null,
-            seed: output.result.seed ?? null,
-          },
-        },
-      });
-      const activeLora = activeLoras[0] ?? null;
-      const nextLock = buildCharacterVisualLock({
-        characterId: character.id,
-        displayName: character.name,
-        roleType: character.roleType,
-        hairColor: typeof raw.hairColor === "string" ? raw.hairColor : null,
-        eyeColor: typeof raw.eyeColor === "string" ? raw.eyeColor : null,
-        appearance: fullAppearance,
-        outfitDefault: fullOutfit,
-        bodyState,
-        visualProfile: raw.visualProfile && typeof raw.visualProfile === "object" ? raw.visualProfile as Record<string, unknown> : {},
-        wardrobeProfile,
-        triggerWord: activeLora?.triggerWord ?? null,
-        loraUrl: activeLora?.url ?? null,
-        // P0.3 : canonicalRefUrls = uniquement URLs stables (non signées,
-        // non provider-temporaire). On reprend les refs DB brutes, PAS les
-        // versions signées utilisées pour appeler le provider.
-        canonicalRefUrls: [persisted.url, ...stableRefUrls].slice(0, 4),
-        currentState: {
-          emotionalState: character.emotionalState,
-          status: character.status,
-        },
-        version: nextVersion,
-      });
-      // P0.3 — chaque URL du canonicalRefUrls doit passer le guard stable.
-      // Ce lock est le contrat canonique du personnage : pas de signed URL,
-      // pas de host provider temporaire.
-      for (const refUrl of nextLock.canonicalRefUrls) {
-        assertStableCanonicalAsset(
-          { url: refUrl },
-          "generate-visual:canonicalRefUrls",
-        );
-      }
-
-      const storedLock = await tx.characterVisualLock.create({
-        data: {
-          projectId: character.project.id,
-          characterId: character.id,
-          version: nextVersion,
-          isActive: true,
-          displayName: nextLock.displayName,
-          shortVisualCore: nextLock.shortVisualCore,
-          triggerWord: nextLock.triggerWord ?? null,
-          canonicalRefUrls: nextLock.canonicalRefUrls,
-          defaultOutfit: nextLock.defaultOutfit ?? null,
-          altOutfits: nextLock.altOutfits as Prisma.InputJsonValue,
-          currentState: nextLock.currentState as Prisma.InputJsonValue,
-          injuryState: (nextLock.injuryState ?? {}) as Prisma.InputJsonValue,
-          ageVariant: nextLock.ageVariant ?? null,
-          faceCloseupAssetId: mediaAsset.id,
-          actionRefAssetId: mediaAsset.id,
-          metadata: {
-            requestId: output.result.requestId ?? null,
-            jobId: output.result.jobId ?? null,
-            source: "generate-visual",
-          },
-        },
-      });
-      // P0.3 — dernier guard avant l'écriture de la visualRef canonique.
-      assertStableCanonicalAsset(
-        { url: persisted.url, storageProvider: "supabase", storageKey: persisted.storageKey },
-        "generate-visual:characterVisualRef",
-      );
-
-      const createdRef = await tx.characterVisualRef.create({
-        data: {
-          characterId: character.id,
-          mediaAssetId: mediaAsset.id,
-          sourceVisualLockId: storedLock.id,
-          type: "generated_primary",
-          imageUrl: persisted.url,
-          promptSnapshot: lockedPositive,
-          isPrimary: character.visualRefs.length === 0,
-          metadata: {
-            provider: output.result.provider,
-            model: output.result.model,
-            negativePrompt: lockedNegative,
-            requestId: output.result.requestId ?? null,
-            jobId: output.result.jobId ?? null,
-            // P0.3 : on ne stocke PAS referenceImageUrls (signées) dans
-            // metadata canonique. On garde uniquement les URLs stables sources.
-            referenceImageUrls: stableRefUrls,
-            loras: activeLoras,
-            persisted: true,
-          },
-        },
-      });
-      return { createdRef, storedLock, nextVersion };
-      },
+    const visualRef = await persistCharacterVisualLock({
+      character,
+      persisted,
+      output,
+      activeLoras,
+      stableRefUrls,
+      lockedPositive: promptPayload.lockedPositive,
+      lockedNegative: promptPayload.lockedNegative,
+      rawCharacter,
+      fullAppearance: promptPayload.fullAppearance,
+      fullOutfit: promptPayload.fullOutfit,
+      bodyState: promptPayload.bodyState,
+      wardrobeProfile: promptPayload.wardrobeProfile,
     });
 
     // P4.4 : audit trail — visual_lock_created + visual_ref_promoted si primary.
@@ -478,147 +315,46 @@ export async function POST(_req: Request, ctx: Ctx) {
       });
     }
 
-    // H9 — générer une face closeup ref dédiée après la primary ref
-    // (best-effort : si ça échoue on n'écrase pas la primary, mais on
-    // loggue). Le guard premium `characterHasDedicatedFaceCloseupRef`
-    // bloquera les panels closeup ultérieurs si cette étape n'a pas
-    // produit de face ref.
-    try {
-      const faceResult = await generateAndPersistFaceCloseupRef({
-        prisma,
-        characterId: character.id,
-        projectId: character.project.id,
-        sourceVisualLockId: visualRef.storedLock.id,
-        positivePrompt: lockedPositive,
-        negativePrompt: lockedNegative,
-        referenceImageUrls: [persisted.url, ...stableRefUrls].slice(0, 4),
-        runGenerate: async (prompt, negative, refs) => {
-          const out = await runRoutedImageGeneration(
-            {
-              mode: "CHARACTER_SHEET",
-              contentIntensityLayer: intensityLayer,
-              adultEngine,
-              isNewCharacter: false,
-              hasCanonReferences: true,
-              characterCountInScene: 1,
-              continuityWeight: 95,
-              needsInpaint: false,
-              needsPoseVariation: false,
-              preferPhotorealCover: false,
-              explicitBlocked: intensityLayer === "RESTRICTED_BLOCKED_VISUAL",
-              goreStylizedMature:
-                intensityLayer === "MATURE_VISUAL" || intensityLayer === "ADULT_EXPLICIT",
-            },
-            {
-              mode: "CHARACTER_SHEET",
-              positivePrompt: prompt,
-              negativePrompt: negative,
-              width: characterSheetSize.width,
-              height: characterSheetSize.height,
-              referenceImageUrls: refs.length > 0 ? refs : undefined,
-              loras: activeLoras.length > 0 ? activeLoras : undefined,
-              providerParams: {
-                contentIntensityLayer: intensityLayer,
-                mode: "CHARACTER_SHEET",
-                referencePolicy: "STRONG",
-                panelCategory: "CHARACTER_FACE_CLOSEUP",
-                triggerWords: activeLoras.map((item) => item.triggerWord),
-              },
-            },
-          );
-          if (!out.ok) return { ok: false, reason: out.reason };
-          return {
-            ok: true,
-            imageUrl: out.result.imageUrl,
-            provider: out.result.provider,
-            model: out.result.model,
-            requestId: out.result.requestId ?? null,
-            jobId: out.result.jobId ?? null,
-            seed: out.result.seed ?? null,
-          };
-        },
-      });
-      if (!faceResult.ok) {
-        console.warn(
-          `[generate-visual] face_closeup_missed characterId=${character.id} error=${faceResult.error ?? faceResult.skipped ?? "unknown"}`,
-        );
-      }
-    } catch (faceErr) {
-      console.warn(
-        `[generate-visual] face_closeup_exception (non-blocking): ${faceErr instanceof Error ? faceErr.message : faceErr}`,
-      );
-    }
+    await generateFaceCloseupStep({
+      characterId: character.id,
+      projectId: character.project.id,
+      sourceVisualLockId: visualRef.storedLock.id,
+      intensityLayer,
+      adultEngine,
+      positivePrompt: promptPayload.lockedPositive,
+      negativePrompt: promptPayload.lockedNegative,
+      width: characterSheetSize.width,
+      height: characterSheetSize.height,
+      referenceImageUrls: [persisted.url, ...stableRefUrls].slice(0, 4),
+      activeLoras,
+    });
 
-    await settleReservedTokens(prisma, user.id, reservation.reservationId, estimatedTokens);
+    await settleReservedTokens(
+      prisma,
+      user.id,
+      reservation.reservationId,
+      estimatedTokens,
+    );
 
-    // ── Extraire et persister CharacterFingerprint (Bloc 2) ──────────────────
-    try {
-      const allVisualRefs = await prisma.characterVisualRef.findMany({
-        where: { characterId: character.id },
-        select: { imageUrl: true, type: true, isPrimary: true },
-        orderBy: { isPrimary: "desc" },
-      });
+    await extractAndPersistFingerprint({
+      character,
+      visualProfile:
+        rawCharacter.visualProfile
+        && typeof rawCharacter.visualProfile === "object"
+          ? (rawCharacter.visualProfile as Record<string, unknown>)
+          : {},
+      bodyState: promptPayload.bodyState,
+      wardrobeProfile: promptPayload.wardrobeProfile,
+    });
 
-      const fingerprint = await extractCharacterFingerprintFromRefs({
-        characterId: character.id,
-        characterName: character.name,
-        gender: character.gender === "male" ? "male" : character.gender === "female" ? "female" : "other",
-        visualRefs: allVisualRefs.map((ref) => ({
-          url: ref.imageUrl,
-          type: ref.type,
-          isPrimary: ref.isPrimary,
-        })),
-        visualProfile: raw.visualProfile && typeof raw.visualProfile === "object" ? raw.visualProfile as Record<string, unknown> : {},
-        bodyState: bodyState,
-        wardrobeProfile: wardrobeProfile,
-        appearance: character.appearance,
-        hairColor: character.hairColor,
-        eyeColor: character.eyeColor,
-      });
+    await triggerLoraTrainingIfKeyCharacter({
+      character,
+      imageUrl: visualRef.createdRef.imageUrl,
+    });
 
-      await prisma.character.update({
-        where: { id: character.id },
-        data: { characterFingerprint: fingerprint as never },
-      });
-
-      console.log(`[generate-visual] CharacterFingerprint extracted and persisted for ${character.name}`);
-    } catch (fpError) {
-      console.error(`[generate-visual] Failed to extract fingerprint:`, fpError instanceof Error ? fpError.message : fpError);
-    }
-
-    // E1 : Trigger LoRA auto-training pour les personnages clés (héros principal ou co-héros canon)
-    const isKeyCharacter = isHeroRole(character.roleType) || isSecondaryHeroRole(character.roleType);
-    if (isKeyCharacter) {
-      try {
-        await prisma.character.update({
-          where: { id: character.id },
-          data: { loraStatus: "training" },
-        });
-        const loraSent = await sendCharacterLoraTrainingRequested({
-          characterId: character.id,
-          projectId: character.project.id,
-          imageUrl: visualRef.createdRef.imageUrl,
-        });
-        if (loraSent.ok) {
-          console.log(`[generate-visual] LoRA training triggered for ${character.name} (${character.roleType})`);
-        } else {
-          console.warn(`[generate-visual] LoRA training skipped: ${loraSent.skipped}`);
-          await prisma.character.update({
-            where: { id: character.id },
-            data: { loraStatus: "none" },
-          });
-        }
-      } catch (loraErr) {
-        console.error(`[generate-visual] LoRA trigger failed (non-blocking): ${loraErr instanceof Error ? loraErr.message : loraErr}`);
-        await prisma.character.update({ where: { id: character.id }, data: { loraStatus: "none" } }).catch(() => null);
-      }
-    }
-
-    // P0.4 — helper central (allowlist + HMAC). Remplace l'IIFE dupliqué.
-    const signedImageUrl = await signSupabaseUrlIfNeeded(visualRef.createdRef.imageUrl);
-    const urlForClient = signedImageUrl ?? visualRef.createdRef.imageUrl;
-    const proxiedUrl = toProxiedServerUrl(urlForClient) ?? urlForClient;
-    const visualRefForClient = { ...visualRef.createdRef, imageUrl: proxiedUrl };
+    const visualRefForClient = await buildVisualRefForClient(
+      visualRef.createdRef,
+    );
 
     return NextResponse.json({ ok: true, visualRef: visualRefForClient });
   } catch (error) {
@@ -629,7 +365,10 @@ export async function POST(_req: Request, ctx: Ctx) {
       "character_visual_failed",
     );
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "character_visual_failed" },
+      {
+        error:
+          error instanceof Error ? error.message : "character_visual_failed",
+      },
       { status: 500 },
     );
   }

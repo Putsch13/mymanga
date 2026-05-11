@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { StylePresetsGallery, type StylePresetPatch } from "@/components/style/style-presets-gallery";
 
 const enums = {
   renderFamily: ["manga", "anime", "semi_realistic", "gothic", "horror", "western"],
@@ -85,6 +86,22 @@ export default function StylePackPage() {
         <h1 className="mt-2 text-3xl font-semibold">Style pack</h1>
         <p className="text-muted-foreground mt-1 text-sm">Paramètres injectés dans PromptComposer v2 — moins de dérive.</p>
       </div>
+
+      <StylePresetsGallery
+        currentRenderFamily={data.renderFamily ?? null}
+        onApply={(patch: StylePresetPatch) => {
+          setData({
+            renderFamily: patch.renderFamily,
+            lineWeight: patch.lineWeight,
+            shadingMode: patch.shadingMode,
+            contrastProfile: patch.contrastProfile,
+            anatomyBias: patch.anatomyBias,
+            backgroundDensity: patch.backgroundDensity,
+            cameraLanguage: patch.cameraLanguage,
+          });
+          setNeg(patch.negativeConstraints.join("\n"));
+        }}
+      />
 
       <Card className="border-border/60 bg-card/50">
         <CardHeader>

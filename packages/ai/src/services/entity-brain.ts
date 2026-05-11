@@ -133,22 +133,40 @@ export function parseIntentEntities(userIntent: string, knownNames: string[]): I
     }
   }
 
-  // Pass C — NPC groups (plural social nouns)
+  // Pass C — NPC groups (plural social nouns).
+  // FIX-27 (MAJEUR) — La détection de "dialogue requis" se faisait sur
+  // l'intention entière : un verbe d'avertissement présent quelque part
+  // dans le pitch contaminait TOUS les groupes PNJ détectés. Exemple
+  // pathologique : "Lux prévient Tess. Les pêcheurs travaillent." →
+  // les pêcheurs étaient flaggés "dialogue requis" alors qu'ils ne
+  // parlent pas.
+  //
+  // Correctif : on segmente l'intention en phrases (séparateurs forts +
+  // conjonctions narratives) et on ne marque "dialogue requis" pour un
+  // groupe QUE si une phrase qui CONTIENT le mot-clé contient AUSSI un
+  // verbe d'avertissement. Sinon on retombe sur la policy de base.
+  const sentencesForGroupDetection = splitIntentIntoSentences(userIntent);
   for (const group of GROUP_NPC_KEYWORDS) {
     if (!lowered.includes(group.keyword)) continue;
     const key = `group:${group.keyword}`;
     if (hints.has(key)) continue;
 
-    const hasWarningVerb = WARNING_VERBS_RE.test(userIntent);
-    const requiredDialogue = hasWarningVerb;
-    const policy: RecurrencePolicy = hasWarningVerb ? "story_locked" : group.recurrencePolicy;
+    const relevantSentences = sentencesForGroupDetection.filter((sentence) =>
+      sentence.toLowerCase().includes(group.keyword),
+    );
+    const groupNeedsDialogue = relevantSentences.some((sentence) =>
+      WARNING_VERBS_RE.test(sentence),
+    );
+    const policy: RecurrencePolicy = groupNeedsDialogue
+      ? "story_locked"
+      : group.recurrencePolicy;
 
     hints.set(key, {
       name: group.label,
       entityKind: "npc_group",
       dialogueMode: group.dialogueMode,
       recurrencePolicy: policy,
-      roleHint: requiredDialogue
+      roleHint: groupNeedsDialogue
         ? `groupe PNJ avec dialogue requis (${group.domain})`
         : `groupe PNJ (${group.domain})`,
       speciesLabel: null,
@@ -156,6 +174,24 @@ export function parseIntentEntities(userIntent: string, knownNames: string[]): I
   }
 
   return [...hints.values()];
+}
+
+/**
+ * FIX-27 — Segmente l'intention utilisateur en phrases pour limiter la
+ * portée des heuristiques (verbes d'avertissement, must-mention, etc.).
+ *
+ * Coupe sur :
+ *   - ponctuation forte : `.`, `!`, `?`, `;`, retour-ligne
+ *   - conjonctions narratives : `puis`, `ensuite`, `mais`, `alors`
+ *
+ * Retourne uniquement les segments non vides après trim.
+ */
+export function splitIntentIntoSentences(text: string): string[] {
+  if (!text) return [];
+  return text
+    .split(/[.!?;\n]+|(?:\s+(?:puis|ensuite|mais|alors|cependant|toutefois|néanmoins)\s+)/gi)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 }
 
 export function inferEntityProfile(input: {

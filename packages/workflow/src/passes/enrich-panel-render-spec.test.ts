@@ -140,6 +140,40 @@ describe("buildPanelRenderTextPayloadFromStoryboardPanel", () => {
   });
 });
 
+describe("enrichPanelRenderSpecForRenderPass — heroCharacterId (sprint 1)", () => {
+  it("préserve heroCharacterId du castContract quand il est présent dans le panel", () => {
+    const panel = basePanel({
+      characters: ["sidekick-1", "hero-official", "rival-1"],
+      visualAnchors: { characterIds: ["sidekick-1"], environmentAnchorId: null, previousPanelAnchorId: null },
+    });
+    const out = enrichPanelRenderSpecForRenderPass({
+      spec: makeMinimalRenderSpec({ heroCharacterId: "hero-official" }),
+      panel,
+      visualMemory: createEmptyChapterVisualMemory("ch1"),
+      mainCharacterIds: ["sidekick-1", "hero-official", "rival-1"],
+      route: testRoute,
+      previousPanel: null,
+    });
+    expect(out.heroCharacterId).toBe("hero-official");
+  });
+
+  it("retombe sur l'ancrage visuel quand le héros officiel n'est PAS dans le panel", () => {
+    const panel = basePanel({
+      characters: ["sidekick-1"],
+      visualAnchors: { characterIds: ["sidekick-1"], environmentAnchorId: null, previousPanelAnchorId: null },
+    });
+    const out = enrichPanelRenderSpecForRenderPass({
+      spec: makeMinimalRenderSpec({ heroCharacterId: "hero-absent" }),
+      panel,
+      visualMemory: createEmptyChapterVisualMemory("ch1"),
+      mainCharacterIds: ["sidekick-1", "hero-absent"],
+      route: testRoute,
+      previousPanel: null,
+    });
+    expect(out.heroCharacterId).toBe("sidekick-1");
+  });
+});
+
 describe("enrichPanelRenderSpecForRenderPass — environmentDNA", () => {
   it("injecte environmentVisualDna du storyboard dans environmentDNA du spec", () => {
     const panel = basePanel({

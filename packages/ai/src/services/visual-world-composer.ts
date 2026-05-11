@@ -312,15 +312,26 @@ export function assertVisualWorldContractPremiumInvariants(
 
   const warnings: string[] = [];
   const fallbackLocationId = contract.locations[0]?.id ?? null;
+  let beatsWithLocationFallback = 0;
+  // FIX-16 (MAJEUR) — En premium, un beat sans binding du tout (pas
+  // juste sans locationId, mais carrément absent du tableau
+  // `beatBindings`) doit bloquer. Sans ça, les beats critiques (temple,
+  // artefact) passaient sans erreur car la boucle continuait avec
+  // `continue`.
+  const missingBeatBindings: string[] = [];
 
   for (const beatId of expected.expectedBeatIds) {
     const b = contract.beatBindings.find((x) => x.beatId === beatId);
-    if (!b) continue;
+    if (!b) {
+      missingBeatBindings.push(beatId);
+      continue;
+    }
 
     if (!b.locationId || !locIds.has(b.locationId)) {
       if (fallbackLocationId) {
         warnings.push(`beat=${beatId}: missing/invalid locationId → fallback to ${fallbackLocationId}`);
         b.locationId = fallbackLocationId;
+        beatsWithLocationFallback += 1;
       } else {
         warnings.push(`beat=${beatId}: missing locationId and no locations available`);
       }
@@ -355,6 +366,35 @@ export function assertVisualWorldContractPremiumInvariants(
       warnings.push(`beat=${beatId}: stripped unknown factions [${unknownFactions.join(",")}]`);
       b.factionIds = b.factionIds.filter((fid) => factionIds.has(fid));
     }
+  }
+
+  // SPRINT 1 — garde dure sur la dérive globale décor.
+  // Quand plus de 50% des beats sont en fallback "premier lieu", c'est que
+  // le compositeur a hallucine la majorité des locationId : tout le
+  // chapitre se retrouve au même endroit ("jungle partout" en prod). On
+  // refuse le contrat plutôt que de laisser passer un chapitre visuellement
+  // catastrophique.
+  // FIX-16 (MAJEUR) — Seuil resserré : 15 % au lieu de 50 %. Un huis-clos
+  // a typiquement 1-2 lieux mais sa Map de bindings doit refléter ces
+  // lieux (locId distinct par beat ou groupes de beats), pas une erreur
+  // de compositeur qui laisse 50 % des bindings vides.
+  const totalBeats = expected.expectedBeatIds.length;
+  const FALLBACK_RATIO_LIMIT = 0.15;
+  if (totalBeats > 0 && beatsWithLocationFallback / totalBeats > FALLBACK_RATIO_LIMIT) {
+    const ratio = Math.round((beatsWithLocationFallback / totalBeats) * 100);
+    const limitPct = Math.round(FALLBACK_RATIO_LIMIT * 100);
+    throw new Error(
+      `premium_visual_world_location_fallback_excess: ${beatsWithLocationFallback}/${totalBeats} beats (${ratio}%) without explicit locationId binding (limit=${limitPct}%). The composer should bind a real location to each beat — re-run composer or simplify the chapter plot.`,
+    );
+  }
+
+  // FIX-16 (MAJEUR) — Beats absents du tableau `beatBindings` : c'est
+  // pire qu'un fallback (le LLM n'a même pas tenté de mapper le beat).
+  // On bloque dès qu'un seul beat critique est missing.
+  if (missingBeatBindings.length > 0) {
+    throw new Error(
+      `premium_visual_world_missing_beat_bindings: beats=${missingBeatBindings.join(",")} have no binding in contract.beatBindings. Re-run the composer or fix the beat plan.`,
+    );
   }
 
   if (warnings.length > 0) {

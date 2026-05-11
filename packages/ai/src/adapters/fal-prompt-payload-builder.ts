@@ -20,11 +20,41 @@ import type {
   ProviderRef,
   LoraBinding,
 } from "@manga-ai-studio/core";
-import { isNonHeroDominantIntent } from "@manga-ai-studio/core";
+import {
+  isNonHeroDominantIntent,
+  isPipelineV3PremiumOnlyEnabled,
+} from "@manga-ai-studio/core";
 import {
   auditFalPrompt,
   flattenStructuredPromptForFal,
 } from "../prompts/fal-prompt-flattener";
+
+/**
+ * FIX-26 (MOD) — Certains audit issues ne devaient PAS rester en
+ * warning silencieux : un dialogue exact qui leak, un placeholder de
+ * lieu ("lieu principal non spécifié") ou un outfit "Default" sont des
+ * indicateurs clairs que le packet est cassé et qu'on va griller un
+ * crédit fal pour rien. En premium, on les promeut en erreur bloquante
+ * pour que le pipeline s'arrête tôt et signale l'origine au lieu de
+ * laisser fal générer un panel poubelle.
+ */
+const PREMIUM_BLOCKING_AUDIT_PREFIXES = [
+  "DIALOGUE_LITERAL_LEAK",
+  "LOCATION_PLACEHOLDER_LEAK",
+  "DEFAULT_OUTFIT_LEAK",
+  "TAG_MARKERS_PRESENT",
+  "EMPTY_TOKEN_LEAK",
+] as const;
+
+export class PremiumFalPromptAuditError extends Error {
+  override name = "PremiumFalPromptAuditError" as const;
+  constructor(public readonly blockingIssues: string[], public readonly panelId?: string) {
+    super(
+      `premium_fal_prompt_audit_blocked panel=${panelId ?? "unknown"} ` +
+        `issues=${blockingIssues.join(" | ")}`,
+    );
+  }
+}
 
 export interface FalPromptPayloadInput {
   packet: CanonicalImagePromptPacket;
@@ -302,6 +332,26 @@ export function validatePayloadForIntent(
     warnings.push(`CLASSIFICATION_IN_PROMPT: rating metadata present in diffusion prompt`);
   }
 
+  // AUDIT-V8 — Rule 11 : refs Supabase /object/public/ peuvent renvoyer 403
+  // si le bucket est privé (cas réel observé dans les logs prod).
+  // Si plus de 50% des refs sont en URL publique non-signée → warning bruyant.
+  const allRefs = [...payload.refs, ...payload.ipAdapterRefs];
+  if (allRefs.length > 0) {
+    const publicSupabaseRefs = allRefs.filter(
+      (r) =>
+        typeof r.url === "string" &&
+        r.url.includes("/storage/v1/object/public/") &&
+        !r.url.includes("token="),
+    );
+    if (publicSupabaseRefs.length > 0) {
+      warnings.push(
+        `SUPABASE_PUBLIC_REFS_RISK: ${publicSupabaseRefs.length}/${allRefs.length} refs ` +
+          `utilisent /object/public/ (risque 403 si bucket privé). ` +
+          `Préférer signedUrl/falCdnUrl/resolvedUrl en amont.`,
+      );
+    }
+  }
+
   return {
     valid: errors.length === 0,
     errors,
@@ -362,6 +412,29 @@ export function buildFalPromptPayload(input: FalPromptPayloadInput): FalPromptPa
     { maxLength: 1200, format: input.format ?? "manga" },
   );
   const promptAuditIssues = auditFalPrompt(flattenedPrompt);
+  // AUDIT-V8 — log structuré : si un audit issue tombe, on veut le voir
+  // dans les logs de prod (avant de blâmer fal).
+  if (promptAuditIssues.length > 0) {
+    const sentinel = `panel=${packet.panelBlueprintId ?? "unknown"}`;
+    console.warn(
+      `[fal-prompt-audit] ${sentinel} issues=${promptAuditIssues.length} ` +
+        `details=${JSON.stringify(promptAuditIssues.slice(0, 5))}`,
+    );
+  }
+
+  // FIX-26 (MOD) — En premium, on transforme certains audit issues en
+  // erreur bloquante (dialogue literal, lieu placeholder, outfit Default,
+  // [TAG] résiduel, undefined/null). Ces cas signifient que l'amont est
+  // cassé : pas la peine de payer un crédit fal pour générer un panel
+  // qui sera de toute façon rejeté en QA.
+  if (isPipelineV3PremiumOnlyEnabled() && promptAuditIssues.length > 0) {
+    const blocking = promptAuditIssues.filter((issue) =>
+      PREMIUM_BLOCKING_AUDIT_PREFIXES.some((prefix) => issue.startsWith(prefix)),
+    );
+    if (blocking.length > 0) {
+      throw new PremiumFalPromptAuditError(blocking, packet.panelBlueprintId ?? undefined);
+    }
+  }
 
   const payload: ProviderPayload = {
     prompt: flattenedPrompt,

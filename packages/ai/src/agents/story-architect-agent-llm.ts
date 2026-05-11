@@ -79,6 +79,74 @@ const DANGER_SET: ReadonlySet<StoryBeatDangerLevel> = new Set<StoryBeatDangerLev
   "critical",
 ]);
 
+/**
+ * FIX-14 (CRITIQUE) — Injecte le contrat narratif pré-résolu dans le prompt.
+ *
+ * Ce contrat vient de `buildIntentNarrativeContract` qui a déjà résolu les
+ * pronoms ("lui" → Kai), identifié les lieux mentionnés dans l'intention,
+ * et extrait les events requis. Le Story Architect DOIT respecter ces
+ * contraintes sinon il risque d'inventer des personnages / lieux absents
+ * du projet ou de rater complètement l'intention utilisateur.
+ */
+function buildNarrativeContractSection(input: StoryArchitectInput): string {
+  const nc = input.narrativeContract;
+  if (!nc) return "";
+
+  const sections: string[] = [];
+
+  if (nc.requiredCharacters.length > 0) {
+    // Résoudre les IDs vers les noms si possible
+    const charIdToName = new Map(
+      (input.mainCharacters ?? []).map((c) => [c.id, c.name]),
+    );
+    const charNames = nc.requiredCharacters
+      .map((id) => charIdToName.get(id) ?? id)
+      .filter((n) => n.trim().length > 0);
+    if (charNames.length > 0) {
+      sections.push(`PERSONNAGES REQUIS (doivent apparaître dans les beats) : ${charNames.join(", ")}`);
+    }
+  }
+
+  if (nc.requiredLocations.length > 0) {
+    sections.push(`LIEUX REQUIS (doivent être visités) : ${nc.requiredLocations.join(", ")}`);
+  }
+
+  if (nc.requiredEvents.length > 0) {
+    const eventsDesc = nc.requiredEvents
+      .slice(0, 8)
+      .map((e) => {
+        const dlg = e.requiredDialogue ? " [dialogue obligatoire]" : "";
+        const loc = e.locationHint ? ` @${e.locationHint}` : "";
+        return `- ${e.label}${dlg}${loc}`;
+      })
+      .join("\n");
+    sections.push(`ÉVÉNEMENTS REQUIS (chacun doit être couvert par au moins un beat) :\n${eventsDesc}`);
+  }
+
+  if (nc.requiredNpcGroups && nc.requiredNpcGroups.length > 0) {
+    const npcDesc = nc.requiredNpcGroups
+      .slice(0, 6)
+      .map((g) => {
+        const dlg = g.requiredDialogue ? " [dialogue obligatoire]" : "";
+        const mention = g.mustMention?.length ? ` (doit mentionner: ${g.mustMention.join(", ")})` : "";
+        return `- ${g.label} (${g.role})${dlg}${mention}`;
+      })
+      .join("\n");
+    sections.push(`GROUPES PNJ REQUIS :\n${npcDesc}`);
+  }
+
+  if (nc.forbiddenInventions.length > 0) {
+    sections.push(`INTERDIT D'INVENTER : ${nc.forbiddenInventions.join(", ")}`);
+  }
+
+  if (sections.length === 0) return "";
+
+  return `NARRATIVE CONTRACT (resolved from user intent — STRICT constraints):
+${sections.join("\n\n")}
+
+`;
+}
+
 const SYSTEM_PROMPT = `You are a veteran story architect for serialized manga / webtoon.
 
 Your ONLY job: transform a chapter intent + continuity into a StoryArc — an ORDERED list
@@ -148,6 +216,7 @@ ${chars || "(none — use generic 'protagonist' but still constrained to what ex
 KNOWN LOCATIONS:
 ${locs || "(none — stay abstract, no invented real-world places)"}
 
+${buildNarrativeContractSection(input)}
 Return exactly this JSON shape:
 {
   "chapterId": "${input.chapterId}",

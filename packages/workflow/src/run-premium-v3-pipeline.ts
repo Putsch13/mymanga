@@ -23,22 +23,17 @@ import {
   hydrateBlueprintsWithNpcDna,
   hydrateBlueprintsWithPropDna,
   characterVisualDnaForRenderFromPremiumRow,
-  buildChapterCastContract,
-  assertValidChapterCastContract,
-  formatCastContractLog,
   orderedEditorHeroCharacterIds,
-  buildChapterStoryContract,
-  assertValidChapterStoryContract,
-  formatStoryContractLog,
   buildChapterGenerationContractFromPremiumPlan,
   assertValidChapterGenerationContract,
+  buildIntentNarrativeContract,
   type CanonicalChapterProductionPlan,
   type CharacterCanon,
   type PanelBlueprintPremium,
   type ChapterCastContract,
   type ChapterStoryContract,
   type VisualWorldContract,
-  parseVisualWorldContract,
+  type IntentNarrativeContract,
   legacyDialogueLinesFromStoryboardPanelLike,
   type StoryboardPanelLikeForTextContract,
 } from "@manga-ai-studio/core";
@@ -54,7 +49,7 @@ import { buildStoryboardPlanFromPremiumBlueprints } from "./passes/storyboard-fr
 import { runStoryboardPass } from "./passes/storyboard-pass";
 import { buildStyleBibleFromUserProject } from "./chapter-style-bible-resolver";
 import { isPipelineV3RenderFalEnabled } from "./pipeline-feature-flags";
-import { loadLocationsForV3StoryPass, type PremiumV3PipelineLocation, premiumV3PipelineLocationsToStoryArchitectLocations, v3PipelineLocationsToKnownLocations, v3PipelineLocationToResolverUserLocation } from "./load-locations-for-v3-story-pass";
+import { loadLocationsForV3StoryPass, type PremiumV3PipelineLocation, premiumV3PipelineLocationsToStoryArchitectLocations } from "./load-locations-for-v3-story-pass";
 import {
   loadChapterVisualContractUi,
   saveChapterVisualContractSnapshot,
@@ -91,20 +86,7 @@ import { runBeatCoverageQaPass, formatBeatCoverageQaLog } from "./passes/beat-co
 import { runEmotionalArcQaPass, formatEmotionalArcQaLog } from "./passes/emotional-arc-qa-pass";
 import { runInteractionQaPass, formatInteractionQaLog } from "./passes/interaction-qa-pass";
 import { runPropsQaPass, formatPropsQaLog } from "./passes/props-qa-pass";
-import {
-  runVisualWorldDiscoveryPass,
-  formatVisualWorldDiscoveryLog,
-  type VisualWorldDiscoveryPassResult,
-} from "./passes/visual-world-discovery-pass";
-import {
-  runCanonResolverPass,
-  formatCanonResolverLog,
-} from "./passes/canon-resolver-pass";
-import {
-  mergeNpcGroupsFromBlueprintsAndStoryTextRegex,
-  type LegacyNpcGroupForCast,
-} from "./passes/merge-npc-groups-legacy-regex";
-import { runStoryContractCompletenessQa, formatStoryContractCompletenessLog } from "./passes/story-contract-completeness-qa";
+import { type VisualWorldDiscoveryPassResult } from "./passes/visual-world-discovery-pass";
 import {
   assertPremiumAiEnginesReady,
   assertDialogueResultNotFallback,
@@ -114,13 +96,12 @@ import {
 import {
   assertPremiumOnlyV3Config,
   dedupePipelineWarnings as dedupeWarningsHelper,
-  extractNpcGroupsFromBlueprints,
   hasApprovedPlanDrivenInput as hasApprovedPlanDrivenInputHelper,
-  mergeDiscoveryContractNpcGroupsIntoMap,
-  npcGroupsFromVisualWorldForCast,
   resolveLocationsForStoryPass,
   resolveProjectFormat,
 } from "./passes/_pipeline-v3-helpers/pipeline-input-helpers";
+import { runVisualWorldAndNpcGroups } from "./passes/_pipeline-v3-helpers/run-visual-world-and-npc-groups";
+import { buildCastStoryContracts } from "./passes/_pipeline-v3-helpers/build-cast-story-contracts";
 
 export type { PremiumV3PipelineLocation } from "./load-locations-for-v3-story-pass";
 
@@ -214,6 +195,14 @@ export interface RunPremiumV3PipelineResult {
    * — surfacés dans le studio via `Job.output.pipelineUserWarnings`.
    */
   pipelineUserWarnings?: string[];
+  /**
+   * FIX-34 (MOD) — Trace explicite de la branche pipeline réellement
+   * utilisée pour produire le chapitre. Avant ce TODO, en prod, c'était
+   * déductif (on regardait `v3RenderSucceeded` + des warnings). Avec ce
+   * champ, le studio peut afficher clairement "Premium v3" vs
+   * "Legacy fallback" et on peut filtrer la télémétrie sans heuristique.
+   */
+  generatedBy?: "premium_v3" | "legacy_fallback" | "skipped_v3_disabled";
 }
 
 /**
@@ -263,7 +252,11 @@ export async function runPremiumV3Pipeline(
     "discoverySource" | "visualWorldComposeMeta"
   > | null = null;
   if (!input.pipelineV3Enabled) {
-    return { v3RenderSucceeded, visualWorldDiscovery: null };
+    return {
+      v3RenderSucceeded,
+      visualWorldDiscovery: null,
+      generatedBy: "skipped_v3_disabled",
+    };
   }
 
   const pipelineStartMs = Date.now();
@@ -307,225 +300,33 @@ export async function runPremiumV3Pipeline(
       buildStyleBibleFromUserProject({ project: input.project, stylePacks: input.stylePacks }),
     ).slice(0, 4000);
 
-    const discoveryInput = {
-      chapterId: input.chapterId,
-      beats: resolvedProductionOutline?.beats?.map((b: { beatId?: string; summary?: string; whyThisBeatExists?: string }) => ({
-        beatId: b.beatId ?? "",
-        summary: b.summary,
-        whyThisBeatExists: b.whyThisBeatExists,
-      })) ?? [],
-      chapterSummary: input.chapterSummary,
-      userIntent: input.chapterUserIntent,
-      knownCharacters: input.rawCharacters.map((c) => ({
-        id: c.id,
-        name: c.name,
-        roleType: c.roleType,
-        description: c.canonSignatureText,
-      })),
-      knownLocations: v3PipelineLocationsToKnownLocations(resolvedLocations),
-      premiumV3OnlyEnabled: Boolean(input.premiumV3OnlyEnabled),
-      projectGenre: typeof input.project?.primaryGenre === "string" ? input.project.primaryGenre : null,
-      projectTone: typeof input.project?.tone === "string" ? input.project.tone : null,
+    const visualWorldAndNpcs = await runVisualWorldAndNpcGroups({
+      input,
+      resolvedProductionOutline,
+      resolvedLocations,
       styleBibleJson,
-      composerBeats: resolvedProductionOutline?.beats?.map(
-        (b: {
-          beatId: string;
-          summary: string;
-          whyThisBeatExists: string;
-          dramaticChange: string;
-          involvedCharacters?: string[];
-        }) => ({
-          beatId: b.beatId,
-          summary: b.summary,
-          whyThisBeatExists: b.whyThisBeatExists,
-          dramaticChange: b.dramaticChange,
-          involvedCharacterIds: b.involvedCharacters ?? [],
-        }),
-      ),
-    };
-    const visualDiscoveryResult = await runVisualWorldDiscoveryPass(discoveryInput);
-    visualWorldDiscoveryAudit = {
-      discoverySource: visualDiscoveryResult.discoverySource,
-      visualWorldComposeMeta: visualDiscoveryResult.visualWorldComposeMeta,
-    };
-    console.info(formatVisualWorldDiscoveryLog(visualDiscoveryResult));
-    if (visualDiscoveryResult.visualWorldComposeMeta?.path === "regex_after_compose_error") {
-      console.warn(
-        `[pipeline:v3:visual-world-compose_fallback] chapterId=${input.chapterId} ` +
-          `summary=${visualDiscoveryResult.visualWorldComposeMeta.composeErrorSummary ?? "unknown"}`,
-      );
-    }
-
-    let persistedVisualWorld: VisualWorldContract | null = null;
-    if (input.persistedVisualWorldContract && typeof input.persistedVisualWorldContract === "object") {
-      try {
-        persistedVisualWorld = parseVisualWorldContract(input.persistedVisualWorldContract);
-      } catch (e) {
-        console.warn(
-          `[pipeline:v3:visual-world] snapshot studio invalide, fallback découverte — ${String(e)}`,
-        );
-      }
-    }
-    const discoveredVisualWorld = visualDiscoveryResult.visualWorldContract;
-    /** Studio persisté prime sur la découverte (P0.11). */
-    const effectiveVisualWorld = persistedVisualWorld ?? discoveredVisualWorld;
-
-    const npcGroupsFromBlueprints = extractNpcGroupsFromBlueprints(input.panelBlueprints);
-    // Premium NPC groups must come from VisualWorldContract or canonicalized blueprints.
-    // Do not reintroduce regex NPC discovery in this file — legacy merge lives in
-    // `merge-npc-groups-legacy-regex.ts` (non-premium path only).
-    if (npcGroupsFromBlueprints.length > 0) {
-      console.info(
-        `[pipeline:v3:npc-groups] extracted ${npcGroupsFromBlueprints.length} groups from blueprints: ` +
-          npcGroupsFromBlueprints.map((g) => g.label).join(", "),
-      );
-    }
-
-    const premium = Boolean(input.premiumV3OnlyEnabled);
+    });
+    const visualDiscoveryResult = visualWorldAndNpcs.visualDiscoveryResult;
+    const effectiveVisualWorld = visualWorldAndNpcs.effectiveVisualWorld;
+    /** Alias court conservé pour limiter le diff sur le reste du fichier. */
     const vw = effectiveVisualWorld;
-    const useVisualWorldNpcPrimary =
-      premium
-      && vw !== null
-      && (visualDiscoveryResult.discoverySource === "ai_composed" || persistedVisualWorld !== null);
+    const mergedNpcGroups = visualWorldAndNpcs.mergedNpcGroups;
+    visualWorldDiscoveryAudit = visualWorldAndNpcs.visualWorldDiscoveryAudit;
 
-    let mergedNpcGroups: LegacyNpcGroupForCast[];
-    let mergedNpcGroupsMap: Map<string, LegacyNpcGroupForCast>;
-
-    if (useVisualWorldNpcPrimary) {
-      mergedNpcGroupsMap = new Map(
-        npcGroupsFromVisualWorldForCast(vw).map((g) => [g.label.toLowerCase(), g] as const),
-      );
-      for (const g of npcGroupsFromBlueprints) {
-        if (!mergedNpcGroupsMap.has(g.label.toLowerCase())) {
-          mergedNpcGroupsMap.set(g.label.toLowerCase(), g);
-        }
-      }
-      mergedNpcGroups = Array.from(mergedNpcGroupsMap.values());
-      console.info(
-        `[pipeline:v3:npc-contract] source=visual_world+blueprints groups=${mergedNpcGroups.length} ` +
-          `labels=${mergedNpcGroups.map((g) => g.label).join(",")}`,
-      );
-    } else if (premium) {
-      mergedNpcGroups = [...npcGroupsFromBlueprints];
-      mergedNpcGroupsMap = new Map(mergedNpcGroups.map((g) => [g.label.toLowerCase(), g] as const));
-      if (mergedNpcGroups.length > 0) {
-        console.info(
-          `[pipeline:v3:npc-contract] source=blueprints_only_premium_no_regex groups=${mergedNpcGroups.length} ` +
-            `labels=${mergedNpcGroups.map((g) => g.label).join(",")}`,
-        );
-      }
-    } else {
-      const beatTexts = input.panelBlueprints?.map((bp) => bp.purpose ?? bp.sceneContextLabel) ?? [];
-      const { merged, map } = mergeNpcGroupsFromBlueprintsAndStoryTextRegex({
-        npcGroupsFromBlueprints,
-        chapterSummary: input.chapterSummary,
-        chapterUserIntent: input.chapterUserIntent,
-        beatTexts,
-      });
-      mergedNpcGroups = merged;
-      mergedNpcGroupsMap = map;
-      if (mergedNpcGroups.length > 0) {
-        console.info(
-          `[pipeline:v3:npc-contract] source=blueprints+text_regex groups=${mergedNpcGroups.length} ` +
-            `labels=${mergedNpcGroups.map((g) => g.label).join(",")}`,
-        );
-      }
-    }
-
-    const npcMapSizeBeforeDiscovery = mergedNpcGroupsMap.size;
-    mergeDiscoveryContractNpcGroupsIntoMap(mergedNpcGroupsMap, visualDiscoveryResult.contract);
-    mergedNpcGroups = Array.from(mergedNpcGroupsMap.values());
-    if (mergedNpcGroupsMap.size > npcMapSizeBeforeDiscovery) {
-      console.info(
-        `[pipeline:v3:npc-discovery] discovery_contract_added=${mergedNpcGroupsMap.size - npcMapSizeBeforeDiscovery} ` +
-          `total=${mergedNpcGroups.length}`,
-      );
-    }
-
-    const castContract: ChapterCastContract = buildChapterCastContract({
-      chapterId: input.chapterId,
-      heroCharacterId: input.heroCharacterId ?? null,
-      secondaryHeroCharacterId: input.secondaryHeroCharacterId ?? null,
-      focusCharacterIds: input.focusCharacterIds,
-      characters: input.rawCharacters.map((c) => ({
-        id: c.id,
-        name: c.name,
-        roleType: c.roleType ?? null,
-      })),
-      npcGroups: mergedNpcGroups,
-    });
-    assertValidChapterCastContract(castContract);
-    console.info(formatCastContractLog(castContract));
-
-    const enrichedNpcGroups = mergedNpcGroups;
-
-    // P1.5 — Canon Resolver : résolution canonique des entités détectées.
-    const canonResolverResult = runCanonResolverPass({
-      discoveryContract: visualDiscoveryResult.contract,
-      userCharacters: input.rawCharacters.map((c) => ({
-        id: c.id,
-        name: c.name,
-        roleType: c.roleType,
-        description: c.canonSignatureText,
-      })),
-      userLocations: resolvedLocations.map((loc) => v3PipelineLocationToResolverUserLocation(loc)),
-      strictMode: input.premiumV3OnlyEnabled,
-    });
-    console.info(formatCanonResolverLog(canonResolverResult));
-
-    // Enrichir les lieux avec ceux détectés automatiquement
-    const enrichedLocations = [...resolvedLocations];
-    for (const tempLoc of canonResolverResult.contract.temporaryLocations) {
-      const exists = enrichedLocations.some(
-        (l) => l.id === tempLoc.id || l.name?.toLowerCase() === tempLoc.label.toLowerCase(),
-      );
-      if (!exists) {
-        enrichedLocations.push({
-          id: tempLoc.id,
-          name: tempLoc.label,
-          visualDNA: { description: tempLoc.visualDescription },
-        } as PremiumV3PipelineLocation);
-      }
-    }
-
-    const storyContract: ChapterStoryContract = buildChapterStoryContract({
-      chapterId: input.chapterId,
-      chapterNumber: input.chapterNumber,
-      chapterTitle: input.chapterTitle,
-      chapterSummary: input.chapterSummary,
-      chapterUserIntent: input.chapterUserIntent,
-      heroCharacterId: castContract.heroCharacterId,
-      characters: input.rawCharacters.map((c) => ({
-        id: c.id,
-        name: c.name,
-        roleType: c.roleType ?? null,
-      })),
-      locations: enrichedLocations.map((loc) => ({
-        id: loc.id,
-        name: loc.name ?? loc.id,
-        visualDescription:
-          typeof loc.visualDNA?.description === "string" ? loc.visualDNA.description : "",
-      })),
-      npcGroups: enrichedNpcGroups,
-      beatIds: resolvedBeatIds,
-      tone: "neutral",
-    });
-    assertValidChapterStoryContract(storyContract);
-    console.info(formatStoryContractLog(storyContract));
-
-    // P6.17 — StoryContractCompletenessQA : vérifier la complétude du contrat.
-    const storyContractQaResult = runStoryContractCompletenessQa({
-      storyContract,
+    const {
       castContract,
-      beatIds: resolvedBeatIds,
-      strictMode: input.premiumV3OnlyEnabled,
+      storyContract,
+      enrichedLocations,
+      canonResolverResult,
+    } = buildCastStoryContracts({
+      input,
+      rawCharacters: input.rawCharacters,
+      resolvedLocations,
+      resolvedBeatIds,
+      mergedNpcGroups,
+      visualDiscoveryContract: visualDiscoveryResult.contract,
     });
-    console.info(formatStoryContractCompletenessLog(storyContractQaResult));
-    if (!storyContractQaResult.ok && input.premiumV3OnlyEnabled) {
-      throw new Error(
-        `story_contract_incomplete: ${storyContractQaResult.issues.map((i) => i.code).join(", ")}`,
-      );
-    }
+    const enrichedNpcGroups = mergedNpcGroups;
     let storyArc: StoryArc | null = null;
 
     let storyboardPassResult: Awaited<ReturnType<typeof runStoryboardPass>>;
@@ -959,6 +760,49 @@ export async function runPremiumV3Pipeline(
     } else {
       const storyStart = Date.now();
       const locationsForStory = await resolveLocationsForStoryPass(input);
+
+      // FIX-14 (CRITIQUE) — Construire ou récupérer le contrat narratif résolu
+      // AVANT d'appeler le Story Architect. Ce contrat contient les pronoms
+      // résolus ("lui" → Kai), les lieux mentionnés, les events requis.
+      // Sans ça, le Story Architect travaillait sur le userIntent brut et
+      // ignorait complètement la résolution de pronoms faite en amont.
+      const resolvedNarrativeContract: IntentNarrativeContract | null = (() => {
+        // 1. Priorité au contrat déjà compilé et persisté (via intent-compile)
+        const existing = (input.chapterIntentContract as { narrativeContract?: unknown } | null)
+          ?.narrativeContract;
+        if (existing && typeof existing === "object" && !Array.isArray(existing)) {
+          const nc = existing as Record<string, unknown>;
+          if (Array.isArray(nc.requiredCharacters) || Array.isArray(nc.requiredEvents)) {
+            return existing as IntentNarrativeContract;
+          }
+        }
+        // 2. Sinon, reconstruire depuis le userIntent + rawCharacters
+        if (!input.chapterUserIntent?.trim()) return null;
+        return buildIntentNarrativeContract({
+          chapterId: input.chapterId,
+          userIntent: input.chapterUserIntent,
+          knownCharacters: input.rawCharacters.map((c) => ({
+            id: c.id,
+            name: c.name,
+            roleType: c.roleType ?? null,
+          })),
+          selectedCharacterIds: input.focusCharacterIds ?? [],
+          visualWorldLocations: locationsForStory.map((l) => ({
+            id: l.id,
+            canonicalName: l.name,
+          })),
+        });
+      })();
+
+      if (resolvedNarrativeContract) {
+        console.info(
+          `[pipeline:v3:story] narrative_contract_resolved ` +
+            `chars=${resolvedNarrativeContract.requiredCharacters.length} ` +
+            `locs=${resolvedNarrativeContract.requiredLocations.length} ` +
+            `events=${resolvedNarrativeContract.requiredEvents.length}`,
+        );
+      }
+
       const storyPassResult = await runStoryPass({
         chapterId: input.chapterId,
         chapterNumber: input.chapterNumber,
@@ -971,6 +815,29 @@ export async function runPremiumV3Pipeline(
           roleType: c.roleType ?? null,
         })),
         locations: premiumV3PipelineLocationsToStoryArchitectLocations(locationsForStory),
+        // FIX-14 — Passer le contrat narratif résolu au Story Architect
+        narrativeContract: resolvedNarrativeContract
+          ? {
+              requiredCharacters: resolvedNarrativeContract.requiredCharacters,
+              requiredLocations: resolvedNarrativeContract.requiredLocations,
+              requiredLocationIds: resolvedNarrativeContract.requiredLocationIds,
+              requiredEvents: resolvedNarrativeContract.requiredEvents.map((e) => ({
+                id: e.id,
+                label: e.label,
+                type: e.type,
+                requiredDialogue: e.requiredDialogue,
+                locationHint: e.locationHint,
+              })),
+              requiredNpcGroups: resolvedNarrativeContract.requiredNpcGroups?.map((g) => ({
+                id: g.id,
+                label: g.label,
+                role: g.role,
+                requiredDialogue: g.requiredDialogue,
+                mustMention: g.mustMention,
+              })),
+              forbiddenInventions: resolvedNarrativeContract.forbiddenInventions,
+            }
+          : null,
         ...(input.premiumV3OnlyEnabled ? { premiumOnlyOverride: true as const } : {}),
       });
       timings.story_pass_ms = Date.now() - storyStart;
@@ -1418,7 +1285,7 @@ export async function runPremiumV3Pipeline(
         projectId: input.projectId,
         heroCharacterId: castContract.heroCharacterId,
         mainCharacterIds: castContract.activeCharacterIds,
-        temporaryLocations: canonResolverResult.contract.temporaryLocations.map((loc) => ({
+        temporaryLocations: canonResolverResult.contract.temporaryLocations.map((loc: { id: string; label: string; visualDescription: string; matchConfidence?: number }) => ({
           id: loc.id,
           label: loc.label,
           visualDescription: loc.visualDescription,
@@ -1733,9 +1600,22 @@ export async function runPremiumV3Pipeline(
     `[pipeline:v3:report] chapterId=${input.chapterId} v3RenderSucceeded=${v3RenderSucceeded} ${timingReport}`,
   );
 
+  // FIX-34 — étiquette explicite de la branche pipeline utilisée.
+  // En premium-only, dès que `v3RenderSucceeded=true` on est par
+  // construction sur "premium_v3" (le fail-closed garantit qu'aucun
+  // fallback legacy n'a tourné). Sinon, si v3 a échoué mais que
+  // l'appelant tolère le legacy, on remonte explicitement
+  // "legacy_fallback" pour que le studio l'affiche.
+  const generatedBy: RunPremiumV3PipelineResult["generatedBy"] = v3RenderSucceeded
+    ? "premium_v3"
+    : input.premiumV3OnlyEnabled
+      ? "premium_v3"
+      : "legacy_fallback";
+
   return {
     v3RenderSucceeded,
     visualWorldDiscovery: visualWorldDiscoveryAudit,
     pipelineUserWarnings: dedupePipelineWarnings(),
+    generatedBy,
   };
 }

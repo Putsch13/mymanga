@@ -39,6 +39,48 @@ const WIDE_ESTABLISHING_TERMS = [
 ];
 
 /**
+ * AUDIT-V8 — Termes "insert/cutaway" interdits dans un panel de dialogue.
+ *
+ * Le diagnostic CTO montrait : `panelCategory=DIALOGUE_TWO_SHOT` + actionLine
+ * `insert shot of hands or meaningful object`. Le modèle reçoit deux ordres
+ * incompatibles → image ratée → relance.
+ */
+const INSERT_SHOT_TERMS = [
+  "insert shot",
+  "insert of hands",
+  "insert of object",
+  "insert of meaningful",
+  "extreme close-up on object",
+  "extreme close up on object",
+  "object insert",
+  "prop insert",
+  "macro shot of",
+  "plan insert",
+];
+
+/** Render modes "dialogue / two-shot" — insert interdit. */
+const DIALOGUE_RENDER_MODES = new Set<string>([
+  "dialogue_two_shot",
+  "dialogue_over_shoulder",
+  "aftermath_dialogue",
+]);
+
+export function stripInsertShotTerms(text: string): string {
+  let result = text;
+  for (const term of INSERT_SHOT_TERMS) {
+    const regex = new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
+    result = result.replace(regex, "");
+  }
+  return result.replace(/\s{2,}/g, " ").replace(/,\s*,/g, ",").trim();
+}
+
+export function hasInsertShotTerms(text: string | null | undefined): boolean {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  return INSERT_SHOT_TERMS.some((term) => lower.includes(term.toLowerCase()));
+}
+
+/**
  * RenderModes qui sont incompatibles avec les termes "wide establishing".
  */
 const CLOSEUP_RENDER_MODES = new Set<string>([
@@ -124,16 +166,49 @@ export function repairRenderSpecContradictions(spec: PanelRenderSpec): RenderSpe
   let repaired = false;
   let repairedSpec = { ...spec };
 
-  // Vérifier si le renderMode est incompatible avec wide establishing
-  if (!CLOSEUP_RENDER_MODES.has(spec.renderMode)) {
-    return { spec, repaired: false, repairs: [] };
+  const textualContent = getTextualFields(spec);
+
+  // AUDIT-V8 — Cas DIALOGUE × INSERT
+  // Si renderMode est dialogue/two-shot ET on trouve "insert shot" dans
+  // l'actionLine → on supprime les termes insert (le panel reste dialogue).
+  if (DIALOGUE_RENDER_MODES.has(spec.renderMode) && hasInsertShotTerms(textualContent)) {
+    if (hasInsertShotTerms(spec.actionLine)) {
+      repairedSpec.actionLine = stripInsertShotTerms(spec.actionLine ?? "");
+      repairs.push(`stripped_insert_from_dialogue_actionLine`);
+      repaired = true;
+    }
+    if (hasInsertShotTerms(spec.emotionLine)) {
+      repairedSpec.emotionLine = stripInsertShotTerms(spec.emotionLine ?? "");
+      repairs.push(`stripped_insert_from_dialogue_emotionLine`);
+      repaired = true;
+    }
+    if (spec.constraints?.mustShow?.some(hasInsertShotTerms)) {
+      repairedSpec = {
+        ...repairedSpec,
+        constraints: {
+          ...repairedSpec.constraints,
+          mustShow: (spec.constraints?.mustShow ?? [])
+            .map((s) => (hasInsertShotTerms(s) ? stripInsertShotTerms(s) : s))
+            .filter(Boolean),
+        },
+      };
+      repairs.push(`stripped_insert_from_dialogue_mustShow`);
+      repaired = true;
+    }
+    // On NE change pas renderMode : le contrat narratif garde le dialogue.
+    // Si le besoin réel était un insert, c'est au shot-plan-director de
+    // l'avoir promu en `cutaway_object` AVANT (pas au repair).
   }
 
-  const textualContent = getTextualFields(spec);
+  // Vérifier si le renderMode est incompatible avec wide establishing
+  if (!CLOSEUP_RENDER_MODES.has(spec.renderMode)) {
+    return { spec: repairedSpec, repaired, repairs };
+  }
+
   const hasContradiction = hasWideEstablishingTerms(textualContent);
 
   if (!hasContradiction) {
-    return { spec, repaired: false, repairs: [] };
+    return { spec: repairedSpec, repaired, repairs };
   }
 
   // Cas A: Panel d'ouverture de beat → establishing_environment (enum StoryboardRenderMode)

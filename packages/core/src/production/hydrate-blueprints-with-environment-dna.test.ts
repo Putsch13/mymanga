@@ -265,4 +265,36 @@ describe("hydrateBlueprintsWithEnvironmentDna", () => {
     });
     expect(out.environmentVisualDna).toBeUndefined();
   });
+
+  // TODO-18 — En premium (strict), si un beat ne peut pas être résolu
+  // vers un lieu (contrat sans locations, beat sans binding) on doit
+  // bloquer plutôt que de laisser passer un panel sans environnement.
+  it("TODO-18: strict + visualWorld sans location ni binding pour le beat → throw", () => {
+    const vw = minimalVw({ locations: [], beatBindings: [] });
+    const bp: PanelBlueprintPremium = {
+      ...bareBlueprint,
+      beatId: "b_unknown",
+    };
+    expect(() =>
+      hydrateBlueprintsWithEnvironmentDna({
+        blueprints: [bp],
+        visualWorld: vw,
+        strict: true,
+      }),
+    ).toThrow(MissingVisualWorldError);
+  });
+
+  it("TODO-18: non-strict + visualWorld sans location → blueprint inchangé (legacy)", () => {
+    const vw = minimalVw({ locations: [], beatBindings: [] });
+    const bp: PanelBlueprintPremium = {
+      ...bareBlueprint,
+      beatId: "b_unknown",
+    };
+    const [out] = hydrateBlueprintsWithEnvironmentDna({
+      blueprints: [bp],
+      visualWorld: vw,
+      strict: false,
+    });
+    expect(out.environmentVisualDna).toBeUndefined();
+  });
 });

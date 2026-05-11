@@ -25,6 +25,41 @@ const RENDER_POLICY = {
   allowMockInDevelopment: true,
 } as const;
 
+/**
+ * FIX-33 (MOD) — Avant ce TODO le pipeline forçait tous les chapitres
+ * dans une plage 70-75 panels. Sur une histoire courte ("Lux et lui",
+ * 4 beats, ~5 events) ça produisait une inflation mécanique : on ajoutait
+ * 30+ panels purement "cinématiques" sans contenu narratif, ce qui
+ * diluait l'attention et générait des hallucinations LLM. On expose
+ * maintenant trois plages selon la densité narrative du chapitre. La
+ * densité est inférée en amont (cf. `inferNarrativeDensity` ci-dessous)
+ * à partir du `IntentNarrativeContract`. La plage 70-75 reste le défaut
+ * pour conserver la rétro-compat sur les histoires "standard / dense".
+ */
+export type NarrativeDensity = "short" | "standard" | "dense";
+
+export const PREMIUM_PANEL_RANGES: Readonly<
+  Record<NarrativeDensity, { minimum: number; target: number; maximum: number }>
+> = {
+  short: { minimum: 35, target: 42, maximum: 50 },
+  standard: { minimum: 50, target: 60, maximum: 65 },
+  dense: { minimum: 70, target: 72, maximum: 80 },
+};
+
+export function inferNarrativeDensity(args: {
+  beatCount: number;
+  eventCount: number;
+}): NarrativeDensity {
+  const { beatCount, eventCount } = args;
+  if (beatCount <= 4 && eventCount <= 5) return "short";
+  if (beatCount >= 8 || eventCount >= 10) return "dense";
+  return "standard";
+}
+
+export function getPremiumPanelRange(density: NarrativeDensity) {
+  return PREMIUM_PANEL_RANGES[density];
+}
+
 export const PRODUCTION_RULES = {
   panelCount: {
     minimum: 70,

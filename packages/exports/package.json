@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./fonts": "./src/font-loader.ts"
   },
   "dependencies": {
     "@manga-ai-studio/db": "workspace:*",

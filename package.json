@@ -21,6 +21,7 @@
     "db:push": "pnpm --filter @manga-ai-studio/db push",
     "db:studio": "pnpm --filter @manga-ai-studio/db studio",
     "db:seed": "pnpm --filter @manga-ai-studio/db seed",
+    "fonts:download": "bash scripts/download-fonts.sh",
     "audit:bundle": "node scripts/audit-bundle.mjs",
     "audit:routes": "tsx apps/web/scripts/audit-api-routes.ts",
     "audit:assets": "tsx apps/web/scripts/audit-generated-assets.ts",

@@ -60,5 +60,54 @@ describe("parseIntentEntities", () => {
       const groups = result.filter((e) => e.entityKind === "npc_group" && e.name === "Garde");
       expect(groups.length).toBe(1);
     });
+
+    it("TODO-27 ne flag PAS un groupe quand le verbe d'avertissement est dans une AUTRE phrase", () => {
+      // Lux prévient Tess (phrase 1, contient le verbe). Les marchands
+      // travaillent en silence (phrase 2, AUCUN verbe d'avertissement).
+      // Avant TODO-27 : marchands flaggés "dialogue requis".
+      // Après TODO-27 : marchands gardent leur baseline (pas de "dialogue requis").
+      const result = parseIntentEntities(
+        "Lux prévient Tess. Les marchands ouvrent leurs étals au lever du jour.",
+        ["Lux", "Tess"],
+      );
+      const merchants = result.find(
+        (e) => e.entityKind === "npc_group" && e.name === "Marchand",
+      );
+      expect(merchants).toBeDefined();
+      expect(merchants!.roleHint).not.toContain("dialogue requis");
+      // disposable est la baseline pour "marchands" — pas promue à story_locked
+      expect(merchants!.recurrencePolicy).not.toBe("story_locked");
+    });
+
+    it("TODO-27 flag UN groupe quand le verbe d'avertissement est dans la MÊME phrase", () => {
+      // Le verbe "prévient" est dans la même phrase que "pêcheurs" → flag.
+      const result = parseIntentEntities(
+        "Les pêcheurs préviennent Lux d'un danger imminent.",
+        ["Lux"],
+      );
+      const fishermen = result.find(
+        (e) => e.entityKind === "npc_group" && e.name === "Groupe de pêcheurs",
+      );
+      expect(fishermen).toBeDefined();
+      expect(fishermen!.recurrencePolicy).toBe("story_locked");
+      expect(fishermen!.roleHint).toContain("dialogue requis");
+    });
+
+    it("TODO-27 flag uniquement les groupes pertinents quand plusieurs groupes coexistent", () => {
+      // Phrase 1 : "gardes préviennent" → gardes story_locked.
+      // Phrase 2 : "marchands fuient" (pas de verbe d'avertissement) → marchands restent disposable.
+      const result = parseIntentEntities(
+        "Les gardes préviennent les voyageurs. Les marchands fuient la cité.",
+        [],
+      );
+      const guards = result.find(
+        (e) => e.entityKind === "npc_group" && e.name === "Garde",
+      );
+      const merchants = result.find(
+        (e) => e.entityKind === "npc_group" && e.name === "Marchand",
+      );
+      expect(guards?.recurrencePolicy).toBe("story_locked");
+      expect(merchants?.recurrencePolicy).not.toBe("story_locked");
+    });
   });
 });

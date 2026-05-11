@@ -217,7 +217,12 @@ export function flattenStructuredPromptForFal(
   return flattenSectionsForFal(sections, options);
 }
 
-const SECTION_LINE_RE = /^\[([A-Z_]+)\]\s*(.*)$/;
+// FIX-25 (MAJEUR) — Le format historique `[TAG] contenu` est conservé,
+// mais on accepte aussi `TAG: contenu` (forme produite par le builder
+// minimal `prompt-blocks.ts` : "SUBJECT: ...", "ENVIRONMENT: ...", etc.).
+// Sans cette tolérance, un packet construit par le pipeline minimal était
+// reparsé en prompt vide, dégradant fortement le rendu.
+const SECTION_LINE_RE = /^(?:\[([A-Z_]+)\]|([A-Z_]+):)\s*(.*)$/;
 
 function parseStructuredPrompt(text: string): PromptSection[] {
   const lines = text.split(/\n+/);
@@ -227,9 +232,10 @@ function parseStructuredPrompt(text: string): PromptSection[] {
     const match = line.match(SECTION_LINE_RE);
     if (match) {
       if (current) sections.push(current);
+      const tag = (match[1] ?? match[2] ?? "") as PromptSection["tag"];
       current = {
-        tag: match[1] as PromptSection["tag"],
-        languageEn: match[2] ?? "",
+        tag,
+        languageEn: match[3] ?? "",
         languageFr: "",
         required: false,
       };
@@ -239,6 +245,73 @@ function parseStructuredPrompt(text: string): PromptSection[] {
   }
   if (current) sections.push(current);
   return sections;
+}
+
+/**
+ * FIX-25 (MAJEUR) — Garde-fou post-flatten : un prompt FAL premium
+ * doit toujours contenir au minimum les blocs sémantiques attendus par
+ * les modèles diffusion. Sans ça, un parseur cassé pouvait produire un
+ * prompt quasi-vide qui passait silencieusement en rendu.
+ *
+ * Les blocs sont matchés par mots-clés (FR + EN) — la composition
+ * peut varier (header manga + descriptions perso/env), mais ces
+ * concepts doivent être présents dans le prompt final.
+ */
+const REQUIRED_FLATTENED_BLOCK_KEYWORDS: ReadonlyArray<{
+  block: string;
+  keywords: ReadonlyArray<RegExp>;
+}> = [
+  {
+    block: "character",
+    keywords: [
+      /\b(character|hero|protagonist|antagonist|npc|figure|girl|boy|woman|man|warrior|child)\b/i,
+    ],
+  },
+  {
+    block: "action",
+    keywords: [
+      /\b(action|movement|gesture|pose|stance|reaction|reaching|walking|running|fighting|standing|sitting|looking|holding|speaking|gazing|charges?|leaps?|confronts?|jumps?)\b/i,
+    ],
+  },
+  {
+    block: "environment",
+    keywords: [
+      /\b(environment|background|setting|interior|exterior|street|alley|alleyway|room|corridor|forest|jungle|beach|temple|sky|skyline|landscape|location|scene|rooftop|city|cyberpunk|dungeon|cave|mountain|river|ocean|desert)\b/i,
+    ],
+  },
+  {
+    block: "camera",
+    keywords: [
+      /\b(shot|camera|angle|framing|view|close[\s-]?up|wide|medium|establishing|over[\s-]?the[\s-]?shoulder|two[\s-]?shot|eye[\s-]?level|low[\s-]?angle|high[\s-]?angle)\b/i,
+    ],
+  },
+];
+
+export class FalFlattenedPromptMissingBlocksError extends Error {
+  override name = "FalFlattenedPromptMissingBlocksError" as const;
+  readonly missingBlocks: ReadonlyArray<string>;
+  constructor(missingBlocks: ReadonlyArray<string>) {
+    super(`fal_prompt_missing_blocks: ${missingBlocks.join(", ")}`);
+    this.missingBlocks = missingBlocks;
+  }
+}
+
+/** Returns missing semantic blocks (character/action/environment/camera). */
+export function findMissingFalPromptBlocks(prompt: string): string[] {
+  const missing: string[] = [];
+  for (const { block, keywords } of REQUIRED_FLATTENED_BLOCK_KEYWORDS) {
+    const present = keywords.some((re) => re.test(prompt));
+    if (!present) missing.push(block);
+  }
+  return missing;
+}
+
+/** Strict variant: throws if required blocks missing (premium). */
+export function assertFlattenedPromptHasRequiredBlocks(prompt: string): void {
+  const missing = findMissingFalPromptBlocks(prompt);
+  if (missing.length > 0) {
+    throw new FalFlattenedPromptMissingBlocksError(missing);
+  }
 }
 
 /**
@@ -272,6 +345,44 @@ export function auditFalPrompt(prompt: string): string[] {
   }
   if (prompt.length > 2000) {
     issues.push(`PROMPT_TOO_LONG: ${prompt.length} chars (max 2000)`);
+  }
+
+  // AUDIT-V8 — checks issus du diagnostic CTO sur les prompts fal en prod
+  // P7 : "wearing Default" / "Default" outfit non résolu
+  if (/\bwearing\s+default\b/i.test(prompt) || /\boutfit:\s*default\b/i.test(prompt)) {
+    issues.push(
+      "DEFAULT_OUTFIT_LEAK: le résolveur de garde-robe a laissé 'Default' dans le prompt",
+    );
+  }
+  // Tokens "vides" qui n'apportent rien au modèle
+  if (/\b(undefined|null|n\/a)\b/i.test(prompt)) {
+    issues.push("EMPTY_TOKEN_LEAK: 'undefined' / 'null' / 'n/a' dans le prompt");
+  }
+  // Fragments mal formés type ".; Ovale; Athlétique"
+  if (/[\.;]\s*[A-ZÀ-Ü][a-zà-ü]+\s*;\s*[A-ZÀ-Ü]/.test(prompt)) {
+    issues.push("MALFORMED_FRAGMENT: fragments concaténés sans contexte (ex. '.; Ovale; Athlétique')");
+  }
+  // P5 : dialogue exact dans le prompt image (les bulles sont externes).
+  // Forme typique observée en prod : `Florent: Les ombres dansent autour de
+  // nous.` (phrase entière, terminée par ponctuation, contenant des espaces
+  // ET une fin de phrase). On évite de matcher les annotations de structure
+  // type `Hero: Lyra` ou `Style: shonen adventure`.
+  const dialogueLiteralPattern =
+    /\b[A-ZÀ-Ü][a-zà-üA-ZÀ-Ü]{1,30}\s*:\s*[«"]?[A-ZÀ-Üa-zà-ü][^.!?\n]{15,}[.!?»"]/;
+  const dialogueMatch = prompt.match(dialogueLiteralPattern);
+  if (
+    dialogueMatch
+    && !/^(manga|style|scene|camera|action|hero|npc|environment|continuity|subject|emotion|background|dialogue subtext|mandatory|shot|role|prop|character|location|negative|reference)\s*:/i.test(
+      dialogueMatch[0],
+    )
+  ) {
+    issues.push(
+      `DIALOGUE_LITERAL_LEAK: ligne de dialogue ("${dialogueMatch[0].slice(0, 30)}…") — convertir en acting notes`,
+    );
+  }
+  // "lieu principal non spécifié" qui apparaissait en prod
+  if (/lieu principal non sp[eé]cifi[eé]/i.test(prompt)) {
+    issues.push("LOCATION_PLACEHOLDER_LEAK: 'lieu principal non spécifié' dans le prompt");
   }
 
   return issues;

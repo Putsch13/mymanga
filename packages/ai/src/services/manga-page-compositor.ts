@@ -2,9 +2,16 @@
  * COMP-1 — Page Compositor serveur avec Sharp.
  * Assemble les panels générés + bulles + SFX en une vraie image de page manga.
  * Utilisé pour l'export PDF et le cache de pages.
+ *
+ * SPRINT 1.1 — Polices manga professionnelles.
+ * Les polices sont résolues via font-loader qui cherche dans exports/fonts/
+ * avec fallback sur les polices système si absentes.
  */
 
 import sharp from "sharp";
+import { getMangaFontConfig } from "@manga-ai-studio/exports/fonts";
+
+const FONTS = getMangaFontConfig();
 
 export interface CompositePanel {
   imageUrl: string;     // URL persistée (Supabase) ou fal CDN
@@ -209,13 +216,14 @@ function generateInPanelTextLayoutSvg(boxes: InPanelTextBox[], pageW: number, pa
           : `<tspan x="${x + width / 2}" dy="${lineH}" text-anchor="middle">${escSvg(line)}</tspan>`,
       )
       .join("");
+    // SPRINT 1.1 — Police narration pour les box in-panel
     const speakerNode = b.speaker
-      ? `<text x="${x + width / 2}" y="${y + pad + titleSize}" text-anchor="middle" font-family="system-ui, sans-serif" font-size="${titleSize}" font-weight="700" fill="${b.variant === "embedded" ? "#d6d3d1" : "#57534e"}" letter-spacing="0.04em">${escSvg(b.speaker)}</text>`
+      ? `<text x="${x + width / 2}" y="${y + pad + titleSize}" text-anchor="middle" font-family="${FONTS.narration}" font-size="${titleSize}" font-weight="700" fill="${b.variant === "embedded" ? "#d6d3d1" : "#57534e"}" letter-spacing="0.04em">${escSvg(b.speaker)}</text>`
       : "";
     return `<g>
       <rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${rx}" ry="${rx}" fill="${fill}" stroke="${stroke}" stroke-width="1.2"/>
       ${speakerNode}
-      <text font-family="system-ui, 'Noto Sans JP', sans-serif" font-size="${fontSize}" font-weight="500" fill="${textFill}">${tspans}</text>
+      <text font-family="${FONTS.narration}" font-size="${fontSize}" font-weight="500" fill="${textFill}">${tspans}</text>
     </g>`;
   });
   return `<svg width="${pageW}" height="${pageH}" xmlns="http://www.w3.org/2000/svg">${elements.join("\n")}</svg>`;
@@ -269,9 +277,11 @@ function generateBubblesSvg(bubbles: DialogueBubble[], pageW: number, pageH: num
     if (curr) lines.push(curr);
 
     const lineH = fontSize + 3;
+    // SPRINT 1.1 — Polices manga pro (dialogue/whisper)
+    const fontFamily = b.type === "whisper" ? FONTS.whisper : FONTS.dialogue;
     const textBlock = lines.map((line, i) => {
       const y = b.y - ((lines.length - 1) * lineH) / 2 + i * lineH;
-      return `<text x="${b.x}" y="${y}" text-anchor="middle" dominant-baseline="middle" font-family="'Comic Sans MS', 'Noto Sans JP', sans-serif" font-size="${fontSize}" font-weight="${fontWeight}" fill="#000">${escSvg(line)}</text>`;
+      return `<text x="${b.x}" y="${y}" text-anchor="middle" dominant-baseline="middle" font-family="${fontFamily}" font-size="${fontSize}" font-weight="${fontWeight}" fill="#000">${escSvg(line)}</text>`;
     }).join("\n");
 
     const tailPoly = b.tailDirection === "bottom" || b.tailDirection === "top"
@@ -293,10 +303,13 @@ function generateBubblesSvg(bubbles: DialogueBubble[], pageW: number, pageH: num
 function generateSfxSvg(sfxElements: SfxElement[], pageW: number, pageH: number): string {
   const elements = sfxElements.map((s) => {
     const strokeColor = s.style === "electric" ? "#4499ff" : s.style === "soft" ? "#aaaaaa" : "#000000";
+    // SPRINT 1.1 — Détection japonais pour fallback Noto Sans JP
+    const hasJapanese = /[\u3040-\u30ff\u4e00-\u9faf]/.test(s.text);
+    const fontFamily = hasJapanese ? FONTS.sfxJapanese : FONTS.sfx;
     return `<text
       x="${s.x}" y="${s.y}"
       transform="rotate(${s.rotation}, ${s.x}, ${s.y})"
-      font-family="'Impact', 'Arial Black', 'Noto Sans JP', sans-serif"
+      font-family="${fontFamily}"
       font-size="${s.fontSize}"
       font-weight="900"
       fill="white"

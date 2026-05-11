@@ -14,6 +14,7 @@ import {
   runStoryArchitectAgentLlm,
   type StoryArc,
   type StoryArchitectInput,
+  type StoryArchitectNarrativeContract,
 } from "@manga-ai-studio/ai";
 import { isPremiumStrictMode } from "@manga-ai-studio/core";
 import { saveStoryArc } from "../persistence/story-persistence";
@@ -41,6 +42,12 @@ export interface RunStoryPassInput {
   mainCharacters?: StoryArchitectInput["mainCharacters"];
   locations?: StoryArchitectInput["locations"];
   targetBeatCount?: number;
+  /**
+   * FIX-14 — Contrat narratif pré-résolu (pronoms + lieux + events).
+   * Si fourni, le Story Architect inclura des contraintes strictes issues
+   * du contrat dans son prompt LLM.
+   */
+  narrativeContract?: StoryArchitectNarrativeContract | null;
   /**
    * COMMIT H — override du flag PIPELINE_V3_STORY_ARCHITECT_LLM.
    */
@@ -89,6 +96,11 @@ export async function runStoryPass(input: RunStoryPassInput): Promise<RunStoryPa
     mainCharacters: input.mainCharacters,
     locations: input.locations,
     targetBeatCount: input.targetBeatCount,
+    // FIX-14 — Le contrat narratif contient les personnages / lieux / events
+    // résolus depuis l'intention utilisateur (pronoms → IDs réels). Le Story
+    // Architect LLM l'injectera dans son prompt pour éviter d'inventer des
+    // personnages absents du projet ou de rater "lui" = Kai.
+    narrativeContract: input.narrativeContract ?? null,
     premiumOnly: premiumOnly && useLlm,
   });
   await saveStoryArc(input.chapterId, storyArc);

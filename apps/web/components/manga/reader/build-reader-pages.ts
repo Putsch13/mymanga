@@ -22,10 +22,29 @@ import {
   legacyDialogueToPanelTextContract,
   resolvePanelTextContractFromStoryboardPanelLike,
   textContractToLegacyDialogue,
+  SCENE_IMAGE_STATUS,
   type DialogueLineFragment,
   type PanelTextContract,
   type ReaderTextPlacementHint,
 } from "@manga-ai-studio/core";
+
+/**
+ * FIX-31 (MOD) — Le reader manga ne doit JAMAIS afficher un panel
+ * marqué FAILED ou BLOCKED par le pipeline (sauf override utilisateur)
+ * — sinon le lecteur voit une case avec une image cassée ou pire un
+ * placeholder "FAILED" en plein milieu d'une page. Ces panels étaient
+ * persistés intentionnellement (audit / debug) mais polluaient le
+ * rendu final. On filtre à l'entrée du reader.
+ */
+function isReaderRenderablePanel(image: {
+  status?: string | null;
+  userValidatedAt?: Date | null;
+}): boolean {
+  if (image.userValidatedAt) return true;
+  if (image.status === SCENE_IMAGE_STATUS.FAILED) return false;
+  if (image.status === SCENE_IMAGE_STATUS.BLOCKED) return false;
+  return true;
+}
 import {
   buildPersistedReaderPanelSlots,
   mergePlanLayoutIntoUniversalPanel,
@@ -223,7 +242,9 @@ function planPanelToLayoutMergeArgs(
 function flattenChapterPanels(chapter: ChapterPayload) {
   const out: ReturnType<typeof sceneImageToUniversalPanel>[] = [];
   for (const scene of chapter.scenes) {
-    const sortedImages = [...scene.images].sort((a, b) => a.panelNumber - b.panelNumber);
+    const sortedImages = [...scene.images]
+      .filter((img) => isReaderRenderablePanel(img))
+      .sort((a, b) => a.panelNumber - b.panelNumber);
     for (const img of sortedImages) {
       out.push(sceneImageToUniversalPanel(img, scene.id));
     }
@@ -259,6 +280,10 @@ function buildPagesFromPersistedStoryboard(
   const panelsByIdentifier = new Map<string, ReturnType<typeof sceneImageToUniversalPanel>>();
   for (const scene of chapter.scenes) {
     for (const img of scene.images) {
+      // FIX-31 — on n'enregistre pas les images FAILED/BLOCKED dans la
+      // map ; le panel du plan retombera alors sur un placeholder
+      // "pending" plutôt que d'afficher une image cassée.
+      if (!isReaderRenderablePanel(img)) continue;
       const meta = img.metadata as Record<string, unknown> | undefined;
       const panelId = (meta?.panelId as string | undefined) ?? null;
       const universal = sceneImageToUniversalPanel(img, scene.id);

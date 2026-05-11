@@ -66,13 +66,31 @@ export function parseIntentNarrativeContract(input: unknown): IntentNarrativeCon
 // Builder: derives IntentNarrativeContract from user intent + known entities
 // ---------------------------------------------------------------------------
 
+/**
+ * Known character entry (FIX-12) — unified replacement for the legacy
+ * `knownCharacterIds + knownCharacterNames` parallel arrays which were prone
+ * to index desync. Optional `roleType` is used by the pronoun resolver to
+ * map "lui"/"elle"/"son frère"… to actual project characters.
+ */
+export type KnownCharacterRef = {
+  id: string;
+  name: string;
+  roleType?: string | null;
+};
+
 export type BuildIntentNarrativeInput = {
   chapterId: string;
   userIntent: string;
+  /** Unified character list. See `KnownCharacterRef` for details. */
+  knownCharacters?: ReadonlyArray<KnownCharacterRef>;
+  /** @deprecated use `knownCharacters` instead. Kept for transitional callers. */
   knownCharacterIds?: string[];
+  /** @deprecated use `knownCharacters` instead. Kept for transitional callers. */
   knownCharacterNames?: string[];
   knownLocationNames?: string[];
   knownNpcGroupLabels?: string[];
+  /** Scopes pronoun resolution to selected characters only. */
+  selectedCharacterIds?: ReadonlyArray<string>;
   /**
    * ARCH-4 — VisualWorld entities (id + name) to anchor `requiredLocations`
    * and `requiredNpcGroups` to *real* IDs that exist in the VisualWorldContract.
@@ -89,6 +107,52 @@ export type BuildIntentNarrativeInput = {
 };
 
 /**
+ * FIX-12 — Mapping pronoun → role hints used to resolve "lui"/"elle"…
+ * to a project character. The matcher checks `roleType` substring against
+ * any of the listed hints. Order matters: most specific entries first.
+ */
+const PRONOUN_TO_ROLE_HINTS_FR: ReadonlyArray<{
+  pattern: RegExp;
+  hints: string[];
+}> = [
+  { pattern: /\bson fr[èe]re\b/i, hints: ["brother", "sibling"] },
+  { pattern: /\bsa s[œoe]ur\b/i, hints: ["sister", "sibling"] },
+  { pattern: /\bson p[èe]re\b/i, hints: ["father", "parent"] },
+  { pattern: /\bsa m[èe]re\b/i, hints: ["mother", "parent"] },
+  { pattern: /\bson ami\b/i, hints: ["friend", "ally", "companion"] },
+  { pattern: /\bson amie\b/i, hints: ["friend", "ally", "companion"] },
+  { pattern: /\bson compagnon\b/i, hints: ["companion", "ally", "secondary_hero", "hero2"] },
+  { pattern: /\bsa compagne\b/i, hints: ["companion", "ally", "secondary_hero", "hero2"] },
+  { pattern: /\bl'autre\b/i, hints: ["secondary_hero", "secondary", "hero2"] },
+  { pattern: /\blui\b/i, hints: ["secondary_hero", "hero2", "deuteragonist", "male"] },
+  { pattern: /\belle\b/i, hints: ["secondary_hero", "hero2", "deuteragonist", "female"] },
+];
+
+function resolvePronouns(
+  intent: string,
+  knownCharacters: ReadonlyArray<KnownCharacterRef>,
+  selectedCharacterIds: ReadonlyArray<string>,
+  alreadyResolvedIds: ReadonlyArray<string>,
+): string[] {
+  if (knownCharacters.length === 0) return [];
+  const resolved: string[] = [];
+  const selectedSet = new Set(selectedCharacterIds);
+  const skipSet = new Set(alreadyResolvedIds);
+
+  for (const { pattern, hints } of PRONOUN_TO_ROLE_HINTS_FR) {
+    if (!pattern.test(intent)) continue;
+    const candidate = knownCharacters.find((char) => {
+      if (skipSet.has(char.id) || resolved.includes(char.id)) return false;
+      if (selectedSet.size > 0 && !selectedSet.has(char.id)) return false;
+      const role = char.roleType?.toLowerCase() ?? "";
+      return hints.some((hint) => role.includes(hint.toLowerCase()));
+    });
+    if (candidate) resolved.push(candidate.id);
+  }
+  return resolved;
+}
+
+/**
  * Rule-based builder (no LLM) — extracts events, actors, locations and NPC
  * groups from the free-text user intent by simple keyword / sentence analysis.
  *
@@ -102,11 +166,36 @@ export function buildIntentNarrativeContract(
   const { chapterId, userIntent } = input;
   const lowerIntent = userIntent.toLowerCase();
 
-  const requiredCharacters = (input.knownCharacterIds ?? []).filter((id) => {
-    const idx = input.knownCharacterIds?.indexOf(id) ?? -1;
-    const name = input.knownCharacterNames?.[idx]?.toLowerCase();
-    return name ? lowerIntent.includes(name) : false;
-  });
+  const knownCharacters: KnownCharacterRef[] = (() => {
+    if (input.knownCharacters && input.knownCharacters.length > 0) {
+      return [...input.knownCharacters];
+    }
+    if (
+      input.knownCharacterIds
+      && input.knownCharacterNames
+      && input.knownCharacterIds.length === input.knownCharacterNames.length
+    ) {
+      return input.knownCharacterIds.map((id, idx) => ({
+        id,
+        name: input.knownCharacterNames?.[idx] ?? id,
+      }));
+    }
+    return [];
+  })();
+
+  const directlyMentioned = knownCharacters
+    .filter((char) => lowerIntent.includes(char.name.toLowerCase()))
+    .map((char) => char.id);
+
+  // FIX-12 — Pronoun resolution ("lui" → Kai via roleType heuristics).
+  const resolvedFromPronouns = resolvePronouns(
+    userIntent,
+    knownCharacters,
+    input.selectedCharacterIds ?? [],
+    directlyMentioned,
+  );
+
+  const requiredCharacters = [...new Set([...directlyMentioned, ...resolvedFromPronouns])];
 
   const requiredLocations = (input.knownLocationNames ?? []).filter((name) =>
     lowerIntent.includes(name.toLowerCase()),
@@ -142,9 +231,16 @@ export function buildIntentNarrativeContract(
     return null;
   }
 
+  // FIX-15 (MOD) — Splitter aussi sur les conjonctions narratives
+  // ("puis", "ensuite", "mais", "alors", "quand", "tandis que"…) :
+  // sans ça une phrase complexe genre "Lux entre dans le temple puis
+  // récupère l'artefact mais une voix le met en garde" devenait UN seul
+  // requiredEvent au lieu de trois → couverture intent-coverage faussée.
+  const sentenceAndClauseSplitter =
+    /[.!?;\n]+|(?:\s+(?:puis|ensuite|mais|alors|quand|pendant que|avant que|après que|jusqu'à ce que|tandis que|cependant|toutefois|néanmoins)\s+)/gi;
   const sentences = userIntent
-    .split(/[.!?;\n]+/)
-    .map((s) => s.trim())
+    .split(sentenceAndClauseSplitter)
+    .map((s) => (s ?? "").trim())
     .filter((s) => s.length > 5);
 
   function resolveLocationHintForSentence(sentence: string): string | null {

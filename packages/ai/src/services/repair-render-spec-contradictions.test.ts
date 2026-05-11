@@ -7,6 +7,8 @@ import {
   repairRenderSpecContradictions,
   stripWideEstablishingTerms,
   hasWideEstablishingTerms,
+  stripInsertShotTerms,
+  hasInsertShotTerms,
 } from "./repair-render-spec-contradictions";
 import type { PanelRenderSpec } from "../contracts/panel-render-spec";
 import { createDefaultChapterStyleBible } from "../contracts/chapter-style-bible";
@@ -174,6 +176,49 @@ describe("repair-render-spec-contradictions", () => {
       expect(result.repaired).toBe(true);
       expect(result.repairs).toContain("cleaned_mustShow");
       expect(result.spec.constraints?.mustShow?.join(" ")).not.toContain("wide establishing");
+    });
+
+    // AUDIT-V8 — DIALOGUE × INSERT
+    it("nettoie 'insert shot' dans actionLine quand renderMode=dialogue_two_shot", () => {
+      const spec = makeSpec({
+        panelId: "beat_10_panel_8",
+        renderMode: "dialogue_two_shot",
+        actionLine: "insert shot of hands or meaningful object hovering near a symbol",
+      });
+      const result = repairRenderSpecContradictions(spec);
+      expect(result.repaired).toBe(true);
+      expect(result.repairs).toContain("stripped_insert_from_dialogue_actionLine");
+      expect(result.spec.actionLine).not.toContain("insert shot");
+      expect(result.spec.renderMode).toBe("dialogue_two_shot");
+    });
+
+    it("nettoie 'object insert' dans constraints.mustShow quand dialogue_over_shoulder", () => {
+      const spec = makeSpec({
+        renderMode: "dialogue_over_shoulder",
+        actionLine: "Hero talks to villager",
+        constraints: {
+          mustShow: ["hero face", "object insert as primary subject"],
+          mustNotShow: [],
+          forbiddenDrift: [],
+          noTextInsideImage: true,
+        },
+      });
+      const result = repairRenderSpecContradictions(spec);
+      expect(result.repaired).toBe(true);
+      expect(result.repairs).toContain("stripped_insert_from_dialogue_mustShow");
+    });
+  });
+
+  describe("hasInsertShotTerms / stripInsertShotTerms", () => {
+    it("détecte 'insert shot'", () => {
+      expect(hasInsertShotTerms("insert shot of the dagger")).toBe(true);
+    });
+    it("supprime 'extreme close-up on object'", () => {
+      const out = stripInsertShotTerms("hero pose with extreme close-up on object behind");
+      expect(out).not.toContain("extreme close-up on object");
+    });
+    it("retourne false sans terme insert", () => {
+      expect(hasInsertShotTerms("hero looks at villager")).toBe(false);
     });
   });
 });

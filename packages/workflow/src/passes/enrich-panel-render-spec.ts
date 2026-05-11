@@ -35,11 +35,30 @@ function semanticAspectFromSizePreset(preset: FalRenderRoute["sizePreset"]): "po
   return "square";
 }
 
+/**
+ * SPRINT 1 — résout le héros effectif d'un panel donné.
+ *
+ * Priorité (du plus fort au plus faible) :
+ *   1. `castContractHeroId` — le héros officiel du chapitre s'il est présent
+ *      dans le panel. C'est la SEULE source de vérité quand on a un cast
+ *      contract (audit v7 : on avait des panels avec plusieurs `role: "hero"`
+ *      car la fonction ignorait le contrat et prenait le premier `mainCharacterId`).
+ *   2. `visualAnchors.characterIds` ∩ mainCharacterIds — choix explicite de focalisation.
+ *   3. Premier `mainCharacterId` présent dans `panel.characters`.
+ *   4. `null` si aucun candidat (panel sans héros visible — décor/setup).
+ */
 function resolveHeroCharacterId(
   panel: StoryboardPanel,
   mainCharacterIds: string[],
+  castContractHeroId: string | null,
 ): string | null {
   const mains = new Set(mainCharacterIds.filter(Boolean));
+  if (castContractHeroId) {
+    const present =
+      panel.characters.includes(castContractHeroId) ||
+      (panel.visualAnchors?.characterIds ?? []).includes(castContractHeroId);
+    if (present) return castContractHeroId;
+  }
   const anchorIds = panel.visualAnchors?.characterIds ?? [];
   for (const id of anchorIds) {
     if (mains.has(id)) return id;
@@ -252,6 +271,13 @@ export function enrichPanelRenderSpecForRenderPass(input: EnrichPanelRenderSpecI
     if (hit) speakerCharacterIds.push(hit.characterId);
   }
 
+  // SPRINT 1 — `spec.heroCharacterId` vient du `castContract` officiel
+  // (build-chapter-cast-contract). On le passe en priorité à
+  // `resolveHeroCharacterId` pour qu'il ne se fasse plus écraser quand un
+  // panel contient plusieurs `mainCharacterIds` (audit v7 : symptôme "Florent
+  // qui devient secondary alors qu'il est le héros officiel").
+  const heroId = resolveHeroCharacterId(panel, mainCharacterIds, spec.heroCharacterId ?? null);
+
   const loraMap = input.loraByCharacterId ?? new Map<string, LoraInfo>();
   const loraResult = resolvePanelLoraBindings({
     panelId: spec.panelId,
@@ -262,7 +288,7 @@ export function enrichPanelRenderSpecForRenderPass(input: EnrichPanelRenderSpecI
     })),
     loraByCharacterId: loraMap,
     speakerCharacterIds,
-    focusCharacterId: spec.heroCharacterId ?? resolveHeroCharacterId(panel, mainCharacterIds),
+    focusCharacterId: heroId,
   });
 
   const merged: PanelRenderSpec = {
@@ -275,7 +301,7 @@ export function enrichPanelRenderSpecForRenderPass(input: EnrichPanelRenderSpecI
         base.targetAspectRatio ?? panel.targetAspectRatio ?? semanticAspectFromSizePreset(route.sizePreset),
       slotType: base.slotType ?? panel.slotType ?? route.panelCategory,
     },
-    heroCharacterId: resolveHeroCharacterId(panel, mainCharacterIds),
+    heroCharacterId: heroId,
     mandatoryVisibleEntities: buildMandatoryVisibleEntities(spec, panel),
     environmentDNA: resolveEnvironmentDna(panel, visualMemory),
     previousPanelRef: resolvePreviousPanelRef(spec, previousPanel, visualMemory),

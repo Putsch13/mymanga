@@ -31,6 +31,7 @@ import {
   resolvePanelReferences,
   type ChapterVisualMemory,
 } from "./chapter-visual-memory";
+import { dialogueLinesToActingNote } from "./dialogue-acting-note";
 import { inferStoryboardPanelLayoutMeta } from "./storyboard-panel-layout-meta";
 
 export interface CharacterInfo {
@@ -247,9 +248,15 @@ export function buildPanelRenderSpec(
     locationName: panel.locationName,
     actionLine: panel.actionLine,
     emotionLine: panel.emotionLine,
+    // FIX-23 (MAJEUR) — Le texte exact des dialogues NE doit JAMAIS
+    // atteindre le prompt image (Flux/SDXL écrirait littéralement le texte
+    // sur le panel). On convertit en *acting notes* qui décrivent
+    // uniquement l'intention dramatique (urgence, tendresse, vérité
+    // dissimulée…). Le texte littéral est porté par le moteur de bulles,
+    // pas par le moteur de rendu.
     dialogueIntent:
       dialogueLines.length > 0
-        ? dialogueLines.map((d) => `${d.speaker}: ${d.text}`).join(" | ")
+        ? dialogueLinesToActingNote(dialogueLines) || null
         : DIALOGUE_FORWARD_RENDER_MODES.has(panel.renderMode) || panel.panelPurpose === "dialogue_anchor"
           ? panel.actionLine.trim() || null
           : null,

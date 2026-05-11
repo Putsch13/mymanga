@@ -336,6 +336,18 @@ export interface PanelBlueprintPremium {
    * Hydraté à la projection canonique et recalculé après merge avec le rythme canonique.
    */
   textContract?: PanelTextContract | null;
+  /**
+   * FIX-30 (MAJEUR) — IDs des `requiredEvent.id` (IntentNarrativeContract)
+   * que ce panel sert (illustre / résout / met en scène). Optionnel au niveau
+   * type pour rester rétro-compatible avec les anciens plans, mais en mode
+   * premium la validation `validatePremiumBlueprintsServeRequiredEvents`
+   * impose que chaque `requiredEvent` soit servi par AU MOINS un panel.
+   *
+   * Sans ce champ, la QA d'intent coverage retombait sur du matching
+   * textuel approximatif (faux positifs sur des panels qui répétaient
+   * un mot-clé sans porter l'événement).
+   */
+  servedEventIds?: string[];
 }
 
 // ─── Focus Budget ─────────────────────────────────────────────────────────────

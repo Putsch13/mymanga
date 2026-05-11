@@ -43,11 +43,26 @@ export function serializeBodyStateForPrompt(bodyState: unknown): string | null {
   if (typeof bodyState === "object") {
     const obj = bodyState as JsonObject;
     const parts: string[] = [];
+    // SPRINT 1 — alignement UI ↔ serializer : l'UI envoie aussi `shoulderWidth`,
+    // `musculature`, `chestSize`, `posture`, `silhouette`, `perceivedAllure`,
+    // `hipWidth`, `buttSize`, `scarsCurrent` (au lieu de `scars`). On lit les
+    // deux conventions pour que la fiche utilisateur arrive vraiment dans le
+    // prompt de génération (régression P0 vue à l'audit v7).
     if (typeof obj.build === "string") parts.push(`build: ${obj.build}`);
     if (typeof obj.height === "string") parts.push(`height: ${obj.height}`);
-    if (Array.isArray(obj.scars) && obj.scars.length > 0) {
-      parts.push(`scars (${obj.scars.join(", ")})`);
-    }
+    if (typeof obj.shoulderWidth === "string") parts.push(`shoulders: ${obj.shoulderWidth}`);
+    if (typeof obj.hipWidth === "string") parts.push(`hips: ${obj.hipWidth}`);
+    if (typeof obj.chestSize === "string") parts.push(`chest: ${obj.chestSize}`);
+    if (typeof obj.buttSize === "string") parts.push(`hips/glutes: ${obj.buttSize}`);
+    if (typeof obj.musculature === "string") parts.push(`musculature: ${obj.musculature}`);
+    if (typeof obj.silhouette === "string") parts.push(`silhouette: ${obj.silhouette}`);
+    if (typeof obj.posture === "string") parts.push(`posture: ${obj.posture}`);
+    if (typeof obj.perceivedAllure === "string") parts.push(`overall allure: ${obj.perceivedAllure}`);
+    const scars =
+      Array.isArray(obj.scars) ? obj.scars
+      : Array.isArray(obj.scarsCurrent) ? obj.scarsCurrent
+      : [];
+    if (scars.length > 0) parts.push(`scars (${scars.join(", ")})`);
     if (Array.isArray(obj.tattoos) && obj.tattoos.length > 0) {
       parts.push(`tattoos (${obj.tattoos.join(", ")})`);
     }
@@ -89,14 +104,47 @@ export function serializeWardrobeProfileForPrompt(wardrobe: unknown): string | n
   if (typeof wardrobe === "object") {
     const obj = wardrobe as JsonObject;
     const parts: string[] = [];
-    if (typeof obj.default === "string") parts.push(`default outfit: ${obj.default}`);
+    // SPRINT 1 — alignement UI ↔ serializer : l'UI envoie `defaultOutfit`,
+    // `combatOutfit`, `casualOutfit`, `formalOutfit`, `accessoriesFixed`,
+    // `colorPalette` (souvent un tableau), `fabricStyle`, `exposureLevel`.
+    // L'ancienne version ne reconnaissait que `default`/`palette`/`fixedAccessories`
+    // → 100% de la garde-robe utilisateur retombait sur le fallback JSON tronqué
+    // et n'arrivait pas dans le prompt image. Bug invisible majeur (audit v7).
+    const defaultOutfit =
+      typeof obj.defaultOutfit === "string" && obj.defaultOutfit.trim()
+        ? obj.defaultOutfit
+        : typeof obj.default === "string" ? obj.default : null;
+    if (defaultOutfit) parts.push(`default outfit: ${defaultOutfit}`);
+    if (typeof obj.combatOutfit === "string" && obj.combatOutfit.trim()) {
+      parts.push(`combat outfit: ${obj.combatOutfit}`);
+    }
+    if (typeof obj.casualOutfit === "string" && obj.casualOutfit.trim()) {
+      parts.push(`casual outfit: ${obj.casualOutfit}`);
+    }
+    if (typeof obj.formalOutfit === "string" && obj.formalOutfit.trim()) {
+      parts.push(`formal outfit: ${obj.formalOutfit}`);
+    }
+    if (typeof obj.fabricStyle === "string" && obj.fabricStyle.trim()) {
+      parts.push(`fabrics: ${obj.fabricStyle}`);
+    }
+    if (typeof obj.exposureLevel === "string" && obj.exposureLevel.trim()) {
+      parts.push(`coverage: ${obj.exposureLevel}`);
+    }
     if (Array.isArray(obj.altOutfits) && obj.altOutfits.length > 0) {
       parts.push(`alt outfits (${obj.altOutfits.join(", ")})`);
     }
-    if (Array.isArray(obj.fixedAccessories) && obj.fixedAccessories.length > 0) {
-      parts.push(`fixed accessories (${obj.fixedAccessories.join(", ")})`);
-    }
-    if (typeof obj.palette === "string") parts.push(`palette: ${obj.palette}`);
+    const accessories =
+      Array.isArray(obj.accessoriesFixed) ? obj.accessoriesFixed
+      : Array.isArray(obj.fixedAccessories) ? obj.fixedAccessories
+      : [];
+    if (accessories.length > 0) parts.push(`fixed accessories (${accessories.join(", ")})`);
+    const palette =
+      Array.isArray(obj.colorPalette) ? obj.colorPalette.join(", ")
+      : Array.isArray(obj.palette) ? (obj.palette as unknown[]).join(", ")
+      : typeof obj.colorPalette === "string" ? obj.colorPalette
+      : typeof obj.palette === "string" ? obj.palette
+      : null;
+    if (palette) parts.push(`palette: ${palette}`);
     if (obj.outfitLock === true) parts.push(`outfit lock: strict`);
     if (parts.length > 0) return parts.join("; ");
     try {

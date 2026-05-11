@@ -41,6 +41,22 @@ describe("IntentNarrativeContract", () => {
       expect(result.requiredEvents[2].type).toBe("dialogue");
     });
 
+    // TODO-15 — Splitter sur les conjonctions narratives ("puis", "ensuite",
+    // "mais", etc.) pour ne pas écraser une phrase complexe en 1 seul event.
+    it("TODO-15: splits events on narrative conjunctions (puis/ensuite/mais)", () => {
+      const result = buildIntentNarrativeContract({
+        chapterId: "ch1",
+        userIntent:
+          "Lux entre dans le temple puis récupère l'artefact mais une voix le met en garde",
+      });
+      // Avant ce TODO : 1 event (toute la phrase). Après : 3 events distincts.
+      expect(result.requiredEvents.length).toBeGreaterThanOrEqual(3);
+      const labels = result.requiredEvents.map((e) => e.label.toLowerCase());
+      expect(labels.some((l) => l.includes("temple"))).toBe(true);
+      expect(labels.some((l) => l.includes("artefact"))).toBe(true);
+      expect(labels.some((l) => l.includes("garde"))).toBe(true);
+    });
+
     it("detects known characters in intent", () => {
       const result = buildIntentNarrativeContract({
         chapterId: "ch1",
@@ -105,6 +121,102 @@ describe("IntentNarrativeContract", () => {
       expect(firstEvt?.locationHint).toBe("loc_port_kaze");
       const secondEvt = result.requiredEvents[1];
       expect(secondEvt?.locationHint).toBeNull();
+    });
+
+    // ---------------------------------------------------------------------
+    // TODO-12 (CRITIQUE) — Pronoun resolution + unified knownCharacters
+    // ---------------------------------------------------------------------
+    describe("TODO-12 pronoun resolution", () => {
+      it("résout 'lui' vers le co-protagoniste sélectionné (Lux et lui)", () => {
+        const result = buildIntentNarrativeContract({
+          chapterId: "ch1",
+          userIntent: "Lux et lui découvrent un temple dans la jungle.",
+          knownCharacters: [
+            { id: "lux_id", name: "Lux", roleType: "hero" },
+            { id: "kai_id", name: "Kai", roleType: "secondary_hero" },
+          ],
+          selectedCharacterIds: ["lux_id", "kai_id"],
+        });
+        expect(result.requiredCharacters).toContain("lux_id");
+        expect(result.requiredCharacters).toContain("kai_id");
+      });
+
+      it("ne résout pas 'lui' vers un personnage non sélectionné", () => {
+        const result = buildIntentNarrativeContract({
+          chapterId: "ch1",
+          userIntent: "Lux et lui partent en mission.",
+          knownCharacters: [
+            { id: "lux_id", name: "Lux", roleType: "hero" },
+            { id: "kai_id", name: "Kai", roleType: "secondary_hero" },
+            { id: "rogue_id", name: "Rogue", roleType: "secondary_hero" },
+          ],
+          selectedCharacterIds: ["lux_id", "kai_id"],
+        });
+        expect(result.requiredCharacters).toContain("lux_id");
+        expect(result.requiredCharacters).toContain("kai_id");
+        expect(result.requiredCharacters).not.toContain("rogue_id");
+      });
+
+      it("résout 'son frère' vers le personnage avec roleType brother/sibling", () => {
+        const result = buildIntentNarrativeContract({
+          chapterId: "ch1",
+          userIntent: "Aya retrouve son frère après des années.",
+          knownCharacters: [
+            { id: "aya_id", name: "Aya", roleType: "hero" },
+            { id: "ren_id", name: "Ren", roleType: "brother" },
+          ],
+          selectedCharacterIds: ["aya_id", "ren_id"],
+        });
+        expect(result.requiredCharacters).toContain("aya_id");
+        expect(result.requiredCharacters).toContain("ren_id");
+      });
+
+      it("ne double-counte pas un personnage déjà mentionné par son nom", () => {
+        const result = buildIntentNarrativeContract({
+          chapterId: "ch1",
+          userIntent: "Lux part avec Kai. Lui propose un plan audacieux.",
+          knownCharacters: [
+            { id: "lux_id", name: "Lux", roleType: "hero" },
+            { id: "kai_id", name: "Kai", roleType: "secondary_hero" },
+          ],
+          selectedCharacterIds: ["lux_id", "kai_id"],
+        });
+        const kaiOccurrences = result.requiredCharacters.filter(
+          (id) => id === "kai_id",
+        ).length;
+        expect(kaiOccurrences).toBe(1);
+      });
+
+      it("legacy : accepte les arrays parallèles knownCharacterIds + knownCharacterNames pour rétrocompat", () => {
+        const result = buildIntentNarrativeContract({
+          chapterId: "ch1",
+          userIntent: "Akira affronte son rival",
+          knownCharacterIds: ["char_1", "char_2"],
+          knownCharacterNames: ["Akira", "Suko"],
+        });
+        expect(result.requiredCharacters).toContain("char_1");
+        expect(result.requiredCharacters).not.toContain("char_2");
+      });
+
+      it("'Lux et lui' avec aucun selectedCharacterIds : pronoun reste non résolu (sécurité)", () => {
+        const result = buildIntentNarrativeContract({
+          chapterId: "ch1",
+          userIntent: "Lux et lui partent à l'aventure.",
+          knownCharacters: [
+            { id: "lux_id", name: "Lux", roleType: "hero" },
+            { id: "kai_id", name: "Kai", roleType: "secondary_hero" },
+            { id: "rogue_id", name: "Rogue", roleType: "secondary_hero" },
+          ],
+          // Aucune sélection : on tombe dans l'ancien comportement (pronom non scopé).
+          // On accepte que `lui` soit résolu vers le PREMIER candidat secondaire,
+          // mais pas vers tous.
+        });
+        expect(result.requiredCharacters).toContain("lux_id");
+        const secondaryResolved = result.requiredCharacters.filter((id) =>
+          ["kai_id", "rogue_id"].includes(id),
+        );
+        expect(secondaryResolved.length).toBeLessThanOrEqual(1);
+      });
     });
   });
 });

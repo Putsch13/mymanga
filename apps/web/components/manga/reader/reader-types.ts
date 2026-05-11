@@ -21,6 +21,12 @@ export type SceneImage = {
   status?: string;
   provider?: string | null;
   model?: string | null;
+  /**
+   * FIX-31 — Indique qu'un panel a été explicitement validé par
+   * l'utilisateur. Lui permet de rester rendu côté reader même si son
+   * `status` est FAILED/BLOCKED (override manuel).
+   */
+  userValidatedAt?: Date | null;
   metadata?: {
     dialogue?: { speaker: string; text: string } | Array<{ speaker: string; text: string }>;
     dialogues?: Array<{ speaker: string; text: string }>;

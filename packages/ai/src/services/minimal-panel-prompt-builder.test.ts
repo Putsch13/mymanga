@@ -82,7 +82,7 @@ describe("buildMinimalPanelPrompt", () => {
     }
   });
 
-  it("injecte le sous-texte de dialogue sans demander du texte dans l'image", () => {
+  it("injecte une acting note de dialogue sans demander du texte dans l'image (TODO-23 / TODO-24)", () => {
     const r = buildMinimalPanelPrompt(
       makeSpec({
         renderMode: "dialogue_two_shot",
@@ -96,8 +96,17 @@ describe("buildMinimalPanelPrompt", () => {
         ],
       }),
     );
-    expect(r.positive).toContain("Dialogue subtext: Miya accuses Nelo of hiding the truth.");
-    expect(r.positive).toContain("no speech bubbles or text in image");
+    // TODO-23 — la directive est désormais "Dialogue acting:" (pas "subtext:")
+    // et l'intention dramatique est portée par la note, plus jamais le texte
+    // littéral.
+    expect(r.positive).toContain("Dialogue acting:");
+    // TODO-24 — la négation "no speech bubbles or text in image" sort du
+    // prompt positif (les modèles diffusion ignorent les négations dans le
+    // positif). Les bulles / texte sont déjà bannis dans le negative.
+    expect(r.positive).not.toContain("no speech bubbles or text in image");
+    const neg = r.negative.toLowerCase();
+    expect(neg).toContain("speech bubble");
+    expect(neg).toContain("text in image");
   });
 
   it("un dialogue_two_shot ne présente plus un primary subject unique", () => {

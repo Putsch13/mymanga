@@ -49,8 +49,12 @@ export function CharacterSpeechConfig({ value, onChange }: Props) {
   return (
     <div className="space-y-6">
       <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-        Personnalité & Voix
+        Personnalité & Voix (legacy)
       </h3>
+      <p className="text-xs text-muted-foreground">
+        Profil ancien (sliders 0–10). Pour les nouveaux personnages, le bloc « Profil de voix
+        (Continuity Engine) » plus bas a la priorité dans la génération de dialogues.
+      </p>
 
       {/* Sliders */}
       <div className="grid gap-5 sm:grid-cols-2">

@@ -9,7 +9,9 @@ import OpenAI from "openai";
 import { z } from "zod";
 import {
   blueprintPrimaryDialogueLineCount,
+  formatMergedSpeechProfileForPrompt,
   syncBlueprintTextContractFromTextFragments,
+  type MergedSpeechProfile,
   type PanelBlueprintPremium,
   type ProductionOutline,
 } from "@manga-ai-studio/core";
@@ -60,6 +62,14 @@ export interface EnrichPremiumBlueprintsSceneDialogueInput {
    * le LLM retombe systématiquement sur le héros.
    */
   npcGroups?: ReadonlyArray<{ id: string; label: string }>;
+  /**
+   * SPRINT 5 — profils de voix fusionnés (speechProfile + voice*) par
+   * characterId. Utilisé pour injecter le ton, le registre, les expressions
+   * favorites/interdites de chaque speaker dans le payload LLM.
+   * Sans ça, tous les personnages parlaient avec la même voix générique
+   * malgré la fiche détaillée saisie dans l'UI (audit v7).
+   */
+  speechProfilesByCharacterId?: ReadonlyMap<string, MergedSpeechProfile>;
 }
 
 export interface EnrichPremiumBlueprintsSceneDialogueResult {
@@ -186,6 +196,26 @@ export async function enrichPremiumBlueprintsSceneDialogue(
       ...npcGroups.map((g) => ({ name: g.label, role: "npc_group" })),
     ];
 
+    // SPRINT 5 — voiceProfiles : on extrait UNIQUEMENT les profils des
+    // speakers pertinents pour ce beat afin de garder le payload compact.
+    // Format : "Maya: register=casual, sarcasm=0.7, fav=[Tch / Hmph]"
+    const voiceProfileLines: string[] = [];
+    const profiles = input.speechProfilesByCharacterId;
+    if (profiles && profiles.size > 0) {
+      const seenNames = new Set<string>();
+      for (const [characterId, profile] of profiles) {
+        const name = input.characterNameById[characterId];
+        if (!name || seenNames.has(name)) continue;
+        const isInBeat = allowedSpeakers.some((s) => s.name === name);
+        if (!isInBeat) continue;
+        const formatted = formatMergedSpeechProfileForPrompt(name, profile);
+        if (formatted) {
+          voiceProfileLines.push(formatted);
+          seenNames.add(name);
+        }
+      }
+    }
+
     try {
       const model = process.env.OPENAI_SCENE_DIALOGUE_MODEL ?? "gpt-4o-mini";
       const completion = await openai.chat.completions.create({
@@ -211,6 +241,16 @@ RÈGLES DE STYLE :
 - Pas de clichés type "je dois devenir plus fort".
 - Respecte le profil de style JSON.
 
+RÈGLES DE VOIX PAR PERSONNAGE (sprint 5) :
+- Si "voiceProfiles" est non vide, chaque speaker DOIT respecter son profil :
+  - "register" (casual / formal / very_formal / neutral / rough) influence le ton.
+  - "sentence_length" (very_short / short / medium / long) impose la longueur.
+  - "sarcasm" / "aggression" / "emotional_leak" entre 0 et 1 dosent l'attitude.
+  - "fav=[…]" liste 1–5 expressions favorites à insérer NATURELLEMENT, parfois.
+  - "avoid=[…]" liste 1–5 expressions PROSCRITES qui ne doivent JAMAIS apparaître.
+- Quand deux personnages ont des profils différents, leur dialogue doit être
+  reconnaissable à la voix (pas le même registre, pas la même longueur).
+
 Réponds uniquement avec JSON : {"lines":[{"panelId","speaker","text"}]}`,
           },
           {
@@ -223,6 +263,7 @@ Réponds uniquement avec JSON : {"lines":[{"panelId","speaker","text"}]}`,
               styleProfile: profile,
               avoidPhrasesFromPriorChapter: (input.avoidDialogueSnippets ?? []).slice(0, 40),
               allowedSpeakers,
+              voiceProfiles: voiceProfileLines,
               panels: panelSpecs,
             }),
           },

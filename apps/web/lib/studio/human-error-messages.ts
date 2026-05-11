@@ -25,7 +25,7 @@ export const HUMAN_ERROR_MESSAGES: Record<string, HumanErrorMessage> = {
   canon_pack_incomplete: {
     title: "La fiche personnage est incomplète",
     description:
-      "L'apparence du héros doit être fixée pour éviter qu'il change entre les pages.",
+      "Le pack canon est calculé sur la fiche en base (objectif, bio, tenue, refs visuelles, etc.). Vérifie aussi le co-protagoniste ou l'antagoniste si le blocage persiste — la réponse API liste les champs manquants dans `canonPackDiagnostics`.",
     cta: "Compléter la fiche",
     targetPhase: "characters",
   },
@@ -102,7 +102,7 @@ export const HUMAN_ERROR_MESSAGES: Record<string, HumanErrorMessage> = {
   CANON_PACK_INCOMPLETE: {
     title: "La fiche d'un personnage principal est incomplète",
     description:
-      "L'apparence du héros ou d'un personnage important n'est pas fixée — risque de dérive visuelle.",
+      "Le lancement exige ≥ 70 % sur le pack canon (nom, bio, apparence, voix, ADN stable, au moins une ref visuelle). Souvent le blocage vient du co-protagoniste, de l'antagoniste marqué comme rôle clé, ou d'un snapshot studio pas à jour — les champs sont relus depuis la base ; la réponse « launch » inclut `canonPackDiagnostics` (liste `missing`) par personnage.",
     cta: "Compléter la fiche personnage",
     targetPhase: "characters",
   },

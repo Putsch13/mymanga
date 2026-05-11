@@ -45,7 +45,7 @@ L'IA générative produit des images magnifiques mais incohérentes : un personn
 - **Canon visuel** : chaque personnage a un `CharacterCanonPack` avec score de complétude (0-100%). Score < 70% → warning en studio.
 - **Dialogue ancré** : chaque réplique a un speaker visible dans le panel (interdit "dialogue flottant").
 - **Plan canonique unique** : 70 à 75 panels (cible 72), validés via QA structure (cutaway ratio, actor-driven, monotonie).
-- **Anti-régression** : 1100+ tests automatisés.
+- **Anti-régression** : ~731 tests automatisés sur le monorepo (Vitest).
 
 ---
 
@@ -72,9 +72,11 @@ flowchart LR
 1. **Brief** — pitch chapitre, summary, cliffhanger ciblé
 2. **Casting & Canon** — sélection du héros, héros secondaires, lieux, refs
 3. **Plan** — outline approuvé → production plan (canonique 70-75 panels)
-4. **Generation & Review** — preview readiness, launch, suivi job, QA, rerolls
+4. **Generation & Review** — estimate / readiness, launch, suivi job, QA, rerolls
 
-À chaque étape, un **PremiumReadinessDashboard** affiche les blocants (rouges) et avertissements (jaunes), avec des **boutons "auto-repair"** (ex. "Analyser l'histoire" pour générer le `ChapterIntentContract`).
+Le studio calcule un **dashboard de readiness** (`PremiumReadinessDashboard`) : blocants (rouges), avertissements (jaunes) et actions suggérées (ex. compiler l’intention en `ChapterIntentContract`).
+
+La création de projet (wizard **nouveau projet**) est découpée dans `apps/web/app/(app)/projects/new/_new/` pour garder la page légère.
 
 ### Le principe fail-closed
 
@@ -213,7 +215,7 @@ Routage déterministe via `fal-render-route-v3.ts` : `renderMode` (par ex. `dial
 - **Optimisation clé** : router plus de panels vers `flux/schnell` (cutaways, inserts d'objets) et réserver `flux/dev` aux panels narratifs critiques (héros closeup, action). Le routeur le fait déjà via `renderMode`.
 - **Marge produit** : un pack utilisateur "Studio" à 25 USD pour 1500 tokens internes (≈ 50 chapitres) laisse une marge brute de ~65% au coût standard.
 
-> **Source des tarifs** : [OpenAI Pricing](https://platform.openai.com/docs/pricing) et [Fal.ai Pricing](https://fal.ai/pricing) (avril 2026). Mis à jour automatiquement à chaque revue de coût ; voir `packages/billing/src/pricing.ts` pour la source de vérité interne.
+> **Source des tarifs** : [OpenAI Pricing](https://platform.openai.com/docs/pricing) et [Fal.ai Pricing](https://fal.ai/pricing). Les montants ci-dessus sont indicatifs — à recalculer lors d’un changement de grille ou de routage ; voir `packages/billing/src/pricing.ts` pour la logique interne.
 
 ---
 
@@ -242,13 +244,13 @@ MYMANGA/
 │   ├── ai/                  # Services LLM, agents, prompt builders, Fal adapter
 │   ├── core/                # Types Zod, contrats, règles produit (PRODUCTION_RULES)
 │   ├── workflow/            # Orchestration pipeline, passes, jobs Inngest
-│   ├── db/                  # Prisma + migrations
+│   ├── db/                  # Prisma 6 + migrations
 │   ├── billing/             # Tarification, wallet, Stripe
 │   ├── memory/              # Embeddings, snapshots mémoire
-│   ├── continuity/          # Diff narratif inter-chapitre
-│   ├── world/               # Univers (lieux, NPC ontologies)
+│   ├── continuity/          # Kernel & continuité narrative
+│   ├── world/               # Univers (legacy blueprints, ontologies)
 │   ├── moderation/          # Garde-fous contenu
-│   ├── visual-consistency/  # Cohérence visuelle cross-chapitre
+│   ├── visual-consistency/  # Scoring cohérence visuelle
 │   ├── exports/             # Export PDF/CBZ
 │   ├── ui/                  # Composants partagés
 │   └── config/              # Schémas env partagés
@@ -262,17 +264,19 @@ MYMANGA/
 ```mermaid
 flowchart TB
     JOB[Job Inngest<br/>chapter-pipeline] --> RUNNER[run-full-chapter-pipeline.ts<br/><i>orchestrateur mince</i>]
-    RUNNER --> PREMIUM[run-premium-v3-pipeline.ts<br/><i>cerveau premium strict</i>]
-    RUNNER -.->|fallback| LEGACY[run-legacy-compatible-chapter-pipeline.ts<br/><i>compatibilité historique</i>]
+    RUNNER --> PREMIUM[run-premium-v3-pipeline.ts<br/><i>pipeline premium v3</i>]
+    RUNNER -.->|si non premium-only| LEGACY[run-legacy-compatible-chapter-pipeline.ts<br/><i>chemin héritage / debug</i>]
     PREMIUM --> P1[story-pass]
     PREMIUM --> P2[storyboard-pass]
     PREMIUM --> P3[render-pass]
     PREMIUM --> P4[QA passes]
 ```
 
-- `packages/workflow/src/run-full-chapter-pipeline.ts` — point d'entrée unique, route vers premium ou legacy
-- `packages/workflow/src/run-premium-v3-pipeline.ts` — pipeline strict, fail-closed sur tous les contrats
-- `packages/workflow/src/legacy/run-legacy-compatible-chapter-pipeline.ts` — pont legacy (sera supprimé)
+- `packages/workflow/src/run-full-chapter-pipeline.ts` — point d'entrée Inngest, route selon les feature flags
+- `packages/workflow/src/run-premium-v3-pipeline.ts` — orchestration premium (contrats, storyboard, render v3)
+- `packages/workflow/src/legacy/run-legacy-compatible-chapter-pipeline.ts` — pipeline compatible anciens chemins (uniquement si le mode premium-only strict n'est pas imposé)
+
+Les gros modules sont découpés en sous-dossiers `_nom-module/` à côté des façades (`*.ts` à la racine du package) pour limiter les fichiers > 500 lignes sans casser les imports publics.
 
 ### Flux de données simplifié
 
@@ -385,7 +389,8 @@ L'app est sur `http://localhost:3000`.
 | `pnpm build` | Build prod |
 | `pnpm typecheck` | Typecheck tous les packages |
 | `pnpm lint` | Lint tous les packages |
-| `pnpm test` | Tous les tests (web + core + ai + workflow + ...) |
+| `pnpm test` | Tous les tests (web + core + ai + workflow + …) |
+| `pnpm check:premium` | Typecheck + audit imports + garde-fous « premium boundary » (workflow) |
 | `pnpm --filter @manga-ai-studio/web test` | Tests app web uniquement |
 | `pnpm --filter @manga-ai-studio/db exec prisma migrate dev` | Créer une migration |
 | `pnpm --filter @manga-ai-studio/db exec prisma studio` | Ouvrir Prisma Studio |
@@ -522,12 +527,12 @@ services:
 
 ## Tests et qualité
 
-### Métriques
+### Métriques (ordre de grandeur)
 
-- **326+ fichiers de tests** au total (Vitest + Playwright)
-- **1100+ assertions** unitaires + intégration
-- **Tests de contrat cross-package** dans `tests/contracts/`
-- **E2E Playwright** sur les flux studio critiques (`apps/web/tests/e2e/`)
+- **~330 fichiers de tests** (Vitest + Playwright, hors `node_modules`)
+- **~731 tests** via `pnpm -r test` sur l’ensemble des packages
+- **Tests de contrat** dans `tests/contracts/`
+- **E2E Playwright** : `pnpm test:e2e` — `apps/web/tests/e2e/*.spec.ts`
 
 ### Catégories
 
@@ -565,7 +570,7 @@ pnpm --filter @manga-ai-studio/web test:e2e
 | [Database migrations](docs/runbooks/database-migrations.md) | Erreurs Prisma `P1001`, configuration pooler Supabase, migration manuelle |
 | [Image URLs invariants](docs/architecture/image-urls.md) | Bug d'affichage image, debug Supabase signed URLs |
 | [Canonical packet migration](docs/architecture/canonical-packet-migration.md) | Comprendre la convergence legacy → premium |
-| [Refactor large files](docs/architecture/refactor-plan-large-files.md) | Plan de découpage des monolithes restants |
+| [Refactor large files](docs/architecture/refactor-plan-large-files.md) | Historique / pistes pour découper les derniers gros fichiers |
 
 ### Diagnostic rapide
 
@@ -590,6 +595,43 @@ ls exports/audit-bundle-<jobId>.zip   # 12 fichiers JSON pour debug post-mortem
 | `SHOT_PLAN_UNRELIABLE` | Trop de hero closeups / pas assez de variété | Ajuster les preferences pipeline |
 | `Unresolved character ref` | NPC group inconnu | Vérifier la page `/projects/[id]/world` |
 | `INTENT_RAW_TOO_SHORT` | Pitch < 20 caractères | Étoffer l'intention |
+
+---
+
+## Fonctionnalités récentes (Mai 2026)
+
+### Polices manga embarquées (Sprint 1.1)
+
+Les bulles utilisent désormais des polices manga professionnelles au lieu de Comic Sans :
+
+- **Dialogue** : Anime Ace 2.0 BB (gratuit) ou CC Wild Words (premium)
+- **SFX** : Bangers (Google Fonts)
+- **Japonais** : Noto Sans JP (Google Fonts)
+
+```bash
+pnpm fonts:download  # télécharge les polices gratuites
+```
+
+Voir `packages/exports/fonts/README-licenses.md` pour les licences.
+
+### API Review Queue (Sprint 1.2)
+
+Nouvelle route pour les panels en `manual_review_required` :
+
+```
+GET  /api/projects/[id]/chapters/[chapterId]/review-queue
+POST /api/projects/[id]/chapters/[chapterId]/review-queue
+     { panelId, action: "accept" | "reject" | "regenerate", hints? }
+```
+
+### Test E2E hebdomadaire (Sprint 1.3)
+
+Cron Inngest tous les dimanches à 3h UTC qui :
+1. Vérifie la présence des clés API
+2. Valide la connectivité DB
+3. Peut lancer un chapitre complet (si `E2E_REAL_IMAGES=true`)
+
+Budget estimé : ~$3/semaine pour le test complet.
 
 ---
 

@@ -31,6 +31,14 @@ import { generateChapterCover } from "./image-generation/chapter-cover";
 import { persistFalTrace } from "./image-generation/fal-trace";
 import { rerollKindToReason } from "./image-generation/reroll-reason-mapper";
 import { applyPromptAntiRepeat } from "./image-generation/prompt-anti-repeat";
+import { buildCanonicalContextForImagePass } from "./image-generation/canonical-context-builder";
+import { createSceneKeyframeUrlResolver } from "./image-generation/scene-keyframe-resolver";
+import { persistChapterFinalStatus } from "./image-generation/chapter-final-status";
+import {
+  isEnvironmentSufficientForNarrativePanel as isEnvironmentSufficientForNarrativePanelHelper,
+  pickRerollKind as pickRerollKindHelper,
+  rankCandidate as rankCandidateHelper,
+} from "./image-generation/reroll-decisions";
 import { scoreVisualConsistency } from "@manga-ai-studio/visual-consistency";
 import { type SceneBlueprint } from "@manga-ai-studio/world";
 import { prisma, type Prisma } from "@manga-ai-studio/db";
@@ -46,7 +54,6 @@ import type {
   NarrativeToPlanResult,
 } from "../chapter-image-plan-from-narrative";
 import { buildCanonicalPacketForPlannedImage } from "../canonical-packet-bridge";
-import { resolveCanonicalStyleContract } from "../style-contract-resolver";
 import {
   resolveEffectivePanelPromptSource,
   buildPromptDebugSnapshot,
@@ -60,19 +67,9 @@ import { planRerollForPacket, type RerollReason } from "@manga-ai-studio/ai";
 import type {
   CanonicalImagePromptPacket,
   EnvironmentContext,
-  UniverseProfileRef,
-  MangaStyleProfileRef,
-  VisualClassification,
   SceneContext,
-  ContinuityContext,
-  ContentRating,
 } from "@manga-ai-studio/core";
-import { computeChapterQualityReport } from "../pipeline-quality";
-import {
-  buildPersistedChapterRuntimeState,
-  buildRuntimeDebugSummary,
-  buildValidationDetails as buildSharedValidationDetails,
-} from "../chapter-runtime-helpers";
+import { buildValidationDetails as buildSharedValidationDetails } from "../chapter-runtime-helpers";
 import type { PipelineContext } from "../pipeline-types";
 
 const STD_NEGATIVE =
@@ -138,23 +135,18 @@ export async function runImageGenerationPass(
     chapterImagePlan,
   } = input;
 
-  // ── Contexte canonique partagé pour la construction des packets ──────
-  // Build une seule fois au début du pass, puis réutilisé par image.
-  const canonicalUniverse: UniverseProfileRef = {
-    universeId: (project?.id as string) ?? projectId,
-    universeName: (project?.name as string) ?? "Unknown",
-    tone: (project?.primaryGenre as string) ?? "adventure",
-    era: null,
-    magicLevel: null,
-  };
-  // Phase 2 truth: replace the silent
-  //   `stylePacks[0]?.name ?? "shonen_classic"`
-  // fallback with a resolved CanonicalStyleContract. The contract surfaces
-  // drift risk, so the truth report can flag a suspicious style without
-  // silently generating a realistic panel.
-  const canonicalStyleContract = resolveCanonicalStyleContract({
-    stylePack: stylePacks[0] ?? null,
-    presetSlug: (project?.stylePresetSlug as string | undefined) ?? null,
+  const {
+    canonicalUniverse,
+    canonicalStyleContract,
+    canonicalMangaStyle,
+    canonicalContentRating,
+    canonicalVisualClassification,
+    canonicalContinuity,
+  } = buildCanonicalContextForImagePass({
+    project,
+    projectId,
+    stylePacks,
+    intensityLayer,
   });
   if (
     canonicalStyleContract.source === "unresolved" ||
@@ -171,49 +163,6 @@ export async function runImageGenerationPass(
       },
     );
   }
-  const canonicalMangaStyle: MangaStyleProfileRef = {
-    styleId: canonicalStyleContract.styleId,
-    styleName: canonicalStyleContract.styleName,
-    medium: "manga",
-    inkingStyle:
-      canonicalStyleContract.lineWeight === "heavy"
-        ? "heavy bold manga linework"
-        : canonicalStyleContract.lineWeight === "fine"
-          ? "fine precise manga linework"
-          : "clean manga linework",
-    shadingStyle:
-      canonicalStyleContract.shadingMode === "ink_bw"
-        ? "ink black-and-white screen tones"
-        : canonicalStyleContract.shadingMode === "cel_shading"
-          ? "cel shaded manga rendering"
-          : canonicalStyleContract.shadingMode === "painterly"
-            ? "painterly ink washes"
-            : "cross-hatching manga rendering",
-    compositionStyle: "dynamic manga panel layout",
-    referenceMangaTitle: canonicalStyleContract.referenceMangaTitle,
-  };
-  const canonicalContentRating: ContentRating = (() => {
-    const il = (intensityLayer ?? "").toLowerCase();
-    if (il.includes("explicit")) return "explicit_adult";
-    if (il.includes("mature") || il.includes("adult")) return "mature";
-    if (il.includes("teen")) return "teen";
-    return "teen";
-  })();
-  const canonicalVisualClassification: VisualClassification = {
-    rating: canonicalContentRating,
-    audience: canonicalContentRating === "teen" ? "teen 13+" : canonicalContentRating,
-    violenceLevel: canonicalContentRating === "mature" || canonicalContentRating === "explicit_adult" ? "moderate" : "mild",
-    sensualityLevel: canonicalContentRating === "explicit_adult" ? "explicit" : "none",
-    allowedTokens: [],
-    forbiddenTokens: [],
-  };
-  const canonicalContinuity: ContinuityContext = {
-    anchors: [],
-    recentBeatsSummary: "",
-    heroKnownInjuries: [],
-    heroKnownOutfit: null,
-    activeInventory: [],
-  };
 
     await setJobProgress(
       jobId,
@@ -224,233 +173,18 @@ export async function runImageGenerationPass(
     let generatedCount = 0;
     let failedCount = 0;
     const failedShots: Array<{ id: string; item: PlannedImage }> = [];
-    const sceneKeyframeUrlCache = new Map<string, Promise<string | null>>();
 
     const persistFalTraceEntry = (input: Omit<Parameters<typeof persistFalTrace>[0], "projectId" | "chapterId">) =>
       persistFalTrace({ ...input, projectId, chapterId });
 
-    async function ensureSceneKeyframeUrl(item: PlannedImage): Promise<string | null> {
-      const sceneKeyframeId =
-        typeof item.baseMetadata.sceneKeyframeId === "string"
-          ? item.baseMetadata.sceneKeyframeId
-          : null;
-      if (!sceneKeyframeId) return null;
-      const existingPromise = sceneKeyframeUrlCache.get(sceneKeyframeId);
-      if (existingPromise) return existingPromise;
-
-      const promise = (async () => {
-        const keyframe = await prisma.sceneKeyframe.findUnique({
-          where: { id: sceneKeyframeId },
-          include: {
-            imageAsset: {
-              select: {
-                id: true,
-                storageProvider: true,
-                bucket: true,
-                storageKey: true,
-                publicUrl: true,
-                signedUrl: true,
-                falCdnUrl: true,
-                sha256: true,
-              },
-            },
-          },
-        });
-        if (!keyframe) return null;
-        if (keyframe.imageUrl) {
-          const existingKeyframeRef = buildStableImageReference({
-            assetId: keyframe.imageAsset?.id ?? keyframe.imageAssetId ?? null,
-            storageProvider: keyframe.imageAsset?.storageProvider ?? null,
-            bucket: keyframe.imageAsset?.bucket ?? null,
-            storageKey: keyframe.imageAsset?.storageKey ?? null,
-            publicUrl: keyframe.imageAsset?.publicUrl ?? keyframe.imageUrl,
-            signedUrl: keyframe.imageAsset?.signedUrl ?? null,
-            falCdnUrl: keyframe.imageAsset?.falCdnUrl ?? null,
-            sourceUrl: keyframe.imageUrl,
-            sourceType: keyframe.imageAssetId ? "media_asset" : "scene_keyframe",
-            checksum: keyframe.imageAsset?.sha256 ?? null,
-          });
-          if (!existingKeyframeRef) return keyframe.imageUrl;
-          const existingResolution = await resolveStableImageReferences([existingKeyframeRef], {
-            logPrefix: "[pipeline:keyframe-existing]",
-          });
-          return existingResolution.urls[0] ?? keyframe.imageUrl;
-        }
-
-        const metadata =
-          keyframe.metadata && typeof keyframe.metadata === "object"
-            ? (keyframe.metadata as Record<string, unknown>)
-            : {};
-        const sceneCharacterNames = Array.isArray(metadata.involvedCharacterNames)
-          ? metadata.involvedCharacterNames.filter((value): value is string => typeof value === "string")
-          : [];
-        const keyframeReferenceResolution = await resolveStableImageReferences(
-          sceneCharacterNames
-            .map((name) => canonRefByName.get(name))
-            .filter((value): value is StableImageReference => Boolean(value))
-            .slice(0, 2),
-          { logPrefix: "[pipeline:keyframe-ref]" },
-        );
-        const keyframeRefs = keyframeReferenceResolution.urls;
-        const keyframeLoras = sceneCharacterNames
-          .map((name) => loraByCharName.get(name))
-          .filter((value): value is { url: string; triggerWord: string; scale: number } => Boolean(value))
-          .slice(0, 2);
-        const size = getFalImageSizePreset("panel_establishing");
-        const generation = await runRoutedImageGeneration(
-          {
-            mode: "SCENE_KEYFRAME",
-            contentIntensityLayer: intensityLayer,
-            adultEngine,
-            isNewCharacter: false,
-            hasCanonReferences: keyframeRefs.length > 0 || keyframeLoras.length > 0,
-            characterCountInScene: sceneCharacterNames.length,
-            purpose: "establishing",
-            shotType: "wide",
-            environmentPriority: "high",
-            locationComplexity: 80,
-            environmentDensityRequired: "high",
-            continuityWeight: 85,
-            scenePurpose: "scene_keyframe",
-            needsInpaint: false,
-            needsPoseVariation: false,
-            preferPhotorealCover: false,
-            explicitBlocked: intensityLayer === "RESTRICTED_BLOCKED_VISUAL",
-            goreStylizedMature:
-              intensityLayer === "MATURE_DRAMA" ||
-              intensityLayer === "MATURE_VISUAL" ||
-              intensityLayer === "ADULT_EXPLICIT",
-          },
-          {
-            mode: "SCENE_KEYFRAME",
-            positivePrompt: typeof metadata.positivePrompt === "string" ? metadata.positivePrompt : item.panel.prompt,
-            negativePrompt: typeof metadata.negativePrompt === "string" ? metadata.negativePrompt : STD_NEGATIVE,
-            width: size.width,
-            height: size.height,
-            referenceImageUrls: keyframeRefs.length > 0 ? keyframeRefs : undefined,
-            loras: keyframeLoras.length > 0 ? keyframeLoras : undefined,
-            providerParams: {
-              contentIntensityLayer: intensityLayer,
-              mode: "SCENE_KEYFRAME",
-              referencePolicy: keyframeRefs.length > 0 || keyframeLoras.length > 0 ? "LIGHT" : "NONE",
-              panelCategory: "ESTABLISHING_ENVIRONMENT",
-              scenePass: "scene_base",
-            },
-          },
-        );
-        if (!generation.ok) {
-          await persistFalTraceEntry({
-            sceneId: keyframe.sceneId,
-            sceneKeyframeId,
-            provider: "fal",
-            model: "fal-ai/flux/dev",
-            mode: keyframeRefs.length > 0 || keyframeLoras.length > 0 ? "img2img" : "text2img",
-            status: "failed",
-            requestId: null,
-            jobId: null,
-            requestPayload: {
-              positivePrompt: typeof metadata.positivePrompt === "string" ? metadata.positivePrompt : item.panel.prompt,
-              negativePrompt: typeof metadata.negativePrompt === "string" ? metadata.negativePrompt : STD_NEGATIVE,
-              width: size.width,
-              height: size.height,
-              referenceTrace: keyframeReferenceResolution.trace,
-            },
-            responsePayload: generation.log,
-            refsUsed: keyframeRefs,
-            lorasUsed: keyframeLoras,
-            error: { reason: generation.reason },
-          });
-          return null;
-        }
-        await persistFalTraceEntry({
-          sceneId: keyframe.sceneId,
-          sceneKeyframeId,
-          provider: generation.result.provider,
-          model: generation.result.model,
-          mode: keyframeRefs.length > 0 || keyframeLoras.length > 0 ? "img2img" : "text2img",
-          status: "completed",
-          requestId: generation.result.requestId ?? null,
-          jobId: generation.result.jobId ?? null,
-          requestPayload: {
-            positivePrompt: typeof metadata.positivePrompt === "string" ? metadata.positivePrompt : item.panel.prompt,
-            negativePrompt: typeof metadata.negativePrompt === "string" ? metadata.negativePrompt : STD_NEGATIVE,
-            width: size.width,
-            height: size.height,
-            referenceTrace: keyframeReferenceResolution.trace,
-          },
-          responsePayload: generation.result.raw ?? generation.log,
-          refsUsed: keyframeRefs,
-          lorasUsed: keyframeLoras,
-          timings: generation.result.timings,
-        });
-
-        const persisted = await persistImageIfNeeded({
-          imageUrl: generation.result.imageUrl,
-          projectId,
-          chapterId,
-          sceneImageId: `scene_keyframe_${sceneKeyframeId}`,
-        });
-        if (!persisted.ok) {
-          console.warn(
-            `[pipeline:keyframe] persist failed sceneKeyframeId=${sceneKeyframeId} reason=${persisted.reason} — skipping keyframe`,
-          );
-          return null;
-        }
-
-        // P0.1 — on refuse de créer un MediaAsset canonique avec une URL non
-        // persistée (FAL/BFL signée/temporaire). Le keyframe reste sans image
-        // pour ce round — il sera retenté au prochain appel.
-        if (!persisted.persisted) {
-          console.warn(
-            `[pipeline:keyframe] skipping non-persisted keyframe sceneKeyframeId=${sceneKeyframeId} (url already stable but no canonical storageKey)`,
-          );
-          return persisted.url;
-        }
-
-        const mediaAsset = await prisma.mediaAsset.create({
-          data: {
-            projectId,
-            chapterId,
-            sceneId: keyframe.sceneId,
-            type: "scene_keyframe",
-            origin: "generated",
-            ownerType: "scene_keyframe",
-            ownerId: sceneKeyframeId,
-            storageProvider: "supabase",
-            // P0.2 — bucket/storageKey reflètent EXACTEMENT l'upload côté
-            // persistence, sans fallback reconstruit à la main (ancien
-            // `scene-keyframes/${id}` ne matchait jamais le chemin réel).
-            bucket: persisted.bucket,
-            publicUrl: persisted.url,
-            storageKey: persisted.storageKey,
-            metadata: ({
-              requestId: generation.result.requestId ?? null,
-              jobId: generation.result.jobId ?? null,
-              // Persiste le seed FAL pour rejouer la génération du keyframe à l'identique
-              // si un retry déterministe est demandé (cohérence inter-panels d'une même scène).
-              seed: generation.result.seed ?? null,
-              generationLog: generation.log,
-            } as unknown) as Prisma.InputJsonValue,
-          },
-        });
-        await prisma.sceneKeyframe.update({
-          where: { id: sceneKeyframeId },
-          data: {
-            imageUrl: persisted.url,
-            imageAssetId: mediaAsset.id,
-            metadata: ({
-              ...metadata,
-              generatedAt: new Date().toISOString(),
-              persisted: persisted.persisted,
-            } as unknown) as Prisma.InputJsonValue,
-          },
-        });
-        return persisted.url;
-      })();
-
-      sceneKeyframeUrlCache.set(sceneKeyframeId, promise);
-      return promise;
-    }
+    const ensureSceneKeyframeUrl = createSceneKeyframeUrlResolver({
+      projectId,
+      chapterId,
+      intensityLayer,
+      adultEngine,
+      canonRefByName,
+      loraByCharName,
+    });
 
     // COST-2 : cache des décors purs (environment panels) pour éviter de regénérer le même décor
     const environmentImageCache = new Map<string, string>(); // key: location+mood → imageUrl
@@ -646,7 +380,20 @@ export async function runImageGenerationPass(
                 ? [{
                     characterId: focusName ?? "hero",
                     assetId: (canonRef.id as string | undefined) ?? "ref",
-                    url: (canonRef.resolvedUrl ?? canonRef.sourceUrl ?? canonRef.publicUrl ?? canonRef.signedUrl ?? canonRef.falCdnUrl) ?? "",
+                    // AUDIT-V8 — priorité aux URLs DURABLES connues du provider :
+                    //   1. resolvedUrl (déjà garanti stable upstream)
+                    //   2. falCdnUrl (déjà côté fal)
+                    //   3. signedUrl (Supabase signée)
+                    //   4. publicUrl (peut être 403 si bucket privé)
+                    //   5. sourceUrl (dernier recours)
+                    // Le diag CTO montrait fal qui prenait 400 sur /object/public/
+                    // alors qu'une signedUrl était dispo dans canonRef.
+                    url:
+                      (canonRef.resolvedUrl
+                        ?? canonRef.falCdnUrl
+                        ?? canonRef.signedUrl
+                        ?? canonRef.publicUrl
+                        ?? canonRef.sourceUrl) ?? "",
                     kind: isCloseupPanel ? "face" : "full",
                   }]
                 : [],
@@ -961,73 +708,22 @@ export async function runImageGenerationPass(
           }
         }
 
-        const isEnvironmentSufficientForNarrativePanel = (validation: Awaited<ReturnType<typeof validateGeneratedPanel>>) => {
-          if (strategy.panelCategory === "CHARACTER_LOCK" || strategy.panelCategory === "LOCAL_FIX") return true;
-          const scores = validation.qualityScores;
-          if (!scores) return false;
-          const schoolScene = /school|lycée|lycee|école|ecole|campus|cour du lycée/i.test(item.panel.prompt);
-          const visionFindings = validation.visionAnalysis?.findings.join(" | ").toLowerCase() ?? "";
-          return !(
-            scores.backgroundPresenceScore < 0.62
-            || scores.environmentReadabilityScore < 0.6
-            || (strategy.interactionCritical && scores.interactionScore < 0.58 && scores.visionScore !== null)
-            || (schoolScene && /missing school architecture|generic background|fond vide/.test(visionFindings))
-          );
-        };
+        const isEnvironmentSufficientForNarrativePanel = (validation: Awaited<ReturnType<typeof validateGeneratedPanel>>) =>
+          isEnvironmentSufficientForNarrativePanelHelper({
+            validation,
+            strategy,
+            panelPrompt: item.panel.prompt,
+          });
 
-        /**
-         * P0-4 : pilotage unifié du reroll automatique par `drift.recommendedAction`.
-         *
-         * Le détecteur de drift calcule déjà une action (keep, soft_reroll,
-         * character_reroll, style_reroll, full_reroll, flag_for_review). On
-         * honore cette décision en priorité et on retombe sur les signaux de
-         * validation (backgroundPresence, interaction…) uniquement pour les cas
-         * soft/full où aucun axe clair ne domine.
-         */
         const pickRerollKind = (
           validation: Awaited<ReturnType<typeof validateGeneratedPanel>>,
           drift: ReturnType<typeof detectVisualDrift>,
-        ): "REROLL_ENVIRONMENT" | "REROLL_CHARACTER_FIDELITY" | "REROLL_INTERACTION" | "REROLL_STYLE" | "REROLL_COMPOSITION" => {
-          const scores = validation.qualityScores;
-
-          switch (drift.recommendedAction) {
-            case "character_reroll":
-              return "REROLL_CHARACTER_FIDELITY";
-            case "style_reroll":
-              return "REROLL_STYLE";
-            case "full_reroll":
-              if (scores && (scores.backgroundPresenceScore < 0.62 || scores.environmentReadabilityScore < 0.6)) {
-                return "REROLL_ENVIRONMENT";
-              }
-              return "REROLL_COMPOSITION";
-            case "soft_reroll":
-            case "keep":
-            case "flag_for_review":
-              // fall through to validation-driven heuristics
-              break;
-          }
-
-          if (!scores) return "REROLL_COMPOSITION";
-          if (scores.backgroundPresenceScore < 0.62 || scores.environmentReadabilityScore < 0.6) return "REROLL_ENVIRONMENT";
-          if (strategy.interactionCritical && scores.interactionScore < 0.58 && scores.visionScore !== null) return "REROLL_INTERACTION";
-          if (!drift.pass || validation.issues.some((issue) => issue.type === "missing_character" || issue.type === "wrong_hair" || issue.type === "wrong_outfit")) {
-            return "REROLL_CHARACTER_FIDELITY";
-          }
-          if (validation.issues.some((issue) => issue.type === "style_drift")) return "REROLL_STYLE";
-          return "REROLL_COMPOSITION";
-        };
+        ) => pickRerollKindHelper({ validation, drift, strategy });
 
         const rankCandidate = (
           validation: Awaited<ReturnType<typeof validateGeneratedPanel>>,
           drift: ReturnType<typeof detectVisualDrift>,
-        ) => {
-          const scores = validation.qualityScores;
-          const release = scores?.releaseScore ?? validation.score;
-          return release
-            + (scores?.backgroundPresenceScore ?? 0) * 0.2
-            + (scores?.interactionScore ?? 0) * 0.15
-            + (drift.pass ? 0.05 : -0.08);
-        };
+        ) => rankCandidateHelper({ validation, drift });
 
         const generateAttempt = async (params: {
           scenePass: "scene_base" | "character_reinforcement" | "reroll";
@@ -1941,112 +1637,16 @@ export async function runImageGenerationPass(
       stylePacks,
     });
 
-    const chapterQualityRows = await prisma.sceneImage.findMany({
-      where: {
-        scene: {
-          chapterId,
-        },
-      },
-      select: {
-        consistencyScore: true,
-        metadata: true,
-      },
-    });
-    const chapterQualityReport = computeChapterQualityReport(chapterQualityRows);
-    // P10 — log honnête : distinguer "QA absente" de "QA ratée".
-    if (!chapterQualityReport.qaDataAvailable) {
-      console.warn(
-        `[pipeline:quality] qa_data_missing total=${chapterQualityReport.totalPanels} panelsWithQa=0 — accepted=false signifie "pas de QA" et non "mauvaise qualité"`,
-      );
-    } else {
-      console.log(
-        `[pipeline:quality] average=${chapterQualityReport.averageReleaseScore.toFixed(2)} threshold=${chapterQualityReport.releaseThreshold.toFixed(2)} accepted=${chapterQualityReport.premiumReleaseAccepted} panelsWithQa=${chapterQualityReport.panelsWithQa}/${chapterQualityReport.totalPanels} weakPanels=${chapterQualityReport.weakPanels.length}`,
-      );
-    }
-    const persistedRuntime = buildPersistedChapterRuntimeState({
-      studioSnapshot,
+    const { chapterQualityReport, generationRunSummary } = await persistChapterFinalStatus({
       chapterId,
       chapterNumber,
       jobId,
-      totalPlannedImages: plannedImages.length,
+      studioSnapshot,
+      productionSource,
+      revisedBundle,
+      plannedImagesCount: plannedImages.length,
       generatedCount,
       failedCount,
-      qualityReport: chapterQualityReport,
-    });
-    const generationRunSummary = buildRuntimeDebugSummary({
-      generationRunSummary: persistedRuntime.generationRunSummary,
-      productionSource,
-    });
-
-    // Mettre à jour le statut du chapitre
-    await prisma.chapter.update({
-      where: { id: chapterId },
-      data: {
-        status: persistedRuntime.persistedChapterStatus,
-        ...(persistedRuntime.structuredRuntimeFields
-          ? {
-              studioStatus: persistedRuntime.structuredRuntimeFields.studioStatus,
-              studioCurrentStep: persistedRuntime.structuredRuntimeFields.studioCurrentStep,
-              studioUpdatedAt: persistedRuntime.structuredRuntimeFields.studioUpdatedAt
-                ? new Date(persistedRuntime.structuredRuntimeFields.studioUpdatedAt)
-                : null,
-              studioAutosaveVersion: persistedRuntime.structuredRuntimeFields.studioAutosaveVersion,
-              minimumImages: persistedRuntime.structuredRuntimeFields.minimumImages,
-              generatedImages: persistedRuntime.structuredRuntimeFields.generatedImages,
-              acceptedImages: persistedRuntime.structuredRuntimeFields.acceptedImages,
-              rejectedImages: persistedRuntime.structuredRuntimeFields.rejectedImages,
-              missingImages: persistedRuntime.structuredRuntimeFields.missingImages,
-              criticalPanelsCount: persistedRuntime.structuredRuntimeFields.criticalPanelsCount,
-              criticalPanelsBlocked: persistedRuntime.structuredRuntimeFields.criticalPanelsBlocked,
-              criticalPanelsMissingQa: persistedRuntime.structuredRuntimeFields.criticalPanelsMissingQa,
-              reviewBlockedReason: persistedRuntime.structuredRuntimeFields.reviewBlockedReason,
-            }
-          : {}),
-        outline: ({
-          ...revisedBundle.outline,
-          operationalStatus: revisedBundle.generationDiagnostics.operationalStatus,
-          degradedModes: revisedBundle.generationDiagnostics.degradedModes,
-          generationDiagnostics: revisedBundle.generationDiagnostics.outline,
-          generationRunSummary,
-          imageStats: {
-            total: plannedImages.length,
-            generated: generatedCount,
-            failed: failedCount,
-            accepted: chapterQualityReport.acceptedImages,
-            rejected: chapterQualityReport.rejectedImages,
-            minimumAcceptedImages: chapterQualityReport.minimumAcceptedImages,
-            missingImages: chapterQualityReport.missingImages,
-          },
-          runtimeSources: {
-            outlineSource: productionSource.source,
-            fallbackUsed: productionSource.fallbackUsed,
-            legacyBridgeUsed: productionSource.legacyBridgeUsed,
-          },
-          qualityReport: chapterQualityReport,
-        } as unknown) as Prisma.InputJsonValue,
-        script: ({
-          ...revisedBundle.script,
-          operationalStatus: revisedBundle.generationDiagnostics.operationalStatus,
-          degradedModes: revisedBundle.generationDiagnostics.degradedModes,
-          generationDiagnostics: revisedBundle.generationDiagnostics.dialogue,
-          generationRunSummary,
-          imageStats: {
-            total: plannedImages.length,
-            generated: generatedCount,
-            failed: failedCount,
-            accepted: chapterQualityReport.acceptedImages,
-            rejected: chapterQualityReport.rejectedImages,
-            minimumAcceptedImages: chapterQualityReport.minimumAcceptedImages,
-            missingImages: chapterQualityReport.missingImages,
-          },
-          runtimeSources: {
-            outlineSource: productionSource.source,
-            fallbackUsed: productionSource.fallbackUsed,
-            legacyBridgeUsed: productionSource.legacyBridgeUsed,
-          },
-          qualityReport: chapterQualityReport,
-        } as unknown) as Prisma.InputJsonValue,
-      },
     });
 
     return {

@@ -21,6 +21,7 @@ export * from "./visual-world/visual-world-contract";
 export * from "./visual-world/select-beat-location";
 export * from "./visual-world/narrative-location-from-contract";
 export * from "./visual-world/required-props-to-world-prop-dna";
+export * from "./visual-world/resolve-location-label";
 export * from "./locations/resolve-canonical-location";
 export * from "./images/stable-image-url";
 export * from "./canon/resolve-location-visual-canon";

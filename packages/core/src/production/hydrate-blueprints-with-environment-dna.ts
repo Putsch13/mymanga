@@ -110,7 +110,16 @@ export function hydrateBlueprintsWithEnvironmentDna(
 
   return input.blueprints.map((bp) => {
     const loc = trySelectBeatLocationFromVisualWorld({ beatId: bp.beatId, visualWorld: vw });
-    if (!loc) return bp;
+    if (!loc) {
+      // FIX-18 (MOD) — En premium (strict), un beat sans lieu résolvable
+      // dans le VisualWorld est BLOQUANT : on ne veut pas qu'un panel
+      // arrive en rendu sans environmentVisualDna. En non-strict on
+      // retombe silencieusement (legacy).
+      if (input.strict) {
+        throw new MissingVisualWorldError(`missing_location_for_beat:${bp.beatId}`);
+      }
+      return bp;
+    }
     const bb = bindingForBeat(vw, bp.beatId);
     const next = visualWorldLocationToEnvironmentDna(loc);
     const prev = bp.environmentVisualDna;

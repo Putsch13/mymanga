@@ -194,6 +194,7 @@ describe("runRenderPass — contrat QA visuelle (phase 8)", () => {
       prompt: "retry-prompt",
       strengthenedRefs: false,
       simplifiedScene: false,
+      appliedPatches: [],
     });
 
     vi.spyOn(Ai, "runVisualPanelQaWithOptionalVision").mockImplementation(async (input) => {

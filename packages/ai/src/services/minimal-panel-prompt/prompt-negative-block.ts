@@ -157,20 +157,59 @@ export function buildPromptNegativeBlock(spec: PanelRenderSpec): string {
     spec.constraints.mustShow.some((m) => entityObligationHints.test(m))
       ? (["characters absent from frame", "empty battlefield"] as const)
       : [];
+  // SPRINT 6 — bloc négatif enrichi (audit v7).
+  // Avant : 13 tokens essentiellement "anti-3D + anti-bulle". Insuffisant
+  // contre les artefacts récurrents (mains à 6 doigts, doubles silhouettes,
+  // typographie hallucinée, anatomie cassée, sceau Adobe Stock…).
   const baseNegatives = [
+    // Famille modèle
     "3d render",
     "photorealistic",
+    "octane render",
+    "unreal engine",
+    // Style à exclure
     "chibi",
+    "deformed art style",
+    "low quality",
+    "blurry lineart",
+    "noisy artifacts",
+    "sketch unfinished",
+    "amateur drawing",
+    // Marquage / identité
     "watermark",
     "signature",
+    "logo",
+    "stock photo overlay",
+    "shutterstock",
+    "getty images",
+    "adobe stock",
+    // Texte (jamais dans l'image — le moteur de bulles fait le job)
     "text in image",
     "speech bubble",
     "caption",
-    "logo",
-    "blurry lineart",
+    "subtitles",
+    "labels on objects",
+    "letters as image content",
+    // Anatomie cassée
     "deformed hands",
     "extra fingers",
+    "extra limbs",
+    "missing fingers",
+    "fused fingers",
+    "twisted arms",
+    "broken anatomy",
+    "wrong proportions",
+    "asymmetric eyes",
+    "lazy eye",
+    // Identité
     "duplicate face",
+    "duplicate character",
+    "two heroes side by side",
+    "clone characters",
+    // Compression / qualité
+    "jpeg compression",
+    "color banding",
+    "moiré pattern",
   ];
   const drift = spec.constraints.forbiddenDrift;
   const mustNot = spec.constraints.mustNotShow;

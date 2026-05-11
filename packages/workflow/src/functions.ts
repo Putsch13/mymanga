@@ -128,4 +128,74 @@ export const trainCharacterLoraJob = inngest.createFunction(
   },
 );
 
-export const functions = [generateChapterPipeline, processChapterOutlineJob, cleanupStaleImages, trainCharacterLoraJob];
+/**
+ * SPRINT 1.3 — Test E2E hebdomadaire avec vraies images FAL.
+ *
+ * Cron tous les dimanches à 3h UTC.
+ * Budget cap : MAX_FAL_BUDGET_USD=5 (défaut).
+ *
+ * Pour un vrai test E2E avec génération d'images, utilisez le test vitest
+ * `packages/workflow/src/__tests__/e2e-real-images-weekly.test.ts`
+ * avec E2E_REAL_IMAGES=true.
+ *
+ * Ce cron Inngest est un placeholder qui valide que le système est opérationnel
+ * et peut être étendu pour lancer le test complet.
+ */
+export const weeklyE2ETest = inngest.createFunction(
+  {
+    id: "weekly-e2e-real-images",
+    name: "E2E weekly with real images",
+    triggers: { cron: "0 3 * * 0" }, // Dimanche 3h UTC
+  },
+  async ({ step }) => {
+    const maxBudget = Number(process.env.MAX_FAL_BUDGET_USD) || 5;
+    console.log(`[weekly-e2e] Starting weekly E2E health check (budget cap: $${maxBudget})`);
+
+    const healthCheck = await step.run("health-check", async () => {
+      const projectCount = await prisma.project.count();
+      const chapterCount = await prisma.chapter.count();
+      const imageCount = await prisma.sceneImage.count();
+
+      const hasOpenAiKey = Boolean(process.env.OPENAI_API_KEY);
+      const hasFalKey = Boolean(process.env.FAL_KEY);
+
+      return {
+        projectCount,
+        chapterCount,
+        imageCount,
+        hasOpenAiKey,
+        hasFalKey,
+        keysReady: hasOpenAiKey && hasFalKey,
+      };
+    });
+
+    if (!healthCheck.keysReady) {
+      console.warn(
+        `[weekly-e2e] Keys missing: OPENAI=${healthCheck.hasOpenAiKey} FAL=${healthCheck.hasFalKey}`,
+      );
+      return {
+        success: false,
+        error: "missing_api_keys",
+        details: healthCheck,
+      };
+    }
+
+    console.log(
+      `[weekly-e2e] Health check passed: ${healthCheck.projectCount} projects, ${healthCheck.chapterCount} chapters, ${healthCheck.imageCount} images`,
+    );
+
+    return {
+      success: true,
+      message: "E2E health check passed. Run vitest with E2E_REAL_IMAGES=true for full test.",
+      stats: healthCheck,
+    };
+  },
+);
+
+export const functions = [
+  generateChapterPipeline,
+  processChapterOutlineJob,
+  cleanupStaleImages,
+  trainCharacterLoraJob,
+  weeklyE2ETest,
+];

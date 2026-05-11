@@ -34,3 +34,4 @@ export * from "./panel-dialogue-text-plan";
 export * from "./build-beat-micro-storyboard";
 export * from "./allocate-contractual-visual-slots";
 export * from "./repair-contractual-focus";
+export * from "./validate-served-events";

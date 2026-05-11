@@ -13,14 +13,16 @@ import {
   runIntentCoverageQa,
   logIntentContract,
   logOutlineCoverage,
+  resolveVisualWorldLocationLabels,
   type ChapterStudioSnapshot,
 } from "@manga-ai-studio/core";
 import { prisma } from "@manga-ai-studio/db";
 
-// Threshold lowered to 30 — heuristic word-overlap between user-intent
-// sentences and beat summaries is too fragile for a hard block at 60%.
-// La QA structurelle + le score de confiance protègent déjà la qualité.
-const INTENT_COVERAGE_BLOCK_THRESHOLD = 30;
+// FIX-13 (MAJEUR) — Le seuil 30 % laissait passer presque n'importe quel
+// chapitre. On durcit en premium (80 %) et garde un seuil intermédiaire
+// pour les chapitres non premium (50 %).
+const INTENT_COVERAGE_BLOCK_THRESHOLD_PREMIUM = 80;
+const INTENT_COVERAGE_BLOCK_THRESHOLD_DEFAULT = 50;
 
 export interface RunIntentCoverageQaInput {
   projectId: string;
@@ -55,18 +57,33 @@ export async function runIntentCoverageQaForLaunch(
     return { ok: true };
   }
 
+  // FIX-13 (MAJEUR) — En premium on attend une couverture stricte (et
+  // donc `runIntentCoverageQa` doit lever des issues bloquantes).
+  const isPremium = strictPremiumContinuity;
+  const blockThreshold = isPremium
+    ? INTENT_COVERAGE_BLOCK_THRESHOLD_PREMIUM
+    : INTENT_COVERAGE_BLOCK_THRESHOLD_DEFAULT;
+
   try {
     // P0 fix : les knownLocationNames doivent être des LIEUX (VW + DB),
     // pas les canonicalName des character canons.
+    // FIX-17 (MAJEUR) — Le schema VisualWorldLocation utilise `label`
+    // comme champ canonique, pas `canonicalName`. On utilise désormais
+    // `resolveVisualWorldLocationLabels()` qui sait fallback proprement.
     const visualWorldForLocs = snapshot.data.visualWorldContract as
       | {
-          locations?: Array<{ id?: string; canonicalName?: string }>;
+          locations?: Array<{
+            id?: string;
+            label?: string | null;
+            canonicalName?: string | null;
+            name?: string | null;
+          }>;
           npcGroups?: Array<{ id?: string; label?: string; role?: string }>;
         }
       | undefined;
-    const locationNamesFromVw = (visualWorldForLocs?.locations ?? [])
-      .map((l) => l.canonicalName)
-      .filter((n): n is string => Boolean(n));
+    const locationNamesFromVw = resolveVisualWorldLocationLabels(
+      visualWorldForLocs?.locations ?? [],
+    );
     const dbLocations = await prisma.location.findMany({
       where: { projectId },
       select: { name: true },
@@ -99,8 +116,12 @@ export async function runIntentCoverageQaForLaunch(
     // d'utiliser `requiredLocationIds` / `requiredNpcGroups[i].vwNpcGroupId`
     // pour vérifier que le plan visite les *mêmes* entités.
     const visualWorldLocationsForIntent = (visualWorldForLocs?.locations ?? [])
-      .filter((l): l is { id: string; canonicalName?: string } => Boolean(l.id))
-      .map((l) => ({ id: l.id, canonicalName: l.canonicalName ?? null }));
+      .filter((l): l is { id: string } & typeof l => Boolean(l.id))
+      .map((l) => ({
+        id: l.id as string,
+        // FIX-17 — accepter label OU canonicalName OU name pour compat.
+        canonicalName: l.label ?? l.canonicalName ?? l.name ?? null,
+      }));
     const visualWorldNpcGroupsForIntent = vwNpcGroupsForIntent
       .filter((g): g is { id: string; label?: string; role?: string } => Boolean(g.id))
       .map((g) => ({ id: g.id, label: g.label ?? null, role: g.role ?? null }));
@@ -146,7 +167,9 @@ export async function runIntentCoverageQaForLaunch(
       beatSummaries: [...beatSummariesSet],
       visualWorldLocationNames: vwLocs,
       visualWorldNpcGroupLabels: vwNpcs,
-      strict: false,
+      // FIX-13 (MAJEUR) — strict en premium pour bloquer si le plan
+      // n'aligne pas events/lieux/npc requis.
+      strict: isPremium,
     });
 
     logOutlineCoverage({
@@ -156,14 +179,14 @@ export async function runIntentCoverageQaForLaunch(
     });
 
     if (
-      coverage.intentCoverageScore < INTENT_COVERAGE_BLOCK_THRESHOLD &&
+      coverage.intentCoverageScore < blockThreshold &&
       intentNarrative.requiredEvents.length > 0
     ) {
       logLaunchBlock(
         projectId,
         chapterId,
         "INTENT_COVERAGE_TOO_LOW",
-        `Intent coverage score=${coverage.intentCoverageScore} below threshold=${INTENT_COVERAGE_BLOCK_THRESHOLD}`,
+        `Intent coverage score=${coverage.intentCoverageScore} below threshold=${blockThreshold} (premium=${isPremium})`,
         { missingEvents: coverage.missingEvents, issues: coverage.issues.slice(0, 5) },
       );
       return {

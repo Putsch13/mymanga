@@ -246,11 +246,78 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
   let requiredDialogueActBeatIdsForPipeline: string[] = [];
   if (chapter.userIntent && chapter.userIntent.length > 8) {
     try {
-      const { buildIntentNarrativeContract } = await import("@manga-ai-studio/core");
-      const intentNarrative = buildIntentNarrativeContract({
-        chapterId,
-        userIntent: chapter.userIntent,
-      });
+      const {
+        buildIntentNarrativeContract,
+        parseIntentNarrativeContract,
+      } = await import("@manga-ai-studio/core");
+
+      // FIX-14 (MAJEUR) — Si la route `/intent-compile` a déjà persisté
+      // un `intentNarrativeContract` (avec résolution de pronoms et
+      // contexte projet complet), on le réutilise tel quel au lieu de
+      // recompiler heuristiquement avec un userIntent sans contexte
+      // (qui faisait perdre "lui" / co-protagoniste / lieux VW).
+      const persistedIntentContract =
+        studioData?.intentNarrativeContract
+        && typeof studioData.intentNarrativeContract === "object"
+          ? studioData.intentNarrativeContract
+          : null;
+
+      let intentNarrative: Awaited<ReturnType<typeof buildIntentNarrativeContract>> | null = null;
+      if (persistedIntentContract) {
+        try {
+          intentNarrative = parseIntentNarrativeContract(persistedIntentContract);
+          console.info(
+            `[full-chapter-pipeline] using persisted intentNarrativeContract events=${intentNarrative.requiredEvents.length}`,
+          );
+        } catch (parseErr) {
+          console.warn(
+            "[full-chapter-pipeline] persisted_intent_narrative_contract_invalid_falling_back",
+            parseErr,
+          );
+        }
+      }
+
+      if (!intentNarrative) {
+        const visualWorldLocationsForBuild = Array.isArray(
+          (persistedVisualWorldForPipeline as { locations?: unknown[] } | null)?.locations,
+        )
+          ? ((persistedVisualWorldForPipeline as { locations: Array<Record<string, unknown>> }).locations.map(
+              (l) => ({
+                id: typeof l.id === "string" ? l.id : "",
+                canonicalName:
+                  typeof l.label === "string"
+                    ? l.label
+                    : typeof l.canonicalName === "string"
+                      ? l.canonicalName
+                      : null,
+              }),
+            ).filter((l) => l.id.length > 0))
+          : [];
+        const visualWorldNpcGroupsForBuild = Array.isArray(
+          (persistedVisualWorldForPipeline as { npcGroups?: unknown[] } | null)?.npcGroups,
+        )
+          ? ((persistedVisualWorldForPipeline as { npcGroups: Array<Record<string, unknown>> }).npcGroups.map(
+              (g) => ({
+                id: typeof g.id === "string" ? g.id : "",
+                label: typeof g.label === "string" ? g.label : null,
+                role: typeof g.role === "string" ? g.role : null,
+              }),
+            ).filter((g) => g.id.length > 0))
+          : [];
+
+        intentNarrative = buildIntentNarrativeContract({
+          chapterId,
+          userIntent: chapter.userIntent,
+          knownCharacters: rawCharacters.map((c) => ({
+            id: c.id,
+            name: c.name,
+            roleType: c.roleType,
+          })),
+          visualWorldLocations: visualWorldLocationsForBuild,
+          visualWorldNpcGroups: visualWorldNpcGroupsForBuild,
+        });
+      }
+
       const dialogueEventIds = new Set(
         intentNarrative.requiredEvents
           .filter((e) => e.requiredDialogue === true || e.type === "dialogue")
@@ -266,7 +333,37 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
         }
       }
       requiredDialogueActBeatIdsForPipeline = [...beatIds];
+
+      // FIX-30 (MAJEUR) — Vérifier que TOUS les events dialogue requis sont
+      // servis par au moins un blueprint. Sinon, un dialogue obligatoire entre
+      // Lux et "lui" (Kai) pourrait ne jamais apparaître dans le chapitre.
+      const servedEventIdsAll = new Set(
+        beatBlueprints.flatMap((bp) =>
+          Array.isArray(bp.servedEventIds) ? bp.servedEventIds : [],
+        ),
+      );
+      const unservedDialogueEvents = [...dialogueEventIds].filter(
+        (id) => !servedEventIdsAll.has(id),
+      );
+
+      if (unservedDialogueEvents.length > 0) {
+        console.warn(
+          `[full-chapter-pipeline] required_dialogue_events_not_served ` +
+            `count=${unservedDialogueEvents.length} ids=${unservedDialogueEvents.join(",")}`,
+        );
+
+        if (premiumV3OnlyEnabled) {
+          throw new Error(
+            `premium_required_dialogue_event_not_served_by_any_panel: ` +
+              `${unservedDialogueEvents.join(",")}`,
+          );
+        }
+      }
     } catch (err) {
+      // Ne pas catcher l'erreur premium (rethrow)
+      if (err instanceof Error && err.message.startsWith("premium_required_dialogue_event_not_served")) {
+        throw err;
+      }
       console.warn("[full-chapter-pipeline] required_dialogue_act_beat_ids_build_failed", err);
     }
   }

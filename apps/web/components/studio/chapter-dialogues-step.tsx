@@ -14,7 +14,7 @@
  * locales appellent `onUpdateDraft` qui passe par la route /studio (PATCH).
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Loader2,
   MessageSquareText,
@@ -136,6 +136,18 @@ export function ChapterDialoguesStep({
     });
   }, [views]);
 
+  // AUDIT-V8 — refs tenues à jour pour éviter de recréer `handleGenerate`
+  // à chaque frappe (sinon useCallback réclame `draft` et `onUpdateDraft`
+  // dans deps, ce qui invalide la stabilité de la callback).
+  const draftRef = useRef(draft);
+  const onUpdateDraftRef = useRef(onUpdateDraft);
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+  useEffect(() => {
+    onUpdateDraftRef.current = onUpdateDraft;
+  }, [onUpdateDraft]);
+
   const handleGenerate = useCallback(async () => {
     if (!planReady) return;
     setGenerating(true);
@@ -159,10 +171,11 @@ export function ChapterDialoguesStep({
       // Resync draft with server-persisted blueprints so that autosave and
       // tab-switches don't overwrite the dialogues with the old draft.
       if (data.persisted && Array.isArray(data.panelBlueprints) && data.panelBlueprints.length > 0) {
-        onUpdateDraft({
-          ...draft,
+        const currentDraft = draftRef.current;
+        onUpdateDraftRef.current({
+          ...currentDraft,
           productionPlan: {
-            ...draft.productionPlan!,
+            ...currentDraft.productionPlan!,
             panelBlueprints: data.panelBlueprints as never,
           },
           chapterDialogueContract: data.contract as never,
