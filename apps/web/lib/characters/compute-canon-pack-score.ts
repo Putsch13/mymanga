@@ -19,6 +19,9 @@
  * Le tout flag `complete` à true si score ≥ 0.7.
  */
 
+/** Seuil unique : même que `complete` et que le préflight launch (≥ = fiche prête). */
+export const CANON_PACK_COMPLETE_SCORE_THRESHOLD = 0.7;
+
 export interface CanonPackScoreInput {
   name: string | null | undefined;
   roleType: string | null | undefined;
@@ -128,7 +131,7 @@ export function computeCanonPackScore(input: CanonPackScoreInput): CanonPackScor
 
   return {
     score,
-    complete: score >= 0.7,
+    complete: score >= CANON_PACK_COMPLETE_SCORE_THRESHOLD,
     breakdown: {
       identity: Math.round(identityScore * 100) / 100,
       appearance: Math.round(appearanceScore * 100) / 100,

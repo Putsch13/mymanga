@@ -188,8 +188,10 @@ export type CharacterCanonPackCheck = {
 };
 
 /**
- * Premium: verify that hero / deuteragonist characters have a complete CanonPack.
- * Returns blocking reasons for each character below the threshold.
+ * Premium: verify that hero / deuteragonist characters meet the minimum CanonPack
+ * **score** (same formula as the studio %). Blocking uses `canonPackCompleteness`
+ * only — not `hasCanonPack`, so a perso sans ligne `CharacterCanonPack` mais avec
+ * champs rempli (score ≥ seuil) passe le launch.
  */
 export function canonPackPreflightBlockingReasons(
   characters: CharacterCanonPackCheck[],
@@ -203,7 +205,7 @@ export function canonPackPreflightBlockingReasons(
     const role = (c.roleType ?? "").toLowerCase();
     const isMainCast = heroRoles.has(role);
     if (!isMainCast) continue;
-    if (!c.hasCanonPack || c.canonPackCompleteness < threshold) {
+    if (c.canonPackCompleteness < threshold) {
       blockers.push(`canon_pack_incomplete:${c.characterId}`);
     }
   }

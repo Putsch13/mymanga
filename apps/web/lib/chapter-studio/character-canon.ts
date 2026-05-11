@@ -20,7 +20,7 @@ import {
   mergeCharacterFingerprint,
   resolveActiveCharacterLoraBinding,
 } from "@manga-ai-studio/core";
-import { computeCanonPackScore } from "@/lib/characters/compute-canon-pack-score";
+import { computeCanonPackScore, CANON_PACK_COMPLETE_SCORE_THRESHOLD } from "@/lib/characters/compute-canon-pack-score";
 
 export function buildCharacterCanonFromCharacter(character: {
   id: string;
@@ -77,6 +77,32 @@ export function buildCharacterCanonFromCharacter(character: {
           : isNpcRole(character.roleType)
             ? "RECURRING_NPC"
             : "RECURRING_NPC";
+
+  const canonPackCompleteness = (() => {
+    const live = computeCanonPackScore({
+      name: character.name,
+      roleType: character.roleType,
+      gender: character.gender,
+      biography: character.biography,
+      objective: character.objective,
+      appearance: character.appearance,
+      hairColor: character.hairColor,
+      eyeColor: character.eyeColor,
+      outfitDefault: character.outfitDefault,
+      voiceRegister: character.voiceRegister,
+      voiceVocabularyStyle: character.voiceVocabularyStyle,
+      stableVisualDNA: character.stableVisualDNA,
+      stableSpeechDNA: character.stableSpeechDNA,
+      stablePsycheDNA: character.stablePsycheDNA,
+      activeVisualRefCount: (character.visualRefs ?? []).length,
+    }).score;
+    const stored =
+      typeof character.canonPack?.completenessScore === "number"
+        ? character.canonPack.completenessScore
+        : null;
+    if (stored == null) return live;
+    return Math.max(live, stored);
+  })();
 
   return {
     characterId: character.id,
@@ -137,37 +163,10 @@ export function buildCharacterCanonFromCharacter(character: {
       characterFingerprint,
       bodyState,
     }),
-    hasCanonPack: Boolean(character.canonPack),
-    // P0 fix : dérivation LIVE du score depuis les champs Character courants.
-    // Avant : on lisait `canonPack.completenessScore` qui restait à 0 par
-    // défaut → tous les personnages "score 0%". Maintenant on calcule à la
-    // volée + on prend le max avec la valeur DB (qui est mise à jour aussi
-    // au PATCH). Ainsi un perso bien rempli passe à 70-100%.
-    canonPackCompleteness: (() => {
-      const live = computeCanonPackScore({
-        name: character.name,
-        roleType: character.roleType,
-        gender: character.gender,
-        biography: character.biography,
-        objective: character.objective,
-        appearance: character.appearance,
-        hairColor: character.hairColor,
-        eyeColor: character.eyeColor,
-        outfitDefault: character.outfitDefault,
-        voiceRegister: character.voiceRegister,
-        voiceVocabularyStyle: character.voiceVocabularyStyle,
-        stableVisualDNA: character.stableVisualDNA,
-        stableSpeechDNA: character.stableSpeechDNA,
-        stablePsycheDNA: character.stablePsycheDNA,
-        activeVisualRefCount: (character.visualRefs ?? []).length,
-      }).score;
-      const stored =
-        typeof character.canonPack?.completenessScore === "number"
-          ? character.canonPack.completenessScore
-          : null;
-      if (stored == null) return live;
-      return Math.max(live, stored);
-    })(),
+    /** True si une ligne CanonPack existe OU si le score live dépasse le seuil prod (aligné launch). */
+    hasCanonPack:
+      Boolean(character.canonPack) || canonPackCompleteness >= CANON_PACK_COMPLETE_SCORE_THRESHOLD,
+    canonPackCompleteness,
   };
 }
 
