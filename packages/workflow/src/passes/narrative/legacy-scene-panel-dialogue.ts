@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any -- TODO(Sprint 4 / TASK-4.1): typer après split de narrative-pass.ts. */
 /**
  * legacy-scene-panel-dialogue.ts
  *

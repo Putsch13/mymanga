@@ -11,7 +11,7 @@ import { uniq } from "../pipeline-helpers";
 import { setJobProgress } from "../pipeline-job";
 import type { PipelineContext, PipelineMemoryResult } from "../pipeline-types";
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any -- TODO(Sprint 4): typer CharacterStateLike/ContinuityIssueLike via les types Prisma. */
 
 type CharacterStateLike = {
   characterId: string;

@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any -- TODO(Sprint 4): typer via les contrats canon/cast (charactère ↔ canon-resolver). */
 /**
  * Construit la triade `castContract` + `canonResolverResult` (+ enrichies
  * locations) + `storyContract` et exécute la `StoryContractCompletenessQA`.

@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any -- TODO(Sprint 4 / TASK-4.1): typer après split de narrative-pass.ts. */
 /**
  * Promeut automatiquement les PNJ découverts dans le bundle (storyboard
  * + scènes) qui ne sont pas encore dans `rawCharacters`, en respectant la

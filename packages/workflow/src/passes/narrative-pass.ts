@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any -- TODO(Sprint 4 / TASK-4.1): supprimer en découpant ce fichier (1890 LOC) en modules typés. */
 /**
  * LEGACY PIPELINE — planification narrative + images (Prisma, scene blueprint, world legacy).
  * La génération premium v3 doit utiliser `run-premium-v3-pipeline`, pas ce module.

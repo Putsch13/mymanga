@@ -77,7 +77,7 @@ export function ChapterCastCanonStep({
     if (autoHeroId) {
       updateCharacterSelection({ heroCharacterId: autoHeroId });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- updateCharacterSelection est stable (setter draft), inclure ferait re-tirer à chaque rerender parent.
   }, [autoHeroId]);
 
   const { npcs: recurringNpcs, promoteNpc } = useRecurringNpcs(projectId);

@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any -- TODO(Sprint 4 / TASK-4.2): typer après split de image-generation-pass.ts. */
 /**
  * Persiste l'état final du chapitre après l'image-generation pass :
  *   - lit `SceneImage.metadata` + `consistencyScore` pour calculer le quality report,

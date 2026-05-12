@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any -- TODO(Sprint 4): typer via VisualWorldDiscoveryPassResult après extraction. */
 /**
  * Exécute la `runVisualWorldDiscoveryPass` et fusionne les NPC groups
  * (visualWorld + blueprints + regex legacy) en respectant la stratégie

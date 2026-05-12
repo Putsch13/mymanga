@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any -- TODO(Sprint 4 / TASK-4.2): supprimer en découpant ce fichier (1658 LOC) en modules typés. */
 import {
   runRoutedImageGeneration,
   detectVisualDrift,
