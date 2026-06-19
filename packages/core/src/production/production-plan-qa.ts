@@ -190,13 +190,17 @@ function checkUnresolvedCharacterRefsInBeats(plan: CanonicalChapterProductionPla
   if (lines.length === 0) {
     return { passed: true, message: "No unresolved character label refs on beats", severity: "warning" };
   }
+  // NON-BLOQUANT : le LLM invente souvent des libellés génériques ("La créature",
+  // "L'inconnu") que l'entity-brain résout au rendu depuis la description du beat.
+  // Hard-bloquer la génération là-dessus est trop strict pour un outil créatif :
+  // on signale en warning, on ne casse pas le plan.
   return {
     passed: false,
     message:
       lines.length <= 8
         ? lines.join(" | ")
         : `${lines.slice(0, 8).join(" | ")} | …`,
-    severity: "error",
+    severity: "warning",
   };
 }
 
