@@ -96,21 +96,34 @@ export async function POST(req: Request, ctx: Ctx) {
   const resolvedNpcNames = npcGroups.map((g) => g.label).filter((l): l is string => Boolean(l));
 
   // Pas encore d'intention exploitable : on amorce l'interview sans compiler.
+  // On tente quand même le LLM pour une ouverture CONVERSATIONNELLE dès le 1er
+  // tour (repli déterministe si pas de clé / échec).
   if (rawUserIntent.length < 8) {
-    const plan = planInterviewQuestions(
-      {
-        contract: emptyContract(),
-        knownCharacterNames,
-        resolvedNpcNames,
-        answeredKinds: body.answeredKinds,
-      },
-      body.maxQuestions,
-    );
+    const emptyc = emptyContract();
+    const llmPlan = await planInterviewQuestionsLlm({
+      messages: body.messages,
+      contract: emptyc,
+      knownCharacterNames,
+      resolvedNpcNames,
+      maxQuestions: body.maxQuestions,
+    });
+    const plan =
+      llmPlan
+      ?? planInterviewQuestions(
+        {
+          contract: emptyc,
+          knownCharacterNames,
+          resolvedNpcNames,
+          answeredKinds: body.answeredKinds,
+        },
+        body.maxQuestions,
+      );
     return NextResponse.json({
       contract: null,
       plan,
       canvas: buildCanvas(null, knownCharacterNames, resolvedNpcNames),
       persisted: false,
+      interviewer: llmPlan ? "llm" : "deterministic",
     });
   }
 
