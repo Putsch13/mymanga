@@ -310,6 +310,14 @@ export function ChapterInterviewStudio({
                 </div>
               </div>
             ))}
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={launching}
+              className="w-full rounded-md border border-dashed border-primary/40 bg-primary/5 px-3 py-2 text-xs font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
+            >
+              {launching ? "L'IA finalise et génère…" : "✨ Je te laisse finir — l'IA complète le reste et génère"}
+            </button>
           </div>
         )}
 

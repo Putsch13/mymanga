@@ -3,7 +3,10 @@ services:
     name: mymanga-web
     runtime: node
     region: oregon
-    plan: starter
+    # starter (512 Mo) = OOM garanti pendant la génération (estimate + pipeline
+    # LLM + 70 images en mémoire). standard = 2 Go, indispensable pour générer
+    # un chapitre sans SIGTERM. Voir startCommand (max-old-space aligné).
+    plan: standard
     buildCommand: |
       set -e
       npm install -g pnpm@10.33.0
@@ -14,7 +17,7 @@ services:
       # Fail-closed: if a migration fails, the deploy fails — no partial schema in prod.
       pnpm --filter @manga-ai-studio/db exec prisma migrate deploy
       pnpm --filter @manga-ai-studio/web build
-    startCommand: NODE_OPTIONS='--max-old-space-size=512' pnpm --filter @manga-ai-studio/web start
+    startCommand: NODE_OPTIONS='--max-old-space-size=1536' pnpm --filter @manga-ai-studio/web start
     healthCheckPath: /api/diagnostics/public
     envVars:
       - key: DATABASE_URL
