@@ -13,10 +13,13 @@
  * `resolveCharacterIdentity` (hairColor, hairStyle, eyeColor, eyeShape,
  * faceShape, skinTone, silhouetteType, scars, tattoos, defaultOutfit).
  */
+import { useState } from "react";
+import { Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { safeFetch } from "@/lib/safe-fetch";
 
 export interface CharacterVisualFormValue {
   name: string;
@@ -124,15 +127,82 @@ function Field({
 export function CharacterVisualForm({
   value,
   onChange,
+  projectId,
 }: {
   value: CharacterVisualFormValue;
   onChange: (next: CharacterVisualFormValue) => void;
+  /** Si fourni, active le bouton « Remplir par l'IA » (autofill visuel). */
+  projectId?: string;
 }) {
   const set = <K extends keyof CharacterVisualFormValue>(key: K, v: CharacterVisualFormValue[K]) =>
     onChange({ ...value, [key]: v });
 
+  const [brief, setBrief] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  async function runAiFill() {
+    if (!projectId || !value.name.trim()) {
+      setAiError("Donne au moins un nom avant de demander à l'IA.");
+      return;
+    }
+    setAiLoading(true);
+    setAiError(null);
+    const result = await safeFetch<{ fill: Partial<CharacterVisualFormValue> }>(
+      `/api/projects/${projectId}/characters/ai-fill`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: value.name.trim(),
+          brief: brief.trim() || undefined,
+          gender: value.gender || undefined,
+          role: value.role || undefined,
+        }),
+      },
+    );
+    setAiLoading(false);
+    if (!result.ok) {
+      setAiError(result.error);
+      return;
+    }
+    const f = result.data.fill ?? {};
+    // L'IA NE PRÉFIXE PAS sur ce que l'utilisateur a déjà saisi (USER-WINS) :
+    // on ne remplit QUE les champs vides.
+    const merged: CharacterVisualFormValue = { ...value };
+    (Object.keys(f) as (keyof CharacterVisualFormValue)[]).forEach((k) => {
+      const incoming = (f[k] ?? "").toString().trim();
+      if (incoming && !merged[k].trim()) merged[k] = incoming as never;
+    });
+    onChange(merged);
+  }
+
   return (
     <div className="space-y-6">
+      {/* Autofill IA */}
+      {projectId ? (
+        <div className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-4">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <p className="text-sm font-medium">Laisse l&apos;IA habiller le personnage</p>
+          </div>
+          <Textarea
+            value={brief}
+            onChange={(e) => setBrief(e.target.value)}
+            rows={2}
+            placeholder="Ex : jeune samouraï taciturne, cicatrice de guerre, allure noble..."
+          />
+          <div className="flex items-center gap-3">
+            <Button type="button" size="sm" variant="outline" onClick={runAiFill} disabled={aiLoading || !value.name.trim()}>
+              {aiLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+              Remplir par l&apos;IA
+            </Button>
+            <span className="text-xs text-muted-foreground">Ne remplace que les champs vides.</span>
+          </div>
+          {aiError ? <p className="text-xs text-red-400">{aiError}</p> : null}
+        </div>
+      ) : null}
+
       {/* Identité minimale */}
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">

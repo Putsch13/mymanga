@@ -101,7 +101,7 @@ export default function NewCharacterPage() {
               <CardDescription>Identité minimale + traits d&apos;apparence pour l&apos;IA.</CardDescription>
             </CardHeader>
             <CardContent>
-              <CharacterVisualForm value={form} onChange={setForm} />
+              <CharacterVisualForm value={form} onChange={setForm} projectId={id} />
             </CardContent>
           </Card>
 
