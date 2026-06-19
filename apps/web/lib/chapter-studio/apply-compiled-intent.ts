@@ -66,12 +66,27 @@ export async function applyCompiledIntentToChapter(
 ): Promise<ApplyCompiledIntentResult> {
   const { chapter, projectId, contract, narrativeContract, rawUserIntent, transitionReason } = input;
 
+  // PONT conversationnel → wizard. Le launch + la readiness lisent `data.intent`
+  // (shortPitch, etc.), PAS le chapterIntentContract. Sans ça, le studio
+  // conversationnel laisse `intent` vide → readiness bloquée + autofill refusé
+  // (pitch_too_short). On dérive donc `data.intent` depuis le contrat compilé.
+  const pitch = (contract.understoodPitch?.trim() || rawUserIntent.trim()).slice(0, 600);
+  const intentPatch = {
+    chapterNumber: chapter.chapterNumber,
+    workingTitle: chapter.title ?? null,
+    shortPitch: pitch.length >= 3 ? pitch : null,
+    emotionalGoal: contract.emotionalGoal?.trim() || null,
+    mainConflict: contract.plotGoal?.trim() || null,
+    endingMode: contract.expectedCliffhanger ? ("cliffhanger" as const) : null,
+  };
+
   let persisted = false;
   try {
     const snapshot = patchChapterStudioSnapshot(
       chapter.outline,
       {
         ...(input.extraStudioPatch ?? {}),
+        intent: intentPatch,
         chapterIntentContract: contract,
         // Persister AUSSI le narrativeContract pour que le pipeline
         // (run-full-chapter-pipeline, intent-coverage-qa, dialogue-scene-writer)
