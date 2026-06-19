@@ -7,7 +7,8 @@
  * questions ciblées (que se passe-t-il, époque, décors, PNJ, créatures…),
  * compile l'intention en back (POST /interview) et remplit un canevas de
  * config en temps réel. Quand les questions critiques sont traitées, le
- * bouton « Générer » enchaîne estimate → launch (pipeline v3 inchangé).
+ * bouton « Générer » enchaîne estimate → approved-outline (persistance) →
+ * launch : l'IA auto-approuve le plan pour rendre le chapitre launch-ready.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -58,6 +59,59 @@ const SEVERITY_STYLE: Record<InterviewQuestion["severity"], string> = {
   recommended: "border-amber-500/40 bg-amber-500/5",
   optional: "border-border bg-muted/30",
 };
+
+interface EstimatePreviewBeat {
+  id?: string;
+  summary?: string;
+  characters?: string[];
+  location?: string;
+  pageRole?: string;
+  turn?: string;
+  emotionalDelta?: number;
+}
+
+/**
+ * Construit un `approvedOutline` VALIDE (cf. approvedOutlineSchema) depuis la
+ * réponse /estimate. Tous les champs requis sont garantis avec des fallbacks
+ * (summary ≥10, location ≥1, turn ≥1…) pour que /approved-outline ne rejette
+ * jamais le plan auto-approuvé du flux conversationnel.
+ */
+function buildApprovedOutlineFromEstimate(estData: unknown): Record<string, unknown> | null {
+  if (!estData || typeof estData !== "object") return null;
+  const d = estData as Record<string, unknown>;
+  const bundle = (d.bundle ?? {}) as Record<string, unknown>;
+  const outline = (bundle.outline ?? {}) as Record<string, unknown>;
+  const rawBeats = Array.isArray(d.previewBeats) ? (d.previewBeats as EstimatePreviewBeat[]) : [];
+  if (rawBeats.length === 0) return null;
+
+  const pad = (s: string, min: number, filler: string) =>
+    s.trim().length >= min ? s.trim() : (s.trim() + " " + filler).trim().padEnd(min, ".");
+
+  const fallbackLocation =
+    rawBeats.find((b) => (b.location ?? "").trim())?.location?.trim() || "Lieu principal";
+
+  const beats = rawBeats.slice(0, 24).map((b, i) => ({
+    id: (b.id && b.id.trim()) || `beat_${i + 1}`,
+    summary: pad(b.summary ?? "", 10, "Progression de la scène."),
+    characters: Array.isArray(b.characters) ? b.characters.filter((c) => typeof c === "string" && c.trim()) : [],
+    location: (b.location && b.location.trim()) || fallbackLocation,
+    pageRole: (b.pageRole && b.pageRole.trim()) || "escalation",
+    turn: (b.turn && b.turn.trim()) || "progression",
+    emotionalDelta: Math.max(-3, Math.min(3, Math.round(Number(b.emotionalDelta ?? 0)) || 0)),
+  }));
+
+  const summarySrc = typeof outline.chapter_goal === "string" ? outline.chapter_goal : "";
+  const cliffSrc = typeof outline.cliffhanger === "string" ? outline.cliffhanger : "";
+
+  return {
+    summary: pad(summarySrc, 10, "Déroulé du chapitre."),
+    cliffhanger: pad(cliffSrc, 3, "À suivre."),
+    beats,
+    approvedAt: new Date().toISOString(),
+    approvalVersion: typeof d.previewVersion === "string" && d.previewVersion ? d.previewVersion : `auto_${Date.now()}`,
+    source: "estimate_preview",
+  };
+}
 
 export function ChapterInterviewStudio({
   projectId,
@@ -153,19 +207,42 @@ export function ChapterInterviewStudio({
     setError(null);
     setLaunchMsg(null);
     try {
-      // 1. Construire/persister le plan de production canonique.
+      // 1. Estimate : l'IA construit le plan (beats, panels, monde visuel).
       const est = await fetch(`/api/projects/${projectId}/chapters/estimate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chapterId }),
       });
+      const estData = await est.json().catch(() => null);
       if (!est.ok) {
-        const d = await est.json().catch(() => null);
-        setError(d?.message ?? d?.error ?? `Préparation du plan échouée (${est.status})`);
+        setError(estData?.message ?? estData?.error ?? `Préparation du plan échouée (${est.status})`);
         return;
       }
-      // 2. Lancer la génération (pipeline v3). `launchChapterGeneration`
-      // throw en cas de refus (fail-closed) — pas de retour {ok:false}.
+
+      // 2. Auto-approbation : on transforme l'estimate en approvedOutline et on
+      // le PERSISTE via /approved-outline (chemin testé qui rend le chapitre
+      // launch-ready : productionPlan + visualWorldContract + cast). Sans cette
+      // étape, le launch premium voit un chapitre "vide" → premium_readiness_blocked.
+      const approvedOutline = buildApprovedOutlineFromEstimate(estData);
+      if (!approvedOutline) {
+        setError("L'IA n'a pas pu construire un plan exploitable. Donne plus de détails dans l'interview (événement, lieu).");
+        return;
+      }
+      const approve = await fetch(
+        `/api/projects/${projectId}/chapters/${chapterId}/approved-outline`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ approvedOutline }),
+        },
+      );
+      if (!approve.ok) {
+        const d = await approve.json().catch(() => null);
+        setError(d?.message ?? d?.error ?? `Persistance du plan échouée (${approve.status})`);
+        return;
+      }
+
+      // 3. Lancer la génération (pipeline v3). Throw en cas de refus (fail-closed).
       await launchChapterGeneration({ projectId, chapterId });
       setLaunchMsg("Génération lancée ! Suis la progression dans l'onglet de génération.");
     } catch (err) {
