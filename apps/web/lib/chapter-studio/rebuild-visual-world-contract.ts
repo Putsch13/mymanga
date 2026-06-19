@@ -35,8 +35,46 @@ export function rebuildVisualWorldContract(opts: {
     visualWorldContract: base,
   };
 
-  return syncChapterEntitiesToVisualWorld({
+  const result = syncChapterEntitiesToVisualWorld({
     chapterId,
     draft: draftWithLocations,
   });
+
+  // FILET DE SÉCURITÉ — le launch premium bloque (LOCATION_CANON_REQUIRED) si le
+  // monde visuel a 0 lieu. Le flux conversationnel ne capte pas toujours un lieu
+  // explicite (requiredLocations=0). On dérive alors un lieu principal depuis le
+  // setting/era de l'intention pour ne JAMAIS bloquer la génération.
+  if (!Array.isArray(result.locations) || result.locations.length === 0) {
+    const contract = draft.chapterIntentContract as
+      | { setting?: string | null; era?: string | null; understoodPitch?: string | null }
+      | undefined;
+    const setting = (contract?.setting ?? "").trim();
+    const era = (contract?.era ?? "").trim();
+    const label = setting || (era ? `Décor (${era})` : "Lieu principal");
+    const description =
+      [setting, era ? `époque ${era}` : ""].filter(Boolean).join(", ") ||
+      (contract?.understoodPitch ?? "").trim().slice(0, 120) ||
+      "Décor principal du chapitre";
+    return {
+      ...result,
+      locations: [
+        {
+          id: "loc_fallback_main",
+          label,
+          kind: "scene",
+          description,
+          visualAnchors: [],
+          architecture: [],
+          lighting: [],
+          atmosphere: [],
+          recurringProps: [],
+          negativeConstraints: [],
+          source: "ai_generated",
+          canonPolicy: "promote_candidate",
+        },
+      ],
+    };
+  }
+
+  return result;
 }
