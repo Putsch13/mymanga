@@ -13,6 +13,7 @@ import { z } from "zod";
 import { prisma } from "@manga-ai-studio/db";
 import {
   planInterviewQuestions,
+  planInterviewQuestionsLlm,
   type InterviewQuestionKind,
 } from "@manga-ai-studio/ai";
 import type { ChapterIntentContract } from "@manga-ai-studio/core";
@@ -170,15 +171,27 @@ export async function POST(req: Request, ctx: Ctx) {
         .filter((l): l is string => Boolean(l))
     : resolvedNpcNames;
 
-  const plan = planInterviewQuestions(
-    {
-      contract,
-      knownCharacterNames,
-      resolvedNpcNames: refreshedNpcNames,
-      answeredKinds: body.answeredKinds,
-    },
-    body.maxQuestions,
-  );
+  // Interviewer CONVERSATIONNEL : on tente d'abord le LLM (vrai dialogue qui
+  // s'adapte aux réponses), avec repli sur la checklist déterministe si le LLM
+  // échoue ou n'est pas configuré (jamais de blocage).
+  const llmPlan = await planInterviewQuestionsLlm({
+    messages: body.messages,
+    contract,
+    knownCharacterNames,
+    resolvedNpcNames: refreshedNpcNames,
+    maxQuestions: body.maxQuestions,
+  });
+  const plan =
+    llmPlan
+    ?? planInterviewQuestions(
+      {
+        contract,
+        knownCharacterNames,
+        resolvedNpcNames: refreshedNpcNames,
+        answeredKinds: body.answeredKinds,
+      },
+      body.maxQuestions,
+    );
 
   return NextResponse.json({
     contract,
@@ -187,6 +200,7 @@ export async function POST(req: Request, ctx: Ctx) {
     usedAi,
     persisted,
     worldEntities,
+    interviewer: llmPlan ? "llm" : "deterministic",
   });
 }
 
