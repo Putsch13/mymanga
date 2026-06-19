@@ -48,13 +48,12 @@ export default function NewCharacterPage() {
 
     const characterId = result.data.character.id;
 
-    // Génère le visuel en arrière-plan dès qu'on a le minimum (nom + genre).
+    // Génère le visuel AVANT de rediriger. On ATTEND la requête : un simple
+    // fire-and-forget était annulé par la navigation → le visuel ne se générait
+    // jamais et il fallait "retourner générer" à la main (étape en trop).
     if (form.name && form.gender) {
       setGeneratingVisual(true);
-      safeFetch(`/api/characters/${characterId}/generate-visual`, { method: "POST" }).catch(() => {
-        /* silencieux — le visuel peut être (re)généré depuis la fiche */
-      });
-      await new Promise((r) => setTimeout(r, 800));
+      await safeFetch(`/api/characters/${characterId}/generate-visual`, { method: "POST" });
       setGeneratingVisual(false);
     }
 
