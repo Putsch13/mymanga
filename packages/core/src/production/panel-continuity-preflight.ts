@@ -61,9 +61,7 @@ export function computePanelContinuityPreflights(
   blueprints: PanelBlueprintPremium[],
   options?: PanelContinuityPreflightOptions,
 ): PanelContinuityPreflight[] {
-  const strictEnv = options?.strictEnvironmentLocationBinding === true;
   const strictChar = options?.strictCharacterDnaBinding === true;
-  const strictProp = options?.strictPropVisualBinding === true;
   return blueprints.map((bp) => {
     const heroIdSet = new Set<string>();
     for (const id of bp.requiredCharacterIds ?? []) {
@@ -152,14 +150,16 @@ export function computePanelContinuityPreflights(
       && Boolean(speakerAnchorId)
       && !dna.has(speakerAnchorId!);
     const npcDnaMissingLine = missing.some((m) => m.startsWith("npc_visual_dna_insufficient:"));
-    // Environment DNA is a visual enhancement, not a structural prerequisite.
-    // Missing environmentVisualDna never blocks launch — the pipeline generates
-    // panels with a generic environment prompt. It remains a warning only.
-    const propBlocking =
-      (critical || strictProp) && missingPropVisualDna.length > 0;
+    // Environment DNA ET prop DNA sont des ENRICHISSEMENTS visuels, pas des
+    // prérequis structurels. Le pipeline rend le prop depuis son nom canonique +
+    // la description du beat. Bloquer la génération là-dessus est trop strict
+    // pour le flux conversationnel (les props auto-détectés n'ont pas toujours
+    // de DNA). On garde l'info dans `missing` mais en NON-bloquant (warning).
+    if (missingPropVisualDna.length > 0) {
+      warnings.push(`prop_visual_dna_missing:${missingPropVisualDna.length}_props`);
+    }
     const blocking =
       (critical && missingCharacterDna.length > 0)
-      || propBlocking
       || missingSpeakerAnchorDna
       || (strictChar && missingCharacterDna.length > 0)
       || npcDnaMissingLine;

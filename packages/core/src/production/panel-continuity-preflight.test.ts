@@ -243,7 +243,9 @@ describe("computePanelContinuityPreflights", () => {
     ]);
   });
 
-  it("strictPropVisualBinding : bloque si prop visual_world mustBeVisible sans propVisualDna", () => {
+  it("prop visual_world mustBeVisible sans propVisualDna : warning, PAS bloquant", () => {
+    // Le prop se rend depuis son nom canonique + la description du beat : DNA
+    // manquante = enrichissement absent, pas un blocage (flux conversationnel).
     const [p] = computePanelContinuityPreflights(
       [
         minimalBp({
@@ -268,10 +270,9 @@ describe("computePanelContinuityPreflights", () => {
       ],
       { strictPropVisualBinding: true },
     );
-    expect(p.blocking).toBe(true);
-    expect(continuityPreflightBlockingReasons([p])).toEqual([
-      "p1:critical_panel_missing_prop_visual_dna:p1",
-    ]);
+    expect(p.blocking).toBe(false);
+    expect(continuityPreflightBlockingReasons([p])).toEqual([]);
+    expect(p.warnings.some((w) => w.startsWith("prop_visual_dna_missing:"))).toBe(true);
   });
 
   it("establishing sans environmentVisualDna : warning mais pas bloquant", () => {
