@@ -7,14 +7,11 @@ import { CanonDriftBanner } from "@/components/characters/canon-drift-banner";
 import { detectCanonVisualDrift } from "@/lib/characters/detect-canon-visual-drift";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CharacterVisualConfig } from "@/components/characters/character-visual-config";
 import { CharacterBodyConfig } from "@/components/characters/character-body-config";
 import { CharacterWardrobeConfig } from "@/components/characters/character-wardrobe-config";
-import { CharacterSpeechConfig } from "@/components/characters/character-speech-config";
-import { CharacterCanonLocks } from "@/components/characters/character-canon-locks";
-import { CharacterCanonEvolution } from "@/components/characters/character-canon-evolution";
 import { DeleteCharacterButton } from "@/components/projects/delete-character-button";
 import {
   CharacterArchetypePresets,
@@ -33,8 +30,6 @@ import {
   isCharacterAdult,
 } from "./_components/compute-character-completion";
 import { IdentityTab } from "./_components/identity-tab";
-import { VoiceProfileBlock } from "./_components/voice-profile-block";
-import { CanonPolicyBlock } from "./_components/canon-policy-block";
 import { CharacterSidebar } from "./_components/character-sidebar";
 import { applyArchetypePresetPatch } from "./_components/apply-archetype-preset";
 
@@ -316,9 +311,6 @@ export default function CharacterDetailPage() {
             <TabsTrigger value="visual">Visage</TabsTrigger>
             <TabsTrigger value="body">Corps</TabsTrigger>
             <TabsTrigger value="wardrobe">Tenue</TabsTrigger>
-            <TabsTrigger value="speech">Voix</TabsTrigger>
-            <TabsTrigger value="canon">Canon</TabsTrigger>
-            <TabsTrigger value="evolution">Évolution</TabsTrigger>
           </TabsList>
 
           <TabsContent value="identity">
@@ -368,52 +360,6 @@ export default function CharacterDetailPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="speech">
-            <Card className="border-border/60 bg-card/50">
-              <CardHeader>
-                <CardTitle>Personnalité & Voix</CardTitle>
-                <CardDescription>Profil de voix persistante pour cohérence des dialogues</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <CharacterSpeechConfig
-                  value={character.speechProfile as Parameters<typeof CharacterSpeechConfig>[0]["value"]}
-                  onChange={(v) => patchCharacter({ speechProfile: v as Record<string, unknown> })}
-                />
-                <VoiceProfileBlock character={character} onPatch={patchCharacter} />
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="canon">
-            <Card className="border-border/60 bg-card/50">
-              <CardHeader>
-                <CardTitle>Verrous Canon</CardTitle>
-                <CardDescription>Traits verrouillés et politique de changement</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <CharacterCanonLocks
-                  value={character.continuityProfile as Parameters<typeof CharacterCanonLocks>[0]["value"]}
-                  onChange={(v) => patchCharacter({ continuityProfile: v as Record<string, unknown> })}
-                />
-                <CanonPolicyBlock character={character} onPatch={patchCharacter} />
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="evolution">
-            <Card className="border-border/60 bg-card/50">
-              <CardHeader>
-                <CardTitle>Évolution canonique cross-chapitre</CardTitle>
-                <CardDescription>
-                  Suivi visuel et narratif du personnage chapitre par chapitre (drift, événements,
-                  changements canon).
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <CharacterCanonEvolution characterId={character.id} />
-              </CardContent>
-            </Card>
-          </TabsContent>
         </Tabs>
 
         <CharacterSidebar
