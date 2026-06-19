@@ -1,0 +1,33 @@
+node_modules
+.next
+.turbo
+dist
+coverage
+# Secrets — jamais versionner d'env réel (seul .env.example est autorisé).
+.env
+.env.local
+.env.*.local
+.env.backup*
+**/.env
+**/.env.local
+**/.env.*.local
+*.log
+.DS_Store
+__MACOSX
+*.pem
+.vercel
+.cache
+*.tsbuildinfo
+# Archives potentiellement contenant des .env dé-référencés (zip -y)
+Archive*.zip
+# Bundles d'audit générés par `pnpm audit:bundle` — ne jamais versionner.
+audit-bundle-*.tar.gz
+audit-source-only.zip
+audit-source-only-*.zip
+# Exports locaux (zip d'audit / pack non audité) — artefacts dev uniquement.
+exports/*.zip
+# Polices téléchargées dynamiquement (pnpm fonts:download) — garder README-licenses.md
+packages/exports/fonts/*.ttf
+packages/exports/fonts/*.otf
+packages/exports/fonts/*.woff2
+!packages/exports/fonts/README-licenses.md

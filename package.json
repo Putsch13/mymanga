@@ -1,0 +1,42 @@
+{
+  "name": "manga-ai-studio",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @manga-ai-studio/web dev",
+    "build": "pnpm --filter @manga-ai-studio/web build",
+    "start": "pnpm --filter @manga-ai-studio/web start",
+    "typecheck": "pnpm -r exec tsc --noEmit",
+    "check:types": "pnpm typecheck",
+    "check:premium-boundaries": "pnpm --filter @manga-ai-studio/workflow exec vitest run src/__tests__/premium-no-legacy-imports.test.ts src/__tests__/premium-pipeline-no-regex-npc.test.ts",
+    "check:premium": "pnpm run check:types && pnpm audit:imports && pnpm run check:premium-boundaries",
+    "typecheck:scripts": "pnpm --filter @manga-ai-studio/web run typecheck:scripts",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "test:web": "pnpm --filter @manga-ai-studio/web test",
+    "test:ai": "pnpm --filter @manga-ai-studio/ai test",
+    "test:workflow": "pnpm --filter @manga-ai-studio/workflow test",
+    "test:core": "pnpm --filter @manga-ai-studio/core test",
+    "test:e2e": "pnpm --filter @manga-ai-studio/web test:e2e",
+    "db:generate": "pnpm --filter @manga-ai-studio/db exec prisma generate",
+    "db:push": "pnpm --filter @manga-ai-studio/db push",
+    "db:studio": "pnpm --filter @manga-ai-studio/db studio",
+    "db:seed": "pnpm --filter @manga-ai-studio/db seed",
+    "fonts:download": "bash scripts/download-fonts.sh",
+    "audit:bundle": "node scripts/audit-bundle.mjs",
+    "audit:routes": "tsx apps/web/scripts/audit-api-routes.ts",
+    "audit:assets": "tsx apps/web/scripts/audit-generated-assets.ts",
+    "audit:legacy": "tsx apps/web/scripts/audit-legacy-imports.ts",
+    "audit:imports": "node scripts/audit-local-imports.mjs",
+    "cleanup:generation": "tsx apps/web/scripts/cleanup-stale-generation-run.ts",
+    "graph:circular": "madge --circular .",
+    "deadcode": "ts-prune"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.37",
+    "tsx": "^4.21.0"
+  }
+}

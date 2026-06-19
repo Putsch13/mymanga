@@ -1,0 +1,69 @@
+services:
+  - type: web
+    name: mymanga-web
+    runtime: node
+    region: oregon
+    plan: starter
+    buildCommand: |
+      set -e
+      npm install -g pnpm@10.33.0
+      pnpm install --frozen-lockfile
+      pnpm --filter @manga-ai-studio/db exec prisma generate
+      # Auto-apply pending Prisma migrations on deploy.
+      # Requires DIRECT_URL env var pointing at the pooler in session mode (port 5432, no pgbouncer params).
+      # Fail-closed: if a migration fails, the deploy fails — no partial schema in prod.
+      pnpm --filter @manga-ai-studio/db exec prisma migrate deploy
+      pnpm --filter @manga-ai-studio/web build
+    startCommand: NODE_OPTIONS='--max-old-space-size=512' pnpm --filter @manga-ai-studio/web start
+    healthCheckPath: /api/diagnostics/public
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      # Pooler session mode (port 5432) for migrations.
+      # Format : postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require
+      - key: DIRECT_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: STORAGE_BUCKET
+        sync: false
+      - key: FAL_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: VISUAL_PANEL_QA_VISION
+        sync: false
+      - key: ENABLE_PREMIUM_VISION_QA
+        sync: false
+      - key: PREMIUM_VISUAL_QA_REQUIRED
+        sync: false
+      - key: ENABLE_IMAGE_MOCKS
+        sync: false
+      - key: PIPELINE_V3_PREMIUM_ONLY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: INNGEST_EVENT_KEY
+        sync: false
+      - key: INNGEST_SIGNING_KEY
+        sync: false
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      # Admin + unlimited credits (comma-separated emails)
+      - key: ADMIN_EMAILS
+        sync: false
+      - key: ADMIN_UNLIMITED_EMAILS
+        sync: false
+      # Set to "true" to activate the hardcoded dev admin list in production
+      - key: ENABLE_FORCED_ADMIN_EMAILS
+        sync: false

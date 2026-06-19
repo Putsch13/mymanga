@@ -1,0 +1,35 @@
+{
+  "name": "@manga-ai-studio/ai",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./routing": "./src/image-routing-service.ts",
+    "./chapter/shared-types": "./src/chapter/shared-types.ts",
+    "./prompt-composer": "./src/manga-prompt-composer.ts",
+    "./contracts": "./src/contracts/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "echo ok"
+  },
+  "dependencies": {
+    "@fal-ai/client": "^1.9.5",
+    "@manga-ai-studio/core": "workspace:*",
+    "@manga-ai-studio/db": "workspace:*",
+    "@manga-ai-studio/exports": "workspace:*",
+    "@manga-ai-studio/moderation": "workspace:*",
+    "@manga-ai-studio/world": "workspace:*",
+    "jszip": "^3.10.1",
+    "openai": "^6.33.0",
+    "sharp": "^0.34.5",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "^5",
+    "vitest": "^3.0.9"
+  }
+}

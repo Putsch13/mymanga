@@ -1,0 +1,117 @@
+/**
+ * Repair actions — structured auto-repair buttons for the wizard.
+ *
+ * Each repair action maps a blocker code to an API call and a user-facing label.
+ * The wizard renders these as buttons with loading states.
+ */
+
+export type RepairActionId =
+  | "analyze_story"
+  | "create_npcs"
+  | "create_decors"
+  | "repair_plan"
+  | "repair_dialogues"
+  | "complete_canon_pack";
+
+export interface RepairAction {
+  id: RepairActionId;
+  label: string;
+  description: string;
+  blockerCodes: string[];
+  endpoint: (ctx: RepairContext) => string;
+  method: "POST" | "PUT" | "PATCH";
+  /**
+   * Optional body builder. When omitted, an empty `{}` is sent.
+   * Returning `null` disables the action (e.g. missing context like userIntent).
+   */
+  buildBody?: (ctx: RepairContext) => Record<string, unknown> | null;
+}
+
+export interface RepairContext {
+  projectId: string;
+  chapterId: string;
+  characterId?: string;
+  /** Required for `analyze_story` to seed the intent compile route. */
+  userIntent?: string | null;
+  /** Required for `complete_canon_pack` when no `characterId` is selected yet. */
+  heroCharacterId?: string | null;
+}
+
+export const REPAIR_ACTIONS: RepairAction[] = [
+  {
+    id: "analyze_story",
+    label: "Analyser l'histoire",
+    description: "Compile l'intention en événements et personnages structurés.",
+    blockerCodes: ["INTENT_CONTRACT_REQUIRED", "intent_narrative_missing"],
+    endpoint: (ctx) =>
+      `/api/projects/${ctx.projectId}/chapters/${ctx.chapterId}/intent-compile`,
+    method: "POST",
+    buildBody: (ctx) => {
+      const intent = (ctx.userIntent ?? "").trim();
+      if (intent.length < 8) return null;
+      return { rawUserIntent: intent };
+    },
+  },
+  {
+    id: "create_npcs",
+    label: "Créer les PNJ depuis l'histoire",
+    description: "Détecte et crée les groupes de PNJ depuis l'intention.",
+    blockerCodes: ["npc_group_missing", "missing_npc_visual_dna"],
+    endpoint: (ctx) =>
+      `/api/projects/${ctx.projectId}/npc-resolve`,
+    method: "POST",
+  },
+  {
+    id: "create_decors",
+    label: "Créer les décors depuis l'histoire",
+    description: "Génère le monde visuel depuis l'intention et les lieux connus.",
+    blockerCodes: ["missing_environment_visual_dna", "VISUAL_WORLD_MISSING", "premium_visual_world_required"],
+    endpoint: (ctx) =>
+      `/api/projects/${ctx.projectId}/chapters/${ctx.chapterId}/studio`,
+    method: "PATCH",
+  },
+  {
+    id: "repair_plan",
+    label: "Réparer le plan",
+    description: "Régénère le plan du chapitre depuis l'intention analysée.",
+    blockerCodes: ["PREMIUM_OUTLINE_CONTRACT_INVALID", "DEGRADED_OUTLINE_FALLBACK", "INTENT_COVERAGE_TOO_LOW"],
+    endpoint: (ctx) =>
+      `/api/projects/${ctx.projectId}/chapters/${ctx.chapterId}/approved-outline`,
+    method: "PATCH",
+  },
+  {
+    id: "repair_dialogues",
+    label: "Réparer les dialogues",
+    description: "Régénère uniquement les dialogues manquants.",
+    blockerCodes: ["required_dialogue_missing", "required_dialogue_act_no_panel_target"],
+    endpoint: (ctx) =>
+      `/api/projects/${ctx.projectId}/chapters/${ctx.chapterId}/autofill`,
+    method: "POST",
+  },
+  {
+    id: "complete_canon_pack",
+    label: "Compléter la fiche personnage",
+    description: "Génère l'ADN visuel, vocal et psychologique depuis les données existantes.",
+    blockerCodes: ["canon_pack_incomplete", "CANON_PACK_INCOMPLETE"],
+    endpoint: (ctx) => {
+      const id = ctx.characterId ?? ctx.heroCharacterId ?? "unknown";
+      return `/api/characters/${id}/generate-dna`;
+    },
+    method: "POST",
+    buildBody: (ctx) => {
+      if (!ctx.characterId && !ctx.heroCharacterId) return null;
+      return {};
+    },
+  },
+];
+
+/**
+ * Given a list of blocker codes, find the matching repair actions.
+ */
+export function findRepairActions(blockerCodes: string[]): RepairAction[] {
+  return REPAIR_ACTIONS.filter((action) =>
+    action.blockerCodes.some((code) =>
+      blockerCodes.some((bc) => bc === code || bc.startsWith(code)),
+    ),
+  );
+}

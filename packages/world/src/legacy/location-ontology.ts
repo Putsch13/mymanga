@@ -1,0 +1,212 @@
+/**
+ * LEGACY FALLBACK ONLY.
+ *
+ * This file must not be used by premium generation.
+ * Premium generation must use:
+ * - VisualWorldContract for world entities
+ * - PanelTextContract for dialogue
+ * - CharacterCanon / characterVisualDna for characters
+ *
+ * If imported in premium path, this is a bug.
+ */
+
+import type { OntologyEntry, ProceduralEntity, SceneBlueprintInput } from "../types";
+import { createSeededRng } from "../seeded-rng";
+import { isEntryUniverseCompatible } from "../universe-compatibility";
+
+export const LOCATION_ONTOLOGY: OntologyEntry[] = [
+  {
+    id: "location-cyberpunk-alley",
+    label: "ruelle cyberpunk saturée de néons",
+    kind: "location",
+    tags: ["ruelle", "street", "city", "neon", "rain"],
+    universes: ["cyberpunk", "sci-fi", "seinen"],
+    tones: ["tendu", "dark", "cool"],
+    styles: ["manga", "premium", "stylized"],
+    factions: [],
+    weathers: ["rain", "drizzle", "storm"],
+    worldStates: [],
+    visualCues: ["enseignes verticales", "flaques lumineuses", "câbles pendants"],
+    environmentSignals: ["silhouettes en profondeur", "reflets colorés", "vapeur sortant des bouches d’aération"],
+    interactionHooks: ["oblige à se coller aux murs", "cache des observateurs", "amplifie l’isolement"],
+    rarity: 2,
+  },
+  {
+    id: "location-romantic-garden",
+    label: "jardin romantique soigné",
+    kind: "location",
+    tags: ["jardin", "flowers", "romance", "park"],
+    universes: ["romance", "fantasy", "shojo"],
+    tones: ["soft", "mélancolique", "warm"],
+    styles: ["manga", "delicate", "premium"],
+    factions: [],
+    weathers: [],
+    worldStates: [],
+    visualCues: ["allée fleurie", "lanternes basses", "lumière dorée"],
+    environmentSignals: ["pétales portés par le vent", "profondeur végétale", "banc discret"],
+    interactionHooks: ["encourage la confession", "ralentit le rythme", "rend les silences lisibles"],
+    rarity: 2,
+  },
+  {
+    id: "location-postapo-wasteland",
+    label: "wasteland post-apocalyptique éventré",
+    kind: "location",
+    tags: ["wasteland", "ruins", "desert", "survival"],
+    universes: ["post-apocalyptique", "seinen", "mecha"],
+    tones: ["brutal", "dark", "epic"],
+    styles: ["manga", "gritty", "premium"],
+    factions: [],
+    weathers: ["dust", "wind", "storm"],
+    worldStates: [],
+    visualCues: ["coques de véhicules rouillées", "sol craquelé", "horizon toxique"],
+    environmentSignals: ["structures effondrées", "drapeaux déchirés", "restes de combats"],
+    interactionHooks: ["force la vigilance", "réduit la couverture", "raconte une catastrophe passée"],
+    rarity: 1,
+  },
+  {
+    id: "location-abandoned-lab",
+    label: "laboratoire abandonné contaminé",
+    kind: "location",
+    tags: ["lab", "science", "indoor", "threat"],
+    universes: ["sci-fi", "horreur", "post-apocalyptique"],
+    tones: ["dark", "oppressant", "horror"],
+    styles: ["manga", "clean", "premium"],
+    factions: [],
+    weathers: [],
+    worldStates: [],
+    visualCues: ["cuves brisées", "écrans clignotants", "signalétique biohazard"],
+    environmentSignals: ["verre au sol", "câbles arrachés", "givre artificiel"],
+    interactionHooks: ["peut déclencher une alarme", "révèle une expérience ratée", "limite les déplacements"],
+    rarity: 1,
+  },
+  {
+    id: "location-arena-crowd",
+    label: "arène sous haute tension",
+    kind: "location",
+    tags: ["arena", "crowd", "action", "stadium"],
+    universes: ["shōnen", "fantasy", "mecha"],
+    tones: ["epic", "tendu", "dramatic"],
+    styles: ["manga", "dynamic", "premium"],
+    factions: [],
+    weathers: [],
+    worldStates: [],
+    visualCues: ["gradins serrés", "bannière du duel", "sol marqué"],
+    environmentSignals: ["foule en halo", "poussière soulevée", "lignes de fuite nettes"],
+    interactionHooks: ["met la pression sur les héros", "rend le mouvement lisible", "porte le spectacle"],
+    rarity: 2,
+  },
+  {
+    id: "location-floating-shrine",
+    label: "sanctuaire suspendu dans la brume",
+    kind: "location",
+    tags: ["shrine", "floating", "mist", "fantasy"],
+    universes: ["fantasy", "shojo", "romance"],
+    tones: ["soft", "mélancolique", "revelation"],
+    styles: ["manga", "delicate", "premium"],
+    factions: [],
+    weathers: ["mist", "clear"],
+    worldStates: [],
+    visualCues: ["arches légères", "cordes votives", "pierres flottantes"],
+    environmentSignals: ["brume stratifiée", "lumière diffuse", "silence suspendu"],
+    interactionHooks: ["ralentit le temps perçu", "invite à l’aveu", "transforme l’espace en seuil symbolique"],
+    rarity: 3,
+  },
+  {
+    id: "location-underground-clinic",
+    label: "clinique clandestine souterraine",
+    kind: "location",
+    tags: ["clinic", "underground", "cyberpunk", "injury"],
+    universes: ["cyberpunk", "seinen", "post-apocalyptique"],
+    tones: ["dark", "tendu", "cool"],
+    styles: ["manga", "clean", "premium"],
+    factions: [],
+    weathers: [],
+    worldStates: [],
+    visualCues: ["rideaux plastifiés", "néons médicaux", "tables inox"],
+    environmentSignals: ["casiers fermés", "fuites de vapeur", "moniteurs instables"],
+    interactionHooks: ["force l’immobilité", "rappelle le prix des blessures", "crée une intimité urgente"],
+    rarity: 2,
+  },
+  {
+    id: "location-school-rooftop",
+    label: "toit d’école balayé par le vent",
+    kind: "location",
+    tags: ["school", "rooftop", "wind", "slice"],
+    universes: ["shojo", "romance", "slice_of_life"],
+    tones: ["soft", "warm", "emotion"],
+    styles: ["manga", "delicate", "premium"],
+    factions: [],
+    weathers: ["clear", "wind", "cloudy"],
+    worldStates: [],
+    visualCues: ["grillage de sécurité", "porte métal usée", "banc discret"],
+    environmentSignals: ["ville au loin", "ciel ouvert", "uniformes agités par le vent"],
+    interactionHooks: ["rend les silences importants", "ouvre l’horizon émotionnel", "crée une bulle hors du reste du lycée"],
+    rarity: 3,
+  },
+  {
+    id: "location-desert-waystation",
+    label: "halte désertique semi-effondrée",
+    kind: "location",
+    tags: ["desert", "outpost", "wasteland", "survival"],
+    universes: ["post-apocalyptique", "fantasy", "seinen"],
+    tones: ["brutal", "dark", "epic"],
+    styles: ["manga", "gritty", "premium"],
+    factions: [],
+    weathers: ["dust", "wind", "storm"],
+    worldStates: [],
+    visualCues: ["pompe brisée", "auvent déchiré", "structures sableuses"],
+    environmentSignals: ["traces de pneus", "os blanchis", "horizon brûlé"],
+    interactionHooks: ["impose une halte fragile", "révèle qui contrôle la route", "montre les restes d’un passage violent"],
+    rarity: 2,
+  },
+  {
+    id: "location-mecha-pit",
+    label: "fosse mécanique de combat",
+    kind: "location",
+    tags: ["mecha", "pit", "arena", "repair"],
+    universes: ["mecha", "sci-fi", "shōnen"],
+    tones: ["epic", "tendu", "dramatic"],
+    styles: ["manga", "dynamic", "premium"],
+    factions: [],
+    weathers: [],
+    worldStates: [],
+    visualCues: ["bras hydrauliques", "rails graisseux", "carlingues éventrées"],
+    environmentSignals: ["étincelles en pluie", "fumée mécanique", "plateformes superposées"],
+    interactionHooks: ["cadre la préparation au duel", "raconte la violence des combats", "guide le mouvement vertical"],
+    rarity: 2,
+  },
+];
+
+function scoreLocation(entry: OntologyEntry, input: SceneBlueprintInput) {
+  // BUG-20 : filtre DUR d'univers. Sans cela, une location desert/wasteland
+  // pouvait être sélectionnée dans un projet cyberpunk grâce au tag match (+4)
+  // quand la scène évoquait "ruine" ou "survie".
+  if (!isEntryUniverseCompatible(entry, input.style.universe)) {
+    return 0;
+  }
+  const text = `${input.scene.location} ${input.narrative.sceneSummary}`.toLowerCase();
+  let score = 0;
+  if (entry.universes.some((u) => input.style.universe.toLowerCase().includes(u.toLowerCase()))) score += 4;
+  if (entry.tones.some((t) => input.style.tone.toLowerCase().includes(t.toLowerCase()))) score += 2;
+  if (entry.tags.some((t) => text.includes(t.toLowerCase()))) score += 4;
+  if ((entry.weathers ?? []).some((w) => (input.scene.weather ?? "").toLowerCase().includes(w.toLowerCase()))) score += 2;
+  return score;
+}
+
+export function generateLocationSelection(input: SceneBlueprintInput, seed: number): ProceduralEntity[] {
+  const rng = createSeededRng(seed);
+  const ranked = [...LOCATION_ONTOLOGY]
+    .map((entry) => ({ entry, score: scoreLocation(entry, input) }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score);
+  const desired = input.controls.environmentRichness >= 65 ? 2 : 1;
+  const candidatePool = ranked.slice(0, Math.min(ranked.length, desired + 2));
+  return rng.pickMany(candidatePool, desired).map(({ entry }) => ({
+    id: `${entry.id}-${seed}`,
+    label: entry.label,
+    kind: "location",
+    visualCues: [...entry.visualCues, ...entry.environmentSignals],
+    interactionHooks: entry.interactionHooks,
+    sourceOntologyId: entry.id,
+  }));
+}
