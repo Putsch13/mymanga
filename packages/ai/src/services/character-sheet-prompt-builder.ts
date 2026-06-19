@@ -48,6 +48,34 @@ const BASELINE_NEGATIVE = [
   "baby face",
 ].join(", ");
 
+/**
+ * Ancrage genre FORT. Un simple token "male"/"female" se fait écraser par les
+ * styles intrinsèquement genrés (shōjo, aquarelle douce → féminin par défaut).
+ * On renvoie une emphase positive + des négatifs genrés ciblés que les modèles
+ * de diffusion exploitent réellement pour bloquer la dérive.
+ */
+function genderAnchors(gender: "male" | "female" | "non-binary" | null): {
+  positive: string | null;
+  negative: string[];
+} {
+  switch (gender) {
+    case "male":
+      return {
+        positive: "a male man, clearly masculine face and body, masculine jawline",
+        negative: ["woman", "female", "feminine face", "feminine features", "girl", "breasts", "makeup"],
+      };
+    case "female":
+      return {
+        positive: "a female woman, clearly feminine face and body",
+        negative: ["man", "male", "masculine jaw", "beard", "mustache", "male body"],
+      };
+    case "non-binary":
+      return { positive: "androgynous appearance", negative: [] };
+    default:
+      return { positive: null, negative: [] };
+  }
+}
+
 function cleanString(value: string | null | undefined): string | null {
   if (!value) return null;
   const trimmed = value.trim();
@@ -75,7 +103,9 @@ export function buildCharacterSheetPrompt(
   const parts: string[] = [];
   parts.push(`Character sheet: ${input.name}`);
   const gender = input.gender ?? null;
-  if (gender) parts.push(gender);
+  const anchors = genderAnchors(gender);
+  // Le genre est placé JUSTE après le nom, en emphase, pour primer sur le style.
+  if (anchors.positive) parts.push(anchors.positive);
   const ageAppearance = cleanString(input.ageAppearance);
   if (ageAppearance) parts.push(ageAppearance);
   const bodyBuild = cleanString(input.bodyBuild);
@@ -102,8 +132,9 @@ export function buildCharacterSheetPrompt(
   parts.push(input.style.trim());
 
   const positive = parts.join(", ") + ".";
+  const negative = [BASELINE_NEGATIVE, ...anchors.negative].join(", ");
   return {
     positive,
-    negative: BASELINE_NEGATIVE,
+    negative,
   };
 }

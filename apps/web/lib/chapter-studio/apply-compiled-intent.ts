@@ -98,6 +98,10 @@ export async function applyCompiledIntentToChapter(
       data: {
         outline: toPrismaInputJson({ ...outlineRecord, studio: snapshot }),
         studioUpdatedAt: new Date(),
+        // Source de vérité de l'intention : le studio conversationnel ne passe
+        // pas par l'étape userIntent du wizard. On persiste l'intention brute
+        // (concat des messages) pour que /estimate et le pipeline la retrouvent.
+        ...(rawUserIntent.trim().length >= 3 ? { userIntent: rawUserIntent.trim() } : {}),
       },
     });
     persisted = true;

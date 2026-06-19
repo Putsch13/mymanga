@@ -36,6 +36,7 @@ import { buildProjectContext } from "@manga-ai-studio/memory";
 import { getAppUser } from "@/lib/auth/get-app-user";
 import { notFound, unauthorized } from "@/lib/api-response";
 import { getOwnedProject } from "@/lib/ownership";
+import { readChapterStudioSnapshotFromOutline } from "@/lib/chapter-studio";
 import { getGenerationStackStatus } from "@/lib/generation/stack-readiness";
 import { computePremiumAiReadiness } from "@/lib/compute-premium-ai-readiness";
 import { premiumCharacterStudioSelect } from "@/lib/premium-character-studio-select";
@@ -55,7 +56,9 @@ import { prepareEstimateBundle } from "./_helpers/prepare-estimate-bundle";
 type Ctx = { params: Promise<{ id: string }> };
 
 const schema = z.object({
-  userIntent: z.string().min(3),
+  // Optionnel : le studio conversationnel ne renvoie pas userIntent (il est déjà
+  // persisté sur le chapitre). On le résout côté serveur, cf. effectiveUserIntent.
+  userIntent: z.string().min(3).optional(),
   chapterId: z.string().optional(),
   chapterNumber: z.number().int().positive().optional().nullable(),
   focusCharacterIds: z.array(z.string()).optional(),
@@ -91,6 +94,9 @@ export async function POST(req: Request, ctx: Ctx) {
         // P2.1bis — on a besoin du minimum du chapitre pour garantir que le
         // contrat sort avec panelBlueprints.length >= minimumImages.
         minimumImages: true,
+        // Résolution de l'intention quand le client ne la passe pas (studio conversationnel).
+        userIntent: true,
+        outline: true,
       },
     })
     : null;
@@ -106,13 +112,50 @@ export async function POST(req: Request, ctx: Ctx) {
   const targetChapterNumber = targetChapter?.chapterNumber ?? ((nextChapter?.chapterNumber ?? 0) + 1);
   const estimateMode: "existing_chapter" | "new_chapter" = targetChapter ? "existing_chapter" : "new_chapter";
 
+  // Résolution de l'intention effective. Le studio conversationnel n'envoie pas
+  // `userIntent` (il vit déjà sur le chapitre / dans le contrat compilé). On
+  // retombe sur : (1) chapter.userIntent, (2) le chapterIntentContract persisté.
+  let effectiveUserIntent = body.userIntent?.trim() ?? "";
+  if (effectiveUserIntent.length < 3 && targetChapter) {
+    if (targetChapter.userIntent && targetChapter.userIntent.trim().length >= 3) {
+      effectiveUserIntent = targetChapter.userIntent.trim();
+    } else {
+      const snap = readChapterStudioSnapshotFromOutline({
+        outline: targetChapter.outline,
+        chapterNumber: targetChapter.chapterNumber,
+        chapterTitle: targetChapter.title,
+        chapterSummary: null,
+        cliffhanger: null,
+        userIntent: targetChapter.userIntent,
+      });
+      const c = snap.data.chapterIntentContract;
+      if (c) {
+        effectiveUserIntent = [c.understoodPitch, c.plotGoal, ...(c.mustInclude ?? [])]
+          .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+          .join(". ")
+          .trim();
+      }
+    }
+  }
+  if (effectiveUserIntent.length < 3) {
+    return NextResponse.json(
+      {
+        error:
+          "Intention de chapitre manquante. Décris d'abord ce qu'il doit se passer "
+          + "dans le chapitre via l'interviewer avant de générer.",
+        code: "MISSING_USER_INTENT",
+      },
+      { status: 400 },
+    );
+  }
+
   console.log(
     `[estimate] estimate_started projectId=${projectId} chapterId=${targetChapter?.id ?? "new"} `
     + `chapterNumber=${targetChapterNumber} estimateMode=${estimateMode}`,
   );
 
   // 2. Project context (memory) + bundle premium aligné VW.
-  const context = await buildProjectContext(prisma, projectId, body.userIntent, {
+  const context = await buildProjectContext(prisma, projectId, effectiveUserIntent, {
     focusCharacterIds: body.focusCharacterIds,
     targetChapterId: targetChapter?.id ?? null,
     targetChapterNumber,
@@ -127,7 +170,7 @@ export async function POST(req: Request, ctx: Ctx) {
     estimateChapterId,
     targetChapter: targetChapter ? { id: targetChapter.id, title: targetChapter.title } : null,
     targetChapterNumber,
-    userIntent: body.userIntent,
+    userIntent: effectiveUserIntent,
     selectedPlotLabel: body.selectedPlotLabel,
     creativityControls: body.creativityControls,
     context,
