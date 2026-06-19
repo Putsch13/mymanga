@@ -34,9 +34,26 @@ export interface CharacterSheetPromptOutput {
   negative: string;
 }
 
+/**
+ * Ancrage style MANGA dominant. Flux/dev penche vers le photoréalisme : sans un
+ * signal style fort et EN TÊTE du prompt, on obtient des rendus "photo réelle"
+ * même quand le style projet dit "shōnen". On force donc des tokens manga/anime
+ * 2D explicites en première position (la plus pondérée par le modèle).
+ */
+const MANGA_STYLE_ANCHOR =
+  "Japanese manga style, anime art, 2D cel-shaded illustration, clean bold ink linework, screentone shading, flat colors";
+
 const BASELINE_NEGATIVE = [
-  "3d render",
+  // Anti-réalisme RENFORCÉ (cause du rendu "version réelle").
   "photorealistic",
+  "photograph",
+  "realistic",
+  "real person",
+  "live action",
+  "hyperrealistic",
+  "3d render",
+  "octane render",
+  "render",
   "blurry",
   "extra fingers",
   "deformed hands",
@@ -101,7 +118,10 @@ export function buildCharacterSheetPrompt(
   input: CharacterSheetPromptInput,
 ): CharacterSheetPromptOutput {
   const parts: string[] = [];
-  parts.push(`Character sheet: ${input.name}`);
+  // STYLE EN TÊTE (position la plus pondérée par Flux) pour forcer le rendu 2D
+  // manga et empêcher la dérive photoréaliste.
+  parts.push(MANGA_STYLE_ANCHOR);
+  parts.push(`character sheet of ${input.name}`);
   const gender = input.gender ?? null;
   const anchors = genderAnchors(gender);
   // Le genre est placé JUSTE après le nom, en emphase, pour primer sur le style.

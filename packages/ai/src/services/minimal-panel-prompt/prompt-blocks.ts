@@ -396,13 +396,13 @@ export function formatLoraBindingsForPrompt(spec: PanelRenderSpec): string {
   return out;
 }
 
-/** Ancre manga permanente : garantit que le rendu reste un art de case manga
- * même si `styleBible.artStyle` a été overridé par un projet vers un libellé
- * qui ne mentionne ni manga, ni anime, ni webtoon. */
+/** Ancre manga permanente et FORTE. Flux/dev penche vers le photoréalisme :
+ * on préfixe un signal manga/anime 2D explicite en tête du STYLE (position la
+ * plus pondérée), même si `styleBible.artStyle` mentionne déjà "shōnen" (non
+ * reconnu comme manga par les modèles). Garantit un rendu de case 2D, jamais
+ * une "photo réelle". */
 function ensureMangaAnchor(artStyle: string): string {
-  const lower = artStyle.toLowerCase();
-  if (/\b(manga|anime|webtoon|manhwa|manhua)\b/.test(lower)) return artStyle;
-  return `${artStyle}, manga panel art`;
+  return `Japanese manga panel art, anime 2D illustration, clean ink linework, screentone shading, ${artStyle}`;
 }
 
 export function buildPromptStyleBlock(spec: PanelRenderSpec): string {

@@ -81,7 +81,9 @@ Remplis TOUS les champs visuels pour une fiche de personnage manga stable.`;
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        // Configurable : pose OPENAI_CHARACTER_FILL_MODEL dans Render pour un
+        // modèle plus puissant (meilleure cohérence de fiche).
+        model: process.env.OPENAI_CHARACTER_FILL_MODEL?.trim() || "gpt-4o-mini",
         temperature: 0.8,
         max_tokens: 500,
         response_format: { type: "json_object" },

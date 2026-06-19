@@ -165,6 +165,10 @@ export function buildPromptNegativeBlock(spec: PanelRenderSpec): string {
     // Famille modèle
     "3d render",
     "photorealistic",
+    "photograph",
+    "realistic",
+    "real person",
+    "live action",
     "octane render",
     "unreal engine",
     // Style à exclure
