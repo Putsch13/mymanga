@@ -19,6 +19,7 @@ import type { ChapterIntentContract } from "@manga-ai-studio/core";
 
 export type InterviewQuestionKind =
   | "main_event"
+  | "stakes"
   | "era"
   | "location"
   | "npcs"
@@ -150,6 +151,18 @@ function buildCandidateQuestions(input: InterviewPlanInput): InterviewQuestion[]
     });
   }
 
+  if (c.mustInclude.length === 0 && !answered.has("stakes")) {
+    candidates.push({
+      id: "q_stakes",
+      kind: "stakes",
+      targetField: "mustInclude",
+      severity: "recommended",
+      question: "Quel est l'enjeu / le danger de ce chapitre ? Qu'est-ce que le héros risque de perdre ?",
+      why: "L'enjeu donne de la tension aux cases et oriente le rythme dramatique du découpage.",
+      examples: ["Sa vie est en jeu dans l'embuscade", "Il peut perdre la confiance de son alliée", "Le secret risque d'être révélé"],
+    });
+  }
+
   if (!isFilled(c.emotionalGoal) && !isFilled(c.characterArcGoal) && !answered.has("emotional_goal")) {
     candidates.push({
       id: "q_emotional_goal",
@@ -213,7 +226,7 @@ export function planInterviewQuestions(
   // Critique pèse 3, recommandé 2, optionnel 1.
   const weight = (s: InterviewQuestionSeverity) => (s === "critical" ? 3 : s === "recommended" ? 2 : 1);
   const remainingWeight = candidates.reduce((sum, q) => sum + weight(q.severity), 0);
-  const TOTAL_WEIGHT = 3 /*event*/ + 3 /*era*/ + 3 /*loc*/ + 2 /*npc*/ + 2 /*creature*/ + 2 /*emo*/ + 1 /*props*/ + 1 /*cliff*/;
+  const TOTAL_WEIGHT = 3 /*event*/ + 3 /*era*/ + 3 /*loc*/ + 2 /*stakes*/ + 2 /*npc*/ + 2 /*creature*/ + 2 /*emo*/ + 1 /*props*/ + 1 /*cliff*/;
   const completion = Math.max(0, Math.min(1, 1 - remainingWeight / TOTAL_WEIGHT));
 
   return {

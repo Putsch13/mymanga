@@ -28,6 +28,7 @@ type Ctx = { params: Promise<{ id: string; chapterId: string }> };
 
 const INTERVIEW_QUESTION_KINDS = [
   "main_event",
+  "stakes",
   "era",
   "location",
   "npcs",

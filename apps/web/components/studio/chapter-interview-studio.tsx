@@ -16,7 +16,7 @@ import Link from "next/link";
 import { launchChapterGeneration } from "@/lib/studio/launch-chapter-generation";
 
 type QuestionKind =
-  | "main_event" | "era" | "location" | "npcs" | "creatures"
+  | "main_event" | "stakes" | "era" | "location" | "npcs" | "creatures"
   | "props" | "emotional_goal" | "cliffhanger" | "tone";
 
 interface InterviewQuestion {
