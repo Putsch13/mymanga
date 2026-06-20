@@ -37,7 +37,6 @@ import {
   resolveApprovedOutlineFromSnapshot,
 } from "@/lib/premium-chapter-contract";
 import { buildPremiumReadinessDashboard } from "@/lib/readiness/build-premium-readiness-dashboard";
-import { isVisualContractPrelaunchBlocked } from "@/lib/visual-contract-prelaunch-gate";
 import {
   premiumCharacterStudioSelect,
   type PremiumCharacterStudioRow,
@@ -390,19 +389,9 @@ export async function POST(_req: Request, ctx: Ctx) {
     );
   }
 
-  // 9. Visual contract pre-launch + visual contract QA.
-  if (isVisualContractPrelaunchBlocked(chapter.outline, chapter.generatedImages ?? 0)) {
-    return NextResponse.json(
-      {
-        error: "visual_contract_prelaunch_required",
-        code: "VISUAL_CONTRACT_PRELAUNCH_REQUIRED",
-        message:
-          "Avant le tout premier lancement, confirme dans le studio le panneau « Contrat visuel » (case de confirmation en bas).",
-      },
-      { status: 422 },
-    );
-  }
-
+  // 9. Visual contract QA. (Le gate "case de confirmation pré-launch" du wizard
+  // a été retiré : dans le studio conversationnel, cliquer Générer EST la
+  // confirmation — il n'y a plus de panneau à cocher.)
   const visualContractQaResult = runVisualContractQa({
     chapterId,
     snapshot,
