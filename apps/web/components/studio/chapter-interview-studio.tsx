@@ -81,7 +81,32 @@ function buildApprovedOutlineFromEstimate(estData: unknown): Record<string, unkn
   const d = estData as Record<string, unknown>;
   const bundle = (d.bundle ?? {}) as Record<string, unknown>;
   const outline = (bundle.outline ?? {}) as Record<string, unknown>;
-  const rawBeats = Array.isArray(d.previewBeats) ? (d.previewBeats as EstimatePreviewBeat[]) : [];
+
+  // Source des beats, par ordre de préférence : previewBeats → productionOutline.beats
+  // → un beat synthétique depuis le chapter_goal. On ne renvoie JAMAIS null tant
+  // qu'il y a une intention : le plan canonique côté serveur fera le reste.
+  let rawBeats: EstimatePreviewBeat[] = Array.isArray(d.previewBeats)
+    ? (d.previewBeats as EstimatePreviewBeat[])
+    : [];
+  if (rawBeats.length === 0) {
+    const po = (d.productionOutline ?? {}) as Record<string, unknown>;
+    const poBeats = Array.isArray(po.beats) ? (po.beats as Record<string, unknown>[]) : [];
+    rawBeats = poBeats.map((b, i) => ({
+      id: typeof b.beatId === "string" ? b.beatId : `beat_${i + 1}`,
+      summary: typeof b.summary === "string" ? b.summary : "",
+      characters: Array.isArray(b.involvedCharacterLabels) ? (b.involvedCharacterLabels as string[]) : [],
+      location: Array.isArray(b.environmentContext) ? String(b.environmentContext[0] ?? "") : "",
+      pageRole: typeof b.narrativeFunction === "string" ? b.narrativeFunction : "escalation",
+      turn: typeof b.dramaticChange === "string" ? b.dramaticChange : "progression",
+      emotionalDelta: 0,
+    }));
+  }
+  if (rawBeats.length === 0) {
+    const goal = typeof outline.chapter_goal === "string" ? outline.chapter_goal : "";
+    if (goal.trim().length >= 3) {
+      rawBeats = [{ id: "beat_1", summary: goal, characters: [], location: "", pageRole: "escalation", turn: "progression", emotionalDelta: 0 }];
+    }
+  }
   if (rawBeats.length === 0) return null;
 
   const pad = (s: string, min: number, filler: string) =>
