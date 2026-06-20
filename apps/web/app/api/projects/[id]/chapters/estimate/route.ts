@@ -384,11 +384,14 @@ export async function POST(req: Request, ctx: Ctx) {
     );
   }
 
+  // NB : characterRefResolutionOk N'EST PLUS un gate de readiness. Les libellés
+  // génériques que le LLM invente ("La créature") sont rendus par l'entity-brain
+  // au moment de l'image — les compter comme bloquants empêchait la génération
+  // alors que le plan est par ailleurs valide. On garde l'info en warning.
   const planReady =
     panelCountStatus === "ok"
     && canonicalPlan.qa.valid
     && finalStructuralQa.valid
-    && characterRefResolutionOk
     && continuityPreflightOk
     && contractQa.ok;
 

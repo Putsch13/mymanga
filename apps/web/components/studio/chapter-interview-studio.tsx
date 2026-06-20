@@ -12,7 +12,6 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { launchChapterGeneration } from "@/lib/studio/launch-chapter-generation";
 
 type QuestionKind =
@@ -258,19 +257,11 @@ export function ChapterInterviewStudio({
     <div className="flex h-full min-h-[600px] gap-4 p-4">
       {/* Colonne chat */}
       <div className="flex flex-1 flex-col rounded-lg border bg-card">
-        <header className="flex items-center justify-between border-b px-4 py-3">
-          <div>
-            <h2 className="text-sm font-semibold">Studio conversationnel</h2>
-            <p className="text-xs text-muted-foreground">
-              Réponds aux questions de l&apos;IA — elle construit ta config au fur et à mesure.
-            </p>
-          </div>
-          <Link
-            href={`/projects/${projectId}/chapters/${chapterId}/edit?mode=advanced`}
-            className="text-xs text-muted-foreground underline hover:text-foreground"
-          >
-            Mode avancé
-          </Link>
+        <header className="border-b px-4 py-3">
+          <h2 className="text-sm font-semibold">Studio conversationnel</h2>
+          <p className="text-xs text-muted-foreground">
+            Réponds à l&apos;IA — elle construit ton chapitre au fur et à mesure.
+          </p>
         </header>
 
         <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
@@ -289,25 +280,13 @@ export function ChapterInterviewStudio({
           {busy && <div className="text-xs text-muted-foreground">L&apos;IA réfléchit…</div>}
         </div>
 
-        {/* Questions actuelles avec chips d'exemples */}
+        {/* Questions actuelles (sans réponses pré-mâchées : vrai dialogue). */}
         {plan && plan.questions.length > 0 && (
           <div className="space-y-2 border-t px-4 py-3">
             {plan.questions.map((q) => (
               <div key={q.id} className={`rounded-md border p-2 ${SEVERITY_STYLE[q.severity]}`}>
                 <p className="text-sm font-medium">{q.question}</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">{q.why}</p>
-                <div className="mt-1.5 flex flex-wrap gap-1">
-                  {q.examples.map((ex) => (
-                    <button
-                      key={ex}
-                      type="button"
-                      onClick={() => setInput((prev) => (prev ? `${prev}, ${ex}` : ex))}
-                      className="rounded-full border bg-background px-2 py-0.5 text-xs hover:bg-accent"
-                    >
-                      {ex}
-                    </button>
-                  ))}
-                </div>
+                {q.why ? <p className="mt-0.5 text-xs text-muted-foreground">{q.why}</p> : null}
               </div>
             ))}
             <button

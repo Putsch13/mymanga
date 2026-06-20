@@ -37,16 +37,6 @@ export type RunIntentCoverageQaResult =
   | { ok: true }
   | { ok: false; response: NextResponse };
 
-function logLaunchBlock(
-  projectId: string,
-  chapterId: string,
-  code: string,
-  reason: string,
-  extra?: Record<string, unknown>,
-) {
-  console.warn("[launch:block]", { projectId, chapterId, code, reason, ...extra });
-}
-
 export async function runIntentCoverageQaForLaunch(
   input: RunIntentCoverageQaInput,
 ): Promise<RunIntentCoverageQaResult> {
@@ -178,33 +168,19 @@ export async function runIntentCoverageQaForLaunch(
       missingEventIds: coverage.missingEvents,
     });
 
+    // NON-BLOQUANT : la couverture d'intention est un signal QUALITÉ, pas un
+    // prérequis de génération. Le flux conversationnel sur-extrait souvent les
+    // events (ex. 12 micro-events) que 8-9 beats ne couvrent pas à 100% — bloquer
+    // là-dessus empêchait toute génération. On log en warning, on laisse passer.
     if (
       coverage.intentCoverageScore < blockThreshold &&
       intentNarrative.requiredEvents.length > 0
     ) {
-      logLaunchBlock(
-        projectId,
-        chapterId,
-        "INTENT_COVERAGE_TOO_LOW",
-        `Intent coverage score=${coverage.intentCoverageScore} below threshold=${blockThreshold} (premium=${isPremium})`,
-        { missingEvents: coverage.missingEvents, issues: coverage.issues.slice(0, 5) },
+      console.warn(
+        `[launch] intent_coverage_low (non-blocking) chapterId=${chapterId} `
+        + `score=${coverage.intentCoverageScore} threshold=${blockThreshold} `
+        + `missingEvents=${JSON.stringify(coverage.missingEvents.slice(0, 5))}`,
       );
-      return {
-        ok: false,
-        response: NextResponse.json(
-          {
-            error: "intent_coverage_too_low",
-            code: "INTENT_COVERAGE_TOO_LOW",
-            message:
-              `Le plan ne couvre que ${coverage.intentCoverageScore}% de ton intention narrative. ` +
-              "Régénère le plan ou vérifie l'intention dans le wizard.",
-            intentCoverageScore: coverage.intentCoverageScore,
-            missingEvents: coverage.missingEvents,
-            coverageIssues: coverage.issues.slice(0, 10),
-          },
-          { status: 422 },
-        ),
-      };
     }
   } catch (err) {
     console.warn("[launch] intent_coverage_qa_failed", err);
