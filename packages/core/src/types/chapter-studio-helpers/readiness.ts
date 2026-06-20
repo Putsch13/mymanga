@@ -49,11 +49,14 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
   if (snapshot.data.narrativeContract) {
     completedSteps.push("narrative_contract");
   } else {
-    addBlocker({
+    // NON-BLOQUANT : le flux conversationnel persiste `intentNarrativeContract`
+    // (et le pipeline le reconstruit au besoin). Absence du champ legacy
+    // `narrativeContract` = signal, pas blocage.
+    addWarning({
       id: "missing_narrative_contract",
       step: "narrative_contract",
       field: "studio-emotional-goal",
-      message: "Le contrat narratif est manquant.",
+      message: "Le contrat narratif détaillé sera complété par l'IA.",
       ctaLabel: "Renseigner le contrat narratif",
       action: "focus_field",
     });
@@ -72,14 +75,20 @@ export function buildChapterReadinessReport(snapshot: ChapterStudioSnapshot): Ch
     });
   }
 
-  if (snapshot.data.chapterCanon?.currentLocation) {
+  if (
+    snapshot.data.chapterCanon?.currentLocation
+    || (snapshot.data.visualWorldContract?.locations?.length ?? 0) > 0
+  ) {
     completedSteps.push("canon");
   } else {
-    addBlocker({
+    // NON-BLOQUANT : les décors vivent dans le visualWorldContract (et un lieu
+    // de secours est dérivé au besoin). Absence de chapterCanon.currentLocation
+    // ne doit pas empêcher le launch quand le monde visuel a des lieux.
+    addWarning({
       id: "missing_chapter_location",
       step: "canon",
       field: "studio-location",
-      message: "Le canon actif du chapitre doit préciser le décor principal.",
+      message: "Le décor principal sera ancré depuis le monde visuel.",
       ctaLabel: "Préciser le décor",
       action: "focus_field",
     });
