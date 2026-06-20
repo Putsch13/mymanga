@@ -238,26 +238,16 @@ export async function prepareContinuityBlueprints(args: {
       dominantReason: continuityBlockers[0]?.split(":")[1],
     });
     if (continuityBlockers.length > 0) {
-      logBlock(
-        "PREMIUM_CONTINUITY_PREFLIGHT_FAILED",
-        "Premium continuity preflight failed (character or environment visual DNA)",
-        { continuityBlockers },
+      // NON-BLOQUANT — la cohérence visuelle (perso identique d'une case à
+      // l'autre, décor stable) est APPLIQUÉE AU RENDU via les visual locks +
+      // Redux refs des personnages et le visualWorldContract, pas via la DNA
+      // hydratée dans les blueprints. Bloquer ici empêchait toute génération
+      // conversationnelle (72/72 panels) alors que le rendu gère la cohérence
+      // en aval. On signale fort, on ne refuse plus.
+      console.warn(
+        `[launch] continuity_preflight_warnings (non-blocking) chapterId=${chapterId} `
+        + `blockers=${continuityBlockers.length} dominant=${continuityBlockers[0] ?? "n/a"}`,
       );
-      return {
-        ok: false,
-        response: NextResponse.json(
-          {
-            error: "premium_continuity_preflight_failed",
-            code: "PREMIUM_CONTINUITY_PREFLIGHT_FAILED",
-            message:
-              "Le preflight continuité premium a échoué : DNA personnage incomplet et/ou décor (environmentVisualDna) manquant là où le plan l’exige. "
-              + "Consulte continuityBlockers, complète le plan dans le studio, puis relance.",
-            continuityBlockers,
-            continuityPreflightBlockingCount: continuityBlockers.length,
-          },
-          { status: 422 },
-        ),
-      };
     }
   }
 

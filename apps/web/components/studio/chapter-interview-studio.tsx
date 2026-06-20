@@ -115,7 +115,10 @@ function buildApprovedOutlineFromEstimate(estData: unknown): Record<string, unkn
   const fallbackLocation =
     rawBeats.find((b) => (b.location ?? "").trim())?.location?.trim() || "Lieu principal";
 
-  const beats = rawBeats.slice(0, 24).map((b, i) => ({
+  // Cap à 5 : le schéma editorialOutline.beats (côté /approved-outline) plafonne
+  // à 5 beats. Au-delà → ZodError "Array must contain at most 5 element(s)".
+  // Le builder premium ré-étale ensuite ces beats sur 70+ panels.
+  const beats = rawBeats.slice(0, 5).map((b, i) => ({
     id: (b.id && b.id.trim()) || `beat_${i + 1}`,
     summary: pad(b.summary ?? "", 10, "Progression de la scène."),
     characters: Array.isArray(b.characters) ? b.characters.filter((c) => typeof c === "string" && c.trim()) : [],
