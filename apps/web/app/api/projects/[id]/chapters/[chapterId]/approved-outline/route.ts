@@ -205,7 +205,10 @@ export async function PATCH(req: Request, ctx: Ctx) {
       editorialOutline: {
         summary: approvedOutline.summary,
         validationNotes: [],
-        beats: approvedOutline.beats.map((beat, index) => ({
+        // editorialOutline.beats est plafonné à 5 (résumé éditorial). On tranche
+        // ICI — l'approvedOutline complet (jusqu'à 24 beats) sert au contrat
+        // premium pour atteindre le minimum de 70 panels.
+        beats: approvedOutline.beats.slice(0, 5).map((beat, index) => ({
           beatId: beat.id,
           label: `Bloc ${index + 1}`,
           summary: beat.summary,

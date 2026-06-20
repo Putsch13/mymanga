@@ -82,24 +82,23 @@ function buildApprovedOutlineFromEstimate(estData: unknown): Record<string, unkn
   const bundle = (d.bundle ?? {}) as Record<string, unknown>;
   const outline = (bundle.outline ?? {}) as Record<string, unknown>;
 
-  // Source des beats, par ordre de préférence : previewBeats → productionOutline.beats
-  // → un beat synthétique depuis le chapter_goal. On ne renvoie JAMAIS null tant
-  // qu'il y a une intention : le plan canonique côté serveur fera le reste.
-  let rawBeats: EstimatePreviewBeat[] = Array.isArray(d.previewBeats)
-    ? (d.previewBeats as EstimatePreviewBeat[])
-    : [];
-  if (rawBeats.length === 0) {
-    const po = (d.productionOutline ?? {}) as Record<string, unknown>;
-    const poBeats = Array.isArray(po.beats) ? (po.beats as Record<string, unknown>[]) : [];
-    rawBeats = poBeats.map((b, i) => ({
-      id: typeof b.beatId === "string" ? b.beatId : `beat_${i + 1}`,
-      summary: typeof b.summary === "string" ? b.summary : "",
-      characters: Array.isArray(b.involvedCharacterLabels) ? (b.involvedCharacterLabels as string[]) : [],
-      location: Array.isArray(b.environmentContext) ? String(b.environmentContext[0] ?? "") : "",
-      pageRole: typeof b.narrativeFunction === "string" ? b.narrativeFunction : "escalation",
-      turn: typeof b.dramaticChange === "string" ? b.dramaticChange : "progression",
-      emotionalDelta: 0,
-    }));
+  // Source des beats : on PRIVILÉGIE productionOutline.beats (le jeu COMPLET,
+  // ~10 beats) car le contrat premium a besoin d'assez de beats pour atteindre
+  // le minimum de 70 panels. previewBeats (5 résumés) → seulement ~60 panels.
+  // Fallback : previewBeats → beat synthétique depuis chapter_goal.
+  const po = (d.productionOutline ?? {}) as Record<string, unknown>;
+  const poBeats = Array.isArray(po.beats) ? (po.beats as Record<string, unknown>[]) : [];
+  let rawBeats: EstimatePreviewBeat[] = poBeats.map((b, i) => ({
+    id: typeof b.beatId === "string" ? b.beatId : `beat_${i + 1}`,
+    summary: typeof b.summary === "string" ? b.summary : "",
+    characters: Array.isArray(b.involvedCharacterLabels) ? (b.involvedCharacterLabels as string[]) : [],
+    location: Array.isArray(b.environmentContext) ? String(b.environmentContext[0] ?? "") : "",
+    pageRole: typeof b.narrativeFunction === "string" ? b.narrativeFunction : "escalation",
+    turn: typeof b.dramaticChange === "string" ? b.dramaticChange : "progression",
+    emotionalDelta: 0,
+  }));
+  if (rawBeats.length === 0 && Array.isArray(d.previewBeats)) {
+    rawBeats = d.previewBeats as EstimatePreviewBeat[];
   }
   if (rawBeats.length === 0) {
     const goal = typeof outline.chapter_goal === "string" ? outline.chapter_goal : "";
@@ -115,10 +114,9 @@ function buildApprovedOutlineFromEstimate(estData: unknown): Record<string, unkn
   const fallbackLocation =
     rawBeats.find((b) => (b.location ?? "").trim())?.location?.trim() || "Lieu principal";
 
-  // Cap à 5 : le schéma editorialOutline.beats (côté /approved-outline) plafonne
-  // à 5 beats. Au-delà → ZodError "Array must contain at most 5 element(s)".
-  // Le builder premium ré-étale ensuite ces beats sur 70+ panels.
-  const beats = rawBeats.slice(0, 5).map((b, i) => ({
+  // Jusqu'à 24 beats (max du schéma approvedOutline) pour que le contrat premium
+  // atteigne 70+ panels. L'editorialOutline (plafonné à 5) est tranché côté route.
+  const beats = rawBeats.slice(0, 24).map((b, i) => ({
     id: (b.id && b.id.trim()) || `beat_${i + 1}`,
     summary: pad(b.summary ?? "", 10, "Progression de la scène."),
     characters: Array.isArray(b.characters) ? b.characters.filter((c) => typeof c === "string" && c.trim()) : [],
