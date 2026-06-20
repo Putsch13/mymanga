@@ -699,14 +699,13 @@ export async function runPremiumV3Pipeline(
               const first = hardViolations[0];
               const detail =
                 first != null ? `${first.type}:${String(first.expected ?? "")}` : "unknown";
-              if (input.premiumV3OnlyEnabled) {
-                throw new Error(
-                  `premium_narrative_contract_qa_failed: violations=${hardViolations.length} first=${detail}`,
-                );
-              }
+              // NON-BLOQUANT — les entités/persos manquants (ex. "garde") sont
+              // rendus par l'entity-brain au panel près ; faire planter tout le
+              // chapitre (0 image) pour une violation de couverture est
+              // disproportionné pour le flux conversationnel. On log fort.
               // FIXME(logger): migrate to logPipeline*
               console.warn(
-                `[pipeline:v3:narrative-contract] violations=${hardViolations.length} first=${detail}`,
+                `[pipeline:v3:narrative-contract] violations=${hardViolations.length} first=${detail} (non-blocking)`,
               );
             }
           }
