@@ -207,35 +207,37 @@ async function openAiContract(input: CompileChapterIntentInput): Promise<Chapter
   const userPayload = JSON.stringify({
     ...input,
     instructions:
-      "Return ONLY valid JSON matching ChapterIntentContract. CATÉGORISE rigoureusement"
-      + " ce que l'auteur a dit dans la conversation, ne laisse PAS de champ vide si l'info"
-      + " est présente même implicitement :\n"
-      + "- plotGoal : L'ACTION PRINCIPALE en UNE phrase claire (le moteur du chapitre). Toujours rempli.\n"
-      + "- era : époque/registre ('medieval fantasy', 'Edo Japan', 'cyberpunk'…). Déduis-le du contexte (créatures, magie, technologie). Vide SEULEMENT si vraiment impossible.\n"
-      + "- setting : type de monde/lieu principal ('village portuaire', 'station orbitale', 'royaume médiéval'). Déduis-le.\n"
-      + "- requiredLocations[] : TOUS les lieux concrets mentionnés (taverne, forêt, château…).\n"
-      + "- mustInclude[] : MAX 6 événements/beats clés CONSOLIDÉS (pas 12 micro-events). Regroupe.\n"
-      + "- requiredNpcs[], requiredCreatures[], requiredProps[] : entités nommées.\n"
-      + "- emotionalGoal : le basculement émotionnel visé.\n"
-      + "- understoodPitch : résumé fidèle 1-3 phrases de ce que l'auteur veut.\n"
-      + "Autres champs : mustAvoid[], requiredCharacters[], characterArcGoal, tone, pacing (slow|balanced|fast),"
-      + " dialogueDensity (low|medium|high), expectedCliffhanger, ambiguityFlags[] (add 'era_unspecified' si era vide,"
-      + " 'setting_unspecified' si setting vide ET aucun lieu), confidenceScore 0-1.",
+      "Return ONLY valid JSON matching ChapterIntentContract. Tu es un CO-AUTEUR PROACTIF :"
+      + " tu catégorises ce que l'auteur a dit ET tu COMBLES toi-même les trous de façon cohérente"
+      + " (mets-toi à sa place). Ces champs ne doivent JAMAIS rester vides — invente du plausible"
+      + " si l'auteur n'a pas précisé :\n"
+      + "- plotGoal : L'ACTION PRINCIPALE en UNE phrase claire (le moteur du chapitre).\n"
+      + "- era : époque/registre ('medieval fantasy', 'Edo Japan', 'cyberpunk'…). Déduis du contexte (créatures, magie, techno) ou invente-en une cohérente.\n"
+      + "- setting : type de monde/lieu principal ('village portuaire', 'royaume médiéval'…). Déduis ou invente.\n"
+      + "- requiredLocations[] : ≥1 lieu concret. Reprends ceux mentionnés ET ajoute les lieux évidents"
+      + " qu'impliquent les events (si embuscade au port → 'port', 'quai'). JAMAIS vide.\n"
+      + "- mustInclude[] : MAX 6 événements/beats clés CONSOLIDÉS (regroupe, pas 12 micro-events).\n"
+      + "- requiredNpcs[], requiredCreatures[], requiredProps[] : entités nommées (+ celles évidentes).\n"
+      + "- emotionalGoal : le basculement émotionnel visé (invente si absent).\n"
+      + "- understoodPitch : résumé fidèle 1-3 phrases.\n"
+      + "Autres : mustAvoid[], requiredCharacters[], characterArcGoal, tone, pacing (slow|balanced|fast),"
+      + " dialogueDensity (low|medium|high), expectedCliffhanger, ambiguityFlags[], confidenceScore 0-1.",
   });
 
   const completion = await client.chat.completions.create({
     model: process.env.OPENAI_MODEL_INTENT ?? "gpt-4o-mini",
-    temperature: 0.2,
+    temperature: 0.4,
     messages: [
       {
         role: "system",
         content:
-          "Tu es un compilateur d'intention de chapitre manga. Tu PRENDS DES NOTES STRUCTURÉES"
-          + " à partir de la conversation : tu catégorises chaque info dans le bon champ (action, époque,"
-          + " décor, lieux, PNJ, objets, émotion) au lieu de tout entasser dans les events. Sortie JSON strict, sans markdown."
-          + " plotGoal, era et setting doivent être remplis dès que l'auteur a donné de quoi les déduire."
-          + " Pour confidenceScore (0-1), sois GÉNÉREUX : une direction claire + ≥1 perso + ≥1 lieu = 0.7 ;"
-          + " 0.85+ si émotion + cliffhanger + events concrets. <0.5 seulement si vraiment vague.",
+          "Tu es un CO-AUTEUR de manga, pas un simple extracteur. Tu prends des notes structurées"
+          + " à partir de la conversation ET tu anticipes : tu complètes toi-même, de façon cohérente,"
+          + " les éléments manquants (époque, décor, lieux, émotion) en te mettant à la place de l'auteur"
+          + " pour l'aider à construire une histoire qui tient. Tu catégorises chaque info dans le bon champ"
+          + " (action, époque, décor, lieux, PNJ, objets, émotion), jamais tout entassé dans les events."
+          + " plotGoal, era, setting et ≥1 lieu ne sont JAMAIS vides (invente du plausible si besoin)."
+          + " Sortie JSON strict, sans markdown. confidenceScore (0-1) GÉNÉREUX.",
       },
       { role: "user", content: userPayload },
     ],
