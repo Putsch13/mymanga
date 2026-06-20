@@ -215,7 +215,7 @@ export function ChapterInterviewStudio({
       });
       const estData = await est.json().catch(() => null);
       if (!est.ok) {
-        setError(estData?.message ?? estData?.error ?? `Préparation du plan échouée (${est.status})`);
+        setError(`[1/3 ESTIMATE] ${estData?.message ?? estData?.error ?? `échec ${est.status}`}`);
         return;
       }
 
@@ -225,7 +225,10 @@ export function ChapterInterviewStudio({
       // étape, le launch premium voit un chapitre "vide" → premium_readiness_blocked.
       const approvedOutline = buildApprovedOutlineFromEstimate(estData);
       if (!approvedOutline) {
-        setError("L'IA n'a pas pu construire un plan exploitable. Donne plus de détails dans l'interview (événement, lieu).");
+        setError(
+          "[2/3 PLAN] L'IA n'a pas pu construire un plan exploitable depuis l'estimate "
+          + `(previewBeats absents). Décris au moins l'événement + un lieu dans l'interview.`,
+        );
         return;
       }
       const approve = await fetch(
@@ -238,7 +241,7 @@ export function ChapterInterviewStudio({
       );
       if (!approve.ok) {
         const d = await approve.json().catch(() => null);
-        setError(d?.message ?? d?.error ?? `Persistance du plan échouée (${approve.status})`);
+        setError(`[2/3 PERSIST] ${d?.message ?? d?.error ?? `échec ${approve.status}`}`);
         return;
       }
 
@@ -246,7 +249,7 @@ export function ChapterInterviewStudio({
       await launchChapterGeneration({ projectId, chapterId });
       setLaunchMsg("Génération lancée ! Suis la progression dans l'onglet de génération.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Lancement impossible. Réessaie.");
+      setError(`[3/3 LAUNCH] ${err instanceof Error ? err.message : "lancement impossible"}`);
     } finally {
       setLaunching(false);
     }
