@@ -17,9 +17,14 @@ services:
       # Fail-closed: if a migration fails, the deploy fails — no partial schema in prod.
       pnpm --filter @manga-ai-studio/db exec prisma migrate deploy
       pnpm --filter @manga-ai-studio/web build
-    startCommand: NODE_OPTIONS='--max-old-space-size=1536' pnpm --filter @manga-ai-studio/web start
+    # NODE_OPTIONS est passé en variable d'env (cf. envVars) pour éviter les
+    # pièges de quoting dans la Start Command du dashboard.
+    startCommand: pnpm --filter @manga-ai-studio/web start
     healthCheckPath: /api/diagnostics/public
     envVars:
+      # Tas Node relevé pour le render des 70 images (plan standard 2 Go).
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=1536
       - key: DATABASE_URL
         sync: false
       # Pooler session mode (port 5432) for migrations.
