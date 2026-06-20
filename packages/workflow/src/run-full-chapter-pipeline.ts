@@ -349,24 +349,17 @@ export async function runFullChapterPipelineFromJob(jobId: string) {
       );
 
       if (unservedDialogueEvents.length > 0) {
+        // NON-BLOQUANT — le flux conversationnel sur-extrait souvent les events
+        // (ex. 9 events pour 8-9 beats) et un event peut ne pas être servi par
+        // un panel dédié. Faire planter TOUT le pipeline (et donc 0 image) pour
+        // ça est disproportionné : on log fort, le chapitre se génère quand même.
         // FIXME(logger): migrate to logPipeline*
         console.warn(
-          `[full-chapter-pipeline] required_dialogue_events_not_served ` +
+          `[full-chapter-pipeline] required_dialogue_events_not_served (non-blocking) ` +
             `count=${unservedDialogueEvents.length} ids=${unservedDialogueEvents.join(",")}`,
         );
-
-        if (premiumV3OnlyEnabled) {
-          throw new Error(
-            `premium_required_dialogue_event_not_served_by_any_panel: ` +
-              `${unservedDialogueEvents.join(",")}`,
-          );
-        }
       }
     } catch (err) {
-      // Ne pas catcher l'erreur premium (rethrow)
-      if (err instanceof Error && err.message.startsWith("premium_required_dialogue_event_not_served")) {
-        throw err;
-      }
       logPipelineWarn("full.chapter.pipeline.required_dialogue_act_beat_ids_build_failed", { value: err });
     }
   }
