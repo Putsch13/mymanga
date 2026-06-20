@@ -271,21 +271,32 @@ function emptyContract(): ChapterIntentContract {
   };
 }
 
-/** Snapshot lisible du canevas de config (alimente l'UI live). */
+/** Snapshot lisible du canevas de config (alimente l'UI live). Fallbacks pour
+ * que le canevas reflète TOUJOURS ce qui est capté, même si la catégorisation
+ * LLM est imparfaite (action → events/pitch, lieux → setting). */
 function buildCanvas(
   contract: ChapterIntentContract | null,
   knownCharacterNames: string[],
   resolvedNpcNames: string[],
 ) {
+  const mustInclude = contract?.mustInclude ?? [];
+  const plotGoal =
+    (contract?.plotGoal ?? "").trim()
+    || mustInclude[0]
+    || (contract?.understoodPitch ?? "").trim();
+  const locations = contract?.requiredLocations ?? [];
+  const settingTrim = (contract?.setting ?? "").trim();
   return {
     characters: knownCharacterNames,
     era: contract?.era ?? "",
-    setting: contract?.setting ?? "",
-    locations: contract?.requiredLocations ?? [],
+    setting: settingTrim,
+    // Si aucun lieu structuré mais un setting décrit, on l'affiche comme lieu.
+    locations: locations.length > 0 ? locations : settingTrim ? [settingTrim] : [],
     npcs: [...new Set([...(contract?.requiredNpcs ?? []), ...resolvedNpcNames])],
     creatures: contract?.requiredCreatures ?? [],
     props: contract?.requiredProps ?? [],
-    plotGoal: contract?.plotGoal ?? "",
+    events: mustInclude,
+    plotGoal,
     emotionalGoal: contract?.emotionalGoal ?? "",
     tone: contract?.tone ?? "",
     confidenceScore: contract?.confidenceScore ?? 0,

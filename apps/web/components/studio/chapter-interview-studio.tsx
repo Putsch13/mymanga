@@ -42,6 +42,7 @@ interface Canvas {
   npcs: string[];
   creatures: string[];
   props: string[];
+  events: string[];
   plotGoal: string;
   emotionalGoal: string;
   tone: string;
@@ -350,6 +351,7 @@ export function ChapterInterviewStudio({
           <CanvasRow label="Créatures" values={canvas?.creatures} empty="Aucune" />
           <CanvasRow label="Objets clés" values={canvas?.props} empty="Aucun" />
           <CanvasRow label="Action" values={canvas?.plotGoal ? [canvas.plotGoal] : []} empty="À préciser" />
+          <CanvasRow label="Événements" values={canvas?.events} empty="—" />
           <CanvasRow label="Émotion" values={canvas?.emotionalGoal ? [canvas.emotionalGoal] : []} empty="—" />
         </div>
 

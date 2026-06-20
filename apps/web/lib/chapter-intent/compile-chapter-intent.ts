@@ -207,20 +207,35 @@ async function openAiContract(input: CompileChapterIntentInput): Promise<Chapter
   const userPayload = JSON.stringify({
     ...input,
     instructions:
-      "Return ONLY valid JSON matching ChapterIntentContract: rawUserIntent, understoodPitch, era (temporal period e.g. 'medieval fantasy', 'Edo Japan', 'near-future cyberpunk' — empty string if truly unspecified), setting (world/place type e.g. 'harbor village', 'orbital station' — empty string if unspecified), mustInclude[], mustAvoid[], requiredCharacters[], requiredLocations[], requiredNpcs[], requiredCreatures[], requiredProps[], emotionalGoal, plotGoal, characterArcGoal, tone, pacing (slow|balanced|fast), dialogueDensity (low|medium|high), expectedCliffhanger, ambiguityFlags[] (add 'era_unspecified' if era empty, 'setting_unspecified' if setting empty and no locations), confidenceScore 0-1.",
+      "Return ONLY valid JSON matching ChapterIntentContract. CATÉGORISE rigoureusement"
+      + " ce que l'auteur a dit dans la conversation, ne laisse PAS de champ vide si l'info"
+      + " est présente même implicitement :\n"
+      + "- plotGoal : L'ACTION PRINCIPALE en UNE phrase claire (le moteur du chapitre). Toujours rempli.\n"
+      + "- era : époque/registre ('medieval fantasy', 'Edo Japan', 'cyberpunk'…). Déduis-le du contexte (créatures, magie, technologie). Vide SEULEMENT si vraiment impossible.\n"
+      + "- setting : type de monde/lieu principal ('village portuaire', 'station orbitale', 'royaume médiéval'). Déduis-le.\n"
+      + "- requiredLocations[] : TOUS les lieux concrets mentionnés (taverne, forêt, château…).\n"
+      + "- mustInclude[] : MAX 6 événements/beats clés CONSOLIDÉS (pas 12 micro-events). Regroupe.\n"
+      + "- requiredNpcs[], requiredCreatures[], requiredProps[] : entités nommées.\n"
+      + "- emotionalGoal : le basculement émotionnel visé.\n"
+      + "- understoodPitch : résumé fidèle 1-3 phrases de ce que l'auteur veut.\n"
+      + "Autres champs : mustAvoid[], requiredCharacters[], characterArcGoal, tone, pacing (slow|balanced|fast),"
+      + " dialogueDensity (low|medium|high), expectedCliffhanger, ambiguityFlags[] (add 'era_unspecified' si era vide,"
+      + " 'setting_unspecified' si setting vide ET aucun lieu), confidenceScore 0-1.",
   });
 
   const completion = await client.chat.completions.create({
     model: process.env.OPENAI_MODEL_INTENT ?? "gpt-4o-mini",
-    temperature: 0.3,
+    temperature: 0.2,
     messages: [
       {
         role: "system",
         content:
-          "You are a manga chapter intent compiler. Output strict JSON only, no markdown."
-          + " For confidenceScore (0-1), be GENEROUS: a clear plot direction, ≥1 named character and ≥1 location"
-          + " is already 0.7. Score 0.85+ if the user provides emotional goal, cliffhanger, and concrete must-include events."
-          + " Only score below 0.5 if the intent is genuinely vague (1-2 sentences, no entities, no goal).",
+          "Tu es un compilateur d'intention de chapitre manga. Tu PRENDS DES NOTES STRUCTURÉES"
+          + " à partir de la conversation : tu catégorises chaque info dans le bon champ (action, époque,"
+          + " décor, lieux, PNJ, objets, émotion) au lieu de tout entasser dans les events. Sortie JSON strict, sans markdown."
+          + " plotGoal, era et setting doivent être remplis dès que l'auteur a donné de quoi les déduire."
+          + " Pour confidenceScore (0-1), sois GÉNÉREUX : une direction claire + ≥1 perso + ≥1 lieu = 0.7 ;"
+          + " 0.85+ si émotion + cliffhanger + events concrets. <0.5 seulement si vraiment vague.",
       },
       { role: "user", content: userPayload },
     ],
