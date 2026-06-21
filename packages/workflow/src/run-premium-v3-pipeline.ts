@@ -1606,8 +1606,6 @@ export async function runPremiumV3Pipeline(
       const deferredReviewFromConfig =
         renderPassResult.summary.visualQaProductionConfigIncomplete === true
         && process.env.PREMIUM_VISUAL_QA_REQUIRED === "false";
-      const qualityAcceptable =
-        renderPassResult.summary.v3RenderQualityStatus === "passed" || deferredReviewFromConfig;
 
       // Une image visual_qa_failed ou manual_review reste persistée en DB et
       // affichable dans le reader. On ne marque le pipeline FAILED que si une
@@ -1615,6 +1613,16 @@ export async function runPremiumV3Pipeline(
       // total). Les images en review tomberont dans un workflow QA séparé.
       const persistedImagesCount = renderedCount + visualQaFailedCount + manualReviewRequiredCount;
       const allImagesPersisted = persistedImagesCount === renderPassResult.summary.totalPanels;
+
+      // QUALITÉ ACCEPTABLE dès que TOUTES les cases ont une image persistée,
+      // même si la vision QA en a flaggé certaines "à revoir". Bloquer tout le
+      // chapitre (0 manga livré) parce que des cases scorent 0.6-0.7 au lieu de
+      // 0.8 est disproportionné : l'auteur voit son chapitre complet, les cases
+      // faibles se régénèrent à l'unité ensuite.
+      const qualityAcceptable =
+        renderPassResult.summary.v3RenderQualityStatus === "passed"
+        || deferredReviewFromConfig
+        || allImagesPersisted;
 
       v3RenderSucceeded =
         renderPassResult.summary.failedCount === 0 &&

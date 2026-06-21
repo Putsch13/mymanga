@@ -14,9 +14,13 @@
 
 const VISUAL_QA = {
   enabledInProduction: true,
-  passScore: 0.75,
+  // Seuil abaissé (0.75 → 0.60) : flux/dev score honnêtement 0.6-0.75 sur des
+  // cases manga correctes. À 0.75 quasi tout était rejeté puis re-tenté 4×
+  // (coût explosif) pour finir bloqué. À 0.60 on accepte les cases correctes au
+  // 1er ou 2e essai. maxAttempts 4 → 2 : on divise le coût des re-rolls.
+  passScore: 0.6,
   excellentScore: 0.88,
-  maxAttemptsPerPanel: 4,
+  maxAttemptsPerPanel: 2,
 } as const;
 
 const RENDER_POLICY = {
