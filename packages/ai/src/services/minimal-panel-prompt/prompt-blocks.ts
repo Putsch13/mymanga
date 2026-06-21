@@ -93,8 +93,26 @@ export function describeCharacterWithCanon(character: PanelRenderVisibleCharacte
   return `${character.name} (${roleLabel})${eyeColor}${hairColor}${hairStyle}${skin}${outfit}${structureSuffix}${studioCanon}${extra}${canon}${pose}${expr}`;
 }
 
+/** Dédoublonne les personnages visibles d'une case : un même perso (même id ou
+ * même nom) ne doit JAMAIS apparaître deux fois (sinon "Lyma and Lyma" sur les
+ * cases dialogue quand le cast ne contient qu'un héros). */
+function dedupeVisibleCharacters(chars: PanelRenderVisibleCharacter[]): PanelRenderVisibleCharacter[] {
+  const seen = new Set<string>();
+  const out: PanelRenderVisibleCharacter[] = [];
+  for (const c of chars) {
+    const key = (
+      (c as { id?: string }).id?.trim()
+      || (c.name ?? "").trim().toLowerCase()
+    );
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(c);
+  }
+  return out;
+}
+
 function listCharacterDescriptions(chars: PanelRenderVisibleCharacter[], max: number): string[] {
-  return chars.slice(0, max).map((c) => describeCharacterWithCanon(c));
+  return dedupeVisibleCharacters(chars).slice(0, max).map((c) => describeCharacterWithCanon(c));
 }
 
 function buildDialogueTwoShotSubject(chars: PanelRenderVisibleCharacter[]): string {

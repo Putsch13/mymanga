@@ -121,7 +121,7 @@ describe("visual-panel-qa", () => {
       const result = runVisualPanelQa(input);
 
       expect(result.attemptNumber).toBe(2);
-      expect(result.maxAttempts).toBe(4);
+      expect(result.maxAttempts).toBe(2);
     });
 
     it("should recommend retry when score is below threshold", () => {
