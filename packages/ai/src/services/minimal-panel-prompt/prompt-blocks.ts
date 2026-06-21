@@ -219,6 +219,32 @@ export function buildPromptSubjectBlock(spec: PanelRenderSpec): string {
 // ENVIRONMENT
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Marqueurs de continuité INTERNES au pipeline (ex.
+ * "character_dna_strict_unresolved:Garde", "rhythm_padding:...",
+ * "forced_opponent_panel_for_conflict_beat") qui n'ont AUCUN sens pour un
+ * modèle d'image et polluent le prompt Fal. On les retire : seuls les vrais
+ * indices visuels (texte lisible avec espaces) restent. Générique, indépendant
+ * de l'histoire. */
+function isInternalContinuityMarker(lock: string): boolean {
+  const l = lock.trim().toLowerCase();
+  if (!l) return true;
+  const INTERNAL_PREFIXES = [
+    "character_dna_strict",
+    "rhythm_padding",
+    "narrative_variation",
+    "forced_opponent",
+    "cutaway_rebalanced",
+    "auto_narrative_context",
+    "dialogue_anchor",
+    "npc_dna",
+  ];
+  if (INTERNAL_PREFIXES.some((p) => l.startsWith(p))) return true;
+  // Tag snake_case sans espace (ex. "foo_bar:baz") = marqueur machine, pas un
+  // indice visuel descriptif.
+  if (!/\s/.test(l) && /[_:]/.test(l)) return true;
+  return false;
+}
+
 export function buildPromptEnvironmentBlock(spec: PanelRenderSpec): string {
   const decorSuffix = buildDecorDnaAndNpcSuffix(spec);
   const rawLoc = typeof spec.locationName === "string" ? spec.locationName.trim() : "";
@@ -235,6 +261,7 @@ export function buildPromptEnvironmentBlock(spec: PanelRenderSpec): string {
   const environmentLocks = spec.continuityLocks.environmentLocks
     .map(normalizePromptClause)
     .filter(Boolean)
+    .filter((l) => !isInternalContinuityMarker(l))
     .slice(0, 2);
   const densityHint =
     density === "minimal"

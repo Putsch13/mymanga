@@ -47,14 +47,23 @@ export function trySelectBeatLocationFromVisualWorldWithMeta(input: {
   const loc = tryRequireVisualWorldLocationForBeat(input.visualWorld, input.beatId);
   if (loc) return { location: loc, wasFallback: false };
   if (input.visualWorld.locations.length > 0) {
+    // On préfère un VRAI lieu nommé (ex. "Village…", "Forêt…") au placeholder de
+    // secours générique ("Lieu principal") qui peut avoir été injecté en amont.
+    // Générique : indépendant de l'histoire.
+    const isPlaceholder = (l: VisualWorldLocation) =>
+      l.id === "loc_fallback_main"
+      || /^(lieu principal|d[ée]cor principal|main location)$/i.test((l.label ?? "").trim());
+    const chosen =
+      input.visualWorld.locations.find((l) => !isPlaceholder(l))
+      ?? input.visualWorld.locations[0]!;
     if (!fallbackWarnSeen.has(input.beatId)) {
       if (fallbackWarnSeen.size > 500) fallbackWarnSeen.clear();
       fallbackWarnSeen.add(input.beatId);
       console.warn(
-        `[env-dna:fallback] beat=${input.beatId} has no locationId binding — using first location "${input.visualWorld.locations[0]!.label}" as fallback`,
+        `[env-dna:fallback] beat=${input.beatId} has no locationId binding — using "${chosen.label}" as fallback`,
       );
     }
-    return { location: input.visualWorld.locations[0]!, wasFallback: true };
+    return { location: chosen, wasFallback: true };
   }
   return { location: null, wasFallback: false };
 }
