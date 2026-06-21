@@ -229,11 +229,24 @@ export async function enrichPremiumBlueprintsSceneDialogue(
             content: `Tu es dialoguiste manga. Écris des répliques courtes en français, visuelles, sans exposer l'intrigue platement.
 
 RÈGLES DE LOCUTEUR (TRÈS IMPORTANT) :
-- Le champ "speaker" DOIT correspondre EXACTEMENT à un nom listé dans "allowedSpeakers".
-- ÉQUILIBRE les répliques : ne mets PAS toutes les répliques sur le héros. Si un héros 2 (role:secondary_hero) ou un PNJ (role:npc_group) est listé dans "allowedSpeakers" du beat, fais-les parler activement (interaction, désaccord, mise en garde, info).
-- Si le panel a "availableSpeakerLabels" non vide, c'est que ce sont des PNJ qui DOIVENT parler dans ce panel — utilise leur label exact comme "speaker".
-- Si "subjectFocus" est "duo" : alterne deux speakers différents.
-- Si "subjectFocus" est "group" ou "npc" : privilégie un PNJ comme speaker.
+- Privilégie les noms de "allowedSpeakers" quand ils collent à la scène.
+- FAIS VIVRE LA SCÈNE — c'est un manga, pas un monologue : si le "beatContext"
+  implique des FIGURANTS (gardes, soldats, un enfant, une foule, un vieillard,
+  une vieille femme, un monstre/démon…), TU DOIS les faire parler/réagir en
+  utilisant un nom de locuteur court et explicite (ex. "Garde", "Enfant",
+  "Vieille femme", "Démon", "Villageois"). Ne laisse pas le héros porter seul
+  toute la scène.
+- Exemples d'interactions à créer si le beat les implique : un garde qui raille
+  ou menace l'enfant, l'enfant qui supplie/pleure, un démon qui rugit (SFX/voix
+  gutturale), une vieille femme qui ricane.
+- HÉROS SEUL → MONOLOGUE INTÉRIEUR : si un panel n'a qu'un seul personnage
+  (subjectFocus="speaker" et aucun figurant pertinent), écris une PENSÉE
+  intérieure courte (peur, rage, doute) plutôt que rien. Speaker = le héros.
+- ÉQUILIBRE : ne mets PAS toutes les répliques sur le héros. Héros 2, PNJ et
+  figurants doivent porter une vraie part des échanges.
+- Si "availableSpeakerLabels" est non vide, ces PNJ DOIVENT parler dans ce panel.
+- "subjectFocus"="duo" : alterne deux speakers DIFFÉRENTS (jamais deux fois le
+  même nom). "group"/"npc" : privilégie un PNJ/figurant comme speaker.
 
 RÈGLES DE STYLE :
 - Une ligne par panelId demandé ; pas de répétition entre lignes.
@@ -327,11 +340,11 @@ Réponds uniquement avec JSON : {"lines":[{"panelId","speaker","text"}]}`,
           ?? null;
 
         if (!resolvedSpeakerId) {
-          const msg = `scene_dialogue_speaker_unresolved panel=${line.panelId} speaker=${line.speaker}`;
-          warnings.push(msg);
-          if (input.rejectUnresolvedSpeakers) {
-            blockingErrors.push(`DIALOGUE_SPEAKER_UNKNOWN:${msg}`);
-          }
+          // NON-BLOQUANT — on AUTORISE désormais les figurants (garde, enfant,
+          // démon…) que le LLM invente depuis le beat. S'ils ne se mappent à
+          // aucun personnage/NPC connu ET qu'aucune ancre n'est dispo, on ignore
+          // juste la ligne (warning) au lieu de faire planter tout le chapitre.
+          warnings.push(`scene_dialogue_speaker_unresolved panel=${line.panelId} speaker=${line.speaker}`);
           continue;
         }
 
