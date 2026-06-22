@@ -66,6 +66,23 @@ const BASELINE_NEGATIVE = [
 ].join(", ");
 
 /**
+ * Retire d'un clause de style projet les tokens de réalisme / 3D qui
+ * combattraient l'ancre manga. Si le style projet ne contient QUE du réalisme,
+ * on renvoie "" (l'ancre manga en tête suffit). Générique, insensible à la casse.
+ */
+const REALISM_STYLE_TOKENS =
+  /\b(photo-?realistic|photo-?réaliste|photoréalisme|realistic|réaliste|réalisme|hyper-?realistic|3d|3-?d|cgi|render|rendu|octane|unreal\s*engine|live[\s-]?action|photograph(?:y|ie)?|photo|cinematic\s*photo)\b/gi;
+
+function sanitizeStyleClause(style: string): string {
+  const cleaned = (style ?? "")
+    .replace(REALISM_STYLE_TOKENS, " ")
+    .replace(/[,;]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned;
+}
+
+/**
  * Ancrage genre FORT. Un simple token "male"/"female" se fait écraser par les
  * styles intrinsèquement genrés (shōjo, aquarelle douce → féminin par défaut).
  * On renvoie une emphase positive + des négatifs genrés ciblés que les modèles
@@ -149,7 +166,11 @@ export function buildCharacterSheetPrompt(
   parts.push("neutral front-facing pose");
   parts.push("flat white background");
   parts.push("full body visible");
-  parts.push(input.style.trim());
+  // Le style projet est ajouté EN FIN, mais on en retire les tokens de réalisme/3D
+  // qui combattraient l'ancre manga en tête (un projet mal configuré sur "réaliste"
+  // ne doit plus sortir un personnage 3D photoréaliste). Générique.
+  const safeStyle = sanitizeStyleClause(input.style);
+  if (safeStyle) parts.push(safeStyle);
 
   const positive = parts.join(", ") + ".";
   const negative = [BASELINE_NEGATIVE, ...anchors.negative].join(", ");
