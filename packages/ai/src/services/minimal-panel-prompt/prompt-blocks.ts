@@ -346,6 +346,33 @@ const CHARACTER_FIRST_RENDER_MODES: ReadonlySet<PanelRenderSpec["renderMode"]> =
   "enemy_closeup",
 ]);
 
+/**
+ * Modes de rendu intrinsèquement ACTION (manga dynamique, pas portrait statique).
+ */
+const ACTION_RENDER_MODES: ReadonlySet<PanelRenderSpec["renderMode"]> = new Set([
+  "combat_exchange",
+  "combat_aftermath",
+  "group_tension",
+  "enemy_reveal",
+  "threat_silhouette",
+  "creature_reveal",
+]);
+
+/**
+ * Mots-clés d'action (FR+EN). Même un beat en mode "dialogue" peut décrire une
+ * action (rage, sort, énergie, coup…) — on le rend alors dynamique au lieu d'un
+ * plan statique "tête qui parle".
+ */
+const ACTION_KEYWORDS =
+  /\b(combat|fight|battle|attaqu|assaut|frapp|coup|strike|punch|kick|esquiv|dodge|magie|magique|sort|spell|énergie|energy|blast|pulsation|explos|impact|charge|run|court|fuit|fuis|saute|jump|slash|tranch|lame|épée|sword|rage|fureur|colère|projet|jaillit|bondit|s'élance|riposte|parade|onde|déflagration)\b/i;
+
+/** Contexte d'action : mode d'action OU action décrite dans le texte du beat. */
+function isActionContext(spec: PanelRenderSpec): boolean {
+  if (ACTION_RENDER_MODES.has(spec.renderMode)) return true;
+  const text = `${spec.actionLine ?? ""} ${spec.emotionLine ?? ""} ${spec.dialogueIntent ?? ""}`;
+  return ACTION_KEYWORDS.test(text);
+}
+
 /** Heuristique : est-ce un terme de décor / lieu plutôt qu'un personnage / objet plot ? */
 function looksLikeLocationCue(value: string): boolean {
   const lower = value.toLowerCase();
@@ -382,7 +409,17 @@ export function buildPromptActionBlock(spec: PanelRenderSpec): string {
     }
   }
 
+  const actionContext = isActionContext(spec);
   const parts = [`ACTION: ${action}.`];
+  if (actionContext) {
+    // EFFET MANGA : sur un beat d'action on force une vraie mise en mouvement —
+    // corps entier, raccourci dynamique, composition diagonale, lignes de
+    // vitesse et sens de l'impact — au lieu d'un plan "tête qui parle" statique.
+    parts.push(
+      "Dynamic action: full-body motion with dynamic foreshortening and diagonal composition, "
+        + "exaggerated manga action pose, sense of speed, momentum and impact, manga motion lines / speed lines.",
+    );
+  }
   if (mustShowPrimary.length > 0) {
     parts.push(`Mandatory visible elements: ${mustShowPrimary.join("; ")}.`);
   }
@@ -401,8 +438,12 @@ export function buildPromptActionBlock(spec: PanelRenderSpec): string {
     // suppression de la négation "no speech bubbles..." du positif. Les
     // bulles / texte sont déjà bannis dans le negative prompt
     // (`speech bubble`, `text in image`, `caption`, `subtitles`…).
+    // Sur un beat d'action, on NE rajoute PAS le suppresseur statique
+    // "convey through ... mouth movement only" qui tuait tout mouvement.
     parts.push(
-      `Dialogue acting: ${dialogueIntent}. Convey through gaze, posture, spacing, and mouth movement only.`,
+      actionContext
+        ? `Acting intent: ${dialogueIntent}, expressed through the action itself.`
+        : `Dialogue acting: ${dialogueIntent}. Convey through gaze, posture, spacing, and mouth movement only.`,
     );
   }
   if (emotion) {
@@ -465,6 +506,11 @@ export function buildPromptStyleBlock(spec: PanelRenderSpec): string {
     `linework ${s.lineWeightHint}`,
     `screentones ${s.screentoneIntensity}`,
     `panel border ${s.panelBorderStyle}`,
+    // Sur un beat d'action : style de planche d'action shōnen (lignes de vitesse,
+    // angle dynamique) pour renforcer l'effet manga.
+    isActionContext(spec)
+      ? "dynamic shōnen action panel, bold ink speed lines, action lines, dynamic camera angle, high energy"
+      : "",
     tones ? `tone keywords: ${tones}` : "",
   ]
     .filter(Boolean)
