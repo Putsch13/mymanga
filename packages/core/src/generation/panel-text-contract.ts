@@ -21,6 +21,8 @@
  *   - Aucune bulle vide ne doit être rendue
  */
 
+import { sanitizeReaderText } from "./reader-text-sanitizer";
+
 export type SfxKind = "impact" | "ambient" | "motion" | "emotion";
 
 export type PanelTextOverflowStrategy =
@@ -318,19 +320,33 @@ export function buildPanelTextContractFromFragments(input: {
   const structuredBundle = normalizeDialogueFragmentRows(input.panelTextBundle?.dialogues ?? null);
   const structured = structuredPrimary.length > 0 ? structuredPrimary : structuredBundle;
   if (structured.length > 0) {
-    const dialogues: PanelDialogueEntry[] = structured.map((d) => ({
-      speakerId: d.characterId ?? undefined,
-      speakerName: (d.speakerLabel?.trim() || d.characterId || "Speaker").toString(),
-      text: d.line.trim(),
-    }));
+    // Sanitize chaque réplique : on retire l'échafaudage interne et on jette les
+    // entrées qui n'étaient QUE de l'échafaudage (texte vide après nettoyage).
+    const dialogues: PanelDialogueEntry[] = structured
+      .map((d) => ({
+        speakerId: d.characterId ?? undefined,
+        speakerName: (d.speakerLabel?.trim() || d.characterId || "Speaker").toString(),
+        text: sanitizeReaderText(d.line) ?? "",
+      }))
+      .filter((d) => d.text.length > 0);
     const narrationParts = [
       ...(typeof input.narration === "string" && input.narration.trim() ? [input.narration.trim()] : []),
       ...((input.narrationLines ?? []).map((t) => String(t).trim()).filter(Boolean)),
       ...(typeof input.panelTextBundle?.narration === "string" && input.panelTextBundle.narration.trim()
         ? [input.panelTextBundle.narration.trim()]
         : []),
-    ];
+    ]
+      .map((t) => sanitizeReaderText(t))
+      .filter((t): t is string => Boolean(t));
     const narrationJoined = narrationParts.length > 0 ? narrationParts.join("\n") : null;
+    if (dialogues.length === 0) {
+      // Toutes les répliques étaient du scaffolding → bascule en narration pure.
+      const sfxOnly: PanelSfxEntry[] = [...(input.sfx ?? []), ...(input.panelTextBundle?.sfx ?? [])]
+        .map((t) => String(t).trim())
+        .filter(Boolean)
+        .map((text) => ({ text, kind: "ambient" as SfxKind }));
+      return createDialogueTextContract(pid, [], { narration: narrationJoined, sfx: sfxOnly });
+    }
     const sfxRaw = [...(input.sfx ?? []), ...(input.panelTextBundle?.sfx ?? [])];
     const sfx: PanelSfxEntry[] = sfxRaw
       .map((t) => String(t).trim())
@@ -344,7 +360,10 @@ export function buildPanelTextContractFromFragments(input: {
     ...(typeof input.panelTextBundle?.narration === "string" && input.panelTextBundle.narration.trim()
       ? [input.panelTextBundle.narration.trim()]
       : []),
-  ].join("\n") || null;
+  ]
+    .map((t) => sanitizeReaderText(t))
+    .filter((t): t is string => Boolean(t))
+    .join("\n") || null;
 
   const mergedSfx: PanelSfxEntry[] = [...(input.sfx ?? []), ...(input.panelTextBundle?.sfx ?? [])]
     .map((t) => String(t).trim())
@@ -354,11 +373,12 @@ export function buildPanelTextContractFromFragments(input: {
   const rawLines: string[] = [];
   if (Array.isArray(input.dialogue)) {
     for (const line of input.dialogue) {
-      const t = String(line).trim();
+      const t = sanitizeReaderText(line);
       if (t) rawLines.push(t);
     }
   } else if (typeof input.dialogue === "string" && input.dialogue.trim()) {
-    rawLines.push(input.dialogue.trim());
+    const t = sanitizeReaderText(input.dialogue);
+    if (t) rawLines.push(t);
   }
 
   if (rawLines.length === 0) {

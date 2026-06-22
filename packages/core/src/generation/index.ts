@@ -7,4 +7,5 @@ export * from "./panel-text-contract";
 export * from "./blueprint-panel-text-contract";
 export * from "./storyboard-panel-text-contract";
 export * from "./reader-panel-metadata-text";
+export * from "./reader-text-sanitizer";
 export * from "./build-chapter-generation-contract";
