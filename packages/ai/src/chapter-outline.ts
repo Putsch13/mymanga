@@ -131,7 +131,9 @@ export async function generateChapterOutline(
   const genreConfig = getGenreDirectorConfig(genreMode);
   const genreHints = buildGenreDirectorPromptHints(genreConfig);
 
-  const model = process.env.OPENAI_OUTLINE_MODEL?.trim() || "gpt-4o-mini";
+  // L'outline = la colonne vertébrale du récit (les beats de TON histoire).
+  // gpt-4o par défaut pour la fidélité ; un seul appel/chapitre, coût négligeable.
+  const model = process.env.OPENAI_OUTLINE_MODEL?.trim() || "gpt-4o";
   const system = buildOutlineSystemPrompt({ ctx, genreMode, genreHints });
   const userPayload = buildOutlineUserPayload({ ctx, genreMode });
 

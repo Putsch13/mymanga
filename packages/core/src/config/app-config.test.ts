@@ -19,7 +19,7 @@ describe("app-config singleton", () => {
     delete process.env.OPENAI_DIALOGUE_MODEL;
     delete process.env.STORAGE_BUCKET;
     const cfg = getAppConfig();
-    expect(cfg.OPENAI_NARRATIVE_MODEL).toBe("gpt-4o-mini");
+    expect(cfg.OPENAI_NARRATIVE_MODEL).toBe("gpt-4o");
     expect(cfg.OPENAI_DIALOGUE_MODEL).toBe("gpt-4o-mini");
     expect(cfg.STORAGE_BUCKET).toBe("MyManga");
   });

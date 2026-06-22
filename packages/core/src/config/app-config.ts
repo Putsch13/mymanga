@@ -41,12 +41,15 @@ const envSchema = z.object({
   PIPELINE_V3_RENDER_FAL: z.string().optional(),
   // ── OpenAI ───────────────────────────────────────────────────────────
   OPENAI_API_KEY: z.string().min(1).optional(),
-  OPENAI_NARRATIVE_MODEL: z.string().default("gpt-4o-mini"),
+  // Modèles STRUCTURANTS du récit (peu d'appels/chapitre) → gpt-4o par défaut
+  // pour un récit fidèle et riche. Les dialogues (≈10 appels parallèles) restent
+  // sur mini pour ne pas saturer le TPM. Surchargeable par env si besoin.
+  OPENAI_NARRATIVE_MODEL: z.string().default("gpt-4o"),
   OPENAI_DIALOGUE_MODEL: z.string().default("gpt-4o-mini"),
   OPENAI_AUTOFILL_MODEL: z.string().optional(),
   OPENAI_MANGA_EDITOR_MODEL: z.string().default("gpt-4o-mini"),
   OPENAI_CONTINUITY_MODEL: z.string().optional(),
-  STORY_ARCHITECT_MODEL: z.string().default("gpt-4o-mini"),
+  STORY_ARCHITECT_MODEL: z.string().default("gpt-4o"),
   // ── Image providers (fallbacks gérés ailleurs) ───────────────────────
   FAL_KEY: z.string().min(1).optional(),
   FAL_API_KEY: z.string().min(1).optional(),
