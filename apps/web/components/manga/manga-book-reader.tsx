@@ -55,7 +55,10 @@ export function MangaBookReader({
   // SPRINT 4 — lightbox panel zoom : la valeur est l'URL (proxifiée) à
   // afficher en pleine page. Le `caption` permet de sous-titrer (ex. dialogue).
   const [lightbox, setLightbox] = useState<{ url: string; caption?: string | null } | null>(null);
-  const [detectedFormat, setDetectedFormat] = useState<"manga" | "webtoon">("manga");
+  // Webtoon (vertical) = rendu par défaut : plus robuste que la grille manga
+  // (qui casse la mise en page / déborde le texte). Le toggle reste dispo et le
+  // choix utilisateur est persisté en localStorage par projet.
+  const [detectedFormat, setDetectedFormat] = useState<"manga" | "webtoon">("webtoon");
 
   const chapterNav = useChapterNav(projectId, chapterId);
   const { playingTtsId, playDialogue } = useReaderTts();
@@ -79,7 +82,9 @@ export function MangaBookReader({
     }
   }, []);
   const handleProjectFormatDetected = useCallback((format: "manga" | "webtoon") => {
-    setDetectedFormat(format);
+    // On ne rétrograde jamais automatiquement vers "manga" : le webtoon reste le
+    // défaut. La détection ne fait que confirmer un format webtoon explicite.
+    if (format === "webtoon") setDetectedFormat("webtoon");
   }, []);
 
   const {
