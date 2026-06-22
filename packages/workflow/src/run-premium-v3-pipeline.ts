@@ -1611,26 +1611,45 @@ export async function runPremiumV3Pipeline(
       // affichable dans le reader. On ne marque le pipeline FAILED que si une
       // image n'a pas été persistée du tout (failedCount > 0 ou trous dans le
       // total). Les images en review tomberont dans un workflow QA séparé.
+      const totalPanels = renderPassResult.summary.totalPanels;
       const persistedImagesCount = renderedCount + visualQaFailedCount + manualReviewRequiredCount;
-      const allImagesPersisted = persistedImagesCount === renderPassResult.summary.totalPanels;
+      const allImagesPersisted = persistedImagesCount === totalPanels;
 
-      // QUALITÉ ACCEPTABLE dès que TOUTES les cases ont une image persistée,
-      // même si la vision QA en a flaggé certaines "à revoir". Bloquer tout le
-      // chapitre (0 manga livré) parce que des cases scorent 0.6-0.7 au lieu de
-      // 0.8 est disproportionné : l'auteur voit son chapitre complet, les cases
-      // faibles se régénèrent à l'unité ensuite.
+      // LIVRAISON TOLÉRANTE : on livre le chapitre dès que la grande majorité
+      // des cases ont une image. Jeter 71 bonnes images parce qu'1-2 cases ont
+      // été skippées au preflight (contradictory_prompt) ou ont échoué le render
+      // prive l'auteur de TOUT son chapitre — disproportionné. Les quelques
+      // trous se régénèrent à l'unité ensuite. Générique : un ratio, pas un
+      // nombre magique lié à une histoire.
+      const missingImages = Math.max(0, totalPanels - persistedImagesCount);
+      const persistedRatio = totalPanels > 0 ? persistedImagesCount / totalPanels : 0;
+      const maxTolerableMissing = Math.max(3, Math.ceil(totalPanels * 0.1));
+      const deliverableImages =
+        totalPanels > 0
+        && persistedRatio >= 0.85
+        && missingImages <= maxTolerableMissing;
+
+      // QUALITÉ ACCEPTABLE dès que la quasi-totalité des cases ont une image
+      // persistée, même si la vision QA en a flaggé certaines "à revoir".
+      // Bloquer tout le chapitre parce que des cases scorent 0.6-0.7 au lieu de
+      // 0.8 est disproportionné : l'auteur voit son chapitre, les cases faibles
+      // se régénèrent à l'unité ensuite.
       const qualityAcceptable =
         renderPassResult.summary.v3RenderQualityStatus === "passed"
         || deferredReviewFromConfig
-        || allImagesPersisted;
+        || allImagesPersisted
+        || deliverableImages;
+
+      if (!allImagesPersisted && deliverableImages) {
+        console.warn(
+          `[pipeline:v3:render] deliver_with_gaps chapterId=${input.chapterId} persisted=${persistedImagesCount}/${totalPanels} missing=${missingImages} skipped=${skippedCount} — chapitre livré, ${missingImages} case(s) à régénérer`,
+        );
+      }
 
       v3RenderSucceeded =
-        renderPassResult.summary.failedCount === 0 &&
+        totalPanels > 0 &&
         qualityAcceptable &&
-        renderPassResult.specs.length === renderPassResult.summary.totalPanels &&
-        renderPassResult.summary.totalPanels > 0 &&
-        allImagesPersisted &&
-        skippedCount === 0;
+        (allImagesPersisted || deliverableImages);
       if (!v3RenderSucceeded) {
         // FIXME(logger): migrate to logPipeline*
         console.warn(
