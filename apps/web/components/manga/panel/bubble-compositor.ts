@@ -325,9 +325,12 @@ export function composePanelTextLayer(input: BubbleCompositorInput): PanelTextLa
     const sfxId = `${panelId}:sfx:0`;
     const override = overrides?.get(sfxId);
     const hasDialogue = bubbles.length > 0;
+    // Les visages sont quasi toujours en haut-centre de la case → on place le SFX
+    // en BAS (coin) pour ne pas l'écraser. sfx_bold = bandeau bas-gauche,
+    // sfx_subtle = petit coin bas-droite.
     const defaultBounds: BubbleBounds = hasDialogue
-      ? { x: 60, y: 80, width: 35, height: 15 }
-      : { x: 20, y: 40, width: 60, height: 20 };
+      ? { x: 62, y: 82, width: 34, height: 14 }
+      : { x: 6, y: 70, width: 58, height: 20 };
     sfxLayers.push({
       bubbleId: sfxId,
       kind: "sfx",
