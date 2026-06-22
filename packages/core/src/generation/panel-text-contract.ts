@@ -23,6 +23,19 @@
 
 import { sanitizeReaderText } from "./reader-text-sanitizer";
 
+/** Dédoublonne des fragments texte (insensible casse/espaces), ordre préservé. */
+function dedupeTextFragments(parts: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const p of parts) {
+    const key = p.trim().toLowerCase().replace(/\s+/g, " ");
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(p);
+  }
+  return out;
+}
+
 export type SfxKind = "impact" | "ambient" | "motion" | "emotion";
 
 export type PanelTextOverflowStrategy =
@@ -338,37 +351,35 @@ export function buildPanelTextContractFromFragments(input: {
     ]
       .map((t) => sanitizeReaderText(t))
       .filter((t): t is string => Boolean(t));
-    const narrationJoined = narrationParts.length > 0 ? narrationParts.join("\n") : null;
+    const narrationDeduped = dedupeTextFragments(narrationParts);
+    const narrationJoined = narrationDeduped.length > 0 ? narrationDeduped.join("\n") : null;
     if (dialogues.length === 0) {
       // Toutes les répliques étaient du scaffolding → bascule en narration pure.
-      const sfxOnly: PanelSfxEntry[] = [...(input.sfx ?? []), ...(input.panelTextBundle?.sfx ?? [])]
-        .map((t) => String(t).trim())
-        .filter(Boolean)
-        .map((text) => ({ text, kind: "ambient" as SfxKind }));
+      const sfxOnly: PanelSfxEntry[] = dedupeTextFragments(
+        [...(input.sfx ?? []), ...(input.panelTextBundle?.sfx ?? [])].map((t) => String(t).trim()).filter(Boolean),
+      ).map((text) => ({ text, kind: "ambient" as SfxKind }));
       return createDialogueTextContract(pid, [], { narration: narrationJoined, sfx: sfxOnly });
     }
-    const sfxRaw = [...(input.sfx ?? []), ...(input.panelTextBundle?.sfx ?? [])];
-    const sfx: PanelSfxEntry[] = sfxRaw
-      .map((t) => String(t).trim())
-      .filter(Boolean)
-      .map((text) => ({ text, kind: "ambient" as SfxKind }));
+    const sfx: PanelSfxEntry[] = dedupeTextFragments(
+      [...(input.sfx ?? []), ...(input.panelTextBundle?.sfx ?? [])].map((t) => String(t).trim()).filter(Boolean),
+    ).map((text) => ({ text, kind: "ambient" as SfxKind }));
     return createDialogueTextContract(pid, dialogues, { narration: narrationJoined, sfx });
   }
-  const narrationJoined = [
-    ...(typeof input.narration === "string" && input.narration.trim() ? [input.narration.trim()] : []),
-    ...((input.narrationLines ?? []).map((t) => String(t).trim()).filter(Boolean)),
-    ...(typeof input.panelTextBundle?.narration === "string" && input.panelTextBundle.narration.trim()
-      ? [input.panelTextBundle.narration.trim()]
-      : []),
-  ]
-    .map((t) => sanitizeReaderText(t))
-    .filter((t): t is string => Boolean(t))
-    .join("\n") || null;
+  const narrationJoined = dedupeTextFragments(
+    [
+      ...(typeof input.narration === "string" && input.narration.trim() ? [input.narration.trim()] : []),
+      ...((input.narrationLines ?? []).map((t) => String(t).trim()).filter(Boolean)),
+      ...(typeof input.panelTextBundle?.narration === "string" && input.panelTextBundle.narration.trim()
+        ? [input.panelTextBundle.narration.trim()]
+        : []),
+    ]
+      .map((t) => sanitizeReaderText(t))
+      .filter((t): t is string => Boolean(t)),
+  ).join("\n") || null;
 
-  const mergedSfx: PanelSfxEntry[] = [...(input.sfx ?? []), ...(input.panelTextBundle?.sfx ?? [])]
-    .map((t) => String(t).trim())
-    .filter(Boolean)
-    .map((text) => ({ text, kind: "ambient" as SfxKind }));
+  const mergedSfx: PanelSfxEntry[] = dedupeTextFragments(
+    [...(input.sfx ?? []), ...(input.panelTextBundle?.sfx ?? [])].map((t) => String(t).trim()).filter(Boolean),
+  ).map((text) => ({ text, kind: "ambient" as SfxKind }));
 
   const rawLines: string[] = [];
   if (Array.isArray(input.dialogue)) {
